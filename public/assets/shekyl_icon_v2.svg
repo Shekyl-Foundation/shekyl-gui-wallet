@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="60%">
+      <stop offset="0%"   stop-color="#5B1FA2"/>
+      <stop offset="100%" stop-color="#2D0A5C"/>
+    </radialGradient>
+    <radialGradient id="glint" cx="35%" cy="25%" r="65%">
+      <stop offset="0%"   stop-color="#EDB84A" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#EDB84A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Coin body -->
+  <circle cx="200" cy="200" r="196" fill="url(#bg)"/>
+  <circle cx="200" cy="200" r="196" fill="url(#glint)"/>
+  <!-- Rim -->
+  <circle cx="200" cy="200" r="189" fill="none"
+          stroke="#C8901C" stroke-width="3" opacity="0.80"/>
+  <circle cx="200" cy="200" r="181" fill="none"
+          stroke="#EDB84A" stroke-width="0.8" opacity="0.35"/>
+  <!-- Stem -->
+  <line x1="200" y1="143" x2="200" y2="322"
+        stroke="#C8901C" stroke-width="6.5" stroke-linecap="round"/>
+  <!-- Terminal grain -->
+  <polygon points="200,95  215,120  200,145  185,120" fill="#EDB84A"/>
+  <line x1="200" y1="95" x2="200" y2="72"
+        stroke="#EDB84A" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Right grains -->
+  <polygon points="200,144 200,163 255,153" fill="#C8901C"/>
+  <polygon points="200,191 200,210 249,200" fill="#C8901C"/>
+  <polygon points="200,236 200,255 241,245" fill="#C8901C"/>
+  <polygon points="200,278 200,295 230,286" fill="#C8901C"/>
+  <polygon points="200,310 200,324 218,316" fill="#C8901C"/>
+  <!-- Left grains -->
+  <polygon points="200,167 200,186 148,176" fill="#C8901C"/>
+  <polygon points="200,213 200,232 155,222" fill="#C8901C"/>
+  <polygon points="200,256 200,275 164,265" fill="#C8901C"/>
+  <polygon points="200,295 200,312 176,303" fill="#C8901C"/>
+  <!-- Highlights -->
+  <polygon points="200,144 200,152 255,153" fill="#EDB84A" opacity="0.35"/>
+  <polygon points="200,191 200,199 249,200" fill="#EDB84A" opacity="0.28"/>
+  <polygon points="200,236 200,244 241,245" fill="#EDB84A" opacity="0.22"/>
+  <polygon points="200,167 200,175 148,176" fill="#EDB84A" opacity="0.32"/>
+  <polygon points="200,213 200,221 155,222" fill="#EDB84A" opacity="0.25"/>
+  <polygon points="200,256 200,264 164,265" fill="#EDB84A" opacity="0.20"/>
+</svg>

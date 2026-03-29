@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 60 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Stem -->
+  <line x1="30" y1="24" x2="30" y2="93" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <!-- Terminal grain -->
+  <polygon points="30,4 37,14 30,24 23,14" fill="#FFFFFF"/>
+  <line x1="30" y1="4" x2="30" y2="0" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+  <!-- Right grains -->
+  <polygon points="30,24 30,35 52,29" fill="#FFFFFF"/>
+  <polygon points="30,43 30,54 50,48" fill="#FFFFFF"/>
+  <polygon points="30,61 30,71 46,66" fill="#FFFFFF"/>
+  <polygon points="30,77 30,86 42,81" fill="#FFFFFF"/>
+  <!-- Left grains -->
+  <polygon points="30,34 30,45 8,39" fill="#FFFFFF"/>
+  <polygon points="30,53 30,63 10,58" fill="#FFFFFF"/>
+  <polygon points="30,70 30,79 14,74" fill="#FFFFFF"/>
+  <polygon points="30,85 30,93 20,89" fill="#FFFFFF"/>
+</svg>
