@@ -62,11 +62,51 @@ npm install
 npm run tauri dev
 
 # Type-check the frontend
-npx tsc -b --noEmit
+npm run typecheck
 
 # Lint
 npm run lint
 ```
+
+## Testing
+
+### Frontend (Vitest + React Testing Library)
+
+```bash
+npm test                # Single run
+npm run test:watch      # Watch mode
+npm run test:coverage   # With V8 coverage report
+```
+
+Tests live alongside the code in `__tests__/` directories. Tauri IPC calls
+are mocked via `@tauri-apps/api/mocks` so tests run without a Rust backend.
+
+### Rust backend (cargo test)
+
+```bash
+cd src-tauri
+cargo test
+```
+
+### Linting
+
+```bash
+npm run lint                              # ESLint
+npm run typecheck                         # TypeScript
+cd src-tauri && cargo fmt --check         # Rustfmt
+cd src-tauri && cargo clippy -- -D warnings  # Clippy
+```
+
+## CI/CD
+
+The project uses GitHub Actions with two workflows:
+
+- **CI** (`.github/workflows/ci.yml`) -- runs on every push/PR to `main`:
+  ESLint, TypeScript type-check, Vitest, Rustfmt, Clippy, and cargo test.
+- **Release** (`.github/workflows/release.yml`) -- runs on push to the
+  `release` branch: builds platform-specific binaries (Linux, Windows,
+  macOS ARM64 + Intel) via `tauri-action` and creates a draft GitHub release
+  with all artifacts attached.
 
 ## Build
 
@@ -87,18 +127,24 @@ Build artifacts are placed in `src-tauri/target/release/bundle/`:
 
 ```
 shekyl-gui-wallet/
+  .github/workflows/     # CI and release pipelines
   src/                    # React frontend
     components/           # Sidebar, Header, BalanceCard, NetworkBadge
+      __tests__/          # Component unit tests
     pages/                # Dashboard, Send, Receive, Staking, Transactions, Settings
+      __tests__/          # Page unit tests
+    test/setup.ts         # Vitest global setup (RTL matchers, Tauri IPC mock)
     styles/globals.css    # Tailwind CSS with Shekyl color palette
   src-tauri/              # Rust backend
     src/
       lib.rs              # Tauri app builder and command registration
-      commands.rs         # Wallet command stubs (Phase 2: real FFI)
+      commands.rs         # Wallet command stubs + unit tests (Phase 2: real FFI)
       main.rs             # Entry point
     tauri.conf.json       # App metadata, window config, bundle settings
     capabilities/         # Tauri 2 permission system
+    rustfmt.toml          # Rust formatting rules
   public/assets/          # Branding SVGs
+  vitest.config.ts        # Vitest configuration
 ```
 
 ## License

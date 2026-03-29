@@ -36,7 +36,7 @@ use serde::Serialize;
 
 // ─── Data types ──────────────────────────────────────────────────────────────
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct WalletStatus {
     pub connected: bool,
     pub wallet_open: bool,
@@ -48,7 +48,7 @@ pub struct WalletStatus {
     pub daemon_height: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct WalletInfo {
     pub name: String,
     pub address: String,
@@ -56,14 +56,14 @@ pub struct WalletInfo {
     pub network: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct Balance {
     pub total: u64,
     pub unlocked: u64,
     pub staked: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct TxInfo {
     pub hash: String,
     pub amount: u64,
@@ -74,7 +74,7 @@ pub struct TxInfo {
     pub confirmed: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct StakingInfo {
     pub active: bool,
     pub tier: Option<u8>,
@@ -143,18 +143,12 @@ pub async fn get_address(account: u32, index: u32) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn transfer(
-    _address: String,
-    _amount: u64,
-) -> Result<TxInfo, String> {
+pub async fn transfer(_address: String, _amount: u64) -> Result<TxInfo, String> {
     Err("Wallet not connected — stub implementation".into())
 }
 
 #[tauri::command]
-pub async fn get_transactions(
-    _offset: u32,
-    _limit: u32,
-) -> Result<Vec<TxInfo>, String> {
+pub async fn get_transactions(_offset: u32, _limit: u32) -> Result<Vec<TxInfo>, String> {
     Ok(vec![])
 }
 
@@ -173,4 +167,88 @@ pub async fn get_staking_info() -> Result<StakingInfo, String> {
 #[tauri::command]
 pub async fn stake(_tier: u8, _amount: u64) -> Result<TxInfo, String> {
     Err("Wallet not connected — stub implementation".into())
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn wallet_status_defaults_to_disconnected() {
+        let status = get_wallet_status().await.unwrap();
+        assert!(!status.connected);
+        assert!(!status.wallet_open);
+        assert!(status.wallet_name.is_none());
+        assert!(status.daemon_address.is_none());
+        assert_eq!(status.network, "mainnet");
+        assert!(!status.synced);
+        assert_eq!(status.sync_height, 0);
+        assert_eq!(status.daemon_height, 0);
+    }
+
+    #[tokio::test]
+    async fn create_wallet_returns_provided_name() {
+        let info = create_wallet("Test".into(), "pass".into()).await.unwrap();
+        assert_eq!(info.name, "Test");
+        assert_eq!(info.network, "mainnet");
+        assert_eq!(info.seed_language, "English");
+        assert!(!info.address.is_empty());
+    }
+
+    #[tokio::test]
+    async fn open_wallet_returns_mock_wallet() {
+        let info = open_wallet("/tmp/w".into(), "pass".into()).await.unwrap();
+        assert_eq!(info.name, "Mock Wallet");
+        assert!(!info.address.is_empty());
+    }
+
+    #[tokio::test]
+    async fn close_wallet_returns_true() {
+        assert!(close_wallet().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn balance_defaults_to_zero() {
+        let b = get_balance().await.unwrap();
+        assert_eq!(b.total, 0);
+        assert_eq!(b.unlocked, 0);
+        assert_eq!(b.staked, 0);
+    }
+
+    #[tokio::test]
+    async fn get_address_encodes_account_and_index() {
+        let addr = get_address(1, 2).await.unwrap();
+        assert!(addr.contains("account1"));
+        assert!(addr.contains("subaddr2"));
+    }
+
+    #[tokio::test]
+    async fn transfer_returns_error_when_disconnected() {
+        let err = transfer("SKL1abc".into(), 1_000_000).await.unwrap_err();
+        assert!(err.contains("not connected"));
+    }
+
+    #[tokio::test]
+    async fn get_transactions_returns_empty_vec() {
+        let txs = get_transactions(0, 10).await.unwrap();
+        assert!(txs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn staking_info_defaults_to_inactive() {
+        let info = get_staking_info().await.unwrap();
+        assert!(!info.active);
+        assert!(info.tier.is_none());
+        assert_eq!(info.staked_amount, 0);
+        assert_eq!(info.rewards_pending, 0);
+        assert!((info.stake_ratio - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn stake_returns_error_when_disconnected() {
+        let err = stake(1, 5_000_000).await.unwrap_err();
+        assert!(err.contains("not connected"));
+    }
 }
