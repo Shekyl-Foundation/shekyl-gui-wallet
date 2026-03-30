@@ -68,6 +68,6 @@ jobs:
             See the assets below to download and install Shekyl Wallet for your platform.
 
             Refer to the [installation guide](https://github.com/Shekyl-Foundation/shekyl-gui-wallet/blob/main/docs/INSTALLATION.md) for detailed instructions.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
           args: ${{ matrix.args }}
