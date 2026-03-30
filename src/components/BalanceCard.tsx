@@ -1,15 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-
-interface Balance {
-  total: number;
-  unlocked: number;
-  staked: number;
-}
-
-function atomicToSkl(atomic: number): string {
-  return (atomic / 1e12).toFixed(4);
-}
+import { formatSkl } from "../lib/format";
+import type { Balance } from "../types/daemon";
 
 export default function BalanceCard() {
   const [balance, setBalance] = useState<Balance | null>(null);
@@ -18,9 +10,9 @@ export default function BalanceCard() {
     invoke<Balance>("get_balance").then(setBalance).catch(() => {});
   }, []);
 
-  const total = balance ? atomicToSkl(balance.total) : "—";
-  const unlocked = balance ? atomicToSkl(balance.unlocked) : "—";
-  const staked = balance ? atomicToSkl(balance.staked) : "—";
+  const total = balance ? formatSkl(balance.total) : "—";
+  const unlocked = balance ? formatSkl(balance.unlocked) : "—";
+  const staked = balance ? formatSkl(balance.staked) : "—";
 
   return (
     <div className="card space-y-4">

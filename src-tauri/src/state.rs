@@ -26,31 +26,60 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-mod commands;
-mod daemon_rpc;
-mod state;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .manage(state::AppState::new())
-        .invoke_handler(tauri::generate_handler![
-            commands::get_wallet_status,
-            commands::get_chain_health,
-            commands::get_tier_yields,
-            commands::set_daemon_connection,
-            commands::get_pqc_status,
-            commands::create_wallet,
-            commands::open_wallet,
-            commands::close_wallet,
-            commands::get_balance,
-            commands::get_address,
-            commands::transfer,
-            commands::get_transactions,
-            commands::get_staking_info,
-            commands::stake,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running Shekyl Wallet");
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkType {
+    #[default]
+    Mainnet,
+    Testnet,
+    Stagenet,
+}
+
+impl NetworkType {
+    pub fn default_rpc_port(self) -> u16 {
+        match self {
+            Self::Mainnet => 11029,
+            Self::Testnet => 12029,
+            Self::Stagenet => 13029,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mainnet => "mainnet",
+            Self::Testnet => "testnet",
+            Self::Stagenet => "stagenet",
+        }
+    }
+}
+
+pub struct AppState {
+    pub daemon_url: RwLock<String>,
+    pub network: RwLock<NetworkType>,
+    pub http: Client,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        let net = NetworkType::default();
+        Self {
+            daemon_url: RwLock::new(format!(
+                "http://127.0.0.1:{}/json_rpc",
+                net.default_rpc_port()
+            )),
+            network: RwLock::new(net),
+            http: Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .expect("failed to create HTTP client"),
+        }
+    }
+
+    pub async fn url(&self) -> String {
+        self.daemon_url.read().await.clone()
+    }
 }

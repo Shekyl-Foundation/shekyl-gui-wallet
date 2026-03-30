@@ -20,6 +20,7 @@ describe("Sidebar", () => {
     expect(screen.getByText("Receive")).toBeInTheDocument();
     expect(screen.getByText("Staking")).toBeInTheDocument();
     expect(screen.getByText("Transactions")).toBeInTheDocument();
+    expect(screen.getByText("Chain Health")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 

@@ -6,6 +6,7 @@ import {
   Coins,
   ArrowLeftRight,
   Settings,
+  Activity,
 } from "lucide-react";
 
 const links = [
@@ -14,6 +15,7 @@ const links = [
   { to: "/receive", icon: Download, label: "Receive" },
   { to: "/staking", icon: Coins, label: "Staking" },
   { to: "/transactions", icon: ArrowLeftRight, label: "Transactions" },
+  { to: "/chain-health", icon: Activity, label: "Chain Health" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
