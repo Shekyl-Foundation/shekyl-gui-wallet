@@ -97,22 +97,33 @@ That's it -- no terminal commands required to get started.
 
 ## Your First Launch
 
-When you open the wallet for the first time, you'll see the **Dashboard**. It
-will look mostly empty because you haven't created a wallet yet, and you might
-see a "Disconnected" indicator in the header if the daemon isn't running.
+When you open the wallet for the first time, it does three things automatically:
 
-Don't worry -- this is normal! Let's get everything connected.
+1. **Starts the wallet service** -- the wallet launches `shekyl-wallet-rpc` in
+   the background. This is the process that manages your wallet files and talks
+   to the daemon. You'll briefly see a loading screen with the Shekyl logo.
 
-**If the header shows "Disconnected":**
+2. **Scans for existing wallets** -- the wallet checks your default data
+   directory for `.keys` files:
+   - **Linux**: `~/.shekyl/wallets/`
+   - **macOS**: `~/Library/Application Support/shekyl/wallets/`
+   - **Windows**: `%APPDATA%\shekyl\wallets\`
 
-1. Make sure `shekyld` is running on your computer.
-2. If it's running but the wallet still can't connect, go to
-   **Settings** (bottom of the left sidebar) and check the daemon URL.
-   The default is `http://127.0.0.1:11029/json_rpc` for mainnet.
-3. Click **Save & Reconnect**.
+3. **Routes you to the right screen**:
+   - **No wallet found**: You'll see the **Welcome** screen with two options:
+     "Create New Wallet" or "Import Existing Wallet."
+   - **One wallet found**: You'll see the **Unlock** screen asking for your
+     password.
+   - **Multiple wallets found**: You'll see a wallet picker followed by the
+     Unlock screen.
 
-**If the header shows a green indicator with a block number,** you're connected
-and ready to create a wallet.
+The main Dashboard with sidebar, send, receive, staking, and other features
+only becomes accessible after a wallet is successfully opened.
+
+**If the wallet service fails to start**, you'll see an error message with
+instructions. Make sure `shekyl-wallet-rpc` is installed and accessible on
+your system PATH. During development or custom installations, you can configure
+the binary path in Settings.
 
 ---
 
@@ -134,14 +145,29 @@ The Dashboard is your home screen. Here's what you'll find:
 
 ## Creating a Wallet
 
-1. From the Dashboard, click **Create Wallet** (or go to **Settings > Wallet**).
-2. Choose a **name** for your wallet. This is just a label for you -- it
-   doesn't appear on the blockchain.
-3. Choose a strong **password**. This encrypts your wallet file on your
-   computer. If someone steals your laptop, they can't open the wallet without
-   this password.
-4. The wallet will generate a **25-word mnemonic seed**. This is the most
-   important thing you'll encounter. Read the next section carefully.
+If this is your first time, you'll see the Welcome screen. Click
+**Create New Wallet** to start the setup wizard:
+
+1. **Name and password.** Choose a name (just a label for you -- it doesn't
+   appear on the blockchain) and a strong password. A strength indicator helps
+   you pick something secure. This password encrypts your wallet file. If
+   someone steals your computer, they can't open the wallet without it.
+
+2. **Seed phrase.** The wallet generates a **25-word mnemonic seed** and
+   displays it in a numbered grid. This is the most important thing you'll
+   encounter. Read the next section carefully. You can also copy it to your
+   clipboard, but **write it down on paper immediately**.
+
+3. **Seed confirmation.** To make sure you actually saved your seed, the wallet
+   asks you to enter 4 randomly chosen words (e.g., "Enter word #3, #8, #17,
+   #22"). This prevents accidentally clicking through without saving.
+
+4. **Done.** Your wallet is created and ready to use. You'll see your address
+   and a confirmation that it's protected by hybrid PQC signatures. Click
+   "Open Wallet" to enter the main app.
+
+Your wallet is automatically a **v3 wallet** with full post-quantum key
+material (Ed25519 + ML-DSA-65). No extra steps are needed for PQC protection.
 
 ---
 
@@ -571,7 +597,8 @@ An open wallet on an unlocked computer is an open wallet.
 
 ---
 
-*This guide is for Shekyl Wallet v0.1.x-beta. Some features described here
-(wallet creation, sending, staking transactions) are UI placeholders that will
-become functional when the wallet2 FFI bridge is completed. Mining and chain
-health features work when connected to a running `shekyld` daemon.*
+*This guide is for Shekyl Wallet v0.1.x-beta. Wallet creation, opening, and
+import are functional when `shekyl-wallet-rpc` is installed and accessible.
+Staking transactions require the wallet2 FFI bridge (not yet completed).
+Mining and chain health features work when connected to a running `shekyld`
+daemon.*

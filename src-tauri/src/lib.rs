@@ -26,9 +26,13 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use tauri::Manager;
+
 mod commands;
 mod daemon_rpc;
 mod state;
+mod wallet_process;
+mod wallet_rpc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,17 +40,28 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(state::AppState::new())
         .invoke_handler(tauri::generate_handler![
+            // Daemon / chain
             commands::get_wallet_status,
             commands::get_chain_health,
             commands::get_tier_yields,
             commands::set_daemon_connection,
             commands::get_pqc_status,
+            // Mining
             commands::get_mining_status,
             commands::start_mining_cmd,
             commands::stop_mining_cmd,
+            // Wallet startup
+            commands::check_wallet_files,
+            commands::init_wallet_rpc,
+            commands::shutdown_wallet_rpc,
+            // Wallet lifecycle
             commands::create_wallet,
             commands::open_wallet,
             commands::close_wallet,
+            commands::import_wallet_from_seed,
+            commands::import_wallet_from_keys,
+            commands::get_seed,
+            // Wallet data
             commands::get_balance,
             commands::get_address,
             commands::transfer,
@@ -54,6 +69,20 @@ pub fn run() {
             commands::get_staking_info,
             commands::stake,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let app_state: tauri::State<'_, state::AppState> = window.state();
+                let mut proc = app_state
+                    .wallet_process
+                    .lock()
+                    .unwrap_or_else(|e: std::sync::PoisonError<_>| e.into_inner());
+                if let Some(ref mut child) = *proc {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                *proc = None;
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running Shekyl Wallet");
 }

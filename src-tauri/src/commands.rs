@@ -28,15 +28,16 @@
 
 //! Tauri commands for the Shekyl wallet.
 //!
-//! Commands that read chain/staking data call the daemon via JSON-RPC.
-//! Wallet-side operations (create, open, transfer, stake, claim) remain
-//! stubs until the wallet2 C++ FFI bridge is implemented.
+//! Chain/staking/mining commands call the daemon via JSON-RPC.
+//! Wallet commands call shekyl-wallet-rpc via JSON-RPC.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::daemon_rpc;
 use crate::state::{AppState, NetworkType};
+use crate::wallet_process;
+use crate::wallet_rpc;
 
 const SCALE: f64 = 1_000_000.0;
 const BLOCKS_PER_YEAR: f64 = 262_800.0; // 2-minute blocks
@@ -61,6 +62,22 @@ pub struct WalletInfo {
     pub address: String,
     pub seed_language: String,
     pub network: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateWalletResult {
+    pub name: String,
+    pub address: String,
+    pub seed: String,
+    pub seed_language: String,
+    pub network: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WalletFileInfo {
+    pub name: String,
+    pub path: String,
+    pub modified: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -136,12 +153,14 @@ pub struct PqcStatus {
 pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatus, String> {
     let url = state.url().await;
     let network = state.network.read().await;
+    let wallet_open = *state.wallet_open.read().await;
+    let wallet_name = state.wallet_name.read().await.clone();
 
     match daemon_rpc::get_info(&state.http, &url).await {
         Ok(info) => Ok(WalletStatus {
             connected: true,
-            wallet_open: false,
-            wallet_name: None,
+            wallet_open,
+            wallet_name,
             daemon_address: Some(url),
             network: network.as_str().into(),
             synced: info.synchronized,
@@ -150,8 +169,8 @@ pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatu
         }),
         Err(_) => Ok(WalletStatus {
             connected: false,
-            wallet_open: false,
-            wallet_name: None,
+            wallet_open,
+            wallet_name,
             daemon_address: Some(url),
             network: network.as_str().into(),
             synced: false,
@@ -251,6 +270,13 @@ pub async fn set_daemon_connection(
 
     *state.daemon_url.write().await = new_url;
     *state.network.write().await = net;
+
+    let new_wallet_url = format!(
+        "http://127.0.0.1:{}/json_rpc",
+        net.default_wallet_rpc_port()
+    );
+    *state.wallet_rpc_url.write().await = new_wallet_url;
+
     Ok(true)
 }
 
@@ -317,58 +343,372 @@ pub async fn stop_mining_cmd(state: State<'_, AppState>) -> Result<bool, String>
     Ok(true)
 }
 
-// ─── Wallet stubs (require wallet2 FFI bridge) ──────────────────────────────
+// ─── Wallet startup commands ─────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn create_wallet(name: String, _password: String) -> Result<WalletInfo, String> {
-    Ok(WalletInfo {
-        name,
-        address: "SKL1mock...placeholder".into(),
-        seed_language: "English".into(),
-        network: "mainnet".into(),
-    })
+pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<WalletFileInfo>, String> {
+    let dir = state.wallet_dir.read().await.clone();
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let entries = std::fs::read_dir(&dir)
+        .map_err(|e| format!("Failed to read wallet directory: {e}"))?;
+
+    let mut wallets = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "keys") {
+            let name = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let modified = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_secs());
+
+            wallets.push(WalletFileInfo {
+                name,
+                path: path.to_string_lossy().to_string(),
+                modified,
+            });
+        }
+    }
+
+    wallets.sort_by(|a, b| b.modified.cmp(&a.modified));
+    Ok(wallets)
 }
 
 #[tauri::command]
-pub async fn open_wallet(_path: String, _password: String) -> Result<WalletInfo, String> {
-    Ok(WalletInfo {
-        name: "Mock Wallet".into(),
-        address: "SKL1mock...placeholder".into(),
-        seed_language: "English".into(),
-        network: "mainnet".into(),
-    })
-}
+pub async fn init_wallet_rpc(state: State<'_, AppState>) -> Result<bool, String> {
+    let wallet_url = state.wallet_url().await;
 
-#[tauri::command]
-pub async fn close_wallet() -> Result<bool, String> {
+    // If wallet-rpc is already responding, skip spawn
+    if wallet_process::port_is_occupied(&state.http, &wallet_url).await {
+        return Ok(true);
+    }
+
+    let daemon_url = state.url().await;
+    let wallet_dir = state.wallet_dir.read().await.clone();
+    let network = *state.network.read().await;
+    let rpc_port = network.default_wallet_rpc_port();
+
+    let binary = wallet_process::resolve_binary(None)?;
+    let child = wallet_process::spawn_wallet_rpc(&binary, &wallet_dir, &daemon_url, rpc_port)?;
+
+    {
+        let mut proc = state
+            .wallet_process
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        *proc = Some(child);
+    }
+
+    wallet_process::wait_for_ready(&state.http, &wallet_url).await?;
     Ok(true)
 }
 
 #[tauri::command]
-pub async fn get_balance() -> Result<Balance, String> {
+pub async fn shutdown_wallet_rpc(state: State<'_, AppState>) -> Result<bool, String> {
+    let wallet_url = state.wallet_url().await;
+
+    // Try graceful RPC stop before touching the mutex
+    let _ = wallet_rpc::stop_wallet(&state.http, &wallet_url).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+    {
+        let mut proc = state
+            .wallet_process
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        if let Some(ref mut child) = *proc {
+            match child.try_wait() {
+                Ok(Some(_)) => {}
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+        *proc = None;
+    }
+
+    *state.wallet_open.write().await = false;
+    *state.wallet_name.write().await = None;
+    Ok(true)
+}
+
+// ─── Wallet lifecycle commands ───────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn create_wallet(
+    state: State<'_, AppState>,
+    name: String,
+    password: String,
+    language: Option<String>,
+) -> Result<CreateWalletResult, String> {
+    let wallet_url = state.wallet_url().await;
+    let network = state.network.read().await;
+    let lang = language.unwrap_or_else(|| "English".into());
+
+    wallet_rpc::create_wallet(&state.http, &wallet_url, &name, &password, &lang).await?;
+
+    let addr_resp = wallet_rpc::get_address(&state.http, &wallet_url, 0).await?;
+    let seed = wallet_rpc::query_key(&state.http, &wallet_url, "mnemonic").await?;
+
+    *state.wallet_open.write().await = true;
+    *state.wallet_name.write().await = Some(name.clone());
+
+    Ok(CreateWalletResult {
+        name,
+        address: addr_resp.address,
+        seed,
+        seed_language: lang,
+        network: network.as_str().into(),
+    })
+}
+
+#[tauri::command]
+pub async fn open_wallet(
+    state: State<'_, AppState>,
+    filename: String,
+    password: String,
+) -> Result<WalletInfo, String> {
+    let wallet_url = state.wallet_url().await;
+    let network = state.network.read().await;
+
+    wallet_rpc::open_wallet(&state.http, &wallet_url, &filename, &password).await?;
+
+    let addr_resp = wallet_rpc::get_address(&state.http, &wallet_url, 0).await?;
+
+    *state.wallet_open.write().await = true;
+    *state.wallet_name.write().await = Some(filename.clone());
+
+    Ok(WalletInfo {
+        name: filename,
+        address: addr_resp.address,
+        seed_language: "English".into(),
+        network: network.as_str().into(),
+    })
+}
+
+#[tauri::command]
+pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
+    let wallet_url = state.wallet_url().await;
+    wallet_rpc::close_wallet(&state.http, &wallet_url).await?;
+
+    *state.wallet_open.write().await = false;
+    *state.wallet_name.write().await = None;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn import_wallet_from_seed(
+    state: State<'_, AppState>,
+    name: String,
+    seed: String,
+    password: String,
+    language: Option<String>,
+    restore_height: Option<u64>,
+) -> Result<WalletInfo, String> {
+    let wallet_url = state.wallet_url().await;
+    let network = state.network.read().await;
+    let lang = language.unwrap_or_else(|| "English".into());
+    let height = restore_height.unwrap_or(0);
+
+    let resp = wallet_rpc::restore_deterministic_wallet(
+        &state.http,
+        &wallet_url,
+        &name,
+        &seed,
+        &password,
+        &lang,
+        height,
+        "",
+    )
+    .await?;
+
+    *state.wallet_open.write().await = true;
+    *state.wallet_name.write().await = Some(name.clone());
+
+    Ok(WalletInfo {
+        name,
+        address: resp.address,
+        seed_language: lang,
+        network: network.as_str().into(),
+    })
+}
+
+#[tauri::command]
+pub async fn import_wallet_from_keys(
+    state: State<'_, AppState>,
+    name: String,
+    address: String,
+    spendkey: String,
+    viewkey: String,
+    password: String,
+    language: Option<String>,
+    restore_height: Option<u64>,
+) -> Result<WalletInfo, String> {
+    let wallet_url = state.wallet_url().await;
+    let network = state.network.read().await;
+    let lang = language.unwrap_or_else(|| "English".into());
+    let height = restore_height.unwrap_or(0);
+
+    let resp = wallet_rpc::generate_from_keys(
+        &state.http,
+        &wallet_url,
+        &name,
+        &address,
+        &spendkey,
+        &viewkey,
+        &password,
+        &lang,
+        height,
+    )
+    .await?;
+
+    *state.wallet_open.write().await = true;
+    *state.wallet_name.write().await = Some(name.clone());
+
+    Ok(WalletInfo {
+        name,
+        address: resp.address,
+        seed_language: lang,
+        network: network.as_str().into(),
+    })
+}
+
+#[tauri::command]
+pub async fn get_seed(state: State<'_, AppState>) -> Result<String, String> {
+    let is_open = *state.wallet_open.read().await;
+    if !is_open {
+        return Err("No wallet is open".into());
+    }
+    let wallet_url = state.wallet_url().await;
+    wallet_rpc::query_key(&state.http, &wallet_url, "mnemonic").await
+}
+
+// ─── Wallet data commands ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> {
+    let is_open = *state.wallet_open.read().await;
+    if !is_open {
+        return Ok(Balance {
+            total: 0,
+            unlocked: 0,
+            staked: 0,
+        });
+    }
+
+    let wallet_url = state.wallet_url().await;
+    let resp = wallet_rpc::get_balance(&state.http, &wallet_url, 0).await?;
+
     Ok(Balance {
-        total: 0,
-        unlocked: 0,
+        total: resp.balance,
+        unlocked: resp.unlocked_balance,
         staked: 0,
     })
 }
 
 #[tauri::command]
-pub async fn get_address(account: u32, index: u32) -> Result<String, String> {
-    Ok(format!(
-        "SKL1mock_account{}_subaddr{}...placeholder",
-        account, index
-    ))
+pub async fn get_address(
+    state: State<'_, AppState>,
+    account: u32,
+    _index: u32,
+) -> Result<String, String> {
+    let is_open = *state.wallet_open.read().await;
+    if !is_open {
+        return Err("No wallet is open".into());
+    }
+
+    let wallet_url = state.wallet_url().await;
+    let resp = wallet_rpc::get_address(&state.http, &wallet_url, account).await?;
+    Ok(resp.address)
 }
 
 #[tauri::command]
-pub async fn transfer(_address: String, _amount: u64) -> Result<TxInfo, String> {
-    Err("Not yet implemented — requires wallet2 FFI bridge".into())
+pub async fn transfer(
+    state: State<'_, AppState>,
+    address: String,
+    amount: u64,
+) -> Result<TxInfo, String> {
+    let is_open = *state.wallet_open.read().await;
+    if !is_open {
+        return Err("No wallet is open".into());
+    }
+
+    let wallet_url = state.wallet_url().await;
+    let resp = wallet_rpc::transfer(&state.http, &wallet_url, &address, amount).await?;
+
+    Ok(TxInfo {
+        hash: resp.tx_hash,
+        amount: resp.amount,
+        fee: resp.fee,
+        height: 0,
+        timestamp: 0,
+        direction: "out".into(),
+        confirmed: false,
+    })
 }
 
 #[tauri::command]
-pub async fn get_transactions(_offset: u32, _limit: u32) -> Result<Vec<TxInfo>, String> {
-    Ok(vec![])
+pub async fn get_transactions(
+    state: State<'_, AppState>,
+    _offset: u32,
+    _limit: u32,
+) -> Result<Vec<TxInfo>, String> {
+    let is_open = *state.wallet_open.read().await;
+    if !is_open {
+        return Ok(vec![]);
+    }
+
+    let wallet_url = state.wallet_url().await;
+    let resp =
+        wallet_rpc::get_transfers(&state.http, &wallet_url, true, true, true, false).await?;
+
+    let mut txs: Vec<TxInfo> = Vec::new();
+    for entry in resp.r#in {
+        txs.push(TxInfo {
+            hash: entry.txid,
+            amount: entry.amount,
+            fee: entry.fee,
+            height: entry.height,
+            timestamp: entry.timestamp,
+            direction: "in".into(),
+            confirmed: entry.confirmations > 0,
+        });
+    }
+    for entry in resp.out {
+        txs.push(TxInfo {
+            hash: entry.txid,
+            amount: entry.amount,
+            fee: entry.fee,
+            height: entry.height,
+            timestamp: entry.timestamp,
+            direction: "out".into(),
+            confirmed: entry.confirmations > 0,
+        });
+    }
+    for entry in resp.pending {
+        txs.push(TxInfo {
+            hash: entry.txid,
+            amount: entry.amount,
+            fee: entry.fee,
+            height: 0,
+            timestamp: entry.timestamp,
+            direction: "out".into(),
+            confirmed: false,
+        });
+    }
+
+    txs.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    Ok(txs)
 }
 
 #[tauri::command]
@@ -388,51 +728,13 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn create_wallet_returns_provided_name() {
-        let info = create_wallet("Test".into(), "pass".into()).await.unwrap();
-        assert_eq!(info.name, "Test");
-        assert_eq!(info.network, "mainnet");
-        assert_eq!(info.seed_language, "English");
-        assert!(!info.address.is_empty());
-    }
-
-    #[tokio::test]
-    async fn open_wallet_returns_mock_wallet() {
-        let info = open_wallet("/tmp/w".into(), "pass".into()).await.unwrap();
-        assert_eq!(info.name, "Mock Wallet");
-        assert!(!info.address.is_empty());
-    }
-
-    #[tokio::test]
-    async fn close_wallet_returns_true() {
-        assert!(close_wallet().await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn balance_defaults_to_zero() {
-        let b = get_balance().await.unwrap();
-        assert_eq!(b.total, 0);
-        assert_eq!(b.unlocked, 0);
-        assert_eq!(b.staked, 0);
-    }
-
-    #[tokio::test]
-    async fn get_address_encodes_account_and_index() {
-        let addr = get_address(1, 2).await.unwrap();
-        assert!(addr.contains("account1"));
-        assert!(addr.contains("subaddr2"));
-    }
-
-    #[tokio::test]
-    async fn transfer_returns_error_stub() {
-        let err = transfer("SKL1abc".into(), 1_000_000).await.unwrap_err();
-        assert!(err.contains("wallet2 FFI"));
-    }
-
-    #[tokio::test]
-    async fn get_transactions_returns_empty_vec() {
-        let txs = get_transactions(0, 10).await.unwrap();
-        assert!(txs.is_empty());
+    async fn pqc_status_reports_hybrid() {
+        let status = get_pqc_status().await.unwrap();
+        assert!(status.enabled);
+        assert_eq!(status.scheme, "Hybrid");
+        assert_eq!(status.classical, "Ed25519");
+        assert!(status.post_quantum.contains("ML-DSA"));
+        assert_eq!(status.tx_version, 3);
     }
 
     #[tokio::test]
@@ -445,15 +747,5 @@ mod tests {
     async fn get_staking_info_returns_ffi_message() {
         let err = get_staking_info().await.unwrap_err();
         assert!(err.contains("wallet2 FFI"));
-    }
-
-    #[tokio::test]
-    async fn pqc_status_reports_hybrid() {
-        let status = get_pqc_status().await.unwrap();
-        assert!(status.enabled);
-        assert_eq!(status.scheme, "Hybrid");
-        assert_eq!(status.classical, "Ed25519");
-        assert!(status.post_quantum.contains("ML-DSA"));
-        assert_eq!(status.tx_version, 3);
     }
 }

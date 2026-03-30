@@ -87,10 +87,22 @@ export default function Help() {
           <div>
             <h4 className="font-semibold text-white">Creating a Wallet</h4>
             <p>
-              Click <strong>Create Wallet</strong> on the Dashboard, choose a
-              name and password, and safely record your 25-word mnemonic seed.
-              This seed is the only way to recover your funds if you lose
-              access.
+              On first launch, click <strong>Create New Wallet</strong> on the
+              Welcome screen. Choose a name and password, then carefully save
+              your 25-word mnemonic seed. You'll need to confirm 4 random words
+              from your seed before proceeding. This seed is the only way to
+              recover your funds if you lose access. Your wallet is
+              automatically protected by hybrid PQC signatures.
+            </p>
+          </div>
+          <div>
+            <h4 className="font-semibold text-white">Importing a Wallet</h4>
+            <p>
+              If you already have a Shekyl wallet, click{" "}
+              <strong>Import Existing Wallet</strong> on the Welcome screen.
+              You can restore from a 25-word seed phrase or from your private
+              keys (spend key + view key). Set a restore height to speed up
+              blockchain scanning, or leave it at 0 to scan everything.
             </p>
           </div>
           <div>

@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Wallet Startup Flow
+
+- Added wallet startup state machine: app detects existing `.keys` files in
+  the platform default wallet directory on launch. If a wallet is found, the
+  user is presented with an unlock (password) screen; if not, a welcome screen
+  offers Create New Wallet or Import Existing Wallet.
+- Added `wallet_rpc.rs`: async JSON-RPC client for `shekyl-wallet-rpc`,
+  mirroring `daemon_rpc.rs`. Covers `create_wallet`, `open_wallet`,
+  `close_wallet`, `restore_deterministic_wallet`, `generate_from_keys`,
+  `get_address`, `get_balance`, `query_key`, `get_version`, `stop_wallet`,
+  `get_transfers`, and `transfer`.
+- Added `wallet_process.rs`: manages `shekyl-wallet-rpc` as a child process.
+  Layered binary resolution (Tauri sidecar > PATH > user config), process
+  spawn in `--wallet-dir` mode, readiness polling, and graceful shutdown.
+- Updated `state.rs`: `AppState` now includes `wallet_rpc_url`, `wallet_dir`,
+  `wallet_open`, `wallet_name`, and `wallet_process` fields. Platform-specific
+  default wallet directories (Linux: `~/.shekyl/wallets/`, macOS:
+  `~/Library/Application Support/shekyl/wallets/`, Windows:
+  `%APPDATA%\shekyl\wallets\`). Wallet-RPC port defaults to daemon port + 1.
+- Replaced all wallet command stubs in `commands.rs` with real implementations
+  that call through `wallet_rpc.rs`. New commands: `check_wallet_files`,
+  `init_wallet_rpc`, `shutdown_wallet_rpc`, `import_wallet_from_seed`,
+  `import_wallet_from_keys`, `get_seed`.
+- Updated `lib.rs`: registered new modules and commands; added window close
+  hook for wallet-rpc process cleanup.
+- Added `dirs` and `which` crate dependencies.
+- Created `WalletProvider` React context with phase-based state machine
+  (`loading` / `no_wallet` / `select_wallet` / `unlock` / `ready`).
+- Created four new pages: `Welcome.tsx` (first-launch onboarding),
+  `CreateWallet.tsx` (4-step wizard: name+password, seed display, seed
+  confirmation, success), `ImportWallet.tsx` (tabbed seed-phrase and key-based
+  restore), `Unlock.tsx` (password entry with multi-wallet selector).
+- Created `LoadingScreen.tsx`: animated Shekyl branding shown during wallet-rpc
+  startup.
+- Refactored `App.tsx` routing: wallet-gated architecture that shows onboarding
+  flow until a wallet is open, then renders the main Layout with sidebar.
+  `DaemonProvider` now only mounts when wallet is ready.
+- Added Tauri sidecar scaffold: `src-tauri/binaries/` directory with README
+  documenting target-triple naming convention and `externalBin` configuration
+  for future bundling of `shekyld` and `shekyl-wallet-rpc`.
+- Created `docs/WALLET_STARTUP.md` design doc.
+
 ### Release Pipeline
 
 - Changed `releaseDraft: true` to `releaseDraft: false` in `release.yml` so
