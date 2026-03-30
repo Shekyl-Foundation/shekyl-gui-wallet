@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.2-beta -- 2026-03-30
+
 ### Wallet Startup Flow
 
 - Added wallet startup state machine: app detects existing `.keys` files in
