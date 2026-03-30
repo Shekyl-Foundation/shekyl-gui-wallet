@@ -82,4 +82,11 @@ impl AppState {
     pub async fn url(&self) -> String {
         self.daemon_url.read().await.clone()
     }
+
+    /// Base URL without the `/json_rpc` suffix, for plain HTTP endpoints
+    /// like `/mining_status`, `/start_mining`, `/stop_mining`.
+    pub async fn base_url(&self) -> String {
+        let url = self.daemon_url.read().await.clone();
+        url.trim_end_matches("/json_rpc").to_string()
+    }
 }

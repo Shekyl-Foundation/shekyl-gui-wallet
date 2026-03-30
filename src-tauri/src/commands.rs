@@ -266,6 +266,57 @@ pub async fn get_pqc_status() -> Result<PqcStatus, String> {
     })
 }
 
+// ─── Mining commands ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct MiningStatus {
+    pub active: bool,
+    pub speed: u64,
+    pub threads_count: u32,
+    pub address: String,
+    pub pow_algorithm: String,
+    pub is_background_mining_enabled: bool,
+    pub block_target: u32,
+    pub block_reward: u64,
+    pub difficulty: u64,
+}
+
+#[tauri::command]
+pub async fn get_mining_status(state: State<'_, AppState>) -> Result<MiningStatus, String> {
+    let base = state.base_url().await;
+    let ms = daemon_rpc::mining_status(&state.http, &base).await?;
+    Ok(MiningStatus {
+        active: ms.active,
+        speed: ms.speed,
+        threads_count: ms.threads_count,
+        address: ms.address,
+        pow_algorithm: ms.pow_algorithm,
+        is_background_mining_enabled: ms.is_background_mining_enabled,
+        block_target: ms.block_target,
+        block_reward: ms.block_reward,
+        difficulty: ms.difficulty,
+    })
+}
+
+#[tauri::command]
+pub async fn start_mining_cmd(
+    state: State<'_, AppState>,
+    address: String,
+    threads: u32,
+    background: bool,
+) -> Result<bool, String> {
+    let base = state.base_url().await;
+    daemon_rpc::start_mining(&state.http, &base, &address, threads, background, true).await?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn stop_mining_cmd(state: State<'_, AppState>) -> Result<bool, String> {
+    let base = state.base_url().await;
+    daemon_rpc::stop_mining(&state.http, &base).await?;
+    Ok(true)
+}
+
 // ─── Wallet stubs (require wallet2 FFI bridge) ──────────────────────────────
 
 #[tauri::command]
@@ -387,6 +438,12 @@ mod tests {
     #[tokio::test]
     async fn stake_returns_error_stub() {
         let err = stake(1, 5_000_000).await.unwrap_err();
+        assert!(err.contains("wallet2 FFI"));
+    }
+
+    #[tokio::test]
+    async fn get_staking_info_returns_ffi_message() {
+        let err = get_staking_info().await.unwrap_err();
         assert!(err.contains("wallet2 FFI"));
     }
 

@@ -52,6 +52,18 @@ export interface TierYield {
   estimated_apy: number;
 }
 
+export interface MiningStatus {
+  active: boolean;
+  speed: number;
+  threads_count: number;
+  address: string;
+  pow_algorithm: string;
+  is_background_mining_enabled: boolean;
+  block_target: number;
+  block_reward: number;
+  difficulty: number;
+}
+
 export interface PqcStatus {
   enabled: boolean;
   scheme: string;

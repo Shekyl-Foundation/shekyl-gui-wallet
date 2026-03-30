@@ -188,6 +188,112 @@ pub struct EstimateClaimRewardResponse {
     pub staked_amount: u64,
 }
 
+// ─── Plain HTTP JSON helpers (non-JSON-RPC endpoints) ────────────────────────
+
+async fn http_json_call<P: Serialize, R: for<'de> Deserialize<'de>>(
+    client: &Client,
+    base_url: &str,
+    path: &str,
+    params: P,
+) -> Result<R, String> {
+    let url = format!("{}{}", base_url, path);
+    let resp = client
+        .post(&url)
+        .json(&params)
+        .send()
+        .await
+        .map_err(|e| format!("Daemon connection failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Daemon returned HTTP {}", resp.status()));
+    }
+
+    resp.json()
+        .await
+        .map_err(|e| format!("Failed to parse daemon response: {e}"))
+}
+
+// ─── mining_status ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MiningStatusResponse {
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub speed: u64,
+    #[serde(default)]
+    pub threads_count: u32,
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub pow_algorithm: String,
+    #[serde(default)]
+    pub is_background_mining_enabled: bool,
+    #[serde(default)]
+    pub block_target: u32,
+    #[serde(default)]
+    pub block_reward: u64,
+    #[serde(default)]
+    pub difficulty: u64,
+}
+
+pub async fn mining_status(
+    client: &Client,
+    base_url: &str,
+) -> Result<MiningStatusResponse, String> {
+    http_json_call(client, base_url, "/mining_status", serde_json::json!({})).await
+}
+
+// ─── start_mining ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct DaemonStatusResponse {
+    status: String,
+}
+
+pub async fn start_mining(
+    client: &Client,
+    base_url: &str,
+    miner_address: &str,
+    threads_count: u32,
+    do_background_mining: bool,
+    ignore_battery: bool,
+) -> Result<(), String> {
+    let resp: DaemonStatusResponse = http_json_call(
+        client,
+        base_url,
+        "/start_mining",
+        serde_json::json!({
+            "miner_address": miner_address,
+            "threads_count": threads_count,
+            "do_background_mining": do_background_mining,
+            "ignore_battery": ignore_battery,
+        }),
+    )
+    .await?;
+
+    if resp.status == "OK" {
+        Ok(())
+    } else {
+        Err(format!("Daemon rejected start_mining: {}", resp.status))
+    }
+}
+
+// ─── stop_mining ─────────────────────────────────────────────────────────────
+
+pub async fn stop_mining(client: &Client, base_url: &str) -> Result<(), String> {
+    let resp: DaemonStatusResponse =
+        http_json_call(client, base_url, "/stop_mining", serde_json::json!({})).await?;
+
+    if resp.status == "OK" {
+        Ok(())
+    } else {
+        Err(format!("Daemon rejected stop_mining: {}", resp.status))
+    }
+}
+
+// ─── estimate_claim_reward ───────────────────────────────────────────────────
+
 #[allow(dead_code)]
 pub async fn estimate_claim_reward(
     client: &Client,

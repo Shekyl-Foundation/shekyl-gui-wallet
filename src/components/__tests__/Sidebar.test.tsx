@@ -18,9 +18,11 @@ describe("Sidebar", () => {
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(screen.getByText("Send")).toBeInTheDocument();
     expect(screen.getByText("Receive")).toBeInTheDocument();
+    expect(screen.getByText("Mining")).toBeInTheDocument();
     expect(screen.getByText("Staking")).toBeInTheDocument();
     expect(screen.getByText("Transactions")).toBeInTheDocument();
     expect(screen.getByText("Chain Health")).toBeInTheDocument();
+    expect(screen.getByText("Help")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 

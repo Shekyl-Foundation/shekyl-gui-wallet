@@ -4,18 +4,22 @@ import {
   Send,
   Download,
   Coins,
+  Pickaxe,
   ArrowLeftRight,
-  Settings,
   Activity,
+  HelpCircle,
+  Settings,
 } from "lucide-react";
 
 const links = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/send", icon: Send, label: "Send" },
   { to: "/receive", icon: Download, label: "Receive" },
+  { to: "/mining", icon: Pickaxe, label: "Mining" },
   { to: "/staking", icon: Coins, label: "Staking" },
   { to: "/transactions", icon: ArrowLeftRight, label: "Transactions" },
   { to: "/chain-health", icon: Activity, label: "Chain Health" },
+  { to: "/help", icon: HelpCircle, label: "Help" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 

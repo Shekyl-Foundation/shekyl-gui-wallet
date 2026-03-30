@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+### Mining Page and Backend
+
+- Added plain HTTP endpoint helpers to `daemon_rpc.rs`: `http_json_call`,
+  `mining_status`, `start_mining`, `stop_mining` for the daemon's
+  `/mining_status`, `/start_mining`, `/stop_mining` endpoints.
+- Added `MiningStatusResponse` struct with fields: `active`, `speed`,
+  `threads_count`, `address`, `pow_algorithm`, `is_background_mining_enabled`,
+  `block_target`, `block_reward`, `difficulty`.
+- Added `AppState::base_url()` to `state.rs` for stripping `/json_rpc` suffix,
+  needed by mining HTTP endpoints.
+- Added Tauri commands: `get_mining_status`, `start_mining_cmd`, `stop_mining_cmd`.
+- Created `Mining.tsx` page with: live status card (active/idle indicator,
+  hash rate gauge using `EmissionGauge`, thread count, speed, algorithm),
+  network mining context (difficulty, block reward, block time), mining
+  controls (address input, thread slider 1–N, background mining toggle,
+  start/stop buttons), privacy note about 60-block coinbase maturity.
+- Added `MiningStatus` TypeScript interface to `types/daemon.ts`.
+
+### Help Center
+
+- Created `Help.tsx` page with five expandable sections: Getting Started,
+  Mining Guide, Staking Guide, Post-Quantum Cryptography, and Glossary.
+- Getting Started covers: what is Shekyl, connecting to daemon, creating a
+  wallet, sending and receiving.
+- Mining Guide covers: what is mining (RandomX PoW), how to mine in-wallet,
+  block rewards and 60-block unlock, requirements (unrestricted daemon).
+- Staking Guide covers: claim-based model (not delegation), tiers and lock
+  durations, privacy benefit (accrual pool commingling), estimated APY.
+- PQC section covers: quantum threat explanation, hybrid Ed25519 + ML-DSA-65,
+  what "hybrid" means (belt-and-suspenders), V4 roadmap (lattice rings + KEM
+  stealth addresses), coinbase transaction exemption.
+- Glossary with 11 terms: atomic unit, block height, difficulty, emission era,
+  hash rate, ML-DSA-65, RandomX, release multiplier, ring signature, stake
+  ratio, stealth address.
+
+### Contextual Help and Tooltips
+
+- PQC status badge in header now links to Help page on click.
+- Added info tooltip to compact ChainHealthPanel ("What is Chain Health?").
+- Added info tooltip to Mining page hash rate speed display.
+
+### Navigation
+
+- Added Mining (Pickaxe icon) and Help (HelpCircle icon) to sidebar navigation.
+- Added `/mining` and `/help` routes to `App.tsx`.
+
+### Testing
+
+- Frontend: 65 tests across 13 suites (up from 49/11).
+  New suites: `Mining.test.tsx` (8 tests), `Help.test.tsx` (8 tests).
+  Updated `Sidebar.test.tsx` for Mining and Help links.
+  Updated `PqcStatusBadge.test.tsx` for router context.
+- Rust backend: 10 unit tests (added `get_staking_info_returns_ffi_message`).
+
 ### Daemon RPC Integration
 
 - Added `daemon_rpc.rs`: async JSON-RPC client for `shekyld` wrapping

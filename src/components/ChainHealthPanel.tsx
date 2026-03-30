@@ -8,7 +8,7 @@ import {
   emissionProgress,
 } from "../lib/format";
 import EmissionGauge from "./EmissionGauge";
-import { Activity, Flame, TrendingUp, Layers, Coins } from "lucide-react";
+import { Activity, Flame, TrendingUp, Layers, Coins, Info } from "lucide-react";
 
 interface Props {
   compact?: boolean;
@@ -49,8 +49,14 @@ export default function ChainHealthPanel({ compact = false }: Props) {
     return (
       <div className="card">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-purple-300">
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-purple-300">
             Chain Health
+            <span
+              className="cursor-help text-purple-400"
+              title="Live network metrics from the connected daemon — difficulty, emission, staking, and burn statistics"
+            >
+              <Info className="inline h-3 w-3" />
+            </span>
           </h3>
           {health.emission_era && (
             <span className="rounded-full bg-gold-500/15 px-2 py-0.5 text-[10px] font-semibold text-gold-400">

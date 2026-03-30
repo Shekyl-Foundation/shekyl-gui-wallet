@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi } from "vitest";
 import PqcStatusBadge from "../PqcStatusBadge";
 
@@ -25,7 +26,11 @@ describe("PqcStatusBadge", () => {
       refresh: vi.fn(),
     });
 
-    render(<PqcStatusBadge />);
+    render(
+      <MemoryRouter>
+        <PqcStatusBadge />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText(/Ed25519/)).toBeInTheDocument();
     expect(screen.getByText(/ML-DSA-65/)).toBeInTheDocument();
@@ -40,7 +45,11 @@ describe("PqcStatusBadge", () => {
       refresh: vi.fn(),
     });
 
-    const { container } = render(<PqcStatusBadge />);
+    const { container } = render(
+      <MemoryRouter>
+        <PqcStatusBadge />
+      </MemoryRouter>,
+    );
     expect(container.innerHTML).toBe("");
   });
 });

@@ -10,8 +10,14 @@ Cross-platform desktop wallet for Shekyl (SKL), built with **Tauri 2**, **React*
 - **Staking with privacy narrative** — tier selection (Tier 0/1/2) with live
   APY estimates, accrual pool commingling explanation, and plausible
   deniability on claims
+- **In-wallet mining** — start/stop mining from the GUI with thread control,
+  background mining toggle, live hash rate gauge, and privacy note about
+  60-block coinbase maturity
 - **Post-quantum transparency** — header badge showing hybrid Ed25519 +
-  ML-DSA-65 protection status, with PQC details and V4 roadmap in Settings
+  ML-DSA-65 protection status (click to learn more), PQC details in Settings,
+  and dedicated PQC education section in the Help Center
+- **Help Center** — expandable guide sections covering Getting Started,
+  Mining, Staking, Post-Quantum Cryptography, and a Glossary of key terms
 - **Network switching** — MainNet / TestNet / StageNet with automatic daemon
   URL configuration, persistent testnet banners, and faucet links
 - **9-decimal canonical SKL display** — 6-decimal readability with full
@@ -32,8 +38,9 @@ Future:    C++ FFI bridge to wallet2_api.h (shekyl-core)
 ```
 
 The Rust backend connects to a `shekyld` daemon via JSON-RPC for chain health,
-staking, and economic data. Wallet-side operations (create, transfer, stake,
-claim) remain stubs until the wallet2 C++ FFI bridge is implemented.
+staking, and economic data, and via plain HTTP endpoints for mining control.
+Wallet-side operations (create, transfer, stake, claim) remain stubs until the
+wallet2 C++ FFI bridge is implemented.
 
 ## Prerequisites
 
@@ -84,7 +91,7 @@ npm run lint
 ### Frontend (Vitest + React Testing Library)
 
 ```bash
-npm test                # Single run (49 tests, 11 suites)
+npm test                # Single run (65 tests, 13 suites)
 npm run test:watch      # Watch mode
 npm run test:coverage   # With V8 coverage report
 ```
@@ -96,7 +103,7 @@ are mocked via `@tauri-apps/api/mocks` so tests run without a Rust backend.
 
 ```bash
 cd src-tauri
-cargo test              # 9 tests
+cargo test              # 10 tests
 ```
 
 ### Linting
@@ -142,10 +149,10 @@ shekyl-gui-wallet/
   src/                      # React frontend
     components/             # Sidebar, Header, BalanceCard, NetworkBadge,
                             # ChainHealthPanel, EmissionGauge, StakeTierCard,
-                            # PqcStatusBadge, TestnetBanner
+                            # PqcStatusBadge (links to Help), TestnetBanner
       __tests__/            # Component unit tests
-    pages/                  # Dashboard, Send, Receive, Staking, Transactions,
-                            # Settings, ChainHealth
+    pages/                  # Dashboard, Send, Receive, Mining, Staking,
+                            # Transactions, Settings, ChainHealth, Help
       __tests__/            # Page unit tests
     context/                # DaemonProvider (30s polling), useDaemon hook
     types/daemon.ts         # Shared TypeScript interfaces for daemon RPC
@@ -155,8 +162,8 @@ shekyl-gui-wallet/
   src-tauri/                # Rust backend
     src/
       lib.rs                # Tauri app builder, state management, command registration
-      commands.rs           # Daemon-connected + wallet stub commands + unit tests
-      daemon_rpc.rs         # Async JSON-RPC client for shekyld
+      commands.rs           # Daemon-connected + mining + wallet stub commands + tests
+      daemon_rpc.rs         # JSON-RPC + HTTP client for shekyld (chain, mining)
       state.rs              # App state (daemon URL, network, HTTP client)
       main.rs               # Entry point
     tauri.conf.json         # App metadata, window config, bundle settings
