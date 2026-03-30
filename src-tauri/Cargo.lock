@@ -3627,7 +3627,7 @@ dependencies = [
 
 [[package]]
 name = "shekyl-wallet"
-version = "0.1.0"
+version = "0.1.0-beta"
 dependencies = [
  "reqwest",
  "serde",

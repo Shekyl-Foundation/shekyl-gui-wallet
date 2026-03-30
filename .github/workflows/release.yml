@@ -3,7 +3,8 @@ name: Release
 on:
   workflow_dispatch:
   push:
-    branches: [release]
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -58,12 +59,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__
-          releaseName: "Shekyl Wallet v__VERSION__"
+          tagName: ${{ github.ref_name }}
+          releaseName: "Shekyl Wallet ${{ github.ref_name }}"
           releaseBody: |
             See the assets below to download and install Shekyl Wallet for your platform.
 
             Refer to the [installation guide](https://github.com/Shekyl-Foundation/shekyl-gui-wallet/blob/main/docs/INSTALLATION.md) for detailed instructions.
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
           args: ${{ matrix.args }}

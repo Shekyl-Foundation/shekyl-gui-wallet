@@ -55,7 +55,7 @@ export default function Sidebar() {
 
       {/* Version */}
       <div className="border-t border-purple-700/50 px-5 py-3">
-        <p className="text-xs text-purple-400">Shekyl Wallet v0.1.0</p>
+        <p className="text-xs text-purple-400">Shekyl Wallet v0.1.0-beta</p>
       </div>
     </aside>
   );
