@@ -2,6 +2,9 @@
 
 Cross-platform desktop wallet for Shekyl (SKL), built with **Tauri 2**, **React**, and **Rust**.
 
+> **New to Shekyl?** Read the [User Guide](docs/USER_GUIDE.md) for a
+> beginner-friendly walkthrough of every feature.
+
 ## Features
 
 - **Live chain health dashboard** — emission era, release tempo, burn rate,
@@ -188,6 +191,7 @@ shekyl-gui-wallet/
   public/assets/            # Branding SVGs
   vitest.config.ts          # Vitest configuration
   docs/
+    USER_GUIDE.md           # Beginner-friendly walkthrough of every feature
     CHANGELOG.md            # Wallet-specific changelog
     INSTALLATION.md         # End-user installation guide
 ```
