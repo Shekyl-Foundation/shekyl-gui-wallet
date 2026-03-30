@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Release Pipeline
+
+- Changed `releaseDraft: true` to `releaseDraft: false` in `release.yml` so
+  tagged releases are published automatically. The `prerelease` flag already
+  handles beta/alpha/rc marking.
+
 ### Version Sync
 
 - Added `scripts/sync-version.mjs`: reads version from `package.json` and
