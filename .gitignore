@@ -19,6 +19,10 @@ Thumbs.db
 # Tauri generated
 src-tauri/gen/
 
+# Sidecar binaries (downloaded from shekyl-core releases, not committed)
+src-tauri/binaries/shekyld-*
+src-tauri/binaries/shekyl-wallet-rpc-*
+
 # Environment
 .env
 .env.local
