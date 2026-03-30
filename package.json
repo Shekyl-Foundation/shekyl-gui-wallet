@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "version:sync": "node scripts/sync-version.mjs",
+    "version:bump": "npm version --no-git-tag-version"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

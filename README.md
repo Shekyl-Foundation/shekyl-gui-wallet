@@ -86,6 +86,19 @@ npm run typecheck
 npm run lint
 ```
 
+### Version management
+
+The version is defined once in `package.json` and synced everywhere:
+
+```bash
+# Bump and sync (two steps)
+npm run version:bump -- 0.2.0-beta   # updates package.json
+npm run version:sync                  # propagates to Cargo.toml + tauri.conf.json
+```
+
+The frontend reads `__APP_VERSION__` at build time via Vite's `define`, so
+`Sidebar.tsx` never needs a manual version edit.
+
 ## Testing
 
 ### Frontend (Vitest + React Testing Library)
@@ -158,7 +171,10 @@ shekyl-gui-wallet/
     types/daemon.ts         # Shared TypeScript interfaces for daemon RPC
     lib/format.ts           # SKL formatting utilities (9-decimal atomic)
     test/setup.ts           # Vitest global setup (RTL matchers, Tauri IPC mock)
+    vite-env.d.ts           # Global type declarations (__APP_VERSION__)
     styles/globals.css      # Tailwind CSS with Shekyl color palette
+  scripts/
+    sync-version.mjs        # Propagates package.json version → Cargo.toml, tauri.conf.json
   src-tauri/                # Rust backend
     src/
       lib.rs                # Tauri app builder, state management, command registration

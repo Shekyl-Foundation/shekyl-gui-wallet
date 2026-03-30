@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Version Sync
+
+- Added `scripts/sync-version.mjs`: reads version from `package.json` and
+  propagates to `Cargo.toml` and `tauri.conf.json` in a single command.
+- Added `npm run version:bump` and `npm run version:sync` scripts.
+- Sidebar version string now reads `__APP_VERSION__` from Vite's build-time
+  `define`, eliminating the fourth manual version update.
+- Added `__APP_VERSION__` global declaration to `src/vite-env.d.ts`.
+
 ### Mining Page and Backend
 
 - Added plain HTTP endpoint helpers to `daemon_rpc.rs`: `http_json_call`,
