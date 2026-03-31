@@ -544,6 +544,7 @@ pub async fn import_wallet_from_seed(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn import_wallet_from_keys(
     state: State<'_, AppState>,
     name: String,

@@ -180,6 +180,7 @@ pub async fn wait_for_ready(client: &Client, rpc_url: &str) -> Result<(), String
 }
 
 /// Graceful shutdown: try RPC `stop_wallet`, then SIGTERM, then SIGKILL.
+#[allow(dead_code)]
 pub async fn shutdown(client: &Client, rpc_url: &str, child: &mut Child) {
     // Try graceful RPC shutdown first
     let _ = wallet_rpc::stop_wallet(client, rpc_url).await;
@@ -198,6 +199,7 @@ pub async fn shutdown(client: &Client, rpc_url: &str, child: &mut Child) {
 }
 
 /// Check if a process is still running.
+#[allow(dead_code)]
 pub fn is_running(child: &mut Child) -> bool {
     matches!(child.try_wait(), Ok(None))
 }

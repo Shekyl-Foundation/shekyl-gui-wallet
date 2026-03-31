@@ -157,6 +157,7 @@ pub async fn close_wallet(client: &Client, url: &str) -> Result<(), String> {
 // ─── restore_deterministic_wallet ────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct RestoreWalletResponse {
     pub address: String,
     #[serde(default)]
@@ -167,6 +168,7 @@ pub struct RestoreWalletResponse {
     pub was_deprecated: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn restore_deterministic_wallet(
     client: &Client,
     url: &str,
@@ -196,12 +198,14 @@ pub async fn restore_deterministic_wallet(
 // ─── generate_from_keys ──────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GenerateFromKeysResponse {
     pub address: String,
     #[serde(default)]
     pub info: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_from_keys(
     client: &Client,
     url: &str,
@@ -233,6 +237,7 @@ pub async fn generate_from_keys(
 // ─── get_address ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GetAddressResponse {
     pub address: String,
     #[serde(default)]
@@ -240,6 +245,7 @@ pub struct GetAddressResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct AddressInfo {
     pub address: String,
     #[serde(default)]
@@ -268,6 +274,7 @@ pub async fn get_address(
 // ─── get_balance ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GetBalanceResponse {
     pub balance: u64,
     pub unlocked_balance: u64,
@@ -356,6 +363,7 @@ pub struct TransferEntry {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GetTransfersResponse {
     #[serde(default)]
     pub r#in: Vec<TransferEntry>,
