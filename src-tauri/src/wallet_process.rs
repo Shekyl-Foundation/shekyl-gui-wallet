@@ -106,7 +106,11 @@ fn platform_binary_candidates() -> Vec<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         if let Some(program_files) = std::env::var_os("ProgramFiles") {
-            paths.push(PathBuf::from(program_files).join("Shekyl").join(format!("{BINARY_NAME}.exe")));
+            paths.push(
+                PathBuf::from(program_files)
+                    .join("Shekyl")
+                    .join(format!("{BINARY_NAME}.exe")),
+            );
         }
         if let Some(local) = dirs::data_local_dir() {
             paths.push(local.join("Shekyl").join(format!("{BINARY_NAME}.exe")));

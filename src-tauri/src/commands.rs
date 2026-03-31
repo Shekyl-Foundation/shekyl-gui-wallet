@@ -352,8 +352,8 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
         return Ok(vec![]);
     }
 
-    let entries = std::fs::read_dir(&dir)
-        .map_err(|e| format!("Failed to read wallet directory: {e}"))?;
+    let entries =
+        std::fs::read_dir(&dir).map_err(|e| format!("Failed to read wallet directory: {e}"))?;
 
     let mut wallets = Vec::new();
     for entry in entries.flatten() {
@@ -669,8 +669,7 @@ pub async fn get_transactions(
     }
 
     let wallet_url = state.wallet_url().await;
-    let resp =
-        wallet_rpc::get_transfers(&state.http, &wallet_url, true, true, true, false).await?;
+    let resp = wallet_rpc::get_transfers(&state.http, &wallet_url, true, true, true, false).await?;
 
     let mut txs: Vec<TxInfo> = Vec::new();
     for entry in resp.r#in {

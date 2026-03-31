@@ -298,11 +298,7 @@ pub struct QueryKeyResponse {
     pub key: String,
 }
 
-pub async fn query_key(
-    client: &Client,
-    url: &str,
-    key_type: &str,
-) -> Result<String, String> {
+pub async fn query_key(client: &Client, url: &str, key_type: &str) -> Result<String, String> {
     let resp: QueryKeyResponse = rpc_call(
         client,
         url,

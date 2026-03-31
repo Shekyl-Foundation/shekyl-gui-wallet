@@ -128,9 +128,7 @@ impl AppState {
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .expect("failed to create HTTP client"),
-            wallet_rpc_url: RwLock::new(format!(
-                "http://127.0.0.1:{wallet_port}/json_rpc"
-            )),
+            wallet_rpc_url: RwLock::new(format!("http://127.0.0.1:{wallet_port}/json_rpc")),
             wallet_dir: RwLock::new(default_wallet_dir()),
             wallet_open: RwLock::new(false),
             wallet_name: RwLock::new(None),
