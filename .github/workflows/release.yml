@@ -26,9 +26,6 @@ jobs:
           - platform: macos-latest
             tauri_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
-          - platform: macos-13
-            tauri_target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
     steps:

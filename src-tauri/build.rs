@@ -98,7 +98,6 @@ fn link_shekyl_ffi() {
         "serialization",
         "mnemonics",
         "cncrypto",
-        "wallet-crypto",
         "randomx",
         "epee",
         "easylogging",
@@ -107,6 +106,14 @@ fn link_shekyl_ffi() {
     ];
     for lib in &static_libs {
         println!("cargo:rustc-link-lib=static={lib}");
+    }
+
+    // wallet-crypto is a separate library only when optimized crypto is available
+    // (e.g., x86_64 with amd64 extensions). On platforms where crypto autodetect
+    // fails (macOS arm64), CMake aliases it to cncrypto, so no .a file exists.
+    let wallet_crypto_path = format!("{build_dir}/src/crypto/wallet/libwallet-crypto.a");
+    if std::path::Path::new(&wallet_crypto_path).exists() {
+        println!("cargo:rustc-link-lib=static=wallet-crypto");
     }
 
     // ── Platform-specific system / shared libraries ─────────────────────
