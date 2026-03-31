@@ -37,6 +37,26 @@
 - `shekyl-wallet-rpc` path dependency in `Cargo.toml`
 - `build.rs` with `SHEKYL_BUILD_DIR` support for linking C++ wallet libraries
 
+### 🔧 Build & CI
+
+- **Release workflow now builds shekyl-core from source** for Linux and macOS.
+  The workflow installs all C++ build dependencies (Boost, OpenSSL, libsodium,
+  protobuf, etc.), configures and builds the shekyl-core wallet library via
+  CMake, and passes `SHEKYL_BUILD_DIR` to Tauri's build step so the Rust
+  linker can resolve all 22 `wallet2_ffi_*` symbols.
+- **`build.rs` rewritten** with comprehensive platform-conditional linking:
+  24 static libraries (wallet, cryptonote_core, blockchain_db, ringct, etc.)
+  plus the `shekyl_ffi` Rust FFI crate, with platform-specific system library
+  lists for Linux (`stdc++`, Boost, OpenSSL, hidapi, udev), macOS (`c++`,
+  frameworks: Security, CoreFoundation, IOKit), and Windows (ws2_32, bcrypt).
+- **macOS cross-architecture support**: builds the C++ library with
+  `CMAKE_OSX_ARCHITECTURES` matching the Tauri target (arm64 or x86_64).
+- **Windows**: deferred pending MSVC compatibility investigation. The current
+  shekyl-core codebase uses GCC/MinGW which produces `.a` archives
+  incompatible with MSVC's `link.exe`. Key issues identified:
+  unconditional POSIX includes in `common/util.cpp` and `easylogging++.cc`,
+  AT&T inline asm in `perf_timer.cpp`, and GCC builtins in crypto code.
+
 ## 0.1.2-beta -- 2026-03-30
 
 ### Wallet Startup Flow

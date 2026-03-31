@@ -54,7 +54,7 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: |
           brew install --quiet cmake boost hidapi openssl zmq libpgm \
-            miniupnpc expat protobuf abseil ccache libsodium libunbound
+            miniupnpc expat protobuf abseil ccache libsodium unbound
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
