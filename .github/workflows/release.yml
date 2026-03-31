@@ -26,11 +26,9 @@ jobs:
           - platform: macos-latest
             tauri_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
-            osx_arch: arm64
-          - platform: macos-latest
+          - platform: macos-13
             tauri_target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
-            osx_arch: x86_64
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -51,7 +49,7 @@ jobs:
             libprotobuf-dev protobuf-compiler libudev-dev
 
       - name: Install macOS build dependencies
-        if: matrix.platform == 'macos-latest'
+        if: startsWith(matrix.platform, 'macos')
         run: |
           brew install --quiet cmake boost hidapi openssl zmq libpgm \
             miniupnpc expat protobuf abseil ccache libsodium unbound
@@ -65,7 +63,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ startsWith(matrix.platform, 'macos') && matrix.tauri_target || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -82,7 +80,7 @@ jobs:
           cmake --build ../Shekyl/build -- -j$(nproc)
 
       - name: Build Shekyl wallet library (macOS)
-        if: matrix.platform == 'macos-latest'
+        if: startsWith(matrix.platform, 'macos')
         env:
           OPENSSL_ROOT_DIR: ${{ runner.temp }}/_brew_openssl
         run: |
@@ -91,7 +89,6 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_TESTS=OFF \
-            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.osx_arch }} \
             -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
           cmake --build ../Shekyl/build -- -j$(sysctl -n hw.logicalcpu)
 
@@ -102,7 +99,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHEKYL_BUILD_DIR: ${{ (matrix.platform == 'ubuntu-22.04' || matrix.platform == 'macos-latest') && format('{0}/../Shekyl/build', github.workspace) || '' }}
+          SHEKYL_BUILD_DIR: ${{ matrix.platform != 'windows-latest' && format('{0}/../Shekyl/build', github.workspace) || '' }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Shekyl Wallet ${{ github.ref_name }}"

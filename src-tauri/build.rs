@@ -27,9 +27,25 @@ fn link_shekyl_ffi() {
     });
 
     // Link the Rust shekyl-ffi crate (economics, PQC, memory ops, etc.).
-    // CMake builds it via BuildRust.cmake into rust/target/<profile>/.
-    for profile in ["release", "debug"] {
-        println!("cargo:rustc-link-search=native={source_dir}/rust/target/{profile}");
+    // CMake builds it via BuildRust.cmake into rust/target/[<triple>/]<profile>/.
+    let rust_triples = [
+        "",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+        "x86_64-pc-windows-gnu",
+    ];
+    for triple in &rust_triples {
+        for profile in ["release", "debug"] {
+            if triple.is_empty() {
+                println!("cargo:rustc-link-search=native={source_dir}/rust/target/{profile}");
+            } else {
+                println!(
+                    "cargo:rustc-link-search=native={source_dir}/rust/target/{triple}/{profile}"
+                );
+            }
+        }
     }
     println!("cargo:rustc-link-lib=static=shekyl_ffi");
 
