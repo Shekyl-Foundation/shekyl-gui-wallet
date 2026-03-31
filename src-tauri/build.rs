@@ -140,6 +140,28 @@ fn link_shekyl_ffi() {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
     } else if cfg!(target_os = "macos") {
+        // Homebrew on ARM is /opt/homebrew, on Intel is /usr/local.
+        // Detect at build time so the linker can find Boost, OpenSSL, etc.
+        if let Ok(output) = std::process::Command::new("brew")
+            .arg("--prefix")
+            .output()
+        {
+            if output.status.success() {
+                let prefix = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                println!("cargo:rustc-link-search=native={prefix}/lib");
+            }
+        }
+        // OpenSSL is keg-only so it won't be in the top-level Homebrew lib dir.
+        if let Ok(output) = std::process::Command::new("brew")
+            .args(["--prefix", "openssl@3"])
+            .output()
+        {
+            if output.status.success() {
+                let prefix = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                println!("cargo:rustc-link-search=native={prefix}/lib");
+            }
+        }
+
         println!("cargo:rustc-link-lib=dylib=c++");
         for lib in &[
             "boost_system",
