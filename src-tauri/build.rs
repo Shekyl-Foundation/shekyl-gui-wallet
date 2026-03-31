@@ -76,6 +76,9 @@ fn link_shekyl_ffi() {
     ];
     for d in &search_dirs {
         println!("cargo:rustc-link-search=native={build_dir}/{d}");
+        if cfg!(target_os = "windows") {
+            println!("cargo:rustc-link-search=native={build_dir}/{d}/Release");
+        }
     }
 
     // ── Shekyl static libraries (order matters -- dependents before deps) ──
@@ -111,8 +114,15 @@ fn link_shekyl_ffi() {
     // wallet-crypto is a separate library only when optimized crypto is available
     // (e.g., x86_64 with amd64 extensions). On platforms where crypto autodetect
     // fails (macOS arm64), CMake aliases it to cncrypto, so no .a file exists.
-    let wallet_crypto_path = format!("{build_dir}/src/crypto/wallet/libwallet-crypto.a");
-    if std::path::Path::new(&wallet_crypto_path).exists() {
+    let wallet_crypto_candidates = [
+        format!("{build_dir}/src/crypto/wallet/libwallet-crypto.a"),
+        format!("{build_dir}/src/crypto/wallet/wallet-crypto.lib"),
+        format!("{build_dir}/src/crypto/wallet/Release/wallet-crypto.lib"),
+    ];
+    if wallet_crypto_candidates
+        .iter()
+        .any(|p| std::path::Path::new(p).exists())
+    {
         println!("cargo:rustc-link-lib=static=wallet-crypto");
     }
 
@@ -186,8 +196,29 @@ fn link_shekyl_ffi() {
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=IOKit");
     } else if cfg!(target_os = "windows") {
+        if let Ok(root) = std::env::var("VCPKG_INSTALLATION_ROOT") {
+            let vcpkg_lib = format!("{root}/installed/x64-windows-static/lib");
+            println!("cargo:rustc-link-search=native={vcpkg_lib}");
+        }
+
+        for lib in &[
+            "boost_system",
+            "boost_filesystem",
+            "boost_thread",
+            "boost_serialization",
+            "boost_program_options",
+            "boost_chrono",
+            "boost_date_time",
+            "boost_regex",
+        ] {
+            println!("cargo:rustc-link-lib=static={lib}");
+        }
+        for lib in &["libssl", "libcrypto", "sodium", "libprotobuf"] {
+            println!("cargo:rustc-link-lib=static={lib}");
+        }
         for lib in &[
             "ws2_32", "bcrypt", "crypt32", "userenv", "ntdll", "iphlpapi",
+            "advapi32", "ole32", "shell32",
         ] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }

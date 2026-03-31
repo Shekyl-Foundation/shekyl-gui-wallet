@@ -89,6 +89,27 @@ jobs:
             -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
           cmake --build ../Shekyl/build -- -j$(sysctl -n hw.logicalcpu)
 
+      - name: Install Windows build dependencies
+        if: matrix.platform == 'windows-latest'
+        run: |
+          vcpkg install --triplet x64-windows-static boost-system boost-filesystem boost-thread boost-serialization boost-program-options boost-chrono boost-date-time boost-regex openssl libsodium zeromq protobuf hidapi libusb lmdb
+        shell: pwsh
+
+      - name: Build Shekyl wallet library (Windows / MSVC)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          cmake -S ..\Shekyl -B ..\Shekyl\build `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DSTATIC=ON `
+            -DBUILD_SHARED_LIBS=OFF `
+            -DBUILD_TESTS=OFF `
+            -DSTACK_TRACE=OFF `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static
+          cmake --build ..\Shekyl\build --config Release --parallel
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -96,7 +117,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHEKYL_BUILD_DIR: ${{ matrix.platform != 'windows-latest' && format('{0}/../Shekyl/build', github.workspace) || '' }}
+          SHEKYL_BUILD_DIR: ${{ format('{0}/../Shekyl/build', github.workspace) }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Shekyl Wallet ${{ github.ref_name }}"
