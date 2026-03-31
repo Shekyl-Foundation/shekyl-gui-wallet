@@ -89,11 +89,23 @@ jobs:
             -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
           cmake --build ../Shekyl/build -- -j$(sysctl -n hw.logicalcpu)
 
+      - name: vcpkg cache
+        if: matrix.platform == 'windows-latest'
+        uses: actions/cache@v5
+        with:
+          path: |
+            C:\vcpkg\downloads
+            C:\vcpkg\archives
+          key: vcpkg-x64-windows-static-${{ hashFiles('.github/workflows/release.yml') }}
+          restore-keys: vcpkg-x64-windows-static-
+
       - name: Install Windows build dependencies
         if: matrix.platform == 'windows-latest'
-        run: |
-          vcpkg install --triplet x64-windows-static boost-system boost-filesystem boost-thread boost-serialization boost-program-options boost-chrono boost-date-time boost-regex openssl libsodium zeromq protobuf hidapi libusb lmdb
         shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: clear;files,C:\vcpkg\archives,readwrite
+        run: |
+          vcpkg install --triplet x64-windows-static boost-system boost-filesystem boost-thread boost-serialization boost-program-options boost-chrono boost-date-time boost-regex openssl libsodium zeromq libusb lmdb
 
       - name: Build Shekyl wallet library (Windows / MSVC)
         if: matrix.platform == 'windows-latest'
@@ -106,6 +118,7 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF `
             -DBUILD_TESTS=OFF `
             -DSTACK_TRACE=OFF `
+            -DUSE_DEVICE_TREZOR=OFF `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static
           cmake --build ..\Shekyl\build --config Release --parallel
