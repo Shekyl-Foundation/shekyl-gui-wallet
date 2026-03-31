@@ -480,7 +480,13 @@ pub async fn import_wallet_from_seed(
     let height = restore_height.unwrap_or(0);
 
     let resp = wallet_bridge::restore_deterministic_wallet(
-        &state.wallet, &name, &seed, &password, &lang, height, "",
+        &state.wallet,
+        &name,
+        &seed,
+        &password,
+        &lang,
+        height,
+        "",
     )?;
 
     *state.wallet_open.write().await = true;
@@ -511,7 +517,14 @@ pub async fn import_wallet_from_keys(
     let height = restore_height.unwrap_or(0);
 
     let resp = wallet_bridge::generate_from_keys(
-        &state.wallet, &name, &address, &spendkey, &viewkey, &password, &lang, height,
+        &state.wallet,
+        &name,
+        &address,
+        &spendkey,
+        &viewkey,
+        &password,
+        &lang,
+        height,
     )?;
 
     *state.wallet_open.write().await = true;

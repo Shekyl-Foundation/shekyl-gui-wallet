@@ -48,7 +48,9 @@ fn with_wallet<F, T>(handle: &WalletHandle, f: F) -> Result<T, String>
 where
     F: FnOnce(&Wallet2) -> Result<T, String>,
 {
-    let guard = handle.lock().map_err(|e| format!("Wallet lock poisoned: {e}"))?;
+    let guard = handle
+        .lock()
+        .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
     let wallet = guard.as_ref().ok_or("Wallet not initialized")?;
     f(wallet)
 }
@@ -59,15 +61,24 @@ fn wallet_err(e: shekyl_wallet_rpc::WalletError) -> String {
 
 /// Initialize the wallet2 instance with daemon connection.
 /// Replaces `wallet_process::spawn_wallet_rpc` + `wait_for_ready`.
-pub fn init(handle: &WalletHandle, nettype: u8, daemon_address: &str, wallet_dir: &str) -> Result<(), String> {
-    let mut guard = handle.lock().map_err(|e| format!("Wallet lock poisoned: {e}"))?;
+pub fn init(
+    handle: &WalletHandle,
+    nettype: u8,
+    daemon_address: &str,
+    wallet_dir: &str,
+) -> Result<(), String> {
+    let mut guard = handle
+        .lock()
+        .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
 
     if guard.is_some() {
         return Ok(());
     }
 
     let wallet = Wallet2::new(nettype).map_err(wallet_err)?;
-    wallet.init(daemon_address, "", "", true).map_err(wallet_err)?;
+    wallet
+        .init(daemon_address, "", "", true)
+        .map_err(wallet_err)?;
     wallet.set_wallet_dir(wallet_dir);
     *guard = Some(wallet);
     Ok(())
@@ -80,7 +91,9 @@ pub fn is_initialized(handle: &WalletHandle) -> bool {
 
 /// Shut down the wallet2 instance. Replaces `wallet_process::shutdown`.
 pub fn shutdown(handle: &WalletHandle) -> Result<(), String> {
-    let mut guard = handle.lock().map_err(|e| format!("Wallet lock poisoned: {e}"))?;
+    let mut guard = handle
+        .lock()
+        .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
     if let Some(wallet) = guard.as_ref() {
         let _ = wallet.stop();
     }
@@ -90,12 +103,22 @@ pub fn shutdown(handle: &WalletHandle) -> Result<(), String> {
 
 // ─── Wallet lifecycle ────────────────────────────────────────────────────────
 
-pub fn create_wallet(handle: &WalletHandle, filename: &str, password: &str, language: &str) -> Result<(), String> {
-    with_wallet(handle, |w| w.create_wallet(filename, password, language).map_err(wallet_err))
+pub fn create_wallet(
+    handle: &WalletHandle,
+    filename: &str,
+    password: &str,
+    language: &str,
+) -> Result<(), String> {
+    with_wallet(handle, |w| {
+        w.create_wallet(filename, password, language)
+            .map_err(wallet_err)
+    })
 }
 
 pub fn open_wallet(handle: &WalletHandle, filename: &str, password: &str) -> Result<(), String> {
-    with_wallet(handle, |w| w.open_wallet(filename, password).map_err(wallet_err))
+    with_wallet(handle, |w| {
+        w.open_wallet(filename, password).map_err(wallet_err)
+    })
 }
 
 pub fn close_wallet(handle: &WalletHandle) -> Result<(), String> {
@@ -127,7 +150,14 @@ pub fn restore_deterministic_wallet(
 ) -> Result<RestoreWalletResponse, String> {
     with_wallet(handle, |w| {
         let val = w
-            .restore_deterministic_wallet(filename, seed, password, language, restore_height, seed_offset)
+            .restore_deterministic_wallet(
+                filename,
+                seed,
+                password,
+                language,
+                restore_height,
+                seed_offset,
+            )
             .map_err(wallet_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
@@ -153,7 +183,15 @@ pub fn generate_from_keys(
 ) -> Result<GenerateFromKeysResponse, String> {
     with_wallet(handle, |w| {
         let val = w
-            .generate_from_keys(filename, address, spendkey, viewkey, password, language, restore_height)
+            .generate_from_keys(
+                filename,
+                address,
+                spendkey,
+                viewkey,
+                password,
+                language,
+                restore_height,
+            )
             .map_err(wallet_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
@@ -178,7 +216,10 @@ pub struct AddressInfo {
     pub used: bool,
 }
 
-pub fn get_address(handle: &WalletHandle, account_index: u32) -> Result<GetAddressResponse, String> {
+pub fn get_address(
+    handle: &WalletHandle,
+    account_index: u32,
+) -> Result<GetAddressResponse, String> {
     with_wallet(handle, |w| {
         let val = w.get_address(account_index).map_err(wallet_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
@@ -193,7 +234,10 @@ pub struct GetBalanceResponse {
     pub blocks_to_unlock: u64,
 }
 
-pub fn get_balance(handle: &WalletHandle, account_index: u32) -> Result<GetBalanceResponse, String> {
+pub fn get_balance(
+    handle: &WalletHandle,
+    account_index: u32,
+) -> Result<GetBalanceResponse, String> {
     with_wallet(handle, |w| {
         let val = w.get_balance(account_index).map_err(wallet_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
@@ -226,7 +270,11 @@ pub struct TransferResponse {
     pub amount: u64,
 }
 
-pub fn transfer(handle: &WalletHandle, address: &str, amount: u64) -> Result<TransferResponse, String> {
+pub fn transfer(
+    handle: &WalletHandle,
+    address: &str,
+    amount: u64,
+) -> Result<TransferResponse, String> {
     with_wallet(handle, |w| {
         let dest_json = serde_json::json!([{"amount": amount, "address": address}]).to_string();
         let val = w.transfer(&dest_json, 0, 0, 0).map_err(wallet_err)?;
@@ -272,7 +320,9 @@ pub fn get_transfers(
     pool: bool,
 ) -> Result<GetTransfersResponse, String> {
     with_wallet(handle, |w| {
-        let val = w.get_transfers(r#in, out, pending, false, pool, 0).map_err(wallet_err)?;
+        let val = w
+            .get_transfers(r#in, out, pending, false, pool, 0)
+            .map_err(wallet_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
