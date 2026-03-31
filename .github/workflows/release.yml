@@ -67,8 +67,9 @@ jobs:
         run: |
           cmake -S ../Shekyl -B ../Shekyl/build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF
-          cmake --build ../Shekyl/build --target wallet -- -j$(nproc)
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_TESTS=OFF
+          cmake --build ../Shekyl/build -- -j$(nproc)
 
       - name: Install frontend dependencies
         run: npm ci
