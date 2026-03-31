@@ -21,11 +21,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Checkout Shekyl core (wallet FFI dependency)
-        uses: actions/checkout@v5
-        with:
-          repository: Shekyl-Foundation/shekyl-core
-          ref: dev
-          path: ../Shekyl
+        run: git clone --depth 1 --branch dev https://github.com/Shekyl-Foundation/shekyl-core.git ../Shekyl
 
       - name: Install Linux system dependencies
         run: |
