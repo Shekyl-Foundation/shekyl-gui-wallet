@@ -33,13 +33,18 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Checkout Shekyl core (wallet FFI dependency)
-        run: git clone --depth 1 --branch dev https://github.com/Shekyl-Foundation/shekyl-core.git ../Shekyl
+        run: git clone --depth 1 --branch dev --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../Shekyl
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            build-essential cmake pkg-config ccache \
+            libboost-all-dev libssl-dev libzmq3-dev libunbound-dev \
+            libsodium-dev libhidapi-dev libusb-1.0-0-dev \
+            libprotobuf-dev protobuf-compiler
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -57,6 +62,14 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
+      - name: Build Shekyl wallet library (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          cmake -S ../Shekyl -B ../Shekyl/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF
+          cmake --build ../Shekyl/build --target wallet -- -j$(nproc)
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -64,6 +77,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHEKYL_BUILD_DIR: ${{ matrix.platform == 'ubuntu-22.04' && format('{0}/../Shekyl/build', github.workspace) || '' }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Shekyl Wallet ${{ github.ref_name }}"

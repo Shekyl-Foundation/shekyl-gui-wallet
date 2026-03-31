@@ -4,55 +4,147 @@
 fn main() {
     tauri_build::build();
 
-    // Link against the pre-built Shekyl C++ wallet library.
-    // Set SHEKYL_BUILD_DIR to the cmake build directory (e.g., /path/to/Shekyl/build).
-    if let Ok(build_dir) = std::env::var("SHEKYL_BUILD_DIR") {
-        println!("cargo:rustc-link-search=native={build_dir}/src/wallet");
-        println!("cargo:rustc-link-search=native={build_dir}/src/cryptonote_core");
-        println!("cargo:rustc-link-search=native={build_dir}/src/cryptonote_basic");
-        println!("cargo:rustc-link-search=native={build_dir}/src/mnemonics");
-        println!("cargo:rustc-link-search=native={build_dir}/src/common");
-        println!("cargo:rustc-link-search=native={build_dir}/src/ringct");
-        println!("cargo:rustc-link-search=native={build_dir}/src/device");
-        println!("cargo:rustc-link-search=native={build_dir}/src/multisig");
-        println!("cargo:rustc-link-search=native={build_dir}/src/net");
-        println!("cargo:rustc-link-search=native={build_dir}/src/rpc");
-        println!("cargo:rustc-link-search=native={build_dir}/src/serialization");
-        println!("cargo:rustc-link-search=native={build_dir}/src/crypto");
-        println!("cargo:rustc-link-search=native={build_dir}/contrib/epee/src");
-        println!("cargo:rustc-link-search=native={build_dir}/external/easylogging++");
-        println!("cargo:rustc-link-search=native={build_dir}/external/db_drivers/liblmdb");
+    link_shekyl_ffi();
+}
 
-        println!("cargo:rustc-link-lib=static=wallet");
-        println!("cargo:rustc-link-lib=static=cryptonote_core");
-        println!("cargo:rustc-link-lib=static=cryptonote_basic");
-        println!("cargo:rustc-link-lib=static=mnemonics");
-        println!("cargo:rustc-link-lib=static=common");
-        println!("cargo:rustc-link-lib=static=ringct");
-        println!("cargo:rustc-link-lib=static=ringct_basic");
-        println!("cargo:rustc-link-lib=static=device");
-        println!("cargo:rustc-link-lib=static=multisig");
-        println!("cargo:rustc-link-lib=static=net");
-        println!("cargo:rustc-link-lib=static=rpc_base");
-        println!("cargo:rustc-link-lib=static=serialization");
-        println!("cargo:rustc-link-lib=static=cncrypto");
-        println!("cargo:rustc-link-lib=static=epee");
-        println!("cargo:rustc-link-lib=static=easylogging");
-        println!("cargo:rustc-link-lib=static=lmdb");
+fn link_shekyl_ffi() {
+    let build_dir = match std::env::var("SHEKYL_BUILD_DIR") {
+        Ok(d) => d,
+        Err(_) => {
+            println!("cargo:warning=SHEKYL_BUILD_DIR not set. Wallet FFI functions will not link. Set it to your Shekyl cmake build directory.");
+            return;
+        }
+    };
 
+    // Derive source dir for Rust FFI library (rust/target/<profile>/).
+    // Default: SHEKYL_BUILD_DIR/../  (i.e., the repo root).
+    let source_dir = std::env::var("SHEKYL_SOURCE_DIR").unwrap_or_else(|_| {
+        std::path::Path::new(&build_dir)
+            .parent()
+            .unwrap_or(std::path::Path::new(&build_dir))
+            .to_string_lossy()
+            .into_owned()
+    });
+
+    // Link the Rust shekyl-ffi crate (economics, PQC, memory ops, etc.).
+    // CMake builds it via BuildRust.cmake into rust/target/<profile>/.
+    for profile in ["release", "debug"] {
+        println!("cargo:rustc-link-search=native={source_dir}/rust/target/{profile}");
+    }
+    println!("cargo:rustc-link-lib=static=shekyl_ffi");
+
+    // ── Search paths ────────────────────────────────────────────────────
+    let search_dirs = [
+        "lib",
+        "src",
+        "src/blockchain_db",
+        "src/checkpoints",
+        "src/common",
+        "src/crypto",
+        "src/crypto/wallet",
+        "src/cryptonote_basic",
+        "src/cryptonote_core",
+        "src/device",
+        "src/device_trezor",
+        "src/hardforks",
+        "src/mnemonics",
+        "src/multisig",
+        "src/net",
+        "src/ringct",
+        "src/rpc",
+        "src/serialization",
+        "contrib/epee/src",
+        "external/easylogging++",
+        "external/db_drivers/liblmdb",
+        "external/randomx",
+    ];
+    for d in &search_dirs {
+        println!("cargo:rustc-link-search=native={build_dir}/{d}");
+    }
+
+    // ── Shekyl static libraries (order matters -- dependents before deps) ──
+    let static_libs = [
+        "wallet",
+        "cryptonote_core",
+        "blockchain_db",
+        "cryptonote_basic",
+        "cryptonote_format_utils_basic",
+        "ringct",
+        "ringct_basic",
+        "multisig",
+        "common",
+        "device",
+        "device_trezor",
+        "net",
+        "rpc_base",
+        "checkpoints",
+        "hardforks",
+        "serialization",
+        "mnemonics",
+        "cncrypto",
+        "wallet-crypto",
+        "randomx",
+        "epee",
+        "easylogging",
+        "lmdb",
+        "version",
+    ];
+    for lib in &static_libs {
+        println!("cargo:rustc-link-lib=static={lib}");
+    }
+
+    // ── Platform-specific system / shared libraries ─────────────────────
+    if cfg!(target_os = "linux") {
         println!("cargo:rustc-link-lib=dylib=stdc++");
-        println!("cargo:rustc-link-lib=dylib=boost_system");
-        println!("cargo:rustc-link-lib=dylib=boost_filesystem");
-        println!("cargo:rustc-link-lib=dylib=boost_thread");
-        println!("cargo:rustc-link-lib=dylib=boost_serialization");
-        println!("cargo:rustc-link-lib=dylib=boost_program_options");
-        println!("cargo:rustc-link-lib=dylib=boost_chrono");
-        println!("cargo:rustc-link-lib=dylib=boost_date_time");
-        println!("cargo:rustc-link-lib=dylib=ssl");
-        println!("cargo:rustc-link-lib=dylib=crypto");
-        println!("cargo:rustc-link-lib=dylib=sodium");
-        println!("cargo:rustc-link-lib=dylib=unbound");
-    } else {
-        println!("cargo:warning=SHEKYL_BUILD_DIR not set. Wallet FFI functions will not link. Set it to your Shekyl cmake build directory.");
+        for lib in &[
+            "boost_system",
+            "boost_filesystem",
+            "boost_thread",
+            "boost_serialization",
+            "boost_program_options",
+            "boost_chrono",
+            "boost_date_time",
+            "boost_regex",
+            "ssl",
+            "crypto",
+            "sodium",
+            "unbound",
+            "hidapi-hidraw",
+            "usb-1.0",
+            "protobuf",
+            "udev",
+        ] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
+    } else if cfg!(target_os = "macos") {
+        println!("cargo:rustc-link-lib=dylib=c++");
+        for lib in &[
+            "boost_system",
+            "boost_filesystem",
+            "boost_thread",
+            "boost_serialization",
+            "boost_program_options",
+            "boost_chrono",
+            "boost_date_time",
+            "boost_regex",
+            "ssl",
+            "crypto",
+            "sodium",
+            "unbound",
+            "hidapi",
+            "usb-1.0",
+            "protobuf",
+        ] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
+        println!("cargo:rustc-link-lib=framework=Security");
+        println!("cargo:rustc-link-lib=framework=CoreFoundation");
+        println!("cargo:rustc-link-lib=framework=IOKit");
+    } else if cfg!(target_os = "windows") {
+        for lib in &[
+            "ws2_32", "bcrypt", "crypt32", "userenv", "ntdll", "iphlpapi",
+        ] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
     }
 }
