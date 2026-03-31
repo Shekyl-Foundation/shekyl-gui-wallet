@@ -31,8 +31,7 @@ use tauri::Manager;
 mod commands;
 mod daemon_rpc;
 mod state;
-mod wallet_process;
-mod wallet_rpc;
+mod wallet_bridge;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -72,15 +71,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let app_state: tauri::State<'_, state::AppState> = window.state();
-                let mut proc = app_state
-                    .wallet_process
-                    .lock()
-                    .unwrap_or_else(|e: std::sync::PoisonError<_>| e.into_inner());
-                if let Some(ref mut child) = *proc {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-                *proc = None;
+                let _ = wallet_bridge::shutdown(&app_state.wallet);
             }
         })
         .run(tauri::generate_context!())

@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### 🔄 Changed
+
+- **Direct wallet2 FFI integration**: Replaced the HTTP JSON-RPC client
+  (`wallet_rpc.rs`) and child process manager (`wallet_process.rs`) with
+  `wallet_bridge.rs`, which calls the C++ `wallet2` library directly through
+  the `shekyl-wallet-rpc` Rust FFI wrapper. The GUI wallet no longer spawns a
+  separate `shekyl-wallet-rpc` process or communicates over HTTP — all wallet
+  operations happen in-process via the C FFI facade.
+- **Updated `state.rs`**: `AppState` now holds a `wallet_bridge::WalletHandle`
+  (`Mutex<Option<Wallet2>>`) instead of `wallet_process: Mutex<Option<Child>>`
+  and `wallet_rpc_url`. Removed `wallet_url()` method; added
+  `daemon_address()` for wallet2 init.
+- **Updated `commands.rs`**: All wallet commands (`create_wallet`,
+  `open_wallet`, `close_wallet`, `get_balance`, `get_address`, `transfer`,
+  `get_transactions`, `get_seed`, `import_wallet_from_seed`,
+  `import_wallet_from_keys`) now call `wallet_bridge` functions instead of
+  `wallet_rpc`. `init_wallet_rpc` creates a `Wallet2` instance directly.
+  `shutdown_wallet_rpc` drops the instance.
+- **Updated `lib.rs`**: Replaced `mod wallet_process` and `mod wallet_rpc` with
+  `mod wallet_bridge`. Window close handler calls `wallet_bridge::shutdown`.
+
+### 🗑️ Removed
+
+- `wallet_rpc.rs` — async HTTP JSON-RPC client (replaced by direct FFI)
+- `wallet_process.rs` — child process spawner/manager (no longer needed)
+- `which` crate dependency (was used for binary resolution)
+
+### ✨ Added
+
+- `wallet_bridge.rs` — direct FFI bridge to wallet2 via `shekyl-wallet-rpc`
+  crate. Provides the same API surface as the old `wallet_rpc.rs` but without
+  HTTP overhead or process management.
+- `shekyl-wallet-rpc` path dependency in `Cargo.toml`
+- `build.rs` with `SHEKYL_BUILD_DIR` support for linking C++ wallet libraries
+
 ## 0.1.2-beta -- 2026-03-30
 
 ### Wallet Startup Flow

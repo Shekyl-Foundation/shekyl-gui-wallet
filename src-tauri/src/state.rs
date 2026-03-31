@@ -27,12 +27,12 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::path::PathBuf;
-use std::process::Child;
-use std::sync::Mutex;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+
+use crate::wallet_bridge;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -105,19 +105,16 @@ pub struct AppState {
     pub network: RwLock<NetworkType>,
     pub http: Client,
 
-    // Wallet RPC
-    pub wallet_rpc_url: RwLock<String>,
+    // Wallet (direct FFI via shekyl-wallet-rpc)
     pub wallet_dir: RwLock<PathBuf>,
     pub wallet_open: RwLock<bool>,
     pub wallet_name: RwLock<Option<String>>,
-    /// std::sync::Mutex because Child is not Send-safe with tokio RwLock on all platforms.
-    pub wallet_process: Mutex<Option<Child>>,
+    pub wallet: wallet_bridge::WalletHandle,
 }
 
 impl AppState {
     pub fn new() -> Self {
         let net = NetworkType::default();
-        let wallet_port = net.default_wallet_rpc_port();
         Self {
             daemon_url: RwLock::new(format!(
                 "http://127.0.0.1:{}/json_rpc",
@@ -128,11 +125,10 @@ impl AppState {
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .expect("failed to create HTTP client"),
-            wallet_rpc_url: RwLock::new(format!("http://127.0.0.1:{wallet_port}/json_rpc")),
             wallet_dir: RwLock::new(default_wallet_dir()),
             wallet_open: RwLock::new(false),
             wallet_name: RwLock::new(None),
-            wallet_process: Mutex::new(None),
+            wallet: wallet_bridge::new_handle(),
         }
     }
 
@@ -147,7 +143,13 @@ impl AppState {
         url.trim_end_matches("/json_rpc").to_string()
     }
 
-    pub async fn wallet_url(&self) -> String {
-        self.wallet_rpc_url.read().await.clone()
+    /// Daemon address for wallet2 init (host:port without http:// or /json_rpc).
+    pub async fn daemon_address(&self) -> String {
+        let url = self.daemon_url.read().await.clone();
+        url.trim_end_matches("/json_rpc")
+            .trim_end_matches('/')
+            .trim_start_matches("http://")
+            .trim_start_matches("https://")
+            .to_string()
     }
 }

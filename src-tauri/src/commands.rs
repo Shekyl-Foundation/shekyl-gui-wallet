@@ -36,8 +36,7 @@ use tauri::State;
 
 use crate::daemon_rpc;
 use crate::state::{AppState, NetworkType};
-use crate::wallet_process;
-use crate::wallet_rpc;
+use crate::wallet_bridge;
 
 const SCALE: f64 = 1_000_000.0;
 const BLOCKS_PER_YEAR: f64 = 262_800.0; // 2-minute blocks
@@ -271,12 +270,6 @@ pub async fn set_daemon_connection(
     *state.daemon_url.write().await = new_url;
     *state.network.write().await = net;
 
-    let new_wallet_url = format!(
-        "http://127.0.0.1:{}/json_rpc",
-        net.default_wallet_rpc_port()
-    );
-    *state.wallet_rpc_url.write().await = new_wallet_url;
-
     Ok(true)
 }
 
@@ -385,57 +378,27 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
 
 #[tauri::command]
 pub async fn init_wallet_rpc(state: State<'_, AppState>) -> Result<bool, String> {
-    let wallet_url = state.wallet_url().await;
-
-    // If wallet-rpc is already responding, skip spawn
-    if wallet_process::port_is_occupied(&state.http, &wallet_url).await {
+    if wallet_bridge::is_initialized(&state.wallet) {
         return Ok(true);
     }
 
-    let daemon_url = state.url().await;
+    let daemon_addr = state.daemon_address().await;
     let wallet_dir = state.wallet_dir.read().await.clone();
     let network = *state.network.read().await;
-    let rpc_port = network.default_wallet_rpc_port();
+    let nettype: u8 = match network {
+        NetworkType::Mainnet => 0,
+        NetworkType::Testnet => 1,
+        NetworkType::Stagenet => 2,
+    };
 
-    let binary = wallet_process::resolve_binary(None)?;
-    let child = wallet_process::spawn_wallet_rpc(&binary, &wallet_dir, &daemon_url, rpc_port)?;
-
-    {
-        let mut proc = state
-            .wallet_process
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        *proc = Some(child);
-    }
-
-    wallet_process::wait_for_ready(&state.http, &wallet_url).await?;
+    let dir_str = wallet_dir.to_string_lossy().to_string();
+    wallet_bridge::init(&state.wallet, nettype, &daemon_addr, &dir_str)?;
     Ok(true)
 }
 
 #[tauri::command]
 pub async fn shutdown_wallet_rpc(state: State<'_, AppState>) -> Result<bool, String> {
-    let wallet_url = state.wallet_url().await;
-
-    // Try graceful RPC stop before touching the mutex
-    let _ = wallet_rpc::stop_wallet(&state.http, &wallet_url).await;
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-    {
-        let mut proc = state
-            .wallet_process
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        if let Some(ref mut child) = *proc {
-            match child.try_wait() {
-                Ok(Some(_)) => {}
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-            }
-        }
-        *proc = None;
-    }
+    wallet_bridge::shutdown(&state.wallet)?;
 
     *state.wallet_open.write().await = false;
     *state.wallet_name.write().await = None;
@@ -451,14 +414,13 @@ pub async fn create_wallet(
     password: String,
     language: Option<String>,
 ) -> Result<CreateWalletResult, String> {
-    let wallet_url = state.wallet_url().await;
     let network = state.network.read().await;
     let lang = language.unwrap_or_else(|| "English".into());
 
-    wallet_rpc::create_wallet(&state.http, &wallet_url, &name, &password, &lang).await?;
+    wallet_bridge::create_wallet(&state.wallet, &name, &password, &lang)?;
 
-    let addr_resp = wallet_rpc::get_address(&state.http, &wallet_url, 0).await?;
-    let seed = wallet_rpc::query_key(&state.http, &wallet_url, "mnemonic").await?;
+    let addr_resp = wallet_bridge::get_address(&state.wallet, 0)?;
+    let seed = wallet_bridge::query_key(&state.wallet, "mnemonic")?;
 
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(name.clone());
@@ -478,12 +440,11 @@ pub async fn open_wallet(
     filename: String,
     password: String,
 ) -> Result<WalletInfo, String> {
-    let wallet_url = state.wallet_url().await;
     let network = state.network.read().await;
 
-    wallet_rpc::open_wallet(&state.http, &wallet_url, &filename, &password).await?;
+    wallet_bridge::open_wallet(&state.wallet, &filename, &password)?;
 
-    let addr_resp = wallet_rpc::get_address(&state.http, &wallet_url, 0).await?;
+    let addr_resp = wallet_bridge::get_address(&state.wallet, 0)?;
 
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(filename.clone());
@@ -498,8 +459,7 @@ pub async fn open_wallet(
 
 #[tauri::command]
 pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
-    let wallet_url = state.wallet_url().await;
-    wallet_rpc::close_wallet(&state.http, &wallet_url).await?;
+    wallet_bridge::close_wallet(&state.wallet)?;
 
     *state.wallet_open.write().await = false;
     *state.wallet_name.write().await = None;
@@ -515,22 +475,13 @@ pub async fn import_wallet_from_seed(
     language: Option<String>,
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
-    let wallet_url = state.wallet_url().await;
     let network = state.network.read().await;
     let lang = language.unwrap_or_else(|| "English".into());
     let height = restore_height.unwrap_or(0);
 
-    let resp = wallet_rpc::restore_deterministic_wallet(
-        &state.http,
-        &wallet_url,
-        &name,
-        &seed,
-        &password,
-        &lang,
-        height,
-        "",
-    )
-    .await?;
+    let resp = wallet_bridge::restore_deterministic_wallet(
+        &state.wallet, &name, &seed, &password, &lang, height, "",
+    )?;
 
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(name.clone());
@@ -555,23 +506,13 @@ pub async fn import_wallet_from_keys(
     language: Option<String>,
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
-    let wallet_url = state.wallet_url().await;
     let network = state.network.read().await;
     let lang = language.unwrap_or_else(|| "English".into());
     let height = restore_height.unwrap_or(0);
 
-    let resp = wallet_rpc::generate_from_keys(
-        &state.http,
-        &wallet_url,
-        &name,
-        &address,
-        &spendkey,
-        &viewkey,
-        &password,
-        &lang,
-        height,
-    )
-    .await?;
+    let resp = wallet_bridge::generate_from_keys(
+        &state.wallet, &name, &address, &spendkey, &viewkey, &password, &lang, height,
+    )?;
 
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(name.clone());
@@ -590,8 +531,7 @@ pub async fn get_seed(state: State<'_, AppState>) -> Result<String, String> {
     if !is_open {
         return Err("No wallet is open".into());
     }
-    let wallet_url = state.wallet_url().await;
-    wallet_rpc::query_key(&state.http, &wallet_url, "mnemonic").await
+    wallet_bridge::query_key(&state.wallet, "mnemonic")
 }
 
 // ─── Wallet data commands ────────────────────────────────────────────────────
@@ -607,8 +547,7 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
         });
     }
 
-    let wallet_url = state.wallet_url().await;
-    let resp = wallet_rpc::get_balance(&state.http, &wallet_url, 0).await?;
+    let resp = wallet_bridge::get_balance(&state.wallet, 0)?;
 
     Ok(Balance {
         total: resp.balance,
@@ -628,8 +567,7 @@ pub async fn get_address(
         return Err("No wallet is open".into());
     }
 
-    let wallet_url = state.wallet_url().await;
-    let resp = wallet_rpc::get_address(&state.http, &wallet_url, account).await?;
+    let resp = wallet_bridge::get_address(&state.wallet, account)?;
     Ok(resp.address)
 }
 
@@ -644,8 +582,7 @@ pub async fn transfer(
         return Err("No wallet is open".into());
     }
 
-    let wallet_url = state.wallet_url().await;
-    let resp = wallet_rpc::transfer(&state.http, &wallet_url, &address, amount).await?;
+    let resp = wallet_bridge::transfer(&state.wallet, &address, amount)?;
 
     Ok(TxInfo {
         hash: resp.tx_hash,
@@ -669,8 +606,7 @@ pub async fn get_transactions(
         return Ok(vec![]);
     }
 
-    let wallet_url = state.wallet_url().await;
-    let resp = wallet_rpc::get_transfers(&state.http, &wallet_url, true, true, true, false).await?;
+    let resp = wallet_bridge::get_transfers(&state.wallet, true, true, true, false)?;
 
     let mut txs: Vec<TxInfo> = Vec::new();
     for entry in resp.r#in {
