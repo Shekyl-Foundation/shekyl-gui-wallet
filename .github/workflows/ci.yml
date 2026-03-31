@@ -20,6 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Checkout Shekyl core (wallet FFI dependency)
+        uses: actions/checkout@v5
+        with:
+          repository: Shekyl-Foundation/shekyl-core
+          ref: dev
+          path: ../Shekyl
+
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
