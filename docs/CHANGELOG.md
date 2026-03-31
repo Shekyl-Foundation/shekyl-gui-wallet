@@ -2,17 +2,6 @@
 
 ## Unreleased
 
-### ✨ Added
-
-- **Windows MSVC build support in release workflow**: The release CI now
-  builds shekyl-core from source using Visual Studio / MSVC on
-  `windows-latest`, with vcpkg for C++ dependencies. `SHEKYL_BUILD_DIR`
-  is set for all platforms so the Tauri linker resolves wallet FFI
-  symbols on Windows.
-- **`build.rs` Windows linkage**: Added vcpkg search paths, static Boost
-  / OpenSSL / libsodium / protobuf linking, MSVC `Release/` subdirectory
-  search paths, and `wallet-crypto.lib` detection for MSVC builds.
-
 ### 🔄 Changed
 
 - **Direct wallet2 FFI integration**: Replaced the HTTP JSON-RPC client
