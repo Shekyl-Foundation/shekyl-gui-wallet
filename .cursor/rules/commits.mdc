@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+
+# Commit rules
+
+1. Do NOT add any Cursor branding to commit headers or message (i.e. --trailer "Made with: Cursor)

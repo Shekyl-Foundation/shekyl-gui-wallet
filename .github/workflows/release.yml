@@ -14,7 +14,7 @@ env:
 
 jobs:
   publish:
-    name: Build (${{ matrix.platform }})
+    name: Build (${{ matrix.platform }}${{ matrix.tauri_target && format(' {0}', matrix.tauri_target) || '' }})
     strategy:
       fail-fast: false
       matrix:
@@ -24,9 +24,13 @@ jobs:
           - platform: windows-latest
             args: --bundles nsis
           - platform: macos-latest
+            tauri_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
+            osx_arch: arm64
           - platform: macos-latest
+            tauri_target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
+            osx_arch: x86_64
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -45,6 +49,12 @@ jobs:
             libboost-all-dev libssl-dev libzmq3-dev libunbound-dev \
             libsodium-dev libhidapi-dev libusb-1.0-0-dev \
             libprotobuf-dev protobuf-compiler
+
+      - name: Install macOS build dependencies
+        if: matrix.platform == 'macos-latest'
+        run: |
+          brew install --quiet cmake boost hidapi openssl zmq libpgm \
+            miniupnpc expat protobuf abseil ccache libsodium libunbound
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -71,6 +81,20 @@ jobs:
             -DBUILD_TESTS=OFF
           cmake --build ../Shekyl/build -- -j$(nproc)
 
+      - name: Build Shekyl wallet library (macOS)
+        if: matrix.platform == 'macos-latest'
+        env:
+          OPENSSL_ROOT_DIR: ${{ runner.temp }}/_brew_openssl
+        run: |
+          ln -sf "$(brew --prefix openssl@3)" "$OPENSSL_ROOT_DIR"
+          cmake -S ../Shekyl -B ../Shekyl/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_TESTS=OFF \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.osx_arch }} \
+            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
+          cmake --build ../Shekyl/build -- -j$(sysctl -n hw.logicalcpu)
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -78,7 +102,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHEKYL_BUILD_DIR: ${{ matrix.platform == 'ubuntu-22.04' && format('{0}/../Shekyl/build', github.workspace) || '' }}
+          SHEKYL_BUILD_DIR: ${{ (matrix.platform == 'ubuntu-22.04' || matrix.platform == 'macos-latest') && format('{0}/../Shekyl/build', github.workspace) || '' }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Shekyl Wallet ${{ github.ref_name }}"
