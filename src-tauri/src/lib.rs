@@ -31,6 +31,7 @@ use tauri::Manager;
 mod commands;
 mod daemon_rpc;
 mod state;
+#[allow(dead_code)]
 mod wallet_bridge;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

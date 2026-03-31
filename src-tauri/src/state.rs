@@ -52,10 +52,6 @@ impl NetworkType {
         }
     }
 
-    pub fn default_wallet_rpc_port(self) -> u16 {
-        self.default_rpc_port() + 1
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Mainnet => "mainnet",
