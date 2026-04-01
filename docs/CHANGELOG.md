@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### 🔄 Changed
+
+- **Static linking via `contrib/depends`**: Linux release builds now use
+  shekyl-core's `contrib/depends` system to build all third-party libraries
+  (Boost, OpenSSL, libsodium, protobuf, libunbound, hidapi, libusb, zeromq)
+  from source with static linking. The `.deb` package only depends on
+  `libwebkit2gtk-4.1-0`, `libayatana-appindicator3-1`, and `libudev1`. A single
+  universal `.deb` replaces the per-distro packages.
+- **`build.rs` static linking support**: New `SHEKYL_DEPENDS_PREFIX` env var
+  enables static linking of all third-party libraries from the depends prefix.
+  Falls back to dynamic linking for local development when unset.
+- **Collapsed Ubuntu CI matrix**: Removed the `ubuntu-22.04` / `ubuntu-24.04`
+  dual-build and the `sed`-based dependency patching. A single `ubuntu-24.04`
+  runner produces one universal `.deb` + one `.AppImage`.
+
+### 🗑️ Removed
+
+- Per-distro `.deb` dependency lists (Boost 1.74/1.83, libssl3/libssl3t64, etc.)
+  -- no longer needed with static linking.
+
 ## 0.1.3-beta -- 2026-04-01
 
 ### 🔄 Changed

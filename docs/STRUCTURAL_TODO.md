@@ -3,57 +3,58 @@
 Long-term improvements that are not blocking current releases but should be
 addressed as the project matures.
 
-## Static linking of third-party libraries (Linux)
+## ~~Static linking of third-party libraries (Linux)~~ DONE
+
+**Status**: Implemented via `contrib/depends` integration.
+
+The Linux release build now uses shekyl-core's `contrib/depends` system to build
+all third-party libraries (Boost, OpenSSL, libsodium, protobuf, libunbound,
+hidapi, libusb, zeromq) from source with static linking. The `.deb` only depends
+on system-level packages (`libwebkit2gtk-4.1-0`, `libayatana-appindicator3-1`,
+`libudev1`). A single `.deb` works across Ubuntu 22.04, 24.04, and other distros.
+
+## Use `contrib/depends` for macOS builds
+
+**Priority**: Low
+**Prerequisite**: Darwin SDK available on GitHub Actions macOS runners
+
+The `contrib/depends` system supports macOS cross-compilation
+(`HOST=aarch64-apple-darwin11`). Using it would replace Homebrew in the macOS CI
+build, giving identical static linking and eliminating the Homebrew prefix
+detection in `build.rs`. Currently deferred because Homebrew works and the darwin
+SDK setup for depends is non-trivial.
+
+## Replace Boost with Rust crates (long-term)
+
+**Priority**: Low (packaging problem solved by static linking)
+**Tracking**: Happens organically as wallet2 code migrates to Rust
+
+### Migration tiers
+
+**Tier 1 -- Easy wins (weeks):** `boost::optional`/`variant` (Rust built-in),
+`program_options` (clap), `regex` (regex crate), `chrono`/`date_time` (chrono
+crate), `algorithm` (str methods), `format` (format! macro).
+
+**Tier 2 -- Medium (1-2 months):** `filesystem` (std::fs), `thread`
+(std::thread/sync/parking_lot).
+
+**Tier 3 -- Hard (1-2 months + format migration):** `serialization` (serde +
+bincode; requires wallet cache format migration).
+
+**Tier 4 -- Hardest (2-3 months):** `asio` (tokio; entire epee networking
+rewrite).
+
+## Replace epee (parallel track)
 
 **Priority**: Medium
-**Tracking**: Option 3 from the multi-distro `.deb` discussion
+**Tracking**: Separate initiative from Boost replacement
 
-### Problem
+Epee provides: custom HTTP stack, `portable_storage` serialization, logging
+(`MINFO`/`MERROR`), `string_tools`, `wipeable_string`, `span`, `file_io_utils`.
 
-The Linux `.deb` packages depend on distro-specific versioned shared libraries
-(e.g., `libboost-filesystem1.74.0` on Ubuntu 22.04, `libboost-filesystem1.83.0`
-on 24.04). Each Ubuntu LTS ships its own Boost/protobuf/OpenSSL version and the
-packages are not cross-installable. This forces us to build a separate `.deb`
-per Ubuntu release and leaves non-Ubuntu distros without a `.deb` at all.
+Analysis shows ~30% of Boost usage is inside epee and ~70% is direct usage in
+`src/`. Replacing epee eliminates its Boost subset but does not shortcut the
+direct Boost usage in wallet2/core. Both tracks must complete independently.
 
-### Current workaround
-
-- Build matrix includes both `ubuntu-22.04` and `ubuntu-24.04`, producing
-  distro-suffixed `.deb` files (`_ubuntu-22.04.deb`, `_ubuntu-24.04.deb`).
-- AppImage is offered as the universal Linux option (bundles all `.so` files).
-
-### Target state
-
-Statically link Boost, OpenSSL, libsodium, protobuf, libunbound, hidapi, and
-libusb from source in CI so the resulting binary has zero third-party shared
-library dependencies. This produces a single `.deb` that works on any Linux
-distro without version-pinned dependencies.
-
-### Why it's not done yet
-
-Distro-provided static libraries (from `-dev` packages) are **not compiled with
-`-fPIC`**, which is required when linking into Tauri's `cdylib` output. The
-linker fails with:
-
-```
-relocation R_X86_64_PC32 cannot be used against symbol 'stderr';
-recompile with -fPIC
-```
-
-### Implementation path
-
-1. Add CI steps to build Boost, OpenSSL, libsodium, protobuf, libunbound,
-   hidapi, and libusb **from source** with `-fPIC` (e.g., `./b2 cflags=-fPIC
-   cxxflags=-fPIC` for Boost, `./Configure -fPIC` for OpenSSL).
-2. Install these into a local prefix (e.g., `${{ runner.temp }}/static-deps`).
-3. Point `build.rs` at that prefix via `SHEKYL_STATIC_DEPS` or similar env var.
-4. Switch `build.rs` Linux section from `dylib=` to `static=` linking.
-5. Remove distro-versioned entries from `tauri.conf.json` `.deb` depends
-   (keep only truly system-level deps like `libudev1`, `libwebkit2gtk-4.1-0`).
-6. Collapse the Ubuntu matrix back to a single runner.
-7. Verify the resulting binary runs on Ubuntu 22.04, 24.04, Fedora, and Arch.
-
-### Estimated effort
-
-~1-2 days of CI pipeline work. Boost is the slowest to build from source
-(~3-5 min with ccache). All other libraries are fast (<30s each).
+Rust replacements: `hyper`/`axum` (HTTP), `serde` (serialization), `tracing`
+(logging), std Rust equivalents for utilities.

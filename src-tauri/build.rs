@@ -117,34 +117,8 @@ fn link_shekyl_ffi() {
     }
 
     // ── Platform-specific system / shared libraries ─────────────────────
-    //
-    // Strategy: dynamically link third-party libraries. On Linux the .deb
-    // declares runtime dependencies for Ubuntu 22.04; for other distros use
-    // the AppImage which bundles all .so files automatically. On macOS the
-    // .app bundle is expected to be used on systems with Homebrew (or we
-    // can investigate dylib bundling / static linking from source later).
     if cfg!(target_os = "linux") {
-        println!("cargo:rustc-link-lib=dylib=stdc++");
-        for lib in &[
-            "boost_system",
-            "boost_filesystem",
-            "boost_thread",
-            "boost_serialization",
-            "boost_program_options",
-            "boost_chrono",
-            "boost_date_time",
-            "boost_regex",
-            "ssl",
-            "crypto",
-            "sodium",
-            "unbound",
-            "hidapi-hidraw",
-            "usb-1.0",
-            "protobuf",
-            "udev",
-        ] {
-            println!("cargo:rustc-link-lib=dylib={lib}");
-        }
+        link_linux();
     } else if cfg!(target_os = "macos") {
         let homebrew_lib = brew_prefix_lib(None);
         let openssl_lib = brew_prefix_lib(Some("openssl@3"));
@@ -190,6 +164,77 @@ fn link_shekyl_ffi() {
     } else if cfg!(target_os = "windows") {
         for lib in &[
             "ws2_32", "bcrypt", "crypt32", "userenv", "ntdll", "iphlpapi",
+        ] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
+    }
+}
+
+/// Link third-party libraries on Linux.
+///
+/// When `SHEKYL_DEPENDS_PREFIX` is set (CI builds via `contrib/depends`),
+/// all third-party libraries are statically linked from the depends prefix.
+/// Otherwise, fall back to dynamic linking for local development.
+fn link_linux() {
+    println!("cargo:rustc-link-lib=dylib=stdc++");
+
+    if let Ok(prefix) = std::env::var("SHEKYL_DEPENDS_PREFIX") {
+        println!("cargo:rustc-link-search=native={prefix}/lib");
+
+        for lib in &[
+            "boost_system",
+            "boost_filesystem",
+            "boost_thread",
+            "boost_serialization",
+            "boost_program_options",
+            "boost_chrono",
+            "boost_date_time",
+            "boost_regex",
+            "boost_locale",
+        ] {
+            println!("cargo:rustc-link-lib=static={lib}");
+        }
+
+        for lib in &[
+            "ssl",
+            "crypto",
+            "sodium",
+            "unbound",
+            "hidapi-hidraw",
+            "usb-1.0",
+            "protobuf-lite",
+            "zmq",
+            "udev",
+            "unwind",
+        ] {
+            let static_path = format!("{prefix}/lib/lib{lib}.a");
+            if std::path::Path::new(&static_path).exists() {
+                println!("cargo:rustc-link-lib=static={lib}");
+            }
+        }
+
+        // System libraries that are always dynamically linked
+        for lib in &["dl", "pthread", "rt", "m"] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
+    } else {
+        for lib in &[
+            "boost_system",
+            "boost_filesystem",
+            "boost_thread",
+            "boost_serialization",
+            "boost_program_options",
+            "boost_chrono",
+            "boost_date_time",
+            "boost_regex",
+            "ssl",
+            "crypto",
+            "sodium",
+            "unbound",
+            "hidapi-hidraw",
+            "usb-1.0",
+            "protobuf",
+            "udev",
         ] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
