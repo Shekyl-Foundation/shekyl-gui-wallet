@@ -1,8 +1,22 @@
 # Shekyl Wallet Changelog
 
+## Unreleased
+
 ## 0.1.3-beta -- 2026-04-01
 
 ### 🔄 Changed
+
+- **Multi-distro `.deb` packages**: Release workflow now builds separate `.deb`
+  files for Ubuntu 22.04 and 24.04 with correct versioned dependencies for each
+  (Boost 1.74 vs 1.83, `libssl3` vs `libssl3t64`, `libprotobuf23` vs
+  `libprotobuf32t64`). Files are suffixed with the distro version
+  (e.g., `_ubuntu-22.04.deb`, `_ubuntu-24.04.deb`). AppImage remains the
+  universal Linux option.
+- **Release workflow restructured**: A `create-release` job now creates the
+  GitHub release first; Linux builds use `npx tauri build` with manual artifact
+  upload (distro-suffixed `.deb` names), while macOS and Windows continue using
+  `tauri-action` with `releaseId`.
+
 
 - **Direct wallet2 FFI integration**: Replaced the HTTP JSON-RPC client
   (`wallet_rpc.rs`) and child process manager (`wallet_process.rs`) with

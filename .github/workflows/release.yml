@@ -13,7 +13,29 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  publish:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Shekyl Wallet ${{ github.ref_name }}"
+          body: |
+            See the assets below to download and install Shekyl Wallet for your platform.
+
+            **Linux**: Pick the `.deb` matching your Ubuntu version, or use the `.AppImage` (works on any distro).
+
+            Refer to the [installation guide](https://github.com/Shekyl-Foundation/shekyl-gui-wallet/blob/main/docs/INSTALLATION.md) for detailed instructions.
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
+          draft: false
+
+  build:
+    needs: create-release
     name: Build (${{ matrix.platform }}${{ matrix.tauri_target && format(' {0}', matrix.tauri_target) || '' }})
     strategy:
       fail-fast: false
@@ -21,6 +43,8 @@ jobs:
         include:
           - platform: ubuntu-22.04
             args: ""
+          - platform: ubuntu-24.04
+            args: "--bundles deb"
           - platform: windows-latest
             args: --bundles nsis
           - platform: macos-latest
@@ -35,7 +59,7 @@ jobs:
         run: git clone --depth 1 --branch main --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../Shekyl
 
       - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -68,7 +92,7 @@ jobs:
           workspaces: ./src-tauri -> target
 
       - name: Build Shekyl wallet library (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           cmake -S ../Shekyl -B ../Shekyl/build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -92,18 +116,55 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build and release
+      # ── Linux: patch deps, build manually, upload with distro suffix ──
+
+      - name: Patch .deb dependencies for Ubuntu 24.04
+        if: matrix.platform == 'ubuntu-24.04'
+        working-directory: src-tauri
+        run: |
+          sed -i 's/1\.74\.0/1.83.0/g' tauri.conf.json
+          sed -i 's/"libssl3"/"libssl3t64"/g' tauri.conf.json
+          sed -i 's/"libprotobuf23"/"libprotobuf32t64"/g' tauri.conf.json
+
+      - name: Build Tauri app (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        env:
+          SHEKYL_BUILD_DIR: ${{ format('{0}/../Shekyl/build', github.workspace) }}
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Upload Linux .deb to release
+        if: startsWith(matrix.platform, 'ubuntu')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          DISTRO="${{ matrix.platform }}"
+          DEB=$(find src-tauri/target/release/bundle/deb -name '*.deb' | head -1)
+          if [ -n "$DEB" ]; then
+            BASE=$(basename "$DEB" .deb)
+            cp "$DEB" "${BASE}_${DISTRO}.deb"
+            gh release upload "$TAG" "${BASE}_${DISTRO}.deb" --clobber
+          fi
+
+      - name: Upload Linux AppImage to release
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          if [ -n "$APPIMAGE" ]; then
+            gh release upload "$TAG" "$APPIMAGE" --clobber
+          fi
+
+      # ── macOS / Windows: use tauri-action with existing release ──
+
+      - name: Build and upload (macOS / Windows)
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHEKYL_BUILD_DIR: ${{ matrix.platform != 'windows-latest' && format('{0}/../Shekyl/build', github.workspace) || '' }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Shekyl Wallet ${{ github.ref_name }}"
-          releaseBody: |
-            See the assets below to download and install Shekyl Wallet for your platform.
-
-            Refer to the [installation guide](https://github.com/Shekyl-Foundation/shekyl-gui-wallet/blob/main/docs/INSTALLATION.md) for detailed instructions.
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
