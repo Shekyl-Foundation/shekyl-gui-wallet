@@ -49,8 +49,16 @@
   plus the `shekyl_ffi` Rust FFI crate, with platform-specific system library
   lists for Linux (`stdc++`, Boost, OpenSSL, hidapi, udev), macOS (`c++`,
   frameworks: Security, CoreFoundation, IOKit), and Windows (ws2_32, bcrypt).
-- **macOS cross-architecture support**: builds the C++ library with
-  `CMAKE_OSX_ARCHITECTURES` matching the Tauri target (arm64 or x86_64).
+- **macOS Homebrew detection**: `build.rs` discovers Homebrew prefix at build
+  time via `brew --prefix` and `brew --prefix openssl@3`, and conditionally
+  links only Boost components that produce library files (Boost.System is
+  header-only in Boost 1.69+).
+- **Linux `.deb` runtime dependencies**: declared all 14 runtime library
+  dependencies (Boost, OpenSSL, libsodium, libunbound, hidapi, protobuf, etc.)
+  so `apt install` pulls them automatically on Ubuntu 22.04. For cross-distro
+  Linux support, use the AppImage which bundles all shared libraries.
+- **shekyl-core cloned from `main`**: CI workflows now pull shekyl-core from
+  the `main` branch (stable) rather than `dev`.
 - **Windows**: deferred pending MSVC compatibility investigation. The current
   shekyl-core codebase uses GCC/MinGW which produces `.a` archives
   incompatible with MSVC's `link.exe`. Key issues identified:
