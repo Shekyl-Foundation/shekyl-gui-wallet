@@ -1,6 +1,6 @@
 # Shekyl Wallet Changelog
 
-## Unreleased
+## 0.1.3-beta -- 2026-04-01
 
 ### 🔄 Changed
 
