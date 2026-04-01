@@ -28,7 +28,7 @@ jobs:
           body: |
             See the assets below to download and install Shekyl Wallet for your platform.
 
-            **Linux**: Pick the `.deb` matching your Ubuntu version, or use the `.AppImage` (works on any distro).
+            **Linux**: The `.deb` is universal (all dependencies statically linked). The `.AppImage` also works on any distro.
 
             Refer to the [installation guide](https://github.com/Shekyl-Foundation/shekyl-gui-wallet/blob/main/docs/INSTALLATION.md) for detailed instructions.
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
@@ -41,10 +41,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
-            args: ""
           - platform: ubuntu-24.04
-            args: "--bundles deb"
+            args: ""
           - platform: windows-latest
             args: --bundles nsis
           - platform: macos-latest
@@ -58,22 +56,55 @@ jobs:
       - name: Checkout Shekyl core (wallet FFI dependency)
         run: git clone --depth 1 --branch main --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../Shekyl
 
-      - name: Install Linux system dependencies
+      # ── Linux: use contrib/depends for all third-party libs ──
+
+      - name: Install Linux build tools and Tauri system deps
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential libtool cmake autotools-dev automake \
+            pkg-config ccache python3 gperf bsdmainutils curl bzip2 \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            build-essential cmake pkg-config ccache \
-            libboost-all-dev libssl-dev libzmq3-dev libunbound-dev \
-            libsodium-dev libhidapi-dev libusb-1.0-0-dev \
-            libprotobuf-dev protobuf-compiler libudev-dev
+            libdbus-1-dev libharfbuzz-dev libudev-dev
+
+      - name: Cache depends prefix
+        if: startsWith(matrix.platform, 'ubuntu')
+        uses: actions/cache@v4
+        id: depends-cache
+        with:
+          path: ../Shekyl/contrib/depends/built
+          key: depends-x86_64-linux-gnu-${{ hashFiles('../Shekyl/contrib/depends/packages/*') }}
+          restore-keys: |
+            depends-x86_64-linux-gnu-
+
+      - name: Build shekyl-core with depends (all deps from source, static)
+        if: startsWith(matrix.platform, 'ubuntu')
+        working-directory: ../Shekyl
+        run: make depends target=x86_64-unknown-linux-gnu -j$(nproc)
+
+      # ── macOS: Homebrew for now (depends cross-build is stretch goal) ──
 
       - name: Install macOS build dependencies
         if: startsWith(matrix.platform, 'macos')
         run: |
           brew install --quiet cmake boost hidapi openssl zmq libpgm \
             miniupnpc expat protobuf abseil ccache libsodium unbound
+
+      - name: Build Shekyl wallet library (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          OPENSSL_ROOT_DIR: ${{ runner.temp }}/_brew_openssl
+        run: |
+          ln -sf "$(brew --prefix openssl@3)" "$OPENSSL_ROOT_DIR"
+          cmake -S ../Shekyl -B ../Shekyl/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_TESTS=OFF \
+            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
+          cmake --build ../Shekyl/build -- -j$(sysctl -n hw.logicalcpu)
+
+      # ── Common: Node, Rust, frontend ──
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -91,46 +122,17 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
-      - name: Build Shekyl wallet library (Linux)
-        if: startsWith(matrix.platform, 'ubuntu')
-        run: |
-          cmake -S ../Shekyl -B ../Shekyl/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_TESTS=OFF
-          cmake --build ../Shekyl/build -- -j$(nproc)
-
-      - name: Build Shekyl wallet library (macOS)
-        if: startsWith(matrix.platform, 'macos')
-        env:
-          OPENSSL_ROOT_DIR: ${{ runner.temp }}/_brew_openssl
-        run: |
-          ln -sf "$(brew --prefix openssl@3)" "$OPENSSL_ROOT_DIR"
-          cmake -S ../Shekyl -B ../Shekyl/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_TESTS=OFF \
-            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
-          cmake --build ../Shekyl/build -- -j$(sysctl -n hw.logicalcpu)
-
       - name: Install frontend dependencies
         run: npm ci
 
-      # ── Linux: patch deps, build manually, upload with distro suffix ──
-
-      - name: Patch .deb dependencies for Ubuntu 24.04
-        if: matrix.platform == 'ubuntu-24.04'
-        working-directory: src-tauri
-        run: |
-          sed -i 's/1\.74\.0/1.83.0/g' tauri.conf.json
-          sed -i 's/"libssl3"/"libssl3t64"/g' tauri.conf.json
-          sed -i 's/"libprotobuf23"/"libprotobuf32t64"/g' tauri.conf.json
+      # ── Linux: build Tauri and upload artifacts manually ──
 
       - name: Build Tauri app (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
         env:
-          SHEKYL_BUILD_DIR: ${{ format('{0}/../Shekyl/build', github.workspace) }}
-        run: npx tauri build ${{ matrix.args }}
+          SHEKYL_BUILD_DIR: ${{ github.workspace }}/../Shekyl/build/x86_64-unknown-linux-gnu/release
+          SHEKYL_DEPENDS_PREFIX: ${{ github.workspace }}/../Shekyl/contrib/depends/x86_64-unknown-linux-gnu
+        run: npx tauri build
 
       - name: Upload Linux .deb to release
         if: startsWith(matrix.platform, 'ubuntu')
@@ -138,16 +140,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
-          DISTRO="${{ matrix.platform }}"
           DEB=$(find src-tauri/target/release/bundle/deb -name '*.deb' | head -1)
           if [ -n "$DEB" ]; then
-            BASE=$(basename "$DEB" .deb)
-            cp "$DEB" "${BASE}_${DISTRO}.deb"
-            gh release upload "$TAG" "${BASE}_${DISTRO}.deb" --clobber
+            gh release upload "$TAG" "$DEB" --clobber
           fi
 
       - name: Upload Linux AppImage to release
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
