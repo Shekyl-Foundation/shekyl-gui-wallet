@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.4-beta -- 2026-04-01
+
 ### 🔄 Changed
 
 - **Static linking via `contrib/depends`**: Linux release builds now use
