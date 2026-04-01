@@ -119,8 +119,11 @@ fn link_shekyl_ffi() {
     // ── Platform-specific system / shared libraries ─────────────────────
     if cfg!(target_os = "linux") {
         println!("cargo:rustc-link-lib=dylib=stdc++");
+
+        // Third-party libraries: link statically so the binary is portable
+        // across Linux distros without requiring matching -dev packages.
+        // Order: dependents before their dependencies.
         for lib in &[
-            "boost_system",
             "boost_filesystem",
             "boost_thread",
             "boost_serialization",
@@ -128,15 +131,21 @@ fn link_shekyl_ffi() {
             "boost_chrono",
             "boost_date_time",
             "boost_regex",
+            "boost_system",
+            "unbound",
             "ssl",
             "crypto",
             "sodium",
-            "unbound",
+            "protobuf",
             "hidapi-hidraw",
             "usb-1.0",
-            "protobuf",
-            "udev",
+            "zmq",
         ] {
+            println!("cargo:rustc-link-lib=static={lib}");
+        }
+
+        // System libraries that must remain dynamic (part of glibc / systemd)
+        for lib in &["udev", "dl", "pthread", "rt", "m"] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
     } else if cfg!(target_os = "macos") {
