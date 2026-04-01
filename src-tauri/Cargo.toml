@@ -1,6 +1,6 @@
 [package]
 name = "shekyl-wallet"
-version = "0.1.2-beta"
+version = "0.1.3-beta"
 description = "Shekyl desktop wallet"
 authors = ["The Shekyl Foundation"]
 license = "BSD-3-Clause"
