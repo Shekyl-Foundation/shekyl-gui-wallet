@@ -117,27 +117,16 @@ fn link_shekyl_ffi() {
     }
 
     // ── Platform-specific system / shared libraries ─────────────────────
+    //
+    // Strategy: dynamically link third-party libraries. On Linux the .deb
+    // declares runtime dependencies for Ubuntu 22.04; for other distros use
+    // the AppImage which bundles all .so files automatically. On macOS the
+    // .app bundle is expected to be used on systems with Homebrew (or we
+    // can investigate dylib bundling / static linking from source later).
     if cfg!(target_os = "linux") {
-        // Add the Debian/Ubuntu multiarch library path so static .a files
-        // from -dev packages are found (e.g. /usr/lib/x86_64-linux-gnu/).
-        if let Ok(output) = std::process::Command::new("dpkg-architecture")
-            .args(["-qDEB_HOST_MULTIARCH"])
-            .output()
-        {
-            if output.status.success() {
-                let arch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                println!("cargo:rustc-link-search=native=/usr/lib/{arch}");
-            }
-        }
-        println!("cargo:rustc-link-search=native=/usr/lib64");
-        println!("cargo:rustc-link-search=native=/usr/lib");
-
         println!("cargo:rustc-link-lib=dylib=stdc++");
-
-        // Third-party libraries: link statically so the binary is portable
-        // across Linux distros without requiring matching runtime packages.
-        // Order: dependents before their dependencies.
         for lib in &[
+            "boost_system",
             "boost_filesystem",
             "boost_thread",
             "boost_serialization",
@@ -145,25 +134,18 @@ fn link_shekyl_ffi() {
             "boost_chrono",
             "boost_date_time",
             "boost_regex",
-            "boost_system",
-            "unbound",
             "ssl",
             "crypto",
             "sodium",
-            "protobuf",
+            "unbound",
             "hidapi-hidraw",
             "usb-1.0",
-            "zmq",
+            "protobuf",
+            "udev",
         ] {
-            println!("cargo:rustc-link-lib=static={lib}");
-        }
-
-        // System libraries that must remain dynamic (part of glibc / systemd)
-        for lib in &["udev", "dl", "pthread", "rt", "m"] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
     } else if cfg!(target_os = "macos") {
-        // Homebrew on ARM is /opt/homebrew, on Intel is /usr/local.
         let homebrew_lib = brew_prefix_lib(None);
         let openssl_lib = brew_prefix_lib(Some("openssl@3"));
         if let Some(ref lib_dir) = homebrew_lib {
@@ -175,9 +157,9 @@ fn link_shekyl_ffi() {
 
         println!("cargo:rustc-link-lib=dylib=c++");
 
-        // Third-party libraries: link statically so the .dmg works on Macs
-        // without Homebrew. Only link Boost components that have a .a file
-        // (some like Boost.System are header-only in recent releases).
+        // Boost libraries -- only link ones that exist as files.
+        // Some components (e.g. Boost.System since 1.69) are header-only
+        // in newer Boost releases and produce no library artifact.
         let boost_names = [
             "system",
             "filesystem",
@@ -190,9 +172,9 @@ fn link_shekyl_ffi() {
         ];
         if let Some(ref lib_dir) = homebrew_lib {
             for name in &boost_names {
-                let archive = format!("{lib_dir}/libboost_{name}.a");
-                if std::path::Path::new(&archive).exists() {
-                    println!("cargo:rustc-link-lib=static=boost_{name}");
+                let dylib = format!("{lib_dir}/libboost_{name}.dylib");
+                if std::path::Path::new(&dylib).exists() {
+                    println!("cargo:rustc-link-lib=dylib=boost_{name}");
                 }
             }
         }
@@ -200,14 +182,11 @@ fn link_shekyl_ffi() {
         for lib in &[
             "ssl", "crypto", "sodium", "unbound", "hidapi", "usb-1.0", "protobuf",
         ] {
-            println!("cargo:rustc-link-lib=static={lib}");
+            println!("cargo:rustc-link-lib=dylib={lib}");
         }
-
         println!("cargo:rustc-link-lib=framework=Security");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=IOKit");
-        // System libs needed by static OpenSSL / libunbound
-        println!("cargo:rustc-link-lib=dylib=resolv");
     } else if cfg!(target_os = "windows") {
         for lib in &[
             "ws2_32", "bcrypt", "crypt32", "userenv", "ntdll", "iphlpapi",
