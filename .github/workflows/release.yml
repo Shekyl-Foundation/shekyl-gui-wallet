@@ -16,23 +16,30 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     outputs:
-      release_id: ${{ steps.release.outputs.id }}
+      release_id: ${{ steps.release.outputs.release_id }}
     steps:
       - uses: actions/checkout@v5
       - name: Create GitHub Release
         id: release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: "Shekyl Wallet ${{ github.ref_name }}"
-          body: |
-            See the assets below to download and install Shekyl Wallet for your platform.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          PRERELEASE=""
+          case "$TAG" in *beta*|*alpha*|*rc*) PRERELEASE="--prerelease" ;; esac
 
-            **Linux**: The `.deb` is universal (all dependencies statically linked). The `.AppImage` also works on any distro.
+          gh release create "$TAG" \
+            --title "Shekyl Wallet $TAG" \
+            --notes "See the assets below to download and install Shekyl Wallet for your platform.
 
-            Refer to the [installation guide](https://github.com/Shekyl-Foundation/shekyl-gui-wallet/blob/main/docs/INSTALLATION.md) for detailed instructions.
-          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
-          draft: false
+          **Linux**: The \`.deb\` is universal (all dependencies statically linked). The \`.AppImage\` also works on any distro.
+
+          Refer to the [installation guide](https://github.com/Shekyl-Foundation/shekyl-gui-wallet/blob/main/docs/INSTALLATION.md) for detailed instructions." \
+            $PRERELEASE \
+            --verify-tag || true
+
+          RELEASE_ID=$(gh release view "$TAG" --json databaseId -q .databaseId)
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
 
   build:
     needs: create-release
