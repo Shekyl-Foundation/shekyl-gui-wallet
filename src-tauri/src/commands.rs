@@ -693,9 +693,7 @@ pub async fn create_multisig_group(
 }
 
 #[tauri::command]
-pub async fn get_multisig_info(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+pub async fn get_multisig_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let info = wallet_bridge::get_pqc_multisig_info(&state.wallet)?;
     Ok(serde_json::to_value(info).map_err(|e| e.to_string())?)
 }

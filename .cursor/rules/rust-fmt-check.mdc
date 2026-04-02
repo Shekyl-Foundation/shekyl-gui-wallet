@@ -1,0 +1,9 @@
+# Rust Format Check
+
+Always run `cargo fmt` before committing Rust code changes in `src-tauri/`.
+
+## Rules
+
+- Before finalizing any edit to a `.rs` file under `src-tauri/`, run `cargo fmt` from the `src-tauri/` directory.
+- CI enforces `cargo fmt --check` and will reject unformatted Rust code.
+- Do not override or disable `rustfmt` rules. Use the project's `rustfmt.toml` if one exists; otherwise use default `rustfmt` settings.
