@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### 🔄 Changed
+
+- **CI targets shekyl-core `dev` branch**: Both `ci.yml` and `release.yml`
+  now clone shekyl-core's `dev` branch (Rust/Axum RPC, PQC multisig, MSVC
+  portability) instead of `main`. This is temporary for test builds.
+- **Removed classical multisig link**: `build.rs` no longer links `libmultisig.a`
+  or searches `src/multisig/` -- classical multisig was removed from shekyl-core;
+  PQC multisig is implemented entirely in Rust.
+
+### 🗑️ Removed
+
+- **Windows release build** (temporarily): Disabled in the release matrix due to
+  a known MSVC internal compiler error on `obj_blocks` / `obj_cncrypto`. Will be
+  re-enabled once the ICE is resolved or a MinGW cross-compile path is added.
+
 ## 0.1.4-beta -- 2026-04-01
 
 ### 🔄 Changed
