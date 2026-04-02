@@ -50,14 +50,15 @@ jobs:
         include:
           - platform: ubuntu-24.04
             args: ""
-          - platform: windows-latest
-            args: --bundles nsis
+          # Windows disabled: shekyl-core MSVC build has a known ICE on obj_blocks/obj_cncrypto.
+          # Re-enable once the ICE is resolved or a MinGW cross-compile path is added.
+          # - platform: windows-latest
+          #   args: --bundles nsis
           - platform: macos-latest
             tauri_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
-    continue-on-error: ${{ matrix.platform == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v5
 
