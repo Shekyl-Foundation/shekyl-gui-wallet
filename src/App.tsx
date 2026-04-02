@@ -12,6 +12,7 @@ import Transactions from "./pages/Transactions";
 import Settings from "./pages/Settings";
 import ChainHealthPage from "./pages/ChainHealth";
 import Help from "./pages/Help";
+import Multisig from "./pages/Multisig";
 import Welcome from "./pages/Welcome";
 import CreateWallet from "./pages/CreateWallet";
 import ImportWallet from "./pages/ImportWallet";
@@ -68,6 +69,7 @@ function WalletGate() {
               <Route path="transactions" element={<Transactions />} />
               <Route path="settings" element={<Settings />} />
               <Route path="chain-health" element={<ChainHealthPage />} />
+              <Route path="multisig" element={<Multisig />} />
               <Route path="help" element={<Help />} />
             </Route>
           </Routes>

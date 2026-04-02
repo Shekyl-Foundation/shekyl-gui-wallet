@@ -670,6 +670,45 @@ pub async fn stake(_tier: u8, _amount: u64) -> Result<TxInfo, String> {
     Err("Not yet implemented — requires wallet2 FFI bridge".into())
 }
 
+// ─── PQC Multisig commands ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn create_multisig_group(
+    state: State<'_, AppState>,
+    n_total: u8,
+    m_required: u8,
+    participant_keys: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    let resp = wallet_bridge::create_pqc_multisig_group(
+        &state.wallet,
+        n_total,
+        m_required,
+        participant_keys,
+    )?;
+    Ok(serde_json::json!({
+        "group_id": resp.group_id,
+        "n_total": resp.n_total,
+        "m_required": resp.m_required,
+    }))
+}
+
+#[tauri::command]
+pub async fn get_multisig_info(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let info = wallet_bridge::get_pqc_multisig_info(&state.wallet)?;
+    Ok(serde_json::to_value(info).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+pub async fn sign_multisig_partial(
+    state: State<'_, AppState>,
+    signing_request: String,
+) -> Result<serde_json::Value, String> {
+    let resp = wallet_bridge::sign_multisig_partial(&state.wallet, &signing_request)?;
+    Ok(serde_json::json!({ "signature_response": resp.signature_response }))
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

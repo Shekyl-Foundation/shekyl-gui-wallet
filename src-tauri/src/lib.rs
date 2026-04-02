@@ -68,6 +68,10 @@ pub fn run() {
             commands::get_transactions,
             commands::get_staking_info,
             commands::stake,
+            // PQC Multisig
+            commands::create_multisig_group,
+            commands::get_multisig_info,
+            commands::sign_multisig_partial,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

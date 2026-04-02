@@ -330,3 +330,69 @@ pub fn get_transfers(
 pub fn stop_wallet(handle: &WalletHandle) -> Result<(), String> {
     with_wallet(handle, |w| w.stop().map_err(wallet_err))
 }
+
+// ─── PQC Multisig ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct CreateMultisigGroupResponse {
+    pub group_id: String,
+    pub n_total: u8,
+    pub m_required: u8,
+}
+
+pub fn create_pqc_multisig_group(
+    handle: &WalletHandle,
+    n_total: u8,
+    m_required: u8,
+    participant_keys: Vec<String>,
+) -> Result<CreateMultisigGroupResponse, String> {
+    with_wallet(handle, |w| {
+        let params = serde_json::json!({
+            "n_total": n_total,
+            "m_required": m_required,
+            "participant_keys": participant_keys,
+        });
+        let val = w
+            .json_rpc_call("create_pqc_multisig_group", &params.to_string())
+            .map_err(wallet_err)?;
+        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
+    })
+}
+
+#[derive(Debug, Deserialize, serde::Serialize)]
+pub struct PqcMultisigInfo {
+    pub is_multisig: bool,
+    #[serde(default)]
+    pub n_total: u8,
+    #[serde(default)]
+    pub m_required: u8,
+    #[serde(default)]
+    pub group_id: String,
+}
+
+pub fn get_pqc_multisig_info(handle: &WalletHandle) -> Result<PqcMultisigInfo, String> {
+    with_wallet(handle, |w| {
+        let val = w
+            .json_rpc_call("get_pqc_multisig_info", "{}")
+            .map_err(wallet_err)?;
+        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SignMultisigResponse {
+    pub signature_response: String,
+}
+
+pub fn sign_multisig_partial(
+    handle: &WalletHandle,
+    signing_request: &str,
+) -> Result<SignMultisigResponse, String> {
+    with_wallet(handle, |w| {
+        let params = serde_json::json!({ "signing_request": signing_request });
+        let val = w
+            .json_rpc_call("sign_multisig_partial", &params.to_string())
+            .map_err(wallet_err)?;
+        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
+    })
+}

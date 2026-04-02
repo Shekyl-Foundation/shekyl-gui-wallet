@@ -7,6 +7,7 @@ import {
   Pickaxe,
   ArrowLeftRight,
   Activity,
+  Users,
   HelpCircle,
   Settings,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const links = [
   { to: "/mining", icon: Pickaxe, label: "Mining" },
   { to: "/staking", icon: Coins, label: "Staking" },
   { to: "/transactions", icon: ArrowLeftRight, label: "Transactions" },
+  { to: "/multisig", icon: Users, label: "Multisig" },
   { to: "/chain-health", icon: Activity, label: "Chain Health" },
   { to: "/help", icon: HelpCircle, label: "Help" },
   { to: "/settings", icon: Settings, label: "Settings" },
