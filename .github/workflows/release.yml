@@ -68,13 +68,18 @@ jobs:
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             libdbus-1-dev libharfbuzz-dev libudev-dev
 
+      - name: Compute depends cache key
+        if: startsWith(matrix.platform, 'ubuntu')
+        id: depends-key
+        run: echo "hash=$(cat ../Shekyl/contrib/depends/packages/*.mk | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Cache depends prefix
         if: startsWith(matrix.platform, 'ubuntu')
         uses: actions/cache@v4
         id: depends-cache
         with:
-          path: ../Shekyl/contrib/depends/built
-          key: depends-x86_64-linux-gnu-${{ hashFiles('../Shekyl/contrib/depends/packages/*') }}
+          path: ${{ github.workspace }}/../Shekyl/contrib/depends/built
+          key: depends-x86_64-linux-gnu-${{ steps.depends-key.outputs.hash }}
           restore-keys: |
             depends-x86_64-linux-gnu-
 
