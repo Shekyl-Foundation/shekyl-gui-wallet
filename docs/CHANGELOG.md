@@ -5,16 +5,24 @@
 ### ✨ Added
 
 - **Windows MSVC build support in release workflow**: The release CI now
-  builds shekyl-core from source using Visual Studio / MSVC on
-  `windows-latest`, with vcpkg for C++ dependencies. `SHEKYL_BUILD_DIR`
-  is set for all platforms so the Tauri linker resolves wallet FFI
-  symbols on Windows.
+  builds shekyl-core from source using Visual Studio 2026 / MSVC on
+  `windows-2025-vs2026`, with vcpkg for C++ dependencies and lmdb
+  overlay ports from shekyl-core. `SHEKYL_BUILD_DIR` is set for all
+  platforms so the Tauri linker resolves wallet FFI symbols on Windows.
+  Builds only the `wallet_api` target to avoid unrelated MSVC ICE issues.
 - **`build.rs` Windows linkage**: Added vcpkg search paths, static Boost
   / OpenSSL / libsodium / protobuf linking, MSVC `Release/` subdirectory
   search paths, and `wallet-crypto.lib` detection for MSVC builds.
 
 ### 🔄 Changed
 
+- **CI and release workflows now build against shekyl-core `dev` branch**:
+  Both `ci.yml` and `release.yml` clone shekyl-core with `--branch dev`
+  instead of `main` to pick up MSVC portability fixes, Rust/Axum RPC,
+  and PQC multisig changes during the integration period.
+- **Removed classical multisig linkage**: Removed `multisig` from
+  `build.rs` search directories and static library list since classical
+  multisig was removed from shekyl-core in favour of Rust PQC multisig.
 - **Direct wallet2 FFI integration**: Replaced the HTTP JSON-RPC client
   (`wallet_rpc.rs`) and child process manager (`wallet_process.rs`) with
   `wallet_bridge.rs`, which calls the C++ `wallet2` library directly through
@@ -62,11 +70,12 @@
   frameworks: Security, CoreFoundation, IOKit), and Windows (ws2_32, bcrypt).
 - **macOS cross-architecture support**: builds the C++ library with
   `CMAKE_OSX_ARCHITECTURES` matching the Tauri target (arm64 or x86_64).
-- **Windows**: deferred pending MSVC compatibility investigation. The current
-  shekyl-core codebase uses GCC/MinGW which produces `.a` archives
-  incompatible with MSVC's `link.exe`. Key issues identified:
-  unconditional POSIX includes in `common/util.cpp` and `easylogging++.cc`,
-  AT&T inline asm in `perf_timer.cpp`, and GCC builtins in crypto code.
+- **Windows MSVC build now enabled**: shekyl-core `dev` branch contains
+  all MSVC portability fixes (POSIX guards, CryptonightR JIT stub, empty
+  `.dat` generator fix, Boost CONFIG-mode detection). The release workflow
+  uses the `windows-2025-vs2026` runner with VS 2026 (`-G "Visual Studio
+  18 2026"`), vcpkg overlay ports for lmdb, and builds only `wallet_api`
+  with `--parallel 2` to stay within CI memory limits.
 
 ## 0.1.2-beta -- 2026-03-30
 
