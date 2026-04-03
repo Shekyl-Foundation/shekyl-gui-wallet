@@ -36,9 +36,12 @@ Shekyl (ticker: **SKL**) is a cryptocurrency -- digital money that exists on a
 decentralized network of computers rather than in a bank. What makes Shekyl
 special:
 
-- **Privacy by default.** When you send SKL, your transaction is mixed in with
-  decoy transactions so nobody can tell who sent what to whom. This happens
-  automatically -- you don't need to do anything special.
+- **Privacy by default.** When you send SKL, each transaction proves that the
+  spent outputs exist somewhere in the entire UTXO set using an FCMP++
+  membership proof. Unlike ring signatures (used by other CryptoNote coins),
+  which select a small number of decoys, FCMP++ provides an anonymity set
+  equal to every output on the blockchain. This happens automatically -- you
+  don't need to do anything special.
 
 - **Post-quantum security.** Most cryptocurrencies use math that future quantum
   computers could eventually break. Shekyl already protects every transaction
@@ -205,9 +208,11 @@ There is no "forgot password" button.
 Getting SKL sent to you is the easiest part:
 
 1. Click **Receive** in the sidebar.
-2. You'll see your **address** -- a long string starting with `SKL1`. This is
-   like your bank account number, except it's safe to share publicly. Nobody
-   can steal funds by knowing your address alone.
+2. You'll see your **address** -- a long string starting with `shekyl1:`. This
+   is your Bech32m-encoded address (~1,870 characters total). It contains both
+   classical and post-quantum key material. The wallet displays the classical
+   segment by default; the PQC segment is handled internally. Nobody can steal
+   funds by knowing your address alone.
 3. Click the **copy button** next to the address to copy it to your clipboard.
 4. Share this address with the person or service sending you SKL.
 
@@ -224,7 +229,7 @@ can't tell that both payments went to you.
 ## Sending SKL
 
 1. Click **Send** in the sidebar.
-2. Paste the **recipient's address** (starts with `SKL1`) into the
+2. Paste the **recipient's address** (starts with `shekyl1:`) into the
    "Recipient Address" field.
 3. Enter the **amount** in SKL.
 4. Click **Send**.
@@ -232,9 +237,12 @@ can't tell that both payments went to you.
 The wallet will automatically:
 
 - Select which of your coins to spend (picking from your unlocked balance).
-- Mix your transaction with decoy inputs (ring signatures) so nobody can tell
-  which coins were really yours.
-- Sign the transaction with both classical *and* quantum-resistant signatures.
+- Construct an FCMP++ membership proof for each spent output, proving it exists
+  somewhere in the full UTXO set without revealing which specific output is
+  being spent. The anonymity set is the entire blockchain, not a handful of
+  decoys.
+- Sign the transaction with both classical *and* quantum-resistant signatures
+  (one `pqc_auth` proof per input being spent).
 - Broadcast it to the network via the daemon.
 
 **Fees:** A small transaction fee is deducted automatically. The fee goes to
@@ -439,7 +447,7 @@ can change the URL here. Click **Save & Reconnect** after making changes.
 
 This section shows the current state of Shekyl's quantum protection. You'll
 see the signature scheme (Hybrid: Ed25519 + ML-DSA-65), the transaction
-version, and details about the V4 roadmap.
+version, FCMP++ membership proof status, and future PQC upgrade roadmap.
 
 ### Wallet management
 
@@ -486,18 +494,16 @@ approach means:
   to pick two completely different kinds of lock on the same door, at the same
   time.
 
-### What's coming in V4
+### What's coming next
 
-A future update (transaction version V4) will extend quantum protection to
-the privacy layer itself:
+Shekyl's core privacy primitive -- FCMP++ full-chain membership proofs -- is
+stable from genesis and already provides far stronger anonymity than ring
+signatures. Future upgrades may include compact threshold multisig via
+lattice-based schemes and potential ML-KEM algorithm upgrades, but the
+FCMP++ anonymity foundation does not change.
 
-- **Lattice-based ring signatures** will make the sender-hiding mechanism
-  quantum-resistant.
-- **KEM stealth addresses** will make the one-time receive addresses
-  quantum-resistant.
-
-Right now, the privacy layer uses classical cryptography. It's secure today,
-and V4 will future-proof it.
+Per-output PQC keys (via hybrid X25519 + ML-KEM-768 KEM) already protect
+transaction outputs against quantum harvesting from day one.
 
 ### You don't need to do anything
 
@@ -556,7 +562,7 @@ An open wallet on an unlocked computer is an open wallet.
 
 | Term | Meaning |
 |------|---------|
-| **Address** | Your public identifier for receiving SKL. Starts with `SKL1`. Safe to share -- nobody can steal funds by knowing your address. |
+| **Address** | Your Bech32m-encoded public identifier for receiving SKL. Starts with `shekyl1:` and contains both classical (~103 char) and PQC (~1,750 char) key segments. The wallet shows a compact form by default. Safe to share -- nobody can steal funds by knowing your address. |
 | **Atomic Unit** | The smallest unit of SKL. 1 SKL = 1,000,000,000 atomic units. The wallet handles conversion for you. |
 | **Block** | A bundle of transactions added to the blockchain roughly every 2 minutes. |
 | **Block Height** | The sequential number of a block, starting from 0. Higher number = more recent. |
@@ -570,10 +576,10 @@ An open wallet on an unlocked computer is an open wallet.
 | **Hybrid Signature** | Two signatures on every transaction: one classical (Ed25519) and one quantum-resistant (ML-DSA-65). |
 | **Mnemonic Seed** | The 25 words that can fully restore your wallet. Treat these like a master password you can never change. |
 | **ML-DSA-65** | A quantum-resistant signature algorithm standardized by NIST. Part of Shekyl's hybrid protection. |
-| **Privacy** | Shekyl hides who sends to whom using ring signatures and stealth addresses. This is automatic. |
+| **Privacy** | Shekyl hides who sends to whom using FCMP++ full-chain membership proofs, stealth addresses, and per-output PQC keys (hybrid X25519 + ML-KEM-768). This is automatic. |
 | **RandomX** | Shekyl's mining algorithm. Runs efficiently on regular CPUs. |
 | **Release Multiplier** | A dynamic factor that adjusts block emission based on network activity. |
-| **Ring Signature** | A privacy technique that mixes your transaction with decoys so nobody can tell which input is real. |
+| **FCMP++ Membership Proof** | A zero-knowledge proof that the spent output exists in the full UTXO set, without revealing which specific output is being spent. Provides much stronger privacy than the ring signatures used by other CryptoNote coins -- the anonymity set is every output on the blockchain. |
 | **Stake Ratio** | The percentage of circulating supply currently locked in staking. |
 | **Staking** | Locking SKL for a period to earn yield. Your coins commingle with others in a shared pool for privacy. |
 | **Stealth Address** | A one-time address generated for each transaction so only the sender and receiver know the destination. |

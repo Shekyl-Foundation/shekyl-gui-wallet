@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### 📚 Documentation
+
+- **FCMP++ documentation rework.** Updated user-facing privacy documentation
+  to reflect FCMP++ full-chain membership proofs replacing ring signatures.
+  Updated glossary, address format (Bech32m `shekyl1:`), and future roadmap
+  language. Updated WALLET_STARTUP.md with FCMP++ and ML-KEM-768 details.
+
 ### 🔄 Changed
 
 - **CI targets shekyl-core `dev` branch**: Both `ci.yml` and `release.yml`
@@ -204,11 +211,12 @@
 - Staking Guide covers: claim-based model (not delegation), tiers and lock
   durations, privacy benefit (accrual pool commingling), estimated APY.
 - PQC section covers: quantum threat explanation, hybrid Ed25519 + ML-DSA-65,
-  what "hybrid" means (belt-and-suspenders), V4 roadmap (lattice rings + KEM
-  stealth addresses), coinbase transaction exemption.
+  what "hybrid" means (belt-and-suspenders), FCMP++ full-chain membership
+  proofs, per-output PQC keys (X25519 + ML-KEM-768), coinbase transaction
+  exemption.
 - Glossary with 11 terms: atomic unit, block height, difficulty, emission era,
-  hash rate, ML-DSA-65, RandomX, release multiplier, ring signature, stake
-  ratio, stealth address.
+  hash rate, ML-DSA-65, RandomX, release multiplier, FCMP++ membership proof,
+  stake ratio, stealth address.
 
 ### Contextual Help and Tooltips
 
@@ -283,8 +291,8 @@
 - Added `PqcStatusBadge.tsx` to the header: shows "Ed25519 + ML-DSA-65"
   with green shield icon when hybrid PQC is active.
 - Added "Post-Quantum Security" section to Settings page showing signature
-  scheme, transaction version, protection status, and V4 roadmap note
-  (lattice ring signatures + KEM stealth addresses).
+  scheme, transaction version, protection status, and future PQC primitive
+  upgrade roadmap (threshold multisig, ML-KEM algorithm upgrades).
 
 ### Network Switching and Testnet Flow
 

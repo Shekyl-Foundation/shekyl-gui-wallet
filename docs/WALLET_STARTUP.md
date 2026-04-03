@@ -4,6 +4,11 @@ This document describes the wallet startup flow -- how the GUI wallet detects
 existing wallets, authenticates the user, and ensures they are running with a
 legitimate v3 (PQC-enabled) wallet before accessing the main application.
 
+v3 means hybrid Ed25519 + ML-DSA-65 spend authorization (`pqc_auth`, one proof
+per input being spent) plus FCMP++ membership proofs for transaction privacy.
+CLSAG ring signatures are never used -- Shekyl uses FCMP++ from genesis,
+providing full-UTXO-set anonymity via curve trees.
+
 ---
 
 ## Architecture Overview
@@ -121,6 +126,13 @@ The wallet created by `shekyl-wallet-rpc` automatically includes PQC key
 material (Ed25519 + ML-DSA-65) since the wallet-rpc links against shekyl-core
 which calls `generate_pqc_key_material()` during account generation. No
 special flags needed -- all new wallets are v3 PQC wallets.
+
+New wallets also generate ML-KEM-768 key material for the Bech32m address
+format (`shekyl1:<version><classical ~103 chars>/<pqc ~1750 chars>`, ~1,870
+characters total), enabling per-output PQC key derivation via hybrid KEM
+(X25519 + ML-KEM-768) when receiving transactions. This prevents transaction
+linkability even against quantum adversaries. The wallet displays the classical
+segment by default; the PQC segment is handled internally.
 
 ---
 
