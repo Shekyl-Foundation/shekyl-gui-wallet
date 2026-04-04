@@ -191,8 +191,8 @@ fn link_shekyl_ffi() {
             println!("cargo:rustc-link-lib=static={lib}");
         }
         for lib in &[
-            "ws2_32", "bcrypt", "crypt32", "userenv", "ntdll", "iphlpapi",
-            "advapi32", "ole32", "shell32",
+            "ws2_32", "bcrypt", "crypt32", "userenv", "ntdll", "iphlpapi", "advapi32", "ole32",
+            "shell32",
         ] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
