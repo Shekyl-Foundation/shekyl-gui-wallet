@@ -41,12 +41,6 @@ export default function Send() {
     };
   }, []);
 
-  function _advanceStage(current: ProofStage): ProofStage {
-    const idx = STAGE_ORDER.indexOf(current);
-    if (idx < 0 || idx >= STAGE_ORDER.length - 1) return current;
-    return STAGE_ORDER[idx + 1];
-  }
-
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
