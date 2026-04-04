@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft, ShieldCheck } from "lucide-react";
 
 interface TxInfo {
   hash: string;
@@ -10,6 +10,7 @@ interface TxInfo {
   timestamp: number;
   direction: string;
   confirmed: boolean;
+  pqc_protected: boolean;
 }
 
 function atomicToSkl(atomic: number): string {
@@ -57,9 +58,20 @@ export default function Transactions() {
                 )}
               </div>
               <div className="flex-1">
-                <p className="font-mono text-xs text-purple-300">
-                  {tx.hash.slice(0, 16)}...
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="font-mono text-xs text-purple-300">
+                    {tx.hash.slice(0, 16)}...
+                  </p>
+                  {tx.pqc_protected && (
+                    <span
+                      className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-300"
+                      title="Output protected by FCMP++ membership proof with post-quantum signatures"
+                    >
+                      <ShieldCheck className="h-2.5 w-2.5" />
+                      PQC
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-purple-400">
                   Block {tx.height.toLocaleString()}
                 </p>

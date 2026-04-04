@@ -95,6 +95,7 @@ pub struct TxInfo {
     pub timestamp: u64,
     pub direction: String,
     pub confirmed: bool,
+    pub pqc_protected: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -605,6 +606,7 @@ pub async fn transfer(
         timestamp: 0,
         direction: "out".into(),
         confirmed: false,
+        pqc_protected: true,
     })
 }
 
@@ -631,6 +633,7 @@ pub async fn get_transactions(
             timestamp: entry.timestamp,
             direction: "in".into(),
             confirmed: entry.confirmations > 0,
+            pqc_protected: entry.pqc_protected,
         });
     }
     for entry in resp.out {
@@ -642,6 +645,7 @@ pub async fn get_transactions(
             timestamp: entry.timestamp,
             direction: "out".into(),
             confirmed: entry.confirmations > 0,
+            pqc_protected: entry.pqc_protected,
         });
     }
     for entry in resp.pending {
@@ -653,6 +657,7 @@ pub async fn get_transactions(
             timestamp: entry.timestamp,
             direction: "out".into(),
             confirmed: false,
+            pqc_protected: entry.pqc_protected,
         });
     }
 

@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### ✨ Added
+
+- **Bech32m address display (Phase 5.7a)**: Receive page now splits FCMP++
+  addresses into classical and post-quantum segments. Classical segment shown
+  by default with a "Show full address" toggle. Copy-to-clipboard always
+  copies the full address. QR code placeholder annotated to encode the full
+  FCMP++ address. FCMP++ badge displayed when a PQ segment is detected.
+- **PQC-protected transaction indicators (Phase 5.7b)**: Transaction history
+  shows a green "PQC" shield badge on outputs protected by FCMP++ membership
+  proofs with post-quantum signatures. Added `pqc_protected` field to `TxInfo`
+  in both the Rust backend (`commands.rs`, `wallet_bridge.rs`) and the
+  TypeScript frontend.
+- **FCMP++ proof generation progress (Phase 5.7b)**: Send page now shows a
+  multi-stage progress indicator during transaction construction:
+  "Constructing transaction" -> "Generating FCMP++ membership proof" ->
+  "Applying hybrid PQC signature" -> "Broadcasting to network", with a
+  progress bar and contextual PQC protection message.
+- **Restore-from-seed progress stages (Phase 5.7c)**: Import/restore wallet
+  flow now shows a stepped progress UI: "Scanning blockchain..." ->
+  "Rederiving quantum-safe keys..." -> "Building FCMP++ tree state..." ->
+  "Restore complete", with checkmarks for completed stages and an animated
+  progress bar. Form is hidden during restore to reduce visual noise.
+
 ### 📚 Documentation
 
 - **FCMP++ documentation rework.** Updated user-facing privacy documentation

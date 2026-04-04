@@ -298,6 +298,8 @@ pub struct TransferEntry {
     pub transfer_type: String,
     #[serde(default)]
     pub confirmations: u64,
+    #[serde(default)]
+    pub pqc_protected: bool,
 }
 
 #[derive(Debug, Deserialize)]

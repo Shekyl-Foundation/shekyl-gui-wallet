@@ -13,7 +13,7 @@ describe("Send page", () => {
     render(<Send />);
 
     expect(screen.getByText("Send SKL")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("SKL1...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("shekyl1...")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("0.0000")).toBeInTheDocument();
   });
 
@@ -23,7 +23,7 @@ describe("Send page", () => {
 
     render(<Send />);
 
-    await user.type(screen.getByPlaceholderText("SKL1..."), "SKL1abc123");
+    await user.type(screen.getByPlaceholderText("shekyl1..."), "shekyl1abc123");
     await user.type(screen.getByPlaceholderText("0.0000"), "1.5");
     await user.click(screen.getByRole("button", { name: /send/i }));
 
@@ -38,7 +38,7 @@ describe("Send page", () => {
 
     render(<Send />);
 
-    await user.type(screen.getByPlaceholderText("SKL1..."), "SKL1abc123");
+    await user.type(screen.getByPlaceholderText("shekyl1..."), "shekyl1abc123");
     await user.type(screen.getByPlaceholderText("0.0000"), "1.5");
     await user.click(screen.getByRole("button", { name: /send/i }));
 

@@ -41,7 +41,7 @@ describe("Receive page", () => {
       expect(screen.getByText(MOCK_ADDRESS)).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTitle("Copy address"));
+    fireEvent.click(screen.getByTitle("Copy full address"));
 
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith(MOCK_ADDRESS);
