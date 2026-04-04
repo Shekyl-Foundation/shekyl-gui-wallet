@@ -41,6 +41,7 @@ export default function Send() {
     };
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function advanceStage(current: ProofStage): ProofStage {
     const idx = STAGE_ORDER.indexOf(current);
     if (idx < 0 || idx >= STAGE_ORDER.length - 1) return current;
