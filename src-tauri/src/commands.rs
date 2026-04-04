@@ -611,6 +611,21 @@ pub async fn transfer(
 }
 
 #[tauri::command]
+pub async fn estimate_fee(
+    _state: State<'_, AppState>,
+    _address: String,
+    _amount: u64,
+) -> Result<u64, String> {
+    // FCMP++ tx cost model: base_fee_per_byte * estimated_weight.
+    // A typical 2-in/2-out FCMP++ tx is ~15-20 KB including the membership
+    // proof and PQC auth. Conservative default until the daemon provides
+    // a dynamic base_fee.
+    const BASE_FEE_PER_BYTE: u64 = 20;
+    const ESTIMATED_TX_BYTES: u64 = 18_000;
+    Ok(BASE_FEE_PER_BYTE * ESTIMATED_TX_BYTES)
+}
+
+#[tauri::command]
 pub async fn get_transactions(
     state: State<'_, AppState>,
     _offset: u32,

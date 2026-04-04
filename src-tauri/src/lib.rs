@@ -65,6 +65,7 @@ pub fn run() {
             commands::get_balance,
             commands::get_address,
             commands::transfer,
+            commands::estimate_fee,
             commands::get_transactions,
             commands::get_staking_info,
             commands::stake,

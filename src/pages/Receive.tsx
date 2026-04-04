@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Copy, Check, ChevronDown, ChevronUp, ShieldCheck } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 
 const BECH32M_PREFIX = "shekyl1";
 const CLASSICAL_SEGMENT_LEN = 95;
@@ -50,16 +51,22 @@ export default function Receive() {
       <h1 className="text-xl font-bold text-white">Receive SKL</h1>
 
       <div className="card space-y-5 text-center">
-        {/* QR code -- always encodes the full FCMP++ address */}
-        <div className="mx-auto flex h-48 w-48 items-center justify-center rounded-xl border-2 border-dashed border-purple-600 bg-purple-800/40">
-          <div className="space-y-1">
-            <span className="text-xs text-purple-400">QR Code</span>
-            {hasPqSegment && (
-              <p className="text-[9px] text-purple-500">
-                Encodes full FCMP++ address
-              </p>
-            )}
-          </div>
+        {/* QR code encodes the full FCMP++ address (~1870 chars, QR version 20+ M) */}
+        <div className="mx-auto flex items-center justify-center rounded-xl bg-white p-3">
+          {address ? (
+            <QRCodeSVG
+              value={address}
+              size={192}
+              level="M"
+              marginSize={0}
+              bgColor="#ffffff"
+              fgColor="#1a1025"
+            />
+          ) : (
+            <div className="flex h-48 w-48 items-center justify-center text-xs text-purple-400">
+              No wallet open
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">

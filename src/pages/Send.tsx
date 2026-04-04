@@ -27,19 +27,51 @@ const STAGE_ORDER: ProofStage[] = [
   "done",
 ];
 
+function formatSkl(atomic: number): string {
+  return (atomic / 1e12).toFixed(4);
+}
+
 export default function Send() {
   const [address, setAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [proofStage, setProofStage] = useState<ProofStage>("idle");
+  const [estimatedFee, setEstimatedFee] = useState<number | null>(null);
+  const [feeLoading, setFeeLoading] = useState(false);
   const stageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const feeDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
       if (stageTimer.current) clearTimeout(stageTimer.current);
+      if (feeDebounce.current) clearTimeout(feeDebounce.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (feeDebounce.current) clearTimeout(feeDebounce.current);
+    const parsed = parseFloat(amount);
+    if (!address || !parsed || parsed <= 0) {
+      setEstimatedFee(null);
+      return;
+    }
+    setFeeLoading(true);
+    feeDebounce.current = setTimeout(() => {
+      invoke<number>("estimate_fee", {
+        address,
+        amount: Math.round(parsed * 1e12),
+      })
+        .then((fee) => {
+          setEstimatedFee(fee);
+          setFeeLoading(false);
+        })
+        .catch(() => {
+          setEstimatedFee(null);
+          setFeeLoading(false);
+        });
+    }, 500);
+  }, [address, amount]);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -117,6 +149,15 @@ export default function Send() {
             disabled={sending}
           />
         </div>
+
+        {(estimatedFee !== null || feeLoading) && !sending && (
+          <div className="flex items-center justify-between rounded-lg border border-purple-600/30 bg-purple-800/30 px-3 py-2 text-xs text-purple-200">
+            <span>Estimated fee</span>
+            <span className="font-mono text-gold-400">
+              {feeLoading ? "..." : `${formatSkl(estimatedFee!)} SKL`}
+            </span>
+          </div>
+        )}
 
         {error && (
           <div className="flex items-start gap-2 rounded-lg bg-red-500/10 p-3 text-sm text-red-300">
