@@ -180,6 +180,7 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu')
         env:
           SHEKYL_BUILD_DIR: ${{ github.workspace }}/../Shekyl/build/x86_64-unknown-linux-gnu/release
+          SHEKYL_SOURCE_DIR: ${{ github.workspace }}/../Shekyl
           SHEKYL_DEPENDS_PREFIX: ${{ github.workspace }}/../Shekyl/contrib/depends/x86_64-unknown-linux-gnu
         run: npx tauri build
 
