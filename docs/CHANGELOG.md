@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### ✨ Added
+
+- **Real QR code generation.** Receive page now renders an actual QR code
+  encoding the full FCMP++ Bech32m address using `qrcode.react`, replacing
+  the previous placeholder. Uses QR error correction level M for readability
+  with the ~1870-character address.
+- **Fee preview on Send page.** The Send form now shows an estimated
+  transaction fee (debounced 500ms) as the user enters a recipient address
+  and amount, via the new `estimate_fee` Tauri command.
+
 ## 0.3.0-beta -- 2026-04-03
 
 ### ✨ Added
