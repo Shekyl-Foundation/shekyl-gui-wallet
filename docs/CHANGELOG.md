@@ -2,8 +2,18 @@
 
 ## Unreleased
 
+## 0.3.0-beta -- 2026-04-03
+
 ### ✨ Added
 
+- **Windows MSVC build support**: The release CI now builds shekyl-core
+  from source using Visual Studio 2026 / MSVC on `windows-2025-vs2026`,
+  with vcpkg for C++ dependencies and lmdb overlay ports from shekyl-core.
+  Builds only the `wallet_api` target with `--parallel 2` to stay within
+  CI memory limits and avoid MSVC ICE issues.
+- **`build.rs` Windows linkage**: Added vcpkg search paths, static Boost
+  / OpenSSL / libsodium / protobuf linking, MSVC `Release/` subdirectory
+  search paths, and `wallet-crypto.lib` detection for MSVC builds.
 - **Bech32m address display (Phase 5.7a)**: Receive page now splits FCMP++
   addresses into classical and post-quantum segments. Classical segment shown
   by default with a "Show full address" toggle. Copy-to-clipboard always
@@ -41,12 +51,6 @@
   or searches `src/multisig/` -- classical multisig was removed from shekyl-core;
   PQC multisig is implemented entirely in Rust.
 
-### 🗑️ Removed
-
-- **Windows release build** (temporarily): Disabled in the release matrix due to
-  a known MSVC internal compiler error on `obj_blocks` / `obj_cncrypto`. Will be
-  re-enabled once the ICE is resolved or a MinGW cross-compile path is added.
-
 ## 0.1.4-beta -- 2026-04-01
 
 ### 🔄 Changed
@@ -83,68 +87,6 @@
   GitHub release first; Linux builds use `npx tauri build` with manual artifact
   upload (distro-suffixed `.deb` names), while macOS and Windows continue using
   `tauri-action` with `releaseId`.
-
-
-- **Direct wallet2 FFI integration**: Replaced the HTTP JSON-RPC client
-  (`wallet_rpc.rs`) and child process manager (`wallet_process.rs`) with
-  `wallet_bridge.rs`, which calls the C++ `wallet2` library directly through
-  the `shekyl-wallet-rpc` Rust FFI wrapper. The GUI wallet no longer spawns a
-  separate `shekyl-wallet-rpc` process or communicates over HTTP — all wallet
-  operations happen in-process via the C FFI facade.
-- **Updated `state.rs`**: `AppState` now holds a `wallet_bridge::WalletHandle`
-  (`Mutex<Option<Wallet2>>`) instead of `wallet_process: Mutex<Option<Child>>`
-  and `wallet_rpc_url`. Removed `wallet_url()` method; added
-  `daemon_address()` for wallet2 init.
-- **Updated `commands.rs`**: All wallet commands (`create_wallet`,
-  `open_wallet`, `close_wallet`, `get_balance`, `get_address`, `transfer`,
-  `get_transactions`, `get_seed`, `import_wallet_from_seed`,
-  `import_wallet_from_keys`) now call `wallet_bridge` functions instead of
-  `wallet_rpc`. `init_wallet_rpc` creates a `Wallet2` instance directly.
-  `shutdown_wallet_rpc` drops the instance.
-- **Updated `lib.rs`**: Replaced `mod wallet_process` and `mod wallet_rpc` with
-  `mod wallet_bridge`. Window close handler calls `wallet_bridge::shutdown`.
-
-### 🗑️ Removed
-
-- `wallet_rpc.rs` — async HTTP JSON-RPC client (replaced by direct FFI)
-- `wallet_process.rs` — child process spawner/manager (no longer needed)
-- `which` crate dependency (was used for binary resolution)
-
-### ✨ Added
-
-- `wallet_bridge.rs` — direct FFI bridge to wallet2 via `shekyl-wallet-rpc`
-  crate. Provides the same API surface as the old `wallet_rpc.rs` but without
-  HTTP overhead or process management.
-- `shekyl-wallet-rpc` path dependency in `Cargo.toml`
-- `build.rs` with `SHEKYL_BUILD_DIR` support for linking C++ wallet libraries
-
-### 🔧 Build & CI
-
-- **Release workflow now builds shekyl-core from source** for Linux and macOS.
-  The workflow installs all C++ build dependencies (Boost, OpenSSL, libsodium,
-  protobuf, etc.), configures and builds the shekyl-core wallet library via
-  CMake, and passes `SHEKYL_BUILD_DIR` to Tauri's build step so the Rust
-  linker can resolve all 22 `wallet2_ffi_*` symbols.
-- **`build.rs` rewritten** with comprehensive platform-conditional linking:
-  24 static libraries (wallet, cryptonote_core, blockchain_db, ringct, etc.)
-  plus the `shekyl_ffi` Rust FFI crate, with platform-specific system library
-  lists for Linux (`stdc++`, Boost, OpenSSL, hidapi, udev), macOS (`c++`,
-  frameworks: Security, CoreFoundation, IOKit), and Windows (ws2_32, bcrypt).
-- **macOS Homebrew detection**: `build.rs` discovers Homebrew prefix at build
-  time via `brew --prefix` and `brew --prefix openssl@3`, and conditionally
-  links only Boost components that produce library files (Boost.System is
-  header-only in Boost 1.69+).
-- **Linux `.deb` runtime dependencies**: declared all 14 runtime library
-  dependencies (Boost, OpenSSL, libsodium, libunbound, hidapi, protobuf, etc.)
-  so `apt install` pulls them automatically on Ubuntu 22.04. For cross-distro
-  Linux support, use the AppImage which bundles all shared libraries.
-- **shekyl-core cloned from `main`**: CI workflows now pull shekyl-core from
-  the `main` branch (stable) rather than `dev`.
-- **Windows**: deferred pending MSVC compatibility investigation. The current
-  shekyl-core codebase uses GCC/MinGW which produces `.a` archives
-  incompatible with MSVC's `link.exe`. Key issues identified:
-  unconditional POSIX includes in `common/util.cpp` and `easylogging++.cc`,
-  AT&T inline asm in `perf_timer.cpp`, and GCC builtins in crypto code.
 
 ## 0.1.2-beta -- 2026-03-30
 
@@ -190,6 +132,20 @@
   for future bundling of `shekyld` and `shekyl-wallet-rpc`.
 - Created `docs/WALLET_STARTUP.md` design doc.
 
+### Direct wallet2 FFI Integration
+
+- Replaced the HTTP JSON-RPC client (`wallet_rpc.rs`) and child process manager
+  (`wallet_process.rs`) with `wallet_bridge.rs`, which calls the C++ `wallet2`
+  library directly through the `shekyl-wallet-rpc` Rust FFI wrapper.
+- Updated `state.rs`: `AppState` now holds a `wallet_bridge::WalletHandle`
+  instead of `wallet_process` and `wallet_rpc_url`.
+- Updated `commands.rs`: All wallet commands now call `wallet_bridge` functions
+  instead of `wallet_rpc`.
+- Updated `lib.rs`: Replaced `mod wallet_process` and `mod wallet_rpc` with
+  `mod wallet_bridge`.
+- Removed `wallet_rpc.rs`, `wallet_process.rs`, and `which` crate dependency.
+- Added `wallet_bridge.rs` and `shekyl-wallet-rpc` path dependency.
+
 ### Release Pipeline
 
 - Changed `releaseDraft: true` to `releaseDraft: false` in `release.yml` so
@@ -205,6 +161,21 @@
   `define`, eliminating the fourth manual version update.
 - Added `__APP_VERSION__` global declaration to `src/vite-env.d.ts`.
 
+### Build & CI
+
+- **Release workflow now builds shekyl-core from source** for Linux and macOS.
+- **`build.rs` rewritten** with comprehensive platform-conditional linking:
+  24 static libraries plus the `shekyl_ffi` Rust FFI crate, with
+  platform-specific system library lists for Linux, macOS, and Windows.
+- **macOS Homebrew detection**: `build.rs` discovers Homebrew prefix at build
+  time via `brew --prefix` and conditionally links only Boost components that
+  produce library files.
+- **Windows MSVC build enabled**: shekyl-core `dev` branch contains all MSVC
+  portability fixes (POSIX guards, CryptonightR JIT stub, empty `.dat`
+  generator fix, Boost CONFIG-mode detection). Uses `windows-2025-vs2026`
+  runner with VS 2026, vcpkg overlay ports for lmdb, and builds only
+  `wallet_api` with `--parallel 2`.
+
 ### Mining Page and Backend
 
 - Added plain HTTP endpoint helpers to `daemon_rpc.rs`: `http_json_call`,
@@ -219,7 +190,7 @@
 - Created `Mining.tsx` page with: live status card (active/idle indicator,
   hash rate gauge using `EmissionGauge`, thread count, speed, algorithm),
   network mining context (difficulty, block reward, block time), mining
-  controls (address input, thread slider 1–N, background mining toggle,
+  controls (address input, thread slider 1-N, background mining toggle,
   start/stop buttons), privacy note about 60-block coinbase maturity.
 - Added `MiningStatus` TypeScript interface to `types/daemon.ts`.
 
@@ -227,19 +198,9 @@
 
 - Created `Help.tsx` page with five expandable sections: Getting Started,
   Mining Guide, Staking Guide, Post-Quantum Cryptography, and Glossary.
-- Getting Started covers: what is Shekyl, connecting to daemon, creating a
-  wallet, sending and receiving.
-- Mining Guide covers: what is mining (RandomX PoW), how to mine in-wallet,
-  block rewards and 60-block unlock, requirements (unrestricted daemon).
-- Staking Guide covers: claim-based model (not delegation), tiers and lock
-  durations, privacy benefit (accrual pool commingling), estimated APY.
 - PQC section covers: quantum threat explanation, hybrid Ed25519 + ML-DSA-65,
-  what "hybrid" means (belt-and-suspenders), FCMP++ full-chain membership
-  proofs, per-output PQC keys (X25519 + ML-KEM-768), coinbase transaction
-  exemption.
-- Glossary with 11 terms: atomic unit, block height, difficulty, emission era,
-  hash rate, ML-DSA-65, RandomX, release multiplier, FCMP++ membership proof,
-  stake ratio, stealth address.
+  FCMP++ full-chain membership proofs, per-output PQC keys (X25519 + ML-KEM-768).
+- Glossary with 11 terms including FCMP++ membership proof, ML-DSA-65, RandomX.
 
 ### Contextual Help and Tooltips
 
@@ -255,10 +216,7 @@
 ### Testing
 
 - Frontend: 65 tests across 13 suites (up from 49/11).
-  New suites: `Mining.test.tsx` (8 tests), `Help.test.tsx` (8 tests).
-  Updated `Sidebar.test.tsx` for Mining and Help links.
-  Updated `PqcStatusBadge.test.tsx` for router context.
-- Rust backend: 10 unit tests (added `get_staking_info_returns_ffi_message`).
+- Rust backend: 10 unit tests.
 
 ### Daemon RPC Integration
 
@@ -268,90 +226,49 @@
 - Added `state.rs`: Tauri managed state holding daemon URL, network type,
   and shared HTTP client. Supports MainNet (11029), TestNet (12029), and
   StageNet (13029) with automatic port defaults.
-- Replaced mock `get_wallet_status` stub with real daemon connectivity
-  check via `get_info`.
-- Added new Tauri commands: `get_chain_health` (aggregated daemon data),
-  `get_tier_yields` (annualized APY per staking tier), `set_daemon_connection`
-  (runtime network/URL switching), `get_pqc_status` (hybrid signature info).
-- Wallet-side commands (transfer, stake, claim, create/open wallet) remain
-  stubs with clear "requires wallet2 FFI bridge" messages.
 
 ### SKL Display Formatting
 
 - Created `src/lib/format.ts`: canonical formatting utilities with 9-decimal
   atomic precision (1e9 divisor) and 6-decimal display truncation.
-- Functions: `formatSkl`, `formatSklCompact`, `formatPercent`,
-  `formatMultiplier`, `formatHashRate`, `formatDuration`, `emissionProgress`.
 - Fixed incorrect 1e12 (Monero) divisor throughout the codebase.
-- Created `src/types/daemon.ts`: shared TypeScript interfaces for all daemon
-  RPC response shapes.
 
-### Chain Health Dashboard (DESIGN_CONCEPTS.md Section 10)
+### Chain Health Dashboard
 
 - Added `ChainHealthPanel.tsx`: card-based dashboard showing emission era,
   supply progress bar, stake ratio / release tempo / burn rate / emission
   share gauges, total burned / staker pool / total staked counters, and
   network stats (height, hash rate, last reward, tx pool, node version).
-- Added `EmissionGauge.tsx`: reusable SVG circular gauge component (pure
-  CSS/SVG, no charting library).
-- Added `/chain-health` route with full-page view; compact version embedded
-  on the Dashboard below balance.
-- Added "Chain Health" link to sidebar navigation.
+- Added `EmissionGauge.tsx`: reusable SVG circular gauge component.
 
 ### Enhanced Staking View
 
-- Rebuilt `Staking.tsx` with privacy-first narrative: prominent "Staking as
-  Privacy Participation" card explaining accrual pool commingling and
-  plausible deniability.
-- Network staking gauges: stake ratio, emission share, total staked, and
-  reward pool balance.
+- Rebuilt `Staking.tsx` with privacy-first narrative.
 - `StakeTierCard.tsx`: tier selection cards showing lock duration, yield
   multiplier, estimated APY, and block count from live daemon data.
-- Stake action section with wallet2 FFI deferral notice.
 
 ### PQC Transparency
 
 - Added `PqcStatusBadge.tsx` to the header: shows "Ed25519 + ML-DSA-65"
   with green shield icon when hybrid PQC is active.
-- Added "Post-Quantum Security" section to Settings page showing signature
-  scheme, transaction version, protection status, and future PQC primitive
-  upgrade roadmap (threshold multisig, ML-KEM algorithm upgrades).
+- Added "Post-Quantum Security" section to Settings page.
 
 ### Network Switching and Testnet Flow
 
-- Added `TestnetBanner.tsx`: persistent amber banner on TestNet ("TestNet
-  Active — Mainnet July 2026" + faucet link), blue banner on StageNet.
+- Added `TestnetBanner.tsx`: persistent amber banner on TestNet, blue on StageNet.
 - Network selector in Settings now calls `set_daemon_connection` to switch
   daemon URL and network at runtime, with immediate data refresh.
-- Settings page shows live connection status (block height + node version).
 
 ### Shared Polling Context
 
 - Added `DaemonProvider` context: polls `get_chain_health` and
-  `get_pqc_status` every 30 seconds. All components subscribe to the
-  context, avoiding duplicate RPC traffic.
-- Header now uses context for connection/sync status display.
-
-### Testing
-
-- Frontend: 49 tests across 11 suites (up from 20 tests / 6 suites).
-  New test coverage for: `format.ts` utilities, `EmissionGauge`,
-  `PqcStatusBadge`, `TestnetBanner`, `StakeTierCard`, and updated
-  existing tests for refactored components.
-- Rust backend: 9 unit tests covering all stub commands and PQC status.
-- All checks pass: TypeScript, ESLint, Vitest, Rustfmt, Clippy, cargo test.
+  `get_pqc_status` every 30 seconds.
 
 ### Testing and CI/CD
 
-- Added frontend testing: Vitest + React Testing Library + jsdom. Tauri IPC
-  mocked via `@tauri-apps/api/mocks`.
-- Added Rust backend tests: `#[tokio::test]` unit tests for command stubs.
-- Added CI workflow (`.github/workflows/ci.yml`): ESLint, TypeScript
-  type-check, Vitest, Rustfmt, Clippy, and `cargo test` on every PR to main.
-- Added release workflow (`.github/workflows/release.yml`): multi-platform
-  build matrix (Linux x64, Windows x64, macOS ARM64, macOS Intel) via
-  `tauri-apps/tauri-action`, creates draft GitHub releases.
-- Added `rustfmt.toml`, `vitest.config.ts`, and test setup infrastructure.
+- Added frontend testing: Vitest + React Testing Library + jsdom.
+- Added Rust backend tests: `#[tokio::test]` unit tests.
+- Added CI workflow and release workflow with multi-platform matrix.
 
 ## 0.1.0 -- 2026-03-14
 

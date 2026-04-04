@@ -50,10 +50,8 @@ jobs:
         include:
           - platform: ubuntu-24.04
             args: ""
-          # Windows disabled: shekyl-core MSVC build has a known ICE on obj_blocks/obj_cncrypto.
-          # Re-enable once the ICE is resolved or a MinGW cross-compile path is added.
-          # - platform: windows-latest
-          #   args: --bundles nsis
+          - platform: windows-2025-vs2026
+            args: --bundles nsis
           - platform: macos-latest
             tauri_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
@@ -136,6 +134,43 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
+      # ── Windows: vcpkg + MSVC ──
+
+      - name: vcpkg cache
+        if: startsWith(matrix.platform, 'windows')
+        uses: actions/cache@v5
+        with:
+          path: |
+            C:\vcpkg\downloads
+            C:\vcpkg\installed
+            C:\vcpkg\archives
+          key: vcpkg-x64-windows-static-${{ hashFiles('.github/workflows/release.yml') }}
+          restore-keys: vcpkg-x64-windows-static-
+
+      - name: Install Windows build dependencies
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: clear;files,C:\vcpkg\archives,readwrite
+        run: |
+          vcpkg install --triplet x64-windows-static --overlay-ports="${{ github.workspace }}/../Shekyl/vcpkg-overlay/ports" boost openssl libsodium zeromq libusb lmdb
+
+      - name: Build Shekyl wallet library (Windows / MSVC)
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        run: |
+          cmake -S ..\Shekyl -B ..\Shekyl\build `
+            -G "Visual Studio 18 2026" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DSTATIC=ON `
+            -DBUILD_SHARED_LIBS=OFF `
+            -DBUILD_TESTS=OFF `
+            -DSTACK_TRACE=OFF `
+            -DUSE_DEVICE_TREZOR=OFF `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static
+          cmake --build ..\Shekyl\build --config Release --target wallet_api --parallel 2
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -177,7 +212,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHEKYL_BUILD_DIR: ${{ matrix.platform != 'windows-latest' && format('{0}/../Shekyl/build', github.workspace) || '' }}
+          SHEKYL_BUILD_DIR: ${{ format('{0}/../Shekyl/build', github.workspace) }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
