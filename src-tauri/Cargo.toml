@@ -22,5 +22,5 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
 dirs = "6"
-shekyl-wallet-rpc = { path = "../../Shekyl/rust/shekyl-wallet-rpc", features = ["rust-scanner"] }
-shekyl-scanner = { path = "../../Shekyl/rust/shekyl-scanner" }
+shekyl-wallet-rpc = { path = "../../shekyl-core/rust/shekyl-wallet-rpc", features = ["rust-scanner"] }
+shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner" }
