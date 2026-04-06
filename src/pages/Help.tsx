@@ -70,10 +70,10 @@ export default function Help() {
             <h4 className="font-semibold text-white">What is Shekyl?</h4>
             <p>
               Shekyl (SKL) is a privacy-focused cryptocurrency with
-              post-quantum security. It uses ring signatures and stealth
-              addresses to keep your transactions private, and hybrid
-              cryptographic signatures to protect against future quantum
-              computing threats.
+              post-quantum security. It uses FCMP++ (Full-Chain Membership
+              Proofs) to hide the real input among every output on the chain,
+              and hybrid cryptographic signatures to protect against future
+              quantum computing threats.
             </p>
           </div>
           <div>
@@ -111,8 +111,10 @@ export default function Help() {
             <p>
               To receive SKL, go to the <strong>Receive</strong> page and share
               your address. To send, use the <strong>Send</strong> page with
-              the recipient's address and the amount. Transactions use ring
-              signatures to hide the true sender among a group of decoys.
+              the recipient's address and the amount. Transactions use
+              full-chain membership proofs (FCMP++) to hide the real input
+              among every output on the chain — far stronger than traditional
+              ring signatures.
             </p>
           </div>
         </div>
@@ -306,12 +308,48 @@ export default function Help() {
 
       <Section
         icon={ShieldCheck}
-        title="Post-Quantum Cryptography"
+        title="Security and Privacy"
         id="pqc"
         open={open}
         onToggle={toggle}
       >
         <div className="space-y-3">
+          <div>
+            <h4 className="font-semibold text-white">Three Layers of Protection</h4>
+            <p>
+              Every Shekyl transaction is protected by three independent
+              cryptographic layers:
+            </p>
+            <ol className="mt-2 list-inside list-decimal space-y-1 text-purple-200">
+              <li>
+                <strong>Membership proof (FCMP++)</strong> — proves your input
+                is one of the entire chain's outputs without revealing which
+                one. The anonymity set is the full UTXO set, not a small ring.
+              </li>
+              <li>
+                <strong>Spend authorization (Ed25519 + ML-DSA-65)</strong> —
+                hybrid classical and post-quantum signatures ensure only you
+                can spend your funds, even against future quantum computers.
+              </li>
+              <li>
+                <strong>Amount privacy (Bulletproofs+)</strong> — transaction
+                amounts are hidden behind zero-knowledge range proofs.
+              </li>
+            </ol>
+          </div>
+          <div>
+            <h4 className="font-semibold text-white">
+              FCMP++ — Full-Chain Membership Proofs
+            </h4>
+            <p>
+              Traditional ring signatures hide a transaction's real input among
+              a small set of decoys (typically 16). FCMP++ eliminates that
+              limitation — it proves membership in a{" "}
+              <strong>curve tree</strong> built over every output on the chain.
+              The anonymity set grows with every block, and no observer can
+              narrow down which output was actually spent.
+            </p>
+          </div>
           <div>
             <h4 className="font-semibold text-white">Why PQC Matters</h4>
             <p>
@@ -319,21 +357,7 @@ export default function Help() {
               cryptography (like Ed25519) that most cryptocurrencies rely on.
               A sufficiently powerful quantum computer could derive your
               private key from your public key, potentially stealing funds.
-              Shekyl addresses this threat proactively.
-            </p>
-          </div>
-          <div>
-            <h4 className="font-semibold text-white">
-              How Shekyl Protects You Today
-            </h4>
-            <p>
-              Every spend transaction uses a{" "}
-              <strong>hybrid signature</strong>: both a classical{" "}
-              <strong>Ed25519</strong> signature and a post-quantum{" "}
-              <strong>ML-DSA-65</strong> (FIPS 204, formerly Dilithium)
-              signature. Both signatures must verify for a transaction to be
-              valid. This means even if one scheme is broken, the other still
-              protects your funds.
+              Shekyl addresses this threat proactively with hybrid signatures.
             </p>
           </div>
           <div>
@@ -344,20 +368,8 @@ export default function Help() {
               The hybrid approach is a belt-and-suspenders strategy. The
               classical Ed25519 component provides proven, battle-tested
               security. The ML-DSA-65 component provides quantum resistance.
-              Neither alone is a single point of failure -- an attacker would
+              Neither alone is a single point of failure — an attacker would
               need to break <em>both</em> schemes simultaneously.
-            </p>
-          </div>
-          <div>
-            <h4 className="font-semibold text-white">V4 Roadmap</h4>
-            <p>
-              Transaction version V4 will introduce{" "}
-              <strong>lattice-based ring signatures</strong> for quantum-
-              resistant input privacy, and{" "}
-              <strong>KEM stealth addresses</strong> (X25519 + ML-KEM-768)
-              for quantum-resistant one-time address generation. This will
-              provide full post-quantum privacy for both who sends and who
-              receives.
             </p>
           </div>
           <div>
@@ -365,7 +377,7 @@ export default function Help() {
               Coinbase Transactions
             </h4>
             <p>
-              Mining (coinbase) transactions do not require PQC signatures --
+              Mining (coinbase) transactions do not require PQC signatures —
               they are generated by the consensus protocol itself and don't
               involve spending existing outputs. Only user-initiated spend
               transactions carry hybrid PQC authentication.
@@ -456,9 +468,19 @@ const GLOSSARY = [
       "An attack where an adversary tries to spend a multisig-protected output using a cheaper single-signer scheme. Shekyl prevents this by binding each output to its expected signature scheme on-chain.",
   },
   {
+    term: "FCMP++",
+    definition:
+      "Full-Chain Membership Proofs. A privacy technique that proves a transaction input is one of the entire chain's outputs without revealing which one. Replaces ring signatures, providing a much larger anonymity set.",
+  },
+  {
+    term: "Curve Tree",
+    definition:
+      "A Merkle-like hash tree built over all outputs on the chain, using alternating Helios and Selene elliptic curve layers. Used by FCMP++ to efficiently prove membership.",
+  },
+  {
     term: "Ring Signature",
     definition:
-      "A privacy technique where your transaction is signed alongside decoy inputs, making it impossible to determine which input is the real one.",
+      "A legacy privacy technique where a transaction is signed alongside a small set of decoy inputs. Replaced by FCMP++ in Shekyl, which uses the entire output set rather than a small ring.",
   },
   {
     term: "Stake Ratio",

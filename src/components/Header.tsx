@@ -1,6 +1,6 @@
 import { useDaemon } from "../context/useDaemon";
 import NetworkBadge from "./NetworkBadge";
-import PqcStatusBadge from "./PqcStatusBadge";
+import SecurityBadge from "./SecurityBadge";
 
 export default function Header() {
   const { health, loading } = useDaemon();
@@ -13,7 +13,7 @@ export default function Header() {
     <header className="flex items-center justify-between border-b border-purple-700/50 bg-purple-900/60 px-6 py-3">
       <div className="flex items-center gap-3">
         <NetworkBadge network={network} />
-        <PqcStatusBadge />
+        <SecurityBadge />
       </div>
 
       <div className="flex items-center gap-4 text-xs text-purple-300">

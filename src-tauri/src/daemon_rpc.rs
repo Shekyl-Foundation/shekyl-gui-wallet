@@ -137,6 +137,8 @@ pub struct BlockHeader {
     pub reward: u64,
     pub difficulty: u64,
     pub block_size: u64,
+    #[serde(default)]
+    pub curve_tree_root: String,
 }
 
 #[derive(Deserialize)]
@@ -176,6 +178,24 @@ pub async fn get_staking_info(
     url: &str,
 ) -> Result<GetStakingInfoResponse, String> {
     rpc_call(client, url, "get_staking_info", serde_json::json!({})).await
+}
+
+// ─── get_curve_tree_info ─────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CurveTreeInfo {
+    #[serde(default)]
+    pub root: String,
+    #[serde(default)]
+    pub depth: u8,
+    #[serde(default)]
+    pub leaf_count: u64,
+    #[serde(default)]
+    pub height: u64,
+}
+
+pub async fn get_curve_tree_info(client: &Client, url: &str) -> Result<CurveTreeInfo, String> {
+    rpc_call(client, url, "get_curve_tree_info", serde_json::json!({})).await
 }
 
 // ─── estimate_claim_reward ───────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { listen } from "@tauri-apps/api/event";
 import {
   ArrowLeft,
   Key,
@@ -10,6 +11,7 @@ import {
   Check,
 } from "lucide-react";
 import { useWallet } from "../context/useWallet";
+import type { WalletProgress } from "../types/daemon";
 
 type Tab = "seed" | "keys";
 
@@ -44,6 +46,7 @@ export default function ImportWallet() {
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [restoreStage, setRestoreStage] = useState<RestoreStage>("idle");
+  const [progressDetail, setProgressDetail] = useState("");
   const stageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [name, setName] = useState("Restored Wallet");
@@ -57,6 +60,23 @@ export default function ImportWallet() {
   const [viewKey, setViewKey] = useState("");
 
   useEffect(() => {
+    if (restoreStage === "idle" || restoreStage === "complete") return;
+    const unlistenPromise = listen<WalletProgress>("wallet-progress", (event) => {
+      const { event_type, current, total } = event.payload;
+      if (event_type === "pqc_rederivation") {
+        setRestoreStage("rederiving_pqc_keys");
+        setProgressDetail(`${current} / ${total} outputs`);
+      } else if (event_type === "fcmp_precompute") {
+        setRestoreStage("building_tree");
+        setProgressDetail(`${current} / ${total} outputs`);
+      }
+    });
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  }, [restoreStage]);
+
+  useEffect(() => {
     return () => {
       if (stageTimer.current) clearTimeout(stageTimer.current);
     };
@@ -66,12 +86,8 @@ export default function ImportWallet() {
     setError(null);
     setLoading(true);
     setRestoreStage("scanning");
+    setProgressDetail("");
     try {
-      stageTimer.current = setTimeout(
-        () => setRestoreStage("rederiving_pqc_keys"),
-        1200,
-      );
-
       await importFromSeed(
         name.trim(),
         seed.trim(),
@@ -80,16 +96,11 @@ export default function ImportWallet() {
         restoreHeight ? parseInt(restoreHeight, 10) : 0,
       );
 
-      if (stageTimer.current) clearTimeout(stageTimer.current);
-      setRestoreStage("building_tree");
+      setRestoreStage("complete");
       stageTimer.current = setTimeout(() => {
-        setRestoreStage("complete");
-        stageTimer.current = setTimeout(() => {
-          setPhase("ready");
-        }, 1500);
-      }, 800);
+        setPhase("ready");
+      }, 1500);
     } catch (e) {
-      if (stageTimer.current) clearTimeout(stageTimer.current);
       setRestoreStage("idle");
       setError(String(e));
       setLoading(false);
@@ -100,12 +111,8 @@ export default function ImportWallet() {
     setError(null);
     setLoading(true);
     setRestoreStage("scanning");
+    setProgressDetail("");
     try {
-      stageTimer.current = setTimeout(
-        () => setRestoreStage("rederiving_pqc_keys"),
-        1200,
-      );
-
       await importFromKeys(
         name.trim(),
         address.trim(),
@@ -116,16 +123,11 @@ export default function ImportWallet() {
         restoreHeight ? parseInt(restoreHeight, 10) : 0,
       );
 
-      if (stageTimer.current) clearTimeout(stageTimer.current);
-      setRestoreStage("building_tree");
+      setRestoreStage("complete");
       stageTimer.current = setTimeout(() => {
-        setRestoreStage("complete");
-        stageTimer.current = setTimeout(() => {
-          setPhase("ready");
-        }, 1500);
-      }, 800);
+        setPhase("ready");
+      }, 1500);
     } catch (e) {
-      if (stageTimer.current) clearTimeout(stageTimer.current);
       setRestoreStage("idle");
       setError(String(e));
       setLoading(false);
@@ -205,6 +207,11 @@ export default function ImportWallet() {
                       }`}
                     >
                       {RESTORE_STAGE_LABELS[stage]}
+                      {isActive && progressDetail && (
+                        <span className="ml-1 font-normal text-purple-300">
+                          ({progressDetail})
+                        </span>
+                      )}
                     </span>
                   </div>
                 );

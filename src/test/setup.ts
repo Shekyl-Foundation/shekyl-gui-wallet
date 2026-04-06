@@ -6,8 +6,10 @@ afterEach(() => {
   cleanup();
 });
 
-// Stub the Tauri invoke API globally so tests that don't explicitly mock it
-// won't throw "window.__TAURI_INTERNALS__ is not defined".
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockRejectedValue(new Error("invoke not mocked")),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
 }));

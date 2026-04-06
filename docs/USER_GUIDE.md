@@ -443,11 +443,12 @@ daemon connection URL.
 If your daemon is running on a different computer or a non-standard port, you
 can change the URL here. Click **Save & Reconnect** after making changes.
 
-### Post-Quantum Security
+### Security and Privacy
 
-This section shows the current state of Shekyl's quantum protection. You'll
-see the signature scheme (Hybrid: Ed25519 + ML-DSA-65), the transaction
-version, FCMP++ membership proof status, and future PQC upgrade roadmap.
+This section shows the Security Panel -- a detailed overview of Shekyl's
+three-layer protection model: membership proof (FCMP++), spend authorization
+(Ed25519 + ML-DSA-65), and amount privacy (Bulletproofs+). You'll see live
+statistics including the anonymity set size, curve tree depth, and tree root.
 
 ### Wallet management
 
@@ -458,7 +459,7 @@ You can change your wallet password or close the wallet from here.
 ## Understanding Post-Quantum Security
 
 You might have noticed a small green shield badge in the wallet header showing
-something like "Ed25519 + ML-DSA-65." Here's what that means, in plain
+something like "3-layer — 142.8K outputs." Here's what that means, in plain
 language.
 
 ### The problem
@@ -603,8 +604,8 @@ An open wallet on an unlocked computer is an open wallet.
 
 ---
 
-*This guide is for Shekyl Wallet v0.1.x-beta. Wallet creation, opening, and
-import are functional when `shekyl-wallet-rpc` is installed and accessible.
-Staking transactions require the wallet2 FFI bridge (not yet completed).
-Mining and chain health features work when connected to a running `shekyld`
-daemon.*
+*This guide is for Shekyl Wallet v0.3.x-beta. Wallet creation, opening,
+import, sending, receiving, staking, and claiming all operate through the
+embedded wallet2 C++ FFI bridge. FCMP++ proof generation and PQC signing
+progress are streamed in real time. Mining and chain health features work
+when connected to a running `shekyld` daemon.*

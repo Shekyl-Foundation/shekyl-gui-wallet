@@ -25,6 +25,9 @@ export interface ChainHealth {
   tier_1_lock_blocks: number;
   tier_2_lock_blocks: number;
   network: string;
+  curve_tree_root: string;
+  curve_tree_leaf_count: number;
+  curve_tree_depth: number;
 }
 
 export interface WalletStatus {
@@ -71,4 +74,46 @@ export interface PqcStatus {
   post_quantum: string;
   tx_version: number;
   description: string;
+}
+
+export interface SecurityStatus {
+  scheme: string;
+  classical: string;
+  post_quantum: string;
+  tx_version: number;
+  anonymity_set_size: number;
+  tree_depth: number;
+  tree_root_short: string;
+  reference_block_window: number;
+  proof_type: string;
+  max_inputs: number;
+  estimated_proof_size_kb: number;
+  paths_precomputed: boolean;
+}
+
+export interface CurveTreeInfo {
+  root: string;
+  depth: number;
+  leaf_count: number;
+  height: number;
+}
+
+export interface StakedOutput {
+  amount: number;
+  tier: number;
+  lock_height: number;
+  unlock_height: number;
+  claimable: boolean;
+}
+
+export interface WalletStakingInfo {
+  total_staked: number;
+  staked_outputs: StakedOutput[];
+}
+
+export interface WalletProgress {
+  event_type: string;
+  current: number;
+  total: number;
+  detail: string | null;
 }

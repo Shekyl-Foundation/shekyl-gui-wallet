@@ -2,6 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Globe, Server, Shield, ShieldCheck } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
+import SecurityPanel from "../components/SecurityPanel";
 
 const NETWORKS = ["mainnet", "testnet", "stagenet"] as const;
 
@@ -105,43 +106,15 @@ export default function Settings() {
         )}
       </div>
 
-      {/* PQC Security */}
-      <div className="card space-y-4">
-        <div className="flex items-center gap-2">
+      {/* Security Overview */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 px-1">
           <ShieldCheck className="h-4 w-4 text-emerald-400" />
           <h2 className="text-sm font-semibold text-purple-200">
-            Post-Quantum Security
+            Transaction Security
           </h2>
         </div>
-        {pqc ? (
-          <div className="space-y-3 text-xs">
-            <div className="flex justify-between">
-              <span className="text-purple-300">Signature scheme</span>
-              <span className="font-semibold text-white">
-                {pqc.scheme}: {pqc.classical} + {pqc.post_quantum}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-purple-300">Transaction version</span>
-              <span className="font-mono text-white">v{pqc.tx_version}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-purple-300">Status</span>
-              <span className="text-emerald-400">{pqc.description}</span>
-            </div>
-            <div className="rounded-lg bg-purple-800/40 p-3 text-purple-300">
-              <p className="font-semibold text-purple-200">V4 Roadmap</p>
-              <p className="mt-1 leading-relaxed">
-                Lattice-based ring signatures and KEM stealth addresses
-                (X25519 + ML-KEM-768) are planned for V4, providing
-                full post-quantum privacy for transaction inputs and
-                one-time addresses.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-purple-300">Loading PQC status...</p>
-        )}
+        <SecurityPanel />
       </div>
 
       {/* Wallet Security */}

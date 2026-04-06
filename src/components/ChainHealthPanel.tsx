@@ -8,7 +8,7 @@ import {
   emissionProgress,
 } from "../lib/format";
 import EmissionGauge from "./EmissionGauge";
-import { Activity, Flame, TrendingUp, Layers, Coins, Info } from "lucide-react";
+import { Activity, Flame, TrendingUp, Layers, Coins, Info, ShieldCheck } from "lucide-react";
 
 interface Props {
   compact?: boolean;
@@ -148,7 +148,7 @@ export default function ChainHealthPanel({ compact = false }: Props) {
       </div>
 
       {/* Counters */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="card text-center">
           <Flame className="mx-auto mb-1 h-4 w-4 text-red-400" />
           <p className="text-[10px] text-purple-300">Total Burned</p>
@@ -163,6 +163,11 @@ export default function ChainHealthPanel({ compact = false }: Props) {
           <TrendingUp className="mx-auto mb-1 h-4 w-4 text-emerald-400" />
           <p className="text-[10px] text-purple-300">Total Staked</p>
           <p className="text-sm font-bold text-white">{formatSklCompact(health.total_staked)} SKL</p>
+        </div>
+        <div className="card text-center">
+          <ShieldCheck className="mx-auto mb-1 h-4 w-4 text-emerald-400" />
+          <p className="text-[10px] text-purple-300">Anonymity Set</p>
+          <p className="text-sm font-bold text-white">{health.curve_tree_leaf_count.toLocaleString()} outputs</p>
         </div>
       </div>
 
@@ -199,6 +204,20 @@ export default function ChainHealthPanel({ compact = false }: Props) {
             <span className="text-purple-300">Node version</span>
             <span className="font-mono text-white">{health.version}</span>
           </div>
+          {health.curve_tree_depth > 0 && (
+            <>
+              <div className="flex justify-between">
+                <span className="text-purple-300">Curve tree depth</span>
+                <span className="font-mono text-white">{health.curve_tree_depth}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-purple-300">Tree root</span>
+                <span className="font-mono text-white">
+                  {health.curve_tree_root.slice(0, 8)}...
+                </span>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

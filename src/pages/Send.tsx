@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { Send as SendIcon, AlertCircle, ShieldCheck, Loader2 } from "lucide-react";
+import type { WalletProgress } from "../types/daemon";
 
 type ProofStage =
   | "idle"
@@ -27,6 +29,13 @@ const STAGE_ORDER: ProofStage[] = [
   "done",
 ];
 
+const TRANSFER_STAGE_MAP: Record<string, ProofStage> = {
+  constructing: "constructing",
+  generating_proof: "generating_proof",
+  signing_pqc: "signing",
+  broadcasting: "broadcasting",
+};
+
 function formatSkl(atomic: number): string {
   return (atomic / 1e12).toFixed(4);
 }
@@ -37,14 +46,37 @@ export default function Send() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [proofStage, setProofStage] = useState<ProofStage>("idle");
+  const [coldProof, setColdProof] = useState(false);
   const [estimatedFee, setEstimatedFee] = useState<number | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
-  const stageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const proofStartTime = useRef<number>(0);
   const feeDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (!sending) return;
+    const unlistenPromise = listen<WalletProgress>("wallet-progress", (event) => {
+      if (event.payload.event_type === "transfer_stage") {
+        const detail = event.payload.detail ?? "";
+        const mapped = TRANSFER_STAGE_MAP[detail];
+        if (mapped) {
+          setProofStage(mapped);
+          if (mapped === "generating_proof") {
+            proofStartTime.current = Date.now();
+          }
+          if (mapped === "signing" && proofStartTime.current > 0) {
+            const elapsed = Date.now() - proofStartTime.current;
+            setColdProof(elapsed > 5000);
+          }
+        }
+      }
+    });
     return () => {
-      if (stageTimer.current) clearTimeout(stageTimer.current);
+      unlistenPromise.then((fn) => fn());
+    };
+  }, [sending]);
+
+  useEffect(() => {
+    return () => {
       if (feeDebounce.current) clearTimeout(feeDebounce.current);
     };
   }, []);
@@ -78,33 +110,27 @@ export default function Send() {
     setError(null);
     setSending(true);
     setProofStage("constructing");
-
-    const progressTimer = setTimeout(() => setProofStage("generating_proof"), 400);
+    setColdProof(false);
+    proofStartTime.current = 0;
 
     try {
       await invoke("transfer", {
         address,
         amount: Math.round(parseFloat(amount) * 1e12),
       });
-      clearTimeout(progressTimer);
-      setProofStage("signing");
-      stageTimer.current = setTimeout(() => {
-        setProofStage("broadcasting");
-        stageTimer.current = setTimeout(() => {
-          setProofStage("done");
-          stageTimer.current = setTimeout(() => {
-            setProofStage("idle");
-            setSending(false);
-            setAddress("");
-            setAmount("");
-          }, 2000);
-        }, 500);
-      }, 300);
+      setProofStage("done");
+      setTimeout(() => {
+        setProofStage("idle");
+        setSending(false);
+        setAddress("");
+        setAmount("");
+        setColdProof(false);
+      }, 2000);
     } catch (err) {
-      clearTimeout(progressTimer);
       setError(String(err));
       setProofStage("idle");
       setSending(false);
+      setColdProof(false);
     }
   }
 
@@ -179,10 +205,17 @@ export default function Send() {
               />
             </div>
             {proofStage === "generating_proof" && (
-              <p className="flex items-center gap-1 text-[10px] text-emerald-300">
-                <ShieldCheck className="h-2.5 w-2.5" />
-                Full-chain membership proof with post-quantum protection
-              </p>
+              <>
+                <p className="flex items-center gap-1 text-[10px] text-emerald-300">
+                  <ShieldCheck className="h-2.5 w-2.5" />
+                  Full-chain membership proof with post-quantum protection
+                </p>
+                {coldProof && (
+                  <p className="text-[10px] text-purple-300">
+                    First spend after sync — building full membership proof. This can take up to 90 seconds.
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
