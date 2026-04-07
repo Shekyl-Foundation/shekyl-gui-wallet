@@ -580,8 +580,7 @@ pub fn get_scanner_unstakeable_outputs(handle: &WalletHandle) -> Result<serde_js
 
 /// Freeze an output by key image via the scanner state.
 pub fn scanner_freeze(handle: &WalletHandle, key_image_hex: &str) -> Result<bool, String> {
-    let ki_bytes =
-        hex::decode(key_image_hex).map_err(|e| format!("Invalid key_image hex: {e}"))?;
+    let ki_bytes = hex::decode(key_image_hex).map_err(|e| format!("Invalid key_image hex: {e}"))?;
     if ki_bytes.len() != 32 {
         return Err("key_image must be 32 bytes".into());
     }
@@ -599,8 +598,7 @@ pub fn scanner_freeze(handle: &WalletHandle, key_image_hex: &str) -> Result<bool
 
 /// Thaw a frozen output by key image via the scanner state.
 pub fn scanner_thaw(handle: &WalletHandle, key_image_hex: &str) -> Result<bool, String> {
-    let ki_bytes =
-        hex::decode(key_image_hex).map_err(|e| format!("Invalid key_image hex: {e}"))?;
+    let ki_bytes = hex::decode(key_image_hex).map_err(|e| format!("Invalid key_image hex: {e}"))?;
     if ki_bytes.len() != 32 {
         return Err("key_image must be 32 bytes".into());
     }
