@@ -241,10 +241,14 @@ fn link_linux() {
             }
         }
 
-        // System libraries that must be dynamically linked.
-        // libunwind must be dynamic because its static archive uses TLS
-        // relocations (R_X86_64_TPOFF32) incompatible with cdylib output.
-        for lib in &["dl", "pthread", "rt", "m", "unwind"] {
+        // System libraries that are always dynamically linked.
+        // Note: libunwind is intentionally excluded. The depends prefix
+        // builds a non-PIC libunwind.a whose TLS relocations
+        // (R_X86_64_TPOFF32) are incompatible with cdylib output, and
+        // lld resolves -lunwind to that .a even under -Bdynamic. The
+        // Rust stdlib bundles its own unwind support, and the system's
+        // libunwind.so is pulled in transitively via libstdc++.
+        for lib in &["dl", "pthread", "rt", "m"] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
     } else {
