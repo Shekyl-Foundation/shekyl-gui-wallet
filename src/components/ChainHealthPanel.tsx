@@ -167,7 +167,7 @@ export default function ChainHealthPanel({ compact = false }: Props) {
         <div className="card text-center">
           <ShieldCheck className="mx-auto mb-1 h-4 w-4 text-emerald-400" />
           <p className="text-[10px] text-purple-300">Anonymity Set</p>
-          <p className="text-sm font-bold text-white">{health.curve_tree_leaf_count.toLocaleString()} outputs</p>
+          <p className="text-sm font-bold text-white">{(health.curve_tree_leaf_count ?? 0).toLocaleString()} outputs</p>
         </div>
       </div>
 
@@ -204,7 +204,7 @@ export default function ChainHealthPanel({ compact = false }: Props) {
             <span className="text-purple-300">Node version</span>
             <span className="font-mono text-white">{health.version}</span>
           </div>
-          {health.curve_tree_depth > 0 && (
+          {(health.curve_tree_depth ?? 0) > 0 && (
             <>
               <div className="flex justify-between">
                 <span className="text-purple-300">Curve tree depth</span>
@@ -213,7 +213,7 @@ export default function ChainHealthPanel({ compact = false }: Props) {
               <div className="flex justify-between">
                 <span className="text-purple-300">Tree root</span>
                 <span className="font-mono text-white">
-                  {health.curve_tree_root.slice(0, 8)}...
+                  {health.curve_tree_root?.slice(0, 8)}...
                 </span>
               </div>
             </>

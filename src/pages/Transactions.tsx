@@ -14,7 +14,7 @@ interface TxInfo {
 }
 
 function atomicToSkl(atomic: number): string {
-  return (atomic / 1e12).toFixed(4);
+  return (atomic / 1e9).toFixed(4);
 }
 
 export default function Transactions() {

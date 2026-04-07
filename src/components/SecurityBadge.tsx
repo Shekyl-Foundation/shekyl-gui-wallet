@@ -28,7 +28,9 @@ export default function SecurityBadge() {
       title={
         hasTree
           ? `3-layer protection active — ${security.anonymity_set_size.toLocaleString()} outputs in anonymity set`
-          : "Daemon disconnected — cannot verify tree state"
+          : pqc
+            ? "PQC active — waiting for curve tree data"
+            : "Connecting to daemon..."
       }
     >
       {hasTree ? (

@@ -36,8 +36,8 @@ const TRANSFER_STAGE_MAP: Record<string, ProofStage> = {
   broadcasting: "broadcasting",
 };
 
-function formatSkl(atomic: number): string {
-  return (atomic / 1e12).toFixed(4);
+function formatAtomicSkl(atomic: number): string {
+  return (atomic / 1e9).toFixed(4);
 }
 
 export default function Send() {
@@ -92,7 +92,7 @@ export default function Send() {
       setFeeLoading(true);
       invoke<number>("estimate_fee", {
         address,
-        amount: Math.round(parsed * 1e12),
+        amount: Math.round(parsed * 1e9),
       })
         .then((fee) => {
           setEstimatedFee(fee);
@@ -116,7 +116,7 @@ export default function Send() {
     try {
       await invoke("transfer", {
         address,
-        amount: Math.round(parseFloat(amount) * 1e12),
+        amount: Math.round(parseFloat(amount) * 1e9),
       });
       setProofStage("done");
       setTimeout(() => {
@@ -180,7 +180,7 @@ export default function Send() {
           <div className="flex items-center justify-between rounded-lg border border-purple-600/30 bg-purple-800/30 px-3 py-2 text-xs text-purple-200">
             <span>Estimated fee</span>
             <span className="font-mono text-gold-400">
-              {feeLoading ? "..." : `${formatSkl(estimatedFee!)} SKL`}
+              {feeLoading ? "..." : `${formatAtomicSkl(estimatedFee!)} SKL`}
             </span>
           </div>
         )}

@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Checkout Shekyl core (wallet FFI dependency)
-        run: git clone --depth 1 --branch feature/fcmp-plus-plus --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../Shekyl
+        run: git clone --depth 1 --branch feature/fcmp-plus-plus --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
 
       # ── Linux: use contrib/depends for all third-party libs ──
 
@@ -78,21 +78,21 @@ jobs:
       - name: Compute depends cache key
         if: startsWith(matrix.platform, 'ubuntu')
         id: depends-key
-        run: echo "hash=$(cat ../Shekyl/contrib/depends/packages/*.mk | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+        run: echo "hash=$(cat ../shekyl-core/contrib/depends/packages/*.mk | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Cache depends prefix
         if: startsWith(matrix.platform, 'ubuntu')
         uses: actions/cache@v4
         id: depends-cache
         with:
-          path: ${{ github.workspace }}/../Shekyl/contrib/depends/built
+          path: ${{ github.workspace }}/../shekyl-core/contrib/depends/built
           key: depends-x86_64-linux-gnu-${{ steps.depends-key.outputs.hash }}
           restore-keys: |
             depends-x86_64-linux-gnu-
 
       - name: Build shekyl-core with depends (all deps from source, static)
         if: startsWith(matrix.platform, 'ubuntu')
-        working-directory: ../Shekyl
+        working-directory: ../shekyl-core
         run: make depends target=x86_64-unknown-linux-gnu -j$(nproc)
 
       # ── macOS: Homebrew for now (depends cross-build is stretch goal) ──
@@ -109,12 +109,12 @@ jobs:
           OPENSSL_ROOT_DIR: ${{ runner.temp }}/_brew_openssl
         run: |
           ln -sf "$(brew --prefix openssl@3)" "$OPENSSL_ROOT_DIR"
-          cmake -S ../Shekyl -B ../Shekyl/build \
+          cmake -S ../shekyl-core -B ../shekyl-core/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_TESTS=OFF \
             -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
-          cmake --build ../Shekyl/build -- -j$(sysctl -n hw.logicalcpu)
+          cmake --build ../shekyl-core/build -- -j$(sysctl -n hw.logicalcpu)
 
       # ── Common: Node, Rust, frontend ──
 
@@ -153,13 +153,13 @@ jobs:
         env:
           VCPKG_BINARY_SOURCES: clear;files,C:\vcpkg\archives,readwrite
         run: |
-          vcpkg install --triplet x64-windows-static --overlay-ports="${{ github.workspace }}/../Shekyl/vcpkg-overlay/ports" boost openssl libsodium zeromq libusb lmdb
+          vcpkg install --triplet x64-windows-static --overlay-ports="${{ github.workspace }}/../shekyl-core/vcpkg-overlay/ports" boost openssl libsodium zeromq libusb lmdb
 
       - name: Build Shekyl wallet library (Windows / MSVC)
         if: startsWith(matrix.platform, 'windows')
         shell: pwsh
         run: |
-          cmake -S ..\Shekyl -B ..\Shekyl\build `
+          cmake -S ..\shekyl-core -B ..\shekyl-core\build `
             -G "Visual Studio 18 2026" -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DSTATIC=ON `
@@ -169,7 +169,7 @@ jobs:
             -DUSE_DEVICE_TREZOR=OFF `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static
-          cmake --build ..\Shekyl\build --config Release --target wallet_api --parallel 2
+          cmake --build ..\shekyl-core\build --config Release --target wallet_api --parallel 2
 
       - name: Install frontend dependencies
         run: npm ci
@@ -179,9 +179,9 @@ jobs:
       - name: Build Tauri app (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
         env:
-          SHEKYL_BUILD_DIR: ${{ github.workspace }}/../Shekyl/build/x86_64-unknown-linux-gnu/release
-          SHEKYL_SOURCE_DIR: ${{ github.workspace }}/../Shekyl
-          SHEKYL_DEPENDS_PREFIX: ${{ github.workspace }}/../Shekyl/contrib/depends/x86_64-unknown-linux-gnu
+          SHEKYL_BUILD_DIR: ${{ github.workspace }}/../shekyl-core/build/x86_64-unknown-linux-gnu/release
+          SHEKYL_SOURCE_DIR: ${{ github.workspace }}/../shekyl-core
+          SHEKYL_DEPENDS_PREFIX: ${{ github.workspace }}/../shekyl-core/contrib/depends/x86_64-unknown-linux-gnu
         run: npx tauri build
 
       - name: Upload Linux .deb to release
@@ -213,7 +213,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHEKYL_BUILD_DIR: ${{ format('{0}/../Shekyl/build', github.workspace) }}
+          SHEKYL_BUILD_DIR: ${{ format('{0}/../shekyl-core/build', github.workspace) }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}

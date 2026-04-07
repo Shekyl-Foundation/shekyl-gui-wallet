@@ -2,14 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Coins, Lock, TrendingUp, ShieldCheck, Info, Gift } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
-import { formatSklCompact, formatPercent } from "../lib/format";
+import { formatSkl, formatSklCompact, formatPercent } from "../lib/format";
 import EmissionGauge from "../components/EmissionGauge";
 import StakeTierCard from "../components/StakeTierCard";
 import type { TierYield, WalletStakingInfo, StakedOutput } from "../types/daemon";
-
-function atomicToSkl(atomic: number): string {
-  return (atomic / 1e12).toFixed(4);
-}
 
 export default function Staking() {
   const { health } = useDaemon();
@@ -130,14 +126,14 @@ export default function Staking() {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-purple-200">Your Stakes</h2>
             <span className="text-xs text-purple-300">
-              Total: {atomicToSkl(stakingInfo.total_staked)} SKL
+              Total: {formatSkl(stakingInfo.total_staked)} SKL
             </span>
           </div>
           <div className="space-y-2">
             {stakingInfo.staked_outputs.map((so: StakedOutput, idx: number) => (
               <div key={idx} className="flex items-center justify-between rounded-lg border border-purple-600/30 bg-purple-800/30 px-3 py-2 text-xs">
                 <div>
-                  <span className="font-semibold text-white">{atomicToSkl(so.amount)} SKL</span>
+                  <span className="font-semibold text-white">{formatSkl(so.amount)} SKL</span>
                   <span className="ml-2 text-purple-300">Tier {so.tier}</span>
                   <span className="ml-2 text-purple-400">
                     {so.claimable ? "Unlocked" : `Locked until block ${so.unlock_height.toLocaleString()}`}
@@ -194,9 +190,12 @@ export default function Staking() {
             setStaking(true);
             setStakeError(null);
             try {
+              const [whole = "0", frac = ""] = stakeAmount.split(".");
+              const padded = (frac + "000000000").slice(0, 9);
+              const atomic = BigInt(whole) * BigInt(1_000_000_000) + BigInt(padded);
               await invoke("stake", {
                 tier: selectedTier,
-                amount: Math.round(parseFloat(stakeAmount) * 1e12),
+                amount: Number(atomic),
               });
               setStakeAmount("");
               fetchStakingInfo();

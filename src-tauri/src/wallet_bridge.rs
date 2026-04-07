@@ -480,8 +480,8 @@ pub fn get_pqc_multisig_info(handle: &WalletHandle) -> Result<PqcMultisigInfo, S
 
 /// Get balance from the Rust scanner state.
 ///
-/// Falls back to the C++ FFI if the scanner state is empty
-/// (i.e., the scanner hasn't been synchronized yet).
+/// Returns the scanner's view of the balance at its current synced height.
+/// If the scanner hasn't synced yet, the balance will be zero.
 pub fn get_scanner_balance(
     handle: &WalletHandle,
 ) -> Result<shekyl_scanner::BalanceSummary, String> {
@@ -510,8 +510,9 @@ pub fn get_scanner_staked_outputs(handle: &WalletHandle) -> Result<serde_json::V
                 serde_json::json!({
                     "amount": td.amount(),
                     "tier": td.stake_tier,
-                    "lock_until": td.stake_lock_until,
-                    "matured": td.is_matured_stake(height),
+                    "lock_height": td.block_height,
+                    "unlock_height": td.stake_lock_until,
+                    "claimable": td.is_matured_stake(height),
                 })
             })
             .collect();

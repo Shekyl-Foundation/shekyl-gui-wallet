@@ -25,9 +25,9 @@ export interface ChainHealth {
   tier_1_lock_blocks: number;
   tier_2_lock_blocks: number;
   network: string;
-  curve_tree_root: string;
-  curve_tree_leaf_count: number;
-  curve_tree_depth: number;
+  curve_tree_root?: string;
+  curve_tree_leaf_count?: number;
+  curve_tree_depth?: number;
 }
 
 export interface WalletStatus {
