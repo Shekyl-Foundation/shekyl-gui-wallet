@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Checkout Shekyl core (wallet FFI dependency)
-        run: git clone --depth 1 --branch feature/fcmp-plus-plus --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
+        run: git clone --depth 1 --branch dev --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
 
       # ── Linux: use contrib/depends for all third-party libs ──
 
