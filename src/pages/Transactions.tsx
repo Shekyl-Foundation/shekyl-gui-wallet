@@ -14,7 +14,7 @@ interface TxInfo {
 }
 
 function atomicToSkl(atomic: number): string {
-  return (atomic / 1e12).toFixed(4);
+  return (atomic / 1e9).toFixed(4);
 }
 
 export default function Transactions() {
@@ -72,9 +72,15 @@ export default function Transactions() {
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-purple-400">
-                  Block {tx.height.toLocaleString()}
-                </p>
+                <div className="flex items-center gap-2 text-xs text-purple-400">
+                  {tx.height > 0 && <span>Block {tx.height.toLocaleString()}</span>}
+                  {tx.timestamp > 0 && (
+                    <span>{new Date(tx.timestamp * 1000).toLocaleDateString()}</span>
+                  )}
+                  {tx.fee > 0 && tx.direction === "out" && (
+                    <span className="text-purple-500">Fee: {atomicToSkl(tx.fee)}</span>
+                  )}
+                </div>
               </div>
               <div className="text-right">
                 <p
@@ -85,7 +91,9 @@ export default function Transactions() {
                   {tx.direction === "in" ? "+" : "-"}
                   {atomicToSkl(tx.amount)} SKL
                 </p>
-                {!tx.confirmed && (
+                {tx.confirmed ? (
+                  <span className="text-[10px] text-purple-400">Confirmed</span>
+                ) : (
                   <span className="text-[10px] text-amber-400">Pending</span>
                 )}
               </div>

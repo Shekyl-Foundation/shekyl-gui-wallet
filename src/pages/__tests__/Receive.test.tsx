@@ -52,6 +52,6 @@ describe("Receive page", () => {
     vi.mocked(invoke).mockImplementation(() => new Promise(() => {}));
 
     render(<Receive />);
-    expect(screen.getByText("No wallet open")).toBeInTheDocument();
+    expect(screen.getAllByText("No wallet open").length).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,6 @@
 [package]
 name = "shekyl-wallet"
-version = "0.3.0-beta"
+version = "0.4.0-beta"
 description = "Shekyl desktop wallet"
 authors = ["The Shekyl Foundation"]
 license = "BSD-3-Clause"
@@ -22,4 +22,5 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
 dirs = "6"
-shekyl-wallet-rpc = { path = "../../Shekyl/rust/shekyl-wallet-rpc" }
+shekyl-wallet-rpc = { path = "../../shekyl-core/rust/shekyl-wallet-rpc", features = ["rust-scanner"] }
+shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner" }

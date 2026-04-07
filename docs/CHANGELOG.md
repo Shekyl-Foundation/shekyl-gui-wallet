@@ -1,6 +1,8 @@
 # Shekyl Wallet Changelog
 
-## Unreleased
+## [Unreleased]
+
+## 0.4.0-beta -- 2026-04-07
 
 ### ✨ Added
 
@@ -11,6 +13,54 @@
 - **Fee preview on Send page.** The Send form now shows an estimated
   transaction fee (debounced 500ms) as the user enters a recipient address
   and amount, via the new `estimate_fee` Tauri command.
+- **FCMP++ full-chain membership proof integration.** Replaced ring-signature
+  model with full-chain membership proofs throughout the wallet. Anonymity set
+  is now the entire UTXO set, displayed live in Chain Health and the new
+  Security Panel.
+- **Real-time proof progress pipeline.** C++ `wallet2` reports transaction
+  stages (constructing, generating FCMP++ proof, PQC signing, broadcasting)
+  through `i_wallet2_callback` → C FFI function pointer → Rust `mpsc` channel
+  → Tauri events → React `listen` hook. Replaces cosmetic timers on Send and
+  Import pages.
+- **SecurityBadge header component.** Compact "3-layer — 142.8K outputs"
+  badge in the header showing live FCMP++ anonymity set size. Navigates to
+  Settings for full details. Replaces the PqcStatusBadge.
+- **SecurityPanel component.** Detailed 3-layer protection view in Settings
+  showing membership proof (FCMP++), spend authorization (Ed25519 + ML-DSA-65),
+  and amount privacy (Bulletproofs+) with live curve tree statistics.
+- **Dashboard security summary.** Quick-access security overview button below
+  the balance card showing layer count and anonymity set size.
+- **Chain Health curve tree stats.** New "Anonymity Set" counter card,
+  curve tree depth row, and shortened tree root in the Chain Health panel.
+- **Per-wallet staking.** Staking page now shows active/claimable stakes from
+  the wallet, with functional Stake and Claim Rewards buttons.
+- **Import wallet real progress.** PQC rederivation and FCMP++ tree
+  precomputation stages now stream real progress from the wallet2 backend.
+- **Curve tree daemon RPC.** New `get_curve_tree_info` endpoint returns leaf
+  count, tree depth, and root hash.
+- **Security status command.** New `get_security_status` Tauri command
+  aggregates FCMP++ and PQC data into a single response.
+
+### 🔄 Changed
+
+- **CI targets `feature/fcmp-plus-plus` branch.** Both `ci.yml` and
+  `release.yml` now clone shekyl-core's `feature/fcmp-plus-plus` branch.
+- **Build links FCMP++ libraries.** `build.rs` now links `libfcmp.a` and
+  `libfcmp_basic.a` instead of the removed `libringct.a` / `libringct_basic.a`.
+- **Help Center restructured.** Renamed "Post-Quantum Cryptography" section
+  to "Security and Privacy" with "Three Layers of Protection" content covering
+  FCMP++, PQC, and Bulletproofs+. Added FCMP++ and Curve Tree glossary entries.
+- **Transaction history enhanced.** Rows now display fee, formatted timestamp,
+  and confirmation status.
+- **DaemonContext fetches security data.** Polling now includes
+  `get_security_status` alongside chain health and PQC status.
+
+### 🗑️ Removed
+
+- **PqcStatusBadge component.** Replaced by SecurityBadge with richer
+  FCMP++ awareness.
+- **Cosmetic progress timers.** Send page and Import page no longer use
+  `setTimeout` chains; all progress is real.
 
 ## 0.3.0-beta -- 2026-04-03
 
@@ -257,7 +307,7 @@
 - `StakeTierCard.tsx`: tier selection cards showing lock duration, yield
   multiplier, estimated APY, and block count from live daemon data.
 
-### PQC Transparency
+### PQC Transparency (superseded by SecurityBadge / SecurityPanel)
 
 - Added `PqcStatusBadge.tsx` to the header: shows "Ed25519 + ML-DSA-65"
   with green shield icon when hybrid PQC is active.

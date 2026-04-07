@@ -33,15 +33,30 @@
 //! library through the Rust FFI wrapper.
 
 use serde::Deserialize;
-use shekyl_wallet_rpc::Wallet2;
+use shekyl_wallet_rpc::{ProgressEvent, ScannerState, Wallet2};
 use std::sync::Mutex;
+use tauri::Emitter;
+
+/// Shared wallet state including both the C++ FFI handle and the Rust scanner.
+pub struct WalletBridge {
+    pub wallet: Option<Wallet2>,
+    pub scanner: ScannerState,
+}
+
+impl WalletBridge {
+    fn new() -> Self {
+        WalletBridge {
+            wallet: None,
+            scanner: ScannerState::new(),
+        }
+    }
+}
 
 /// Shared wallet handle, guarded by a mutex for thread safety.
-/// `None` means no wallet instance has been initialized yet.
-pub type WalletHandle = Mutex<Option<Wallet2>>;
+pub type WalletHandle = Mutex<WalletBridge>;
 
 pub fn new_handle() -> WalletHandle {
-    Mutex::new(None)
+    Mutex::new(WalletBridge::new())
 }
 
 fn with_wallet<F, T>(handle: &WalletHandle, f: F) -> Result<T, String>
@@ -51,8 +66,18 @@ where
     let guard = handle
         .lock()
         .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
-    let wallet = guard.as_ref().ok_or("Wallet not initialized")?;
+    let wallet = guard.wallet.as_ref().ok_or("Wallet not initialized")?;
     f(wallet)
+}
+
+fn with_scanner<F, T>(handle: &WalletHandle, f: F) -> Result<T, String>
+where
+    F: FnOnce(&ScannerState) -> Result<T, String>,
+{
+    let guard = handle
+        .lock()
+        .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
+    f(&guard.scanner)
 }
 
 fn wallet_err(e: shekyl_wallet_rpc::WalletError) -> String {
@@ -71,7 +96,7 @@ pub fn init(
         .lock()
         .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
 
-    if guard.is_some() {
+    if guard.wallet.is_some() {
         return Ok(());
     }
 
@@ -80,13 +105,13 @@ pub fn init(
         .init(daemon_address, "", "", true)
         .map_err(wallet_err)?;
     wallet.set_wallet_dir(wallet_dir);
-    *guard = Some(wallet);
+    guard.wallet = Some(wallet);
     Ok(())
 }
 
 /// Check if the wallet instance is initialized.
 pub fn is_initialized(handle: &WalletHandle) -> bool {
-    handle.lock().map(|g| g.is_some()).unwrap_or(false)
+    handle.lock().map(|g| g.wallet.is_some()).unwrap_or(false)
 }
 
 /// Shut down the wallet2 instance. Replaces `wallet_process::shutdown`.
@@ -94,10 +119,30 @@ pub fn shutdown(handle: &WalletHandle) -> Result<(), String> {
     let mut guard = handle
         .lock()
         .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
-    if let Some(wallet) = guard.as_ref() {
+    if let Some(wallet) = guard.wallet.as_ref() {
         let _ = wallet.stop();
     }
-    *guard = None;
+    guard.wallet = None;
+    Ok(())
+}
+
+/// Set up a progress event bridge from wallet2 C++ callbacks to Tauri events.
+/// Spawns a background thread that reads from a channel and emits
+/// `wallet-progress` events to the frontend.
+pub fn setup_progress_bridge(handle: &WalletHandle, app: tauri::AppHandle) -> Result<(), String> {
+    let mut guard = handle
+        .lock()
+        .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
+    let wallet = guard.wallet.as_mut().ok_or("Wallet not initialized")?;
+
+    let (tx, rx) = std::sync::mpsc::channel::<ProgressEvent>();
+    wallet.set_progress_sender(tx);
+
+    std::thread::spawn(move || {
+        while let Ok(event) = rx.recv() {
+            let _ = app.emit("wallet-progress", &event);
+        }
+    });
     Ok(())
 }
 
@@ -333,6 +378,56 @@ pub fn stop_wallet(handle: &WalletHandle) -> Result<(), String> {
     with_wallet(handle, |w| w.stop().map_err(wallet_err))
 }
 
+// ─── Staking ─────────────────────────────────────────────────────────────────
+
+pub fn stake(handle: &WalletHandle, tier: u8, amount: u64) -> Result<TransferResponse, String> {
+    with_wallet(handle, |w| {
+        let params = serde_json::json!({ "tier": tier, "amount": amount });
+        let val = w
+            .json_rpc_call("stake", &params.to_string())
+            .map_err(wallet_err)?;
+        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
+    })
+}
+
+pub fn claim_rewards(handle: &WalletHandle) -> Result<TransferResponse, String> {
+    with_wallet(handle, |w| {
+        let val = w.json_rpc_call("claim_rewards", "{}").map_err(wallet_err)?;
+        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StakedOutput {
+    #[serde(default)]
+    pub amount: u64,
+    #[serde(default)]
+    pub tier: u8,
+    #[serde(default)]
+    pub lock_height: u64,
+    #[serde(default)]
+    pub unlock_height: u64,
+    #[serde(default)]
+    pub claimable: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetStakedOutputsResponse {
+    #[serde(default)]
+    pub staked_outputs: Vec<StakedOutput>,
+    #[serde(default)]
+    pub total_staked: u64,
+}
+
+pub fn get_staked_outputs(handle: &WalletHandle) -> Result<GetStakedOutputsResponse, String> {
+    with_wallet(handle, |w| {
+        let val = w
+            .json_rpc_call("get_staked_outputs", "{}")
+            .map_err(wallet_err)?;
+        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
+    })
+}
+
 // ─── PQC Multisig ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -378,6 +473,61 @@ pub fn get_pqc_multisig_info(handle: &WalletHandle) -> Result<PqcMultisigInfo, S
             .json_rpc_call("get_pqc_multisig_info", "{}")
             .map_err(wallet_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
+    })
+}
+
+// ─── Scanner-backed queries ──────────────────────────────────────────────────
+
+/// Get balance from the Rust scanner state.
+///
+/// Returns the scanner's view of the balance at its current synced height.
+/// If the scanner hasn't synced yet, the balance will be zero.
+pub fn get_scanner_balance(
+    handle: &WalletHandle,
+) -> Result<shekyl_scanner::BalanceSummary, String> {
+    with_scanner(handle, |scanner| {
+        let state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
+        let height = state.height();
+        Ok(state.balance(height))
+    })
+}
+
+/// Get staked outputs from the Rust scanner state.
+pub fn get_scanner_staked_outputs(handle: &WalletHandle) -> Result<serde_json::Value, String> {
+    with_scanner(handle, |scanner| {
+        let state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
+        let height = state.height();
+        let staked: Vec<serde_json::Value> = state
+            .staked_outputs()
+            .iter()
+            .map(|td| {
+                serde_json::json!({
+                    "amount": td.amount(),
+                    "tier": td.stake_tier,
+                    "lock_height": td.block_height,
+                    "unlock_height": td.stake_lock_until,
+                    "claimable": td.is_matured_stake(height),
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({ "staked_outputs": staked }))
+    })
+}
+
+/// Get the scanner's synced height.
+pub fn get_scanner_height(handle: &WalletHandle) -> Result<u64, String> {
+    with_scanner(handle, |scanner| {
+        let state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
+        Ok(state.height())
     })
 }
 

@@ -7,27 +7,34 @@ Cross-platform desktop wallet for Shekyl (SKL), built with **Tauri 2**, **React*
 
 ## Features
 
+- **FCMP++ privacy** — full-chain membership proofs replace ring signatures,
+  giving every transaction an anonymity set equal to the entire UTXO set;
+  live curve tree statistics shown in Chain Health and the Security Panel
+- **3-layer security model** — membership proof (FCMP++), hybrid spend
+  authorization (Ed25519 + ML-DSA-65), and amount privacy (Bulletproofs+);
+  compact SecurityBadge in the header with detailed SecurityPanel in Settings
+- **Real-time proof progress** — FCMP++ proof generation, PQC signing, and
+  broadcast stages streamed from the C++ wallet2 core through the FFI and
+  Tauri event system — no cosmetic timers
 - **Live chain health dashboard** — emission era, release tempo, burn rate,
-  stake ratio, total burned/staked, hash rate, and block reward from the
-  daemon, matching the DESIGN_CONCEPTS.md Section 10 spec
-- **Staking with privacy narrative** — tier selection (Tier 0/1/2) with live
-  APY estimates, accrual pool commingling explanation, and plausible
-  deniability on claims
+  stake ratio, total burned/staked, hash rate, block reward, anonymity set
+  size, curve tree depth, and tree root from the daemon
+- **Per-wallet staking** — stake and claim rewards directly from the wallet;
+  tier selection (Tier 0/1/2) with live APY estimates, accrual pool
+  commingling explanation, and plausible deniability on claims
 - **In-wallet mining** — start/stop mining from the GUI with thread control,
   background mining toggle, live hash rate gauge, and privacy note about
   60-block coinbase maturity
-- **Post-quantum transparency** — header badge showing hybrid Ed25519 +
-  ML-DSA-65 protection status (click to learn more), PQC details in Settings,
-  and dedicated PQC education section in the Help Center
 - **Help Center** — expandable guide sections covering Getting Started,
-  Mining, Staking, Post-Quantum Cryptography, and a Glossary of key terms
+  Mining, Staking, Security and Privacy (FCMP++/PQC), Multisig, and a
+  Glossary of key terms
 - **Network switching** — MainNet / TestNet / StageNet with automatic daemon
   URL configuration, persistent testnet banners, and faucet links
 - **9-decimal canonical SKL display** — 6-decimal readability with full
   precision available
-- Create, open, and manage Shekyl wallets (stubs — wallet2 FFI pending)
-- Send and receive SKL (stubs)
-- Transaction history
+- Create, open, import, and manage Shekyl wallets via wallet2 C++ FFI
+- Send and receive SKL with real progress feedback
+- Transaction history with fee, timestamp, and confirmation status
 - Modern dark UI with the Shekyl gold & purple design system
 
 ## Architecture
@@ -35,15 +42,17 @@ Cross-platform desktop wallet for Shekyl (SKL), built with **Tauri 2**, **React*
 ```
 Frontend:  Vite + React 19 + TypeScript + Tailwind CSS 4
 Backend:   Rust (Tauri 2) — JSON-RPC client to shekyld daemon
-IPC:       Tauri invoke bridge
+                           + C++ FFI bridge to wallet2 (shekyl-core)
+IPC:       Tauri invoke bridge + Tauri events (progress callbacks)
 TLS:       rustls (no OpenSSL dependency)
-Future:    C++ FFI bridge to wallet2_api.h (shekyl-core)
 ```
 
 The Rust backend connects to a `shekyld` daemon via JSON-RPC for chain health,
 staking, and economic data, and via plain HTTP endpoints for mining control.
-Wallet-side operations (create, transfer, stake, claim) remain stubs until the
-wallet2 C++ FFI bridge is implemented.
+Wallet-side operations (create, transfer, stake, claim, import) are handled by
+the `shekyl-wallet-rpc` crate which wraps the wallet2 C++ core through a safe
+FFI boundary. Progress events (FCMP++ proof generation, PQC signing, broadcast)
+flow from C++ through an `mpsc` channel to the Tauri event system.
 
 ## Prerequisites
 
@@ -165,10 +174,11 @@ shekyl-gui-wallet/
   src/                      # React frontend
     components/             # Sidebar, Header, BalanceCard, NetworkBadge,
                             # ChainHealthPanel, EmissionGauge, StakeTierCard,
-                            # PqcStatusBadge (links to Help), TestnetBanner
+                            # SecurityBadge, SecurityPanel, TestnetBanner
       __tests__/            # Component unit tests
     pages/                  # Dashboard, Send, Receive, Mining, Staking,
-                            # Transactions, Settings, ChainHealth, Help
+                            # Transactions, Settings, ChainHealth, Help,
+                            # ImportWallet
       __tests__/            # Page unit tests
     context/                # DaemonProvider (30s polling), useDaemon hook
     types/daemon.ts         # Shared TypeScript interfaces for daemon RPC
@@ -181,8 +191,9 @@ shekyl-gui-wallet/
   src-tauri/                # Rust backend
     src/
       lib.rs                # Tauri app builder, state management, command registration
-      commands.rs           # Daemon-connected + mining + wallet stub commands + tests
-      daemon_rpc.rs         # JSON-RPC + HTTP client for shekyld (chain, mining)
+      commands.rs           # Daemon + mining + wallet + staking + security commands
+      daemon_rpc.rs         # JSON-RPC + HTTP client for shekyld (chain, mining, curve tree)
+      wallet_bridge.rs      # wallet2 FFI bridge, progress event pipeline, staking
       state.rs              # App state (daemon URL, network, HTTP client)
       main.rs               # Entry point
     tauri.conf.json         # App metadata, window config, bundle settings

@@ -30,7 +30,7 @@ describe("Help", () => {
     expect(screen.getByText("Getting Started")).toBeInTheDocument();
     expect(screen.getByText("Mining Guide")).toBeInTheDocument();
     expect(screen.getByText("Staking Guide")).toBeInTheDocument();
-    expect(screen.getByText("Post-Quantum Cryptography")).toBeInTheDocument();
+    expect(screen.getByText("Security and Privacy")).toBeInTheDocument();
     expect(screen.getByText("Glossary")).toBeInTheDocument();
   });
 
@@ -57,12 +57,13 @@ describe("Help", () => {
     expect(screen.queryByText("What is Shekyl?")).not.toBeInTheDocument();
   });
 
-  it("shows PQC content when expanded", () => {
+  it("shows security content when expanded", () => {
     renderHelp();
-    fireEvent.click(screen.getByText("Post-Quantum Cryptography"));
+    fireEvent.click(screen.getByText("Security and Privacy"));
+    expect(screen.getByText("Three Layers of Protection")).toBeInTheDocument();
+    expect(screen.getAllByText(/FCMP\+\+/).length).toBeGreaterThan(0);
     expect(screen.getByText("Why PQC Matters")).toBeInTheDocument();
     expect(screen.getAllByText(/ML-DSA-65/).length).toBeGreaterThan(0);
-    expect(screen.getByText("V4 Roadmap")).toBeInTheDocument();
   });
 
   it("shows glossary terms when expanded", () => {
@@ -70,6 +71,8 @@ describe("Help", () => {
     fireEvent.click(screen.getByText("Glossary"));
     expect(screen.getByText("Atomic Unit")).toBeInTheDocument();
     expect(screen.getByText("Hash Rate")).toBeInTheDocument();
+    expect(screen.getByText("FCMP++")).toBeInTheDocument();
+    expect(screen.getByText("Curve Tree")).toBeInTheDocument();
     expect(screen.getByText("Ring Signature")).toBeInTheDocument();
   });
 

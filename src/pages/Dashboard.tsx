@@ -1,17 +1,28 @@
-import { Link } from "react-router-dom";
-import { Send, Download, Coins, ArrowLeftRight } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Send, Download, Coins, ArrowLeftRight, ShieldCheck } from "lucide-react";
 import BalanceCard from "../components/BalanceCard";
 import ChainHealthPanel from "../components/ChainHealthPanel";
 import { useDaemon } from "../context/useDaemon";
 
 export default function Dashboard() {
-  const { health } = useDaemon();
+  const { health, security } = useDaemon();
+  const navigate = useNavigate();
 
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-bold text-white">Dashboard</h1>
 
       <BalanceCard />
+
+      {security && security.anonymity_set_size > 0 && (
+        <button
+          onClick={() => navigate("/settings")}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300 transition-colors hover:bg-emerald-500/10"
+        >
+          <ShieldCheck className="h-3 w-3" />
+          3 layers active — {security.anonymity_set_size.toLocaleString()} output anonymity set
+        </button>
+      )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <QuickAction to="/send" icon={Send} label="Send" />

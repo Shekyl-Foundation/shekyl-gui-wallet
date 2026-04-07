@@ -46,6 +46,8 @@ pub fn run() {
             commands::get_tier_yields,
             commands::set_daemon_connection,
             commands::get_pqc_status,
+            commands::get_security_status,
+            commands::get_curve_tree_info,
             // Mining
             commands::get_mining_status,
             commands::start_mining_cmd,
@@ -69,6 +71,7 @@ pub fn run() {
             commands::get_transactions,
             commands::get_staking_info,
             commands::stake,
+            commands::claim_rewards,
             // PQC Multisig
             commands::create_multisig_group,
             commands::get_multisig_info,

@@ -1,20 +1,32 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Coins, Lock, TrendingUp, ShieldCheck, Info } from "lucide-react";
+import { Coins, Lock, TrendingUp, ShieldCheck, Info, Gift } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
-import { formatSklCompact, formatPercent } from "../lib/format";
+import { formatSkl, formatSklCompact, formatPercent } from "../lib/format";
 import EmissionGauge from "../components/EmissionGauge";
 import StakeTierCard from "../components/StakeTierCard";
-import type { TierYield } from "../types/daemon";
+import type { TierYield, WalletStakingInfo, StakedOutput } from "../types/daemon";
 
 export default function Staking() {
   const { health } = useDaemon();
   const [tiers, setTiers] = useState<TierYield[]>([]);
   const [selectedTier, setSelectedTier] = useState<number | null>(null);
+  const [stakeAmount, setStakeAmount] = useState("");
+  const [stakingInfo, setStakingInfo] = useState<WalletStakingInfo | null>(null);
+  const [staking, setStaking] = useState(false);
+  const [claiming, setClaiming] = useState(false);
+  const [stakeError, setStakeError] = useState<string | null>(null);
+
+  const fetchStakingInfo = useCallback(() => {
+    invoke<WalletStakingInfo>("get_staking_info")
+      .then(setStakingInfo)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     invoke<TierYield[]>("get_tier_yields").then(setTiers).catch(() => {});
-  }, [health]);
+    fetchStakingInfo();
+  }, [health, fetchStakingInfo]);
 
   const stakeRatioPct = health ? (health.stake_ratio / 1_000_000) * 100 : 0;
   const emSharePct = health
@@ -108,6 +120,52 @@ export default function Staking() {
         )}
       </div>
 
+      {/* Your stakes */}
+      {stakingInfo && stakingInfo.staked_outputs.length > 0 && (
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-purple-200">Your Stakes</h2>
+            <span className="text-xs text-purple-300">
+              Total: {formatSkl(stakingInfo.total_staked)} SKL
+            </span>
+          </div>
+          <div className="space-y-2">
+            {stakingInfo.staked_outputs.map((so: StakedOutput, idx: number) => (
+              <div key={idx} className="flex items-center justify-between rounded-lg border border-purple-600/30 bg-purple-800/30 px-3 py-2 text-xs">
+                <div>
+                  <span className="font-semibold text-white">{formatSkl(so.amount)} SKL</span>
+                  <span className="ml-2 text-purple-300">Tier {so.tier}</span>
+                  <span className="ml-2 text-purple-400">
+                    {so.claimable ? "Unlocked" : `Locked until block ${so.unlock_height.toLocaleString()}`}
+                  </span>
+                </div>
+                {so.claimable && (
+                  <button
+                    className="btn btn-primary px-3 py-1 text-xs"
+                    disabled={claiming}
+                    onClick={async () => {
+                      setClaiming(true);
+                      setStakeError(null);
+                      try {
+                        await invoke("claim_rewards");
+                        fetchStakingInfo();
+                      } catch (e) {
+                        setStakeError(String(e));
+                      } finally {
+                        setClaiming(false);
+                      }
+                    }}
+                  >
+                    <Gift className="h-3 w-3" />
+                    {claiming ? "Claiming..." : "Claim"}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Stake action */}
       <div className="card space-y-4">
         <h2 className="text-sm font-semibold text-purple-200">Stake SKL</h2>
@@ -117,20 +175,44 @@ export default function Staking() {
           placeholder="Amount to stake"
           min="0"
           step="0.000001"
+          value={stakeAmount}
+          onChange={(e) => setStakeAmount(e.target.value)}
+          disabled={staking}
         />
+        {stakeError && (
+          <p className="text-xs text-red-300">{stakeError}</p>
+        )}
         <button
           className="btn btn-primary w-full"
-          disabled={selectedTier === null}
+          disabled={selectedTier === null || staking || !stakeAmount}
+          onClick={async () => {
+            if (selectedTier === null) return;
+            setStaking(true);
+            setStakeError(null);
+            try {
+              const [whole = "0", frac = ""] = stakeAmount.split(".");
+              const padded = (frac + "000000000").slice(0, 9);
+              const atomic = BigInt(whole) * BigInt(1_000_000_000) + BigInt(padded);
+              await invoke("stake", {
+                tier: selectedTier,
+                amount: Number(atomic),
+              });
+              setStakeAmount("");
+              fetchStakingInfo();
+            } catch (e) {
+              setStakeError(String(e));
+            } finally {
+              setStaking(false);
+            }
+          }}
         >
           <Lock className="h-4 w-4" />
-          {selectedTier !== null
-            ? `Stake at Tier ${selectedTier}`
-            : "Select a tier to stake"}
+          {staking
+            ? "Staking..."
+            : selectedTier !== null
+              ? `Stake at Tier ${selectedTier}`
+              : "Select a tier to stake"}
         </button>
-        <p className="text-center text-[10px] text-purple-400">
-          Wallet connection required. Staking transactions will be available
-          once the wallet2 FFI bridge is integrated.
-        </p>
       </div>
     </div>
   );
