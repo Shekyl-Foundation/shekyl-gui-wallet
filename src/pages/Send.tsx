@@ -40,6 +40,13 @@ function formatAtomicSkl(atomic: number): string {
   return (atomic / 1e9).toFixed(4);
 }
 
+function sklToAtomic(value: string): number {
+  const [whole = "0", frac = ""] = value.split(".");
+  const padded = (frac + "000000000").slice(0, 9);
+  const atomic = BigInt(whole) * BigInt(1_000_000_000) + BigInt(padded);
+  return Number(atomic);
+}
+
 export default function Send() {
   const [address, setAddress] = useState("");
   const [amount, setAmount] = useState("");
@@ -87,12 +94,13 @@ export default function Send() {
       const parsed = parseFloat(amount);
       if (!address || !parsed || parsed <= 0) {
         setEstimatedFee(null);
+        setFeeLoading(false);
         return;
       }
       setFeeLoading(true);
       invoke<number>("estimate_fee", {
         address,
-        amount: Math.round(parsed * 1e9),
+        amount: sklToAtomic(amount),
       })
         .then((fee) => {
           setEstimatedFee(fee);
@@ -116,7 +124,7 @@ export default function Send() {
     try {
       await invoke("transfer", {
         address,
-        amount: Math.round(parseFloat(amount) * 1e9),
+        amount: sklToAtomic(amount),
       });
       setProofStage("done");
       setTimeout(() => {
