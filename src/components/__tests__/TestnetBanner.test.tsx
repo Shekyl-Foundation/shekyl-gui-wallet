@@ -42,6 +42,7 @@ describe("TestnetBanner", () => {
     vi.mocked(useDaemon).mockReturnValue({
       health: { ...baseHealth, network: "mainnet" },
       pqc: null,
+      security: null,
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -55,6 +56,7 @@ describe("TestnetBanner", () => {
     vi.mocked(useDaemon).mockReturnValue({
       health: { ...baseHealth, network: "testnet" },
       pqc: null,
+      security: null,
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -73,6 +75,7 @@ describe("TestnetBanner", () => {
     vi.mocked(useDaemon).mockReturnValue({
       health: { ...baseHealth, network: "stagenet" },
       pqc: null,
+      security: null,
       loading: false,
       error: null,
       refresh: vi.fn(),
