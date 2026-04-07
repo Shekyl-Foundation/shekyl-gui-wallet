@@ -15,18 +15,21 @@ confident about what's happening with your money at every step.
 4. [Your First Launch](#your-first-launch)
 5. [The Dashboard](#the-dashboard)
 6. [Creating a Wallet](#creating-a-wallet)
-7. [Your Mnemonic Seed -- Read This Carefully](#your-mnemonic-seed--read-this-carefully)
-8. [Receiving SKL](#receiving-skl)
-9. [Sending SKL](#sending-skl)
-10. [Transaction History](#transaction-history)
-11. [Mining: Earning SKL with Your Computer](#mining-earning-skl-with-your-computer)
-12. [Staking: Earning Yield While Strengthening Privacy](#staking-earning-yield-while-strengthening-privacy)
-13. [Chain Health: What's Happening on the Network](#chain-health-whats-happening-on-the-network)
-14. [Settings and Network Switching](#settings-and-network-switching)
-15. [Understanding Post-Quantum Security](#understanding-post-quantum-security)
-16. [Staying Safe](#staying-safe)
-17. [Glossary](#glossary)
-18. [Getting More Help](#getting-more-help)
+7. [Importing / Restoring a Wallet](#importing--restoring-a-wallet)
+8. [Your Mnemonic Seed -- Read This Carefully](#your-mnemonic-seed--read-this-carefully)
+9. [Receiving SKL](#receiving-skl)
+10. [Sending SKL](#sending-skl)
+11. [Transaction History](#transaction-history)
+12. [Mining: Earning SKL with Your Computer](#mining-earning-skl-with-your-computer)
+13. [Staking: Earning Yield While Strengthening Privacy](#staking-earning-yield-while-strengthening-privacy)
+14. [PQC Multisig: Shared Control of Funds](#pqc-multisig-shared-control-of-funds)
+15. [Chain Health: What's Happening on the Network](#chain-health-whats-happening-on-the-network)
+16. [Settings and Network Switching](#settings-and-network-switching)
+17. [Understanding Post-Quantum Security](#understanding-post-quantum-security)
+18. [Staying Safe](#staying-safe)
+19. [Troubleshooting](#troubleshooting)
+20. [Glossary](#glossary)
+21. [Getting More Help](#getting-more-help)
 
 ---
 
@@ -171,6 +174,52 @@ If this is your first time, you'll see the Welcome screen. Click
 
 Your wallet is automatically a **v3 wallet** with full post-quantum key
 material (Ed25519 + ML-DSA-65). No extra steps are needed for PQC protection.
+
+---
+
+## Importing / Restoring a Wallet
+
+If you already have a wallet -- perhaps from a previous installation, a
+backup, or the CLI tools -- you can import it instead of creating a new one.
+
+### Restoring from a seed phrase
+
+1. On the Welcome screen, click **Import Existing Wallet**.
+2. Choose **Import from Seed**.
+3. Enter your **25 words** in the text area. The wallet validates the words
+   as you type and highlights any errors.
+4. Set a **restore height** (optional but recommended). This is the block
+   height at which your wallet was first created. If you know it, enter it --
+   the wallet will skip scanning blocks before that height, which is much
+   faster. If you don't know it, leave it blank and the wallet will scan from
+   the beginning (this can take a long time).
+5. Choose a **password** for the wallet file.
+6. Click **Import**. You'll see a progress bar as the wallet scans the
+   blockchain for your transactions.
+
+### Restoring from keys
+
+This is less common but available for advanced users who have exported their
+spend key and view key separately.
+
+1. On the Welcome screen, click **Import Existing Wallet**.
+2. Choose **Import from Keys**.
+3. Enter your **spend key**, **view key**, and **address**.
+4. Set a password and optionally a restore height.
+5. Click **Import**.
+
+### Why restore height matters
+
+The wallet needs to scan every block from your creation height to find your
+transactions. If you set the restore height too high, the wallet will miss
+transactions that happened before that height (your balance will appear
+lower than expected). If you set it too low (or leave it blank), the wallet
+will scan unnecessary blocks, which just takes longer but won't miss
+anything.
+
+If you're unsure, it's always safer to set the height too low rather than
+too high. For CLI-equivalent commands, see the
+[CLI User Guide](https://github.com/Shekyl-Foundation/shekyl-core/blob/main/docs/USER_GUIDE.md#wallet-basics-shekyl-wallet-cli).
 
 ---
 
@@ -355,13 +404,40 @@ There are three staking tiers:
 
 | Tier | Lock Period | Yield Multiplier |
 |------|-------------|------------------|
-| Tier 0 | Short | 1.0x |
-| Tier 1 | Medium | 1.5x |
-| Tier 2 | Long | 2.0x |
+| Short | ~1,000 blocks (~33 hours) | 1.0x |
+| Medium | ~25,000 blocks (~35 days) | 1.5x |
+| Long | ~150,000 blocks (~208 days) | 2.0x |
 
-The **yield multiplier** means Tier 2 earners get twice the reward share
-compared to the same amount staked in Tier 0. The trade-off is that your
-coins are locked for longer.
+There is no minimum stake amount. The **yield multiplier** means Long-tier
+stakers get twice the reward share compared to the same amount staked in
+the Short tier. The trade-off is that your coins are locked for longer.
+
+### Unstaking
+
+When your lock period expires, click **Unstake** on the Staking page. This
+releases your principal back into your spendable balance. If the lock period
+has not yet expired, the Unstake button will be greyed out.
+
+### Claiming rewards
+
+Rewards are separate from your principal. You can claim them **at any time**
+after your stake is created -- even while the lock is still active. Click
+**Claim Rewards** on the Staking page.
+
+Each claim transaction covers a limited range of blocks. If you have a large
+backlog of unclaimed rewards, you may need to claim multiple times.
+
+**Privacy tip:** Batch your claims rather than claiming every block. Frequent
+small claims create a more fingerprintable on-chain pattern.
+
+### How accrual works
+
+- Your stake earns rewards for blocks in the range from when you staked until
+  the lock expires (`lock_until`).
+- After `lock_until`, your output **stops earning** new rewards. However, any
+  unclaimed backlog from the lock window can still be claimed.
+- A staked output that is never unstaked does not earn indefinitely -- the
+  accrual cap at `lock_until` keeps the commitment symmetric.
 
 ### The privacy benefit
 
@@ -386,6 +462,63 @@ This number changes based on:
 
 The APY is an *estimate*, not a guarantee. It fluctuates with network
 conditions.
+
+---
+
+## PQC Multisig: Shared Control of Funds
+
+Multisig (multi-signature) lets you require **M out of N** people to approve
+a transaction before it can be sent. This is useful for treasuries, joint
+accounts, staking security, and escrow.
+
+Shekyl's multisig uses the same hybrid post-quantum signatures as regular
+transactions (Ed25519 + ML-DSA-65), with a maximum of 7 participants.
+
+### Setting up a multisig group
+
+1. Click **Multisig** in the sidebar.
+2. In the **Setup** tab, enter:
+   - **N (total participants)**: The total number of people in the group.
+   - **M (required signatures)**: How many must approve each transaction.
+   - **Participant public keys**: Each participant shares their public key.
+     Enter all N public keys.
+3. Click **Create Group**.
+
+Common configurations: 2-of-3 for day-to-day treasuries, 3-of-5 for larger
+funds, 2-of-3 for escrow (buyer, seller, arbitrator).
+
+### Signing a transaction
+
+All multisig signing happens through file exchange -- the wallet never needs
+to communicate directly with other participants.
+
+1. **Coordinator builds the transaction.** One participant (the coordinator)
+   creates the transaction and clicks **Export Signing Request**. This
+   downloads a JSON file.
+2. **Share the file.** The coordinator sends the signing request file to the
+   other required signers (via email, encrypted messenger, USB drive, etc.).
+3. **Each signer reviews and signs.** Each signer opens the signing request
+   in their wallet, reviews the transaction details, and clicks **Sign**.
+   This produces a partial signature file that they send back to the
+   coordinator.
+4. **Coordinator assembles and broadcasts.** Once the coordinator has
+   collected M signed responses, they click **Assemble & Broadcast**. The
+   wallet combines the partial signatures and submits the transaction to the
+   network.
+
+### Size impact
+
+Each additional signer adds approximately 5.3 KB to the transaction. A
+2-of-3 multisig transaction is about 12.5 KB, and a 5-of-7 is about 30 KB.
+
+### Multisig for staking
+
+You can stake from a multisig wallet. This protects long-duration staked
+positions (locked for weeks or months) by requiring multiple approvals for
+both the initial stake and later claims or unstaking.
+
+For the full file-based workflow and RPC method reference, see the
+[CLI User Guide](https://github.com/Shekyl-Foundation/shekyl-core/blob/main/docs/USER_GUIDE.md#pqc-multisig).
 
 ---
 
@@ -556,6 +689,58 @@ mainnet but with fake coins, so there's zero risk.
 
 If you step away from your computer, close the wallet or lock your screen.
 An open wallet on an unlocked computer is an open wallet.
+
+---
+
+## Troubleshooting
+
+### Daemon won't connect
+
+- Make sure `shekyld` is running. The wallet cannot function without it.
+- Check that the daemon URL in **Settings** matches the daemon's actual
+  address and port (default: `http://127.0.0.1:11029` for mainnet).
+- If the daemon is on a different machine, ensure the firewall allows
+  connections on the RPC port and that the daemon was started with
+  `--rpc-bind-ip 0.0.0.0 --confirm-external-bind`.
+- Make sure the wallet and daemon are on the same network (both mainnet,
+  both testnet, etc.).
+
+### Wallet service fails to start
+
+The wallet starts `shekyl-wallet-rpc` in the background. If this fails:
+
+- Make sure `shekyl-wallet-rpc` is installed and on your system PATH.
+- Check for port conflicts -- another instance might already be running.
+- On Linux, check file permissions on the wallet data directory.
+- Look at the wallet log file for specific error messages.
+
+### Balance shows 0 after restoring
+
+- If you restored from a seed and set the restore height too high, the wallet
+  missed transactions that happened before that height. Close the wallet,
+  re-import with a lower restore height (or no height at all).
+- Make sure the daemon is fully synchronised before checking your balance.
+  Look for the green "Connected" indicator in the top-right corner.
+
+### Transaction stuck as pending
+
+- The daemon might not be fully synced. Wait for synchronisation to complete.
+- Check your network connection.
+- If the transaction has been pending for a very long time, it may eventually
+  expire from the mempool. Your funds will become spendable again.
+
+### General advice
+
+- **Check logs:** The wallet writes logs alongside your wallet file. Look for
+  error messages or warnings.
+- **Restart the wallet:** Closing and reopening often resolves transient
+  issues.
+- **Update software:** Make sure you're running the latest version from the
+  [releases page](https://github.com/Shekyl-Foundation/shekyl-gui-wallet/releases).
+
+For more detailed CLI-level troubleshooting (rescan, pop_blocks, log levels),
+see the
+[CLI User Guide](https://github.com/Shekyl-Foundation/shekyl-core/blob/main/docs/USER_GUIDE.md#troubleshooting).
 
 ---
 

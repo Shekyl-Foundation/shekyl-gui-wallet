@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **User Guide: added "Importing / Restoring a Wallet" section.** Covers
+  seed restore, key import, and restore height guidance.
+- **User Guide: added "PQC Multisig" section.** Documents the multisig page:
+  group setup, file-based signing flow, size impact, and staking security.
+- **User Guide: expanded Staking section.** Added unstaking, claiming rewards,
+  accrual rules, lock-period block counts, and privacy batching advice.
+- **User Guide: added Troubleshooting section.** Covers daemon connection
+  issues, wallet-rpc failures, zero balance after restore, and stuck
+  transactions.
+- **User Guide: fixed staking tier table.** Replaced vague "Tier 0/1/2 Short/
+  Medium/Long" with concrete block counts and durations (~1,000 blocks / ~33h,
+  ~25,000 / ~35d, ~150,000 / ~208d) matching the protocol spec.
+
 ## 0.4.0-beta -- 2026-04-07
 
 ### ✨ Added
