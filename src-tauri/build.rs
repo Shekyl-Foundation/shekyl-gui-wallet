@@ -234,7 +234,6 @@ fn link_linux() {
             "protobuf-lite",
             "zmq",
             "udev",
-            "unwind",
         ] {
             let static_path = format!("{prefix}/lib/lib{lib}.a");
             if std::path::Path::new(&static_path).exists() {
@@ -242,8 +241,10 @@ fn link_linux() {
             }
         }
 
-        // System libraries that are always dynamically linked
-        for lib in &["dl", "pthread", "rt", "m"] {
+        // System libraries that must be dynamically linked.
+        // libunwind must be dynamic because its static archive uses TLS
+        // relocations (R_X86_64_TPOFF32) incompatible with cdylib output.
+        for lib in &["dl", "pthread", "rt", "m", "unwind"] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
     } else {
