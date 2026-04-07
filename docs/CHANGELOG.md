@@ -1,6 +1,8 @@
 # Shekyl Wallet Changelog
 
-## Unreleased
+## [Unreleased]
+
+## 0.4.0-beta -- 2026-04-07
 
 ### ✨ Added
 

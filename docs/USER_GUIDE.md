@@ -604,7 +604,7 @@ An open wallet on an unlocked computer is an open wallet.
 
 ---
 
-*This guide is for Shekyl Wallet v0.3.x-beta. Wallet creation, opening,
+*This guide is for Shekyl Wallet v0.4.x-beta. Wallet creation, opening,
 import, sending, receiving, staking, and claiming all operate through the
 embedded wallet2 C++ FFI bridge. FCMP++ proof generation and PQC signing
 progress are streamed in real time. Mining and chain health features work
