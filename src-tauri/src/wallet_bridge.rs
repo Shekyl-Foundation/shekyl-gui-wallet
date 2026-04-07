@@ -520,6 +520,102 @@ pub fn get_scanner_staked_outputs(handle: &WalletHandle) -> Result<serde_json::V
     })
 }
 
+/// Get claimable staked outputs from the Rust scanner state.
+pub fn get_scanner_claimable_stakes(handle: &WalletHandle) -> Result<serde_json::Value, String> {
+    with_scanner(handle, |scanner| {
+        let state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
+        let height = state.height();
+        let claimable: Vec<serde_json::Value> = state
+            .claimable_outputs(height)
+            .iter()
+            .map(|td| {
+                let accrual_cap = std::cmp::min(height, td.stake_lock_until);
+                let watermark = if td.last_claimed_height > 0 {
+                    td.last_claimed_height
+                } else {
+                    td.block_height
+                };
+                serde_json::json!({
+                    "amount": td.amount(),
+                    "tier": td.stake_tier,
+                    "lock_until": td.stake_lock_until,
+                    "from_height": watermark,
+                    "to_height": accrual_cap,
+                    "accrual_frozen": height >= td.stake_lock_until,
+                    "global_output_index": td.global_output_index,
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({ "claimable_stakes": claimable }))
+    })
+}
+
+/// Get unstakeable (matured) outputs from the Rust scanner state.
+pub fn get_scanner_unstakeable_outputs(handle: &WalletHandle) -> Result<serde_json::Value, String> {
+    with_scanner(handle, |scanner| {
+        let state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
+        let height = state.height();
+        let unstakeable: Vec<serde_json::Value> = state
+            .unstakeable_outputs(height)
+            .iter()
+            .map(|td| {
+                serde_json::json!({
+                    "amount": td.amount(),
+                    "tier": td.stake_tier,
+                    "lock_until": td.stake_lock_until,
+                    "has_unclaimed_backlog": td.has_claimable_rewards(height),
+                    "global_output_index": td.global_output_index,
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({ "unstakeable_outputs": unstakeable }))
+    })
+}
+
+/// Freeze an output by key image via the scanner state.
+pub fn scanner_freeze(handle: &WalletHandle, key_image_hex: &str) -> Result<bool, String> {
+    let ki_bytes =
+        hex::decode(key_image_hex).map_err(|e| format!("Invalid key_image hex: {e}"))?;
+    if ki_bytes.len() != 32 {
+        return Err("key_image must be 32 bytes".into());
+    }
+    let mut ki = [0u8; 32];
+    ki.copy_from_slice(&ki_bytes);
+
+    with_scanner(handle, |scanner| {
+        let mut state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
+        Ok(state.freeze_by_key_image(&ki))
+    })
+}
+
+/// Thaw a frozen output by key image via the scanner state.
+pub fn scanner_thaw(handle: &WalletHandle, key_image_hex: &str) -> Result<bool, String> {
+    let ki_bytes =
+        hex::decode(key_image_hex).map_err(|e| format!("Invalid key_image hex: {e}"))?;
+    if ki_bytes.len() != 32 {
+        return Err("key_image must be 32 bytes".into());
+    }
+    let mut ki = [0u8; 32];
+    ki.copy_from_slice(&ki_bytes);
+
+    with_scanner(handle, |scanner| {
+        let mut state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
+        Ok(state.thaw_by_key_image(&ki))
+    })
+}
+
 /// Get the scanner's synced height.
 pub fn get_scanner_height(handle: &WalletHandle) -> Result<u64, String> {
     with_scanner(handle, |scanner| {
