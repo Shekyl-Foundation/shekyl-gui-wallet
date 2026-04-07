@@ -380,11 +380,7 @@ pub fn stop_wallet(handle: &WalletHandle) -> Result<(), String> {
 
 // ─── Staking ─────────────────────────────────────────────────────────────────
 
-pub fn stake(
-    handle: &WalletHandle,
-    tier: u8,
-    amount: u64,
-) -> Result<TransferResponse, String> {
+pub fn stake(handle: &WalletHandle, tier: u8, amount: u64) -> Result<TransferResponse, String> {
     with_wallet(handle, |w| {
         let params = serde_json::json!({ "tier": tier, "amount": amount });
         let val = w
@@ -396,9 +392,7 @@ pub fn stake(
 
 pub fn claim_rewards(handle: &WalletHandle) -> Result<TransferResponse, String> {
     with_wallet(handle, |w| {
-        let val = w
-            .json_rpc_call("claim_rewards", "{}")
-            .map_err(wallet_err)?;
+        let val = w.json_rpc_call("claim_rewards", "{}").map_err(wallet_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -488,9 +482,14 @@ pub fn get_pqc_multisig_info(handle: &WalletHandle) -> Result<PqcMultisigInfo, S
 ///
 /// Falls back to the C++ FFI if the scanner state is empty
 /// (i.e., the scanner hasn't been synchronized yet).
-pub fn get_scanner_balance(handle: &WalletHandle) -> Result<shekyl_scanner::BalanceSummary, String> {
+pub fn get_scanner_balance(
+    handle: &WalletHandle,
+) -> Result<shekyl_scanner::BalanceSummary, String> {
     with_scanner(handle, |scanner| {
-        let state = scanner.state.lock().map_err(|e| format!("Scanner lock: {e}"))?;
+        let state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
         let height = state.height();
         Ok(state.balance(height))
     })
@@ -499,7 +498,10 @@ pub fn get_scanner_balance(handle: &WalletHandle) -> Result<shekyl_scanner::Bala
 /// Get staked outputs from the Rust scanner state.
 pub fn get_scanner_staked_outputs(handle: &WalletHandle) -> Result<serde_json::Value, String> {
     with_scanner(handle, |scanner| {
-        let state = scanner.state.lock().map_err(|e| format!("Scanner lock: {e}"))?;
+        let state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
         let height = state.height();
         let staked: Vec<serde_json::Value> = state
             .staked_outputs()
@@ -520,7 +522,10 @@ pub fn get_scanner_staked_outputs(handle: &WalletHandle) -> Result<serde_json::V
 /// Get the scanner's synced height.
 pub fn get_scanner_height(handle: &WalletHandle) -> Result<u64, String> {
     with_scanner(handle, |scanner| {
-        let state = scanner.state.lock().map_err(|e| format!("Scanner lock: {e}"))?;
+        let state = scanner
+            .state
+            .lock()
+            .map_err(|e| format!("Scanner lock: {e}"))?;
         Ok(state.height())
     })
 }

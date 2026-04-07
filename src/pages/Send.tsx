@@ -83,13 +83,13 @@ export default function Send() {
 
   useEffect(() => {
     if (feeDebounce.current) clearTimeout(feeDebounce.current);
-    const parsed = parseFloat(amount);
-    if (!address || !parsed || parsed <= 0) {
-      setEstimatedFee(null);
-      return;
-    }
-    setFeeLoading(true);
     feeDebounce.current = setTimeout(() => {
+      const parsed = parseFloat(amount);
+      if (!address || !parsed || parsed <= 0) {
+        setEstimatedFee(null);
+        return;
+      }
+      setFeeLoading(true);
       invoke<number>("estimate_fee", {
         address,
         amount: Math.round(parsed * 1e12),

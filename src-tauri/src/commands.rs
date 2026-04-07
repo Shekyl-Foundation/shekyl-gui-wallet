@@ -224,7 +224,9 @@ pub async fn get_chain_health(state: State<'_, AppState>) -> Result<ChainHealth,
         .await
         .ok();
     let staking = daemon_rpc::get_staking_info(&state.http, &url).await.ok();
-    let tree = daemon_rpc::get_curve_tree_info(&state.http, &url).await.ok();
+    let tree = daemon_rpc::get_curve_tree_info(&state.http, &url)
+        .await
+        .ok();
 
     Ok(ChainHealth {
         height: info.height,
@@ -790,7 +792,9 @@ pub async fn claim_rewards(state: State<'_, AppState>) -> Result<TxInfo, String>
 }
 
 #[tauri::command]
-pub async fn get_curve_tree_info(state: State<'_, AppState>) -> Result<daemon_rpc::CurveTreeInfo, String> {
+pub async fn get_curve_tree_info(
+    state: State<'_, AppState>,
+) -> Result<daemon_rpc::CurveTreeInfo, String> {
     let url = state.url().await;
     daemon_rpc::get_curve_tree_info(&state.http, &url).await
 }
@@ -813,8 +817,8 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
         tree.root.clone()
     };
 
-    let wallet_refreshed = wallet_bridge::is_initialized(&state.wallet)
-        && *state.wallet_open.read().await;
+    let wallet_refreshed =
+        wallet_bridge::is_initialized(&state.wallet) && *state.wallet_open.read().await;
 
     Ok(SecurityStatus {
         scheme: "Hybrid".into(),

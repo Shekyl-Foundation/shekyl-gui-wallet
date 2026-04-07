@@ -13,7 +13,7 @@ const DEFAULT_PORTS: Record<string, number> = {
 };
 
 export default function Settings() {
-  const { health, pqc, refresh } = useDaemon();
+  const { health, refresh } = useDaemon();
   const [network, setNetwork] = useState<string>(health?.network ?? "mainnet");
   const [daemonUrl, setDaemonUrl] = useState(
     `http://127.0.0.1:${DEFAULT_PORTS[network]}/json_rpc`,
