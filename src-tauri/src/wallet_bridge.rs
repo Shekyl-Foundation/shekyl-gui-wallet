@@ -322,7 +322,7 @@ pub fn transfer(
 ) -> Result<TransferResponse, String> {
     with_wallet(handle, |w| {
         let dest_json = serde_json::json!([{"amount": amount, "address": address}]).to_string();
-        let val = w.transfer(&dest_json, 0, 0, 0).map_err(wallet_err)?;
+        let val = w.transfer(&dest_json, 0, 0).map_err(wallet_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
