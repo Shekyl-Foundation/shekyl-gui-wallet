@@ -1,0 +1,62 @@
+name: "CodeQL Analysis"
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  schedule:
+    - cron: "30 5 * * 1"   # Every Monday at 5:30 AM UTC
+
+jobs:
+  analyze-rust:
+    name: Analyze Rust (Tauri backend + PQC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Initialize CodeQL for Rust
+        uses: github/codeql-action/init@v3
+        with:
+          languages: rust
+
+      - name: Build Rust (Tauri backend)
+        run: |
+          cd src-tauri
+          cargo build --release
+
+      - name: Perform CodeQL Analysis (Rust)
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:rust"
+
+  analyze-typescript:
+    name: Analyze TypeScript / JavaScript (Frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL for TypeScript
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis (Frontend)
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript"
