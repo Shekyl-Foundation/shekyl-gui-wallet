@@ -2,6 +2,64 @@
 
 ## [Unreleased]
 
+### ✨ Added
+
+- **Native Rust signing (Phase 4a).** Enabled `native-sign` feature for
+  `shekyl-wallet-rpc`, activating the C++ prepare → Rust sign → C++ finalize
+  transfer path. All FCMP++ proof generation now happens in Rust with no
+  C++ ↔ Rust round-trips.
+- **Background scanner sync loop (Phase 4b).** Opening a wallet starts a
+  background tokio task that polls the daemon for blocks, feeds them through
+  the Rust PQC KEM scanner, populates `WalletState` with outputs, and detects
+  spends. Emits `scanner-progress` events to the frontend.
+- **Scanner-backed balance (Phase 4b).** `get_balance` now reads from the
+  Rust scanner's `WalletState` as the primary source, with C++ wallet2 as
+  fallback. Includes staked balance.
+- **Scanner Tauri commands (Phase 4b).** New commands: `get_scanner_balance`,
+  `get_scanner_height`, `get_scanner_staked_outputs`,
+  `get_scanner_claimable_stakes`, `get_scanner_unstakeable_outputs`,
+  `scanner_freeze`, `scanner_thaw`.
+- **Input validation layer (Phase 4e).** All security-sensitive Tauri commands
+  validate inputs (address, amount, wallet name, password, seed, keys, tier,
+  key images) at the Rust bridge before reaching C++ FFI. `validate.rs` module
+  with comprehensive tests.
+- **Content Security Policy (Phase 4e).** Restrictive CSP in `tauri.conf.json`:
+  `default-src 'self'`, no remote scripts, no external fetches.
+- **GUI Security documentation (Phase 4e).** `docs/GUI_SECURITY.md` covering
+  architecture, CSP, capability audit, input validation, secret handling,
+  seed/password threat model, and future hardening roadmap.
+- **Supply chain hardening (Phase 4f).** `.nvmrc` pins Node.js 22.14.0,
+  `rust-toolchain.toml` pins Rust 1.94.0. CI workflow `audit.yml` runs
+  `npm audit --audit-level=high` and `cargo audit` on every PR and weekly.
+
+### 🔄 Changed
+
+- **Transfer uses native-sign path.** `wallet_bridge::transfer` now calls
+  `Wallet2::transfer_native` (C++ prepare → Rust sign → C++ finalize)
+  instead of the legacy all-C++ path. No optimistic spent-marking is
+  performed; the scanner is the sole authority for detecting on-chain spends.
+- **WalletBridge uses Arc<TokioMutex<WalletState>>.** Scanner state is now
+  shared between the sync loop and Tauri commands via a tokio-compatible
+  mutex, replacing the std::sync::Mutex-wrapped ScannerState.
+- **open_wallet starts sync loop.** The `open_wallet` command now extracts
+  scanner keys from wallet2 and starts the background sync task. The
+  `close_wallet` command cancels the sync loop and zeroizes scanner state.
+
+### 🐛 Fixed
+
+- **shutdown() now wipes scanner state.** The window-destroy handler
+  (`shutdown`) now replaces the scanner state with a fresh `WalletState`,
+  triggering `Drop`/`zeroize` on secrets. Previously only `close_wallet`
+  wiped the state.
+- **estimate_fee validates inputs.** Address and amount are now validated
+  before the fee estimate, consistent with all other commands.
+- **Removed dead `transfer_legacy` function.** The unused fallback transfer
+  path was removed along with the blanket `#[allow(dead_code)]` on
+  `mod wallet_bridge`.
+- **Removed unused direct dependencies.** `shekyl-crypto-pq` and
+  `shekyl-rpc` were listed in `Cargo.toml` but never imported directly;
+  removed to reduce compilation time.
+
 ### 📚 Documentation
 
 - **User Guide: added "Importing / Restoring a Wallet" section.** Covers

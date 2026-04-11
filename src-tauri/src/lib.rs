@@ -31,7 +31,7 @@ use tauri::Manager;
 mod commands;
 mod daemon_rpc;
 mod state;
-#[allow(dead_code)]
+mod validate;
 mod wallet_bridge;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -76,6 +76,14 @@ pub fn run() {
             commands::create_multisig_group,
             commands::get_multisig_info,
             commands::sign_multisig_partial,
+            // Scanner
+            commands::get_scanner_balance,
+            commands::get_scanner_height,
+            commands::get_scanner_staked_outputs,
+            commands::get_scanner_claimable_stakes,
+            commands::get_scanner_unstakeable_outputs,
+            commands::scanner_freeze,
+            commands::scanner_thaw,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

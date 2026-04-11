@@ -23,5 +23,11 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
 dirs = "6"
 hex = "0.4"
-shekyl-wallet-rpc = { path = "../../shekyl-core/rust/shekyl-wallet-rpc", features = ["rust-scanner"] }
-shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner" }
+shekyl-wallet-rpc = { path = "../../shekyl-core/rust/shekyl-wallet-rpc", features = ["rust-scanner", "native-sign"] }
+shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner", features = ["rust-scanner"] }
+shekyl-simple-request-rpc = { path = "../../shekyl-core/rust/shekyl-oxide/shekyl-oxide/rpc/simple-request" }
+shekyl-address = { path = "../../shekyl-core/rust/shekyl-address" }
+curve25519-dalek = { version = "4", features = ["zeroize"] }
+tokio-util = "0.7"
+tracing = "0.1"
+zeroize = { version = "1", features = ["alloc"] }

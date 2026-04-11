@@ -36,6 +36,7 @@ use tauri::State;
 
 use crate::daemon_rpc;
 use crate::state::{AppState, NetworkType};
+use crate::validate;
 use crate::wallet_bridge;
 
 const SCALE: f64 = 1_000_000.0;
@@ -459,6 +460,9 @@ pub async fn create_wallet(
     password: String,
     language: Option<String>,
 ) -> Result<CreateWalletResult, String> {
+    validate::validate_wallet_name(&name)?;
+    validate::validate_password(&password)?;
+
     let network = state.network.read().await;
     let lang = language.unwrap_or_else(|| "English".into());
 
@@ -482,12 +486,23 @@ pub async fn create_wallet(
 #[tauri::command]
 pub async fn open_wallet(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     filename: String,
     password: String,
 ) -> Result<WalletInfo, String> {
-    let network = state.network.read().await;
+    validate::validate_wallet_name(&filename)?;
+    validate::validate_password(&password)?;
 
-    wallet_bridge::open_wallet(&state.wallet, &filename, &password)?;
+    let network = state.network.read().await;
+    let daemon_addr = state.daemon_address().await;
+
+    wallet_bridge::open_wallet(
+        &state.wallet,
+        &filename,
+        &password,
+        &daemon_addr,
+        app,
+    )?;
 
     let addr_resp = wallet_bridge::get_address(&state.wallet, 0)?;
 
@@ -520,6 +535,10 @@ pub async fn import_wallet_from_seed(
     language: Option<String>,
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
+    validate::validate_wallet_name(&name)?;
+    validate::validate_seed(&seed)?;
+    validate::validate_password(&password)?;
+
     let network = state.network.read().await;
     let lang = language.unwrap_or_else(|| "English".into());
     let height = restore_height.unwrap_or(0);
@@ -557,6 +576,12 @@ pub async fn import_wallet_from_keys(
     language: Option<String>,
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
+    validate::validate_wallet_name(&name)?;
+    validate::validate_address(&address)?;
+    validate::validate_secret_key(&spendkey, "spend key")?;
+    validate::validate_secret_key(&viewkey, "view key")?;
+    validate::validate_password(&password)?;
+
     let network = state.network.read().await;
     let lang = language.unwrap_or_else(|| "English".into());
     let height = restore_height.unwrap_or(0);
@@ -605,13 +630,22 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
         });
     }
 
-    let resp = wallet_bridge::get_balance(&state.wallet, 0)?;
-
-    Ok(Balance {
-        total: resp.balance,
-        unlocked: resp.unlocked_balance,
-        staked: 0,
-    })
+    // Read from Rust scanner state (primary) with C++ fallback
+    match wallet_bridge::get_scanner_balance(&state.wallet).await {
+        Ok(summary) => Ok(Balance {
+            total: summary.total,
+            unlocked: summary.unlocked,
+            staked: summary.staked_total,
+        }),
+        Err(_) => {
+            let resp = wallet_bridge::get_balance(&state.wallet, 0)?;
+            Ok(Balance {
+                total: resp.balance,
+                unlocked: resp.unlocked_balance,
+                staked: 0,
+            })
+        }
+    }
 }
 
 #[tauri::command]
@@ -635,6 +669,9 @@ pub async fn transfer(
     address: String,
     amount: u64,
 ) -> Result<TxInfo, String> {
+    validate::validate_address(&address)?;
+    validate::validate_amount(amount)?;
+
     let is_open = *state.wallet_open.read().await;
     if !is_open {
         return Err("No wallet is open".into());
@@ -657,9 +694,12 @@ pub async fn transfer(
 #[tauri::command]
 pub async fn estimate_fee(
     _state: State<'_, AppState>,
-    _address: String,
-    _amount: u64,
+    address: String,
+    amount: u64,
 ) -> Result<u64, String> {
+    validate::validate_address(&address)?;
+    validate::validate_amount(amount)?;
+
     // FCMP++ tx cost model: base_fee_per_byte * estimated_weight.
     // A typical 2-in/2-out FCMP++ tx is ~15-20 KB including the membership
     // proof and PQC auth. Conservative default until the daemon provides
@@ -753,6 +793,9 @@ pub async fn get_staking_info(state: State<'_, AppState>) -> Result<WalletStakin
 
 #[tauri::command]
 pub async fn stake(state: State<'_, AppState>, tier: u8, amount: u64) -> Result<TxInfo, String> {
+    validate::validate_tier(tier)?;
+    validate::validate_amount(amount)?;
+
     let is_open = *state.wallet_open.read().await;
     if !is_open {
         return Err("No wallet is open".into());
@@ -871,6 +914,66 @@ pub async fn sign_multisig_partial(
 ) -> Result<serde_json::Value, String> {
     let resp = wallet_bridge::sign_multisig_partial(&state.wallet, &signing_request)?;
     Ok(serde_json::json!({ "signature_response": resp.signature_response }))
+}
+
+// ─── Scanner commands ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_scanner_balance(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let summary = wallet_bridge::get_scanner_balance(&state.wallet).await?;
+    Ok(serde_json::json!({
+        "total": summary.total,
+        "unlocked": summary.unlocked,
+        "staked": summary.staked_total,
+        "locked": summary.locked_by_timelock,
+        "staked_matured": summary.staked_matured,
+    }))
+}
+
+#[tauri::command]
+pub async fn get_scanner_height(state: State<'_, AppState>) -> Result<u64, String> {
+    wallet_bridge::get_scanner_height(&state.wallet).await
+}
+
+#[tauri::command]
+pub async fn get_scanner_staked_outputs(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    wallet_bridge::get_scanner_staked_outputs(&state.wallet).await
+}
+
+#[tauri::command]
+pub async fn get_scanner_claimable_stakes(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    wallet_bridge::get_scanner_claimable_stakes(&state.wallet).await
+}
+
+#[tauri::command]
+pub async fn get_scanner_unstakeable_outputs(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    wallet_bridge::get_scanner_unstakeable_outputs(&state.wallet).await
+}
+
+#[tauri::command]
+pub async fn scanner_freeze(
+    state: State<'_, AppState>,
+    key_image: String,
+) -> Result<bool, String> {
+    validate::validate_key_image(&key_image)?;
+    wallet_bridge::scanner_freeze(&state.wallet, &key_image).await
+}
+
+#[tauri::command]
+pub async fn scanner_thaw(
+    state: State<'_, AppState>,
+    key_image: String,
+) -> Result<bool, String> {
+    validate::validate_key_image(&key_image)?;
+    wallet_bridge::scanner_thaw(&state.wallet, &key_image).await
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
