@@ -176,15 +176,13 @@ pub fn open_wallet(
 
     // Extract scanner keys from C++ wallet and start the sync loop
     match wallet.get_scanner_keys() {
-        Ok(keys_json) => {
-            match start_sync_loop(&mut guard, &keys_json, daemon_url, app) {
-                Ok(()) => info!("sync loop started for {filename}"),
-                Err(e) => warn!(
-                    error = %e,
-                    "failed to start sync loop; wallet opened but scanner inactive"
-                ),
-            }
-        }
+        Ok(keys_json) => match start_sync_loop(&mut guard, &keys_json, daemon_url, app) {
+            Ok(()) => info!("sync loop started for {filename}"),
+            Err(e) => warn!(
+                error = %e,
+                "failed to start sync loop; wallet opened but scanner inactive"
+            ),
+        },
         Err(e) => {
             warn!(
                 error = %e,
@@ -236,12 +234,8 @@ fn start_sync_loop(
     let view_public_hex = keys_json["view_public"]
         .as_str()
         .ok_or("missing view_public")?;
-    let x25519_sk_hex = keys_json["x25519_sk"]
-        .as_str()
-        .ok_or("missing x25519_sk")?;
-    let ml_kem_dk_hex = keys_json["ml_kem_dk"]
-        .as_str()
-        .ok_or("missing ml_kem_dk")?;
+    let x25519_sk_hex = keys_json["x25519_sk"].as_str().ok_or("missing x25519_sk")?;
+    let ml_kem_dk_hex = keys_json["ml_kem_dk"].as_str().ok_or("missing ml_kem_dk")?;
 
     let mut spend_secret = decode_hex_32(spend_secret_hex)?;
     let mut view_secret_bytes = decode_hex_32(view_secret_hex)?;
@@ -270,10 +264,7 @@ fn start_sync_loop(
     )
     .map_err(|e| format!("ViewPair error: {e}"))?;
 
-    let scanner = shekyl_scanner::Scanner::new(
-        view_pair,
-        zeroize::Zeroizing::new(spend_secret),
-    );
+    let scanner = shekyl_scanner::Scanner::new(view_pair, zeroize::Zeroizing::new(spend_secret));
 
     spend_secret.zeroize();
     view_secret_bytes.zeroize();
@@ -289,9 +280,9 @@ fn start_sync_loop(
     let app_clone = app.clone();
 
     tokio::spawn(async move {
-        let rpc = match shekyl_simple_request_rpc::SimpleRequestRpc::new(
-            format!("http://{daemon_url_owned}"),
-        )
+        let rpc = match shekyl_simple_request_rpc::SimpleRequestRpc::new(format!(
+            "http://{daemon_url_owned}"
+        ))
         .await
         {
             Ok(r) => r,
@@ -510,7 +501,9 @@ pub fn transfer(
 ) -> Result<TransferResponse, String> {
     with_wallet(handle, |wallet| {
         let dest_json = serde_json::json!([{"amount": amount, "address": address}]).to_string();
-        let val = wallet.transfer_native(&dest_json, 0, 0).map_err(wallet_err)?;
+        let val = wallet
+            .transfer_native(&dest_json, 0, 0)
+            .map_err(wallet_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -677,7 +670,9 @@ pub async fn get_scanner_balance(
 }
 
 /// Get staked outputs from the Rust scanner state.
-pub async fn get_scanner_staked_outputs(handle: &WalletHandle) -> Result<serde_json::Value, String> {
+pub async fn get_scanner_staked_outputs(
+    handle: &WalletHandle,
+) -> Result<serde_json::Value, String> {
     let state_arc = scanner_state(handle)?;
     let state = state_arc.lock().await;
     let height = state.height();
@@ -698,7 +693,9 @@ pub async fn get_scanner_staked_outputs(handle: &WalletHandle) -> Result<serde_j
 }
 
 /// Get claimable staked outputs from the Rust scanner state.
-pub async fn get_scanner_claimable_stakes(handle: &WalletHandle) -> Result<serde_json::Value, String> {
+pub async fn get_scanner_claimable_stakes(
+    handle: &WalletHandle,
+) -> Result<serde_json::Value, String> {
     let state_arc = scanner_state(handle)?;
     let state = state_arc.lock().await;
     let height = state.height();
@@ -727,7 +724,9 @@ pub async fn get_scanner_claimable_stakes(handle: &WalletHandle) -> Result<serde
 }
 
 /// Get unstakeable (matured) outputs from the Rust scanner state.
-pub async fn get_scanner_unstakeable_outputs(handle: &WalletHandle) -> Result<serde_json::Value, String> {
+pub async fn get_scanner_unstakeable_outputs(
+    handle: &WalletHandle,
+) -> Result<serde_json::Value, String> {
     let state_arc = scanner_state(handle)?;
     let state = state_arc.lock().await;
     let height = state.height();

@@ -75,9 +75,7 @@ pub fn validate_wallet_name(name: &str) -> Result<(), String> {
 /// Validate a wallet password.
 pub fn validate_password(password: &str) -> Result<(), String> {
     if password.len() > MAX_PASSWORD_LEN {
-        return Err(format!(
-            "Password too long (max {MAX_PASSWORD_LEN} chars)"
-        ));
+        return Err(format!("Password too long (max {MAX_PASSWORD_LEN} chars)"));
     }
     if password.contains('\0') {
         return Err("Password must not contain null bytes".into());
@@ -290,7 +288,10 @@ mod tests {
     fn oversized_address_error_does_not_leak_content() {
         let big = "X".repeat(5000);
         let err = validate_address(&big).unwrap_err();
-        assert!(!err.contains("XXXXX"), "error leaked oversized input content");
+        assert!(
+            !err.contains("XXXXX"),
+            "error leaked oversized input content"
+        );
     }
 
     #[test]

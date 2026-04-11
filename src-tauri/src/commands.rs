@@ -496,13 +496,7 @@ pub async fn open_wallet(
     let network = state.network.read().await;
     let daemon_addr = state.daemon_address().await;
 
-    wallet_bridge::open_wallet(
-        &state.wallet,
-        &filename,
-        &password,
-        &daemon_addr,
-        app,
-    )?;
+    wallet_bridge::open_wallet(&state.wallet, &filename, &password, &daemon_addr, app)?;
 
     let addr_resp = wallet_bridge::get_address(&state.wallet, 0)?;
 
@@ -919,9 +913,7 @@ pub async fn sign_multisig_partial(
 // ─── Scanner commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_scanner_balance(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+pub async fn get_scanner_balance(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let summary = wallet_bridge::get_scanner_balance(&state.wallet).await?;
     Ok(serde_json::json!({
         "total": summary.total,
@@ -959,19 +951,13 @@ pub async fn get_scanner_unstakeable_outputs(
 }
 
 #[tauri::command]
-pub async fn scanner_freeze(
-    state: State<'_, AppState>,
-    key_image: String,
-) -> Result<bool, String> {
+pub async fn scanner_freeze(state: State<'_, AppState>, key_image: String) -> Result<bool, String> {
     validate::validate_key_image(&key_image)?;
     wallet_bridge::scanner_freeze(&state.wallet, &key_image).await
 }
 
 #[tauri::command]
-pub async fn scanner_thaw(
-    state: State<'_, AppState>,
-    key_image: String,
-) -> Result<bool, String> {
+pub async fn scanner_thaw(state: State<'_, AppState>, key_image: String) -> Result<bool, String> {
     validate::validate_key_image(&key_image)?;
     wallet_bridge::scanner_thaw(&state.wallet, &key_image).await
 }
