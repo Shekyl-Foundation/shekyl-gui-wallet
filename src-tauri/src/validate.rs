@@ -214,4 +214,90 @@ mod tests {
         assert!(validate_tier(1).is_ok());
         assert!(validate_tier(2).is_ok());
     }
+
+    // ── Gate 6: Canary-based secret leak detection ──
+    //
+    // These tests plant known canary byte patterns in input fields that could
+    // plausibly be secrets, feed them to validation functions that reject them,
+    // and assert the returned error strings contain NONE of the canaries.
+    // This catches secrets leaking through debug-print, format strings, or
+    // error message interpolation.
+
+    const CANARY_HEX: &str = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+    const CANARY_SHORT: &str = "deadbeef";
+
+    fn assert_no_canary(err: &str, canaries: &[&str]) {
+        for canary in canaries {
+            assert!(
+                !err.to_lowercase().contains(&canary.to_lowercase()),
+                "error message leaked canary '{}' in: {}",
+                canary,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn address_error_does_not_leak_input() {
+        let bad_addr = format!("shekyl1{CANARY_HEX}");
+        let err = validate_address(&bad_addr).unwrap_err();
+        assert_no_canary(&err, &[CANARY_HEX, CANARY_SHORT]);
+    }
+
+    #[test]
+    fn hex_error_does_not_leak_input() {
+        let err = validate_hex(CANARY_HEX, 16, "test_field").unwrap_err();
+        assert_no_canary(&err, &[CANARY_HEX, CANARY_SHORT]);
+    }
+
+    #[test]
+    fn key_image_error_does_not_leak_canary() {
+        let short_ki = &CANARY_HEX[..32];
+        let err = validate_key_image(short_ki).unwrap_err();
+        assert_no_canary(&err, &[short_ki, CANARY_SHORT]);
+    }
+
+    #[test]
+    fn secret_key_error_does_not_leak_canary() {
+        let short_sk = &CANARY_HEX[..32];
+        let err = validate_secret_key(short_sk, "spend_key").unwrap_err();
+        assert_no_canary(&err, &[short_sk, CANARY_SHORT]);
+    }
+
+    #[test]
+    fn wallet_name_error_does_not_leak_path_secret() {
+        let evil_name = format!("../../../{CANARY_SHORT}/secrets");
+        let err = validate_wallet_name(&evil_name).unwrap_err();
+        assert_no_canary(&err, &[CANARY_SHORT]);
+    }
+
+    #[test]
+    fn password_null_error_does_not_leak_content() {
+        let evil_pass = format!("{CANARY_SHORT}\0rest_of_password");
+        let err = validate_password(&evil_pass).unwrap_err();
+        assert_no_canary(&err, &[CANARY_SHORT, "rest_of_password"]);
+    }
+
+    #[test]
+    fn seed_error_does_not_leak_words() {
+        let canary_seed = "abandon ability able about above absent absorb abstract absurd abuse \
+                           access accident account accuse achieve acid acoustic acquire across act action";
+        let err = validate_seed(&format!("{canary_seed}\0injected")).unwrap_err();
+        assert_no_canary(&err, &["abandon", "acoustic", "injected"]);
+    }
+
+    #[test]
+    fn oversized_address_error_does_not_leak_content() {
+        let big = "X".repeat(5000);
+        let err = validate_address(&big).unwrap_err();
+        assert!(!err.contains("XXXXX"), "error leaked oversized input content");
+    }
+
+    #[test]
+    fn adversarial_format_string_in_address() {
+        let evil = "shekyl1%s%s%s%n%n%n{:?}{{}}";
+        let err = validate_address(evil).unwrap_err();
+        assert!(!err.contains("%n"), "format string injection not sanitized");
+        assert!(!err.contains("{:?}"), "Rust debug format specifier leaked");
+    }
 }

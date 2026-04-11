@@ -2,7 +2,19 @@
 
 ## [Unreleased]
 
+### 🔒 Security
+
+- **Canary-based secret leak detection (Phase 6, Gate 6).** `validate.rs` now
+  includes fuzz-style tests that plant known canary byte patterns in input fields
+  (addresses, keys, seeds, hex strings, passwords) and assert that validation error
+  messages never contain the canaries. Catches hex-encoded, format-string, and
+  debug-print secret leaks.
+
 ### ✨ Added
+
+- **CONTRIBUTING.md.** New contributor guide covering development setup, code
+  guidelines (input validation, secret handling, testing), security references,
+  and supply chain pinning.
 
 - **Native Rust signing (Phase 4a).** Enabled `native-sign` feature for
   `shekyl-wallet-rpc`, activating the C++ prepare → Rust sign → C++ finalize
