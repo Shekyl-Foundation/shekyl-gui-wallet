@@ -301,4 +301,69 @@ mod tests {
         assert!(!err.contains("%n"), "format string injection not sanitized");
         assert!(!err.contains("{:?}"), "Rust debug format specifier leaked");
     }
+
+    // ── Proptest: fuzz validators never panic or leak input ──
+
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn validate_address_never_panics(s in "\\PC{0,5000}") {
+                let _ = validate_address(&s);
+            }
+
+            #[test]
+            fn validate_amount_never_panics(a: u64) {
+                let _ = validate_amount(a);
+            }
+
+            #[test]
+            fn validate_hex_never_panics(s in "\\PC{0,200}", len in 0usize..100) {
+                let _ = validate_hex(&s, len, "fuzz");
+            }
+
+            #[test]
+            fn validate_wallet_name_never_panics(s in "\\PC{0,500}") {
+                let _ = validate_wallet_name(&s);
+            }
+
+            #[test]
+            fn validate_password_never_panics(s in "\\PC{0,2000}") {
+                let _ = validate_password(&s);
+            }
+
+            #[test]
+            fn validate_seed_never_panics(s in "\\PC{0,1000}") {
+                let _ = validate_seed(&s);
+            }
+
+            #[test]
+            fn validate_key_image_never_panics(s in "\\PC{0,200}") {
+                let _ = validate_key_image(&s);
+            }
+
+            #[test]
+            fn validate_tier_never_panics(t: u8) {
+                let _ = validate_tier(t);
+            }
+
+            #[test]
+            fn error_messages_never_contain_full_input(s in "[a-f0-9]{64,128}") {
+                if let Err(e) = validate_address(&s) {
+                    assert!(
+                        !e.contains(&s),
+                        "address error leaked full input"
+                    );
+                }
+                if let Err(e) = validate_wallet_name(&s) {
+                    assert!(
+                        !e.contains(&s),
+                        "wallet_name error leaked full input"
+                    );
+                }
+            }
+        }
+    }
 }

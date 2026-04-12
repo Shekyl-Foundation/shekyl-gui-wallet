@@ -798,3 +798,109 @@ pub fn sign_multisig_partial(
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transfer_without_wallet_returns_error_and_preserves_state() {
+        let handle = new_handle();
+        let result = transfer(&handle, "shekyl1_dummy_address", 1_000_000_000);
+        assert!(result.is_err(), "transfer should fail without initialized wallet");
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("not initialized"),
+            "error should indicate wallet not initialized, got: {err_msg}"
+        );
+
+        let guard = handle.lock().unwrap();
+        assert!(guard.wallet.is_none(), "wallet should still be None after failed transfer");
+        assert!(
+            guard.sync_cancel.is_none(),
+            "no sync loop should have been created"
+        );
+    }
+
+    #[test]
+    fn scanner_state_survives_transfer_failure() {
+        let handle = new_handle();
+
+        let result = transfer(&handle, "shekyl1_dummy_address", 1_000_000_000);
+        assert!(result.is_err());
+
+        let guard = handle.lock().unwrap();
+        let state_arc = guard.scanner_state.clone();
+        drop(guard);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let state = rt.block_on(state_arc.lock());
+        assert_eq!(
+            state.height(), 0,
+            "scanner state height must be preserved (0) after transfer error"
+        );
+        assert_eq!(
+            state.transfers().len(), 0,
+            "scanner transfers must be empty after transfer error"
+        );
+    }
+
+    #[test]
+    fn shutdown_replaces_scanner_state_with_fresh_instance() {
+        let handle = new_handle();
+
+        let original_arc = {
+            let guard = handle.lock().unwrap();
+            guard.scanner_state.clone()
+        };
+
+        shutdown(&handle).unwrap();
+
+        let new_arc = {
+            let guard = handle.lock().unwrap();
+            guard.scanner_state.clone()
+        };
+
+        assert!(
+            !Arc::ptr_eq(&original_arc, &new_arc),
+            "shutdown must replace scanner_state with a new Arc (old state dropped/zeroized)"
+        );
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let state = rt.block_on(new_arc.lock());
+        assert_eq!(
+            state.height(), 0,
+            "fresh scanner state should have height 0"
+        );
+    }
+
+    #[test]
+    fn close_without_open_returns_error() {
+        let handle = new_handle();
+        let result = close_wallet(&handle);
+        assert!(result.is_err(), "close_wallet without init should error");
+    }
+
+    #[test]
+    fn multiple_transfers_all_fail_without_corrupting_bridge() {
+        let handle = new_handle();
+        for i in 0..10 {
+            let result = transfer(&handle, "shekyl1_dummy_address", (i + 1) * 1_000_000);
+            assert!(result.is_err());
+        }
+
+        let guard = handle.lock().unwrap();
+        assert!(guard.wallet.is_none());
+        assert!(guard.sync_cancel.is_none());
+    }
+
+    // NOTE: A full rollback-on-finalize-failure integration test requires a
+    // running C++ wallet2 instance with a mock daemon that rejects
+    // send_raw_transaction. The prepare → sign → finalize → failure → unmark_spent
+    // sequence is handled entirely within C++ wallet2::transfer_native; the Rust
+    // bridge does NOT perform optimistic spent-marking (see transfer() doc comment).
+    // The unmark_spent logic itself is exercised by Gate 5a tests in
+    // shekyl-scanner/src/wallet_state.rs.
+}

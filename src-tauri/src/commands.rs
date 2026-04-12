@@ -980,6 +980,16 @@ mod tests {
 
     #[tokio::test]
     async fn security_status_returns_fcmp_fields() {
-        // get_security_status requires daemon; tested via integration tests
+        // get_security_status requires a running daemon connection.
+        // Tested in CI integration tests with a regtest daemon.
+        // Here we verify the PqcStatus struct (which is daemon-independent)
+        // is consistent with the security status expectations.
+        let pqc = get_pqc_status().await.unwrap();
+        assert!(pqc.enabled, "PQC should always be enabled");
+        assert_eq!(pqc.tx_version, 3, "Shekyl is v3-from-genesis");
+        assert!(
+            pqc.post_quantum.contains("ML-DSA") || pqc.post_quantum.contains("Dilithium"),
+            "post_quantum field should name the PQC scheme"
+        );
     }
 }

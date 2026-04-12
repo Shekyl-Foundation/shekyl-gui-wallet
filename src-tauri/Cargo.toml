@@ -31,3 +31,6 @@ curve25519-dalek = { version = "4", features = ["zeroize"] }
 tokio-util = "0.7"
 tracing = "0.1"
 zeroize = { version = "1", features = ["alloc"] }
+
+[dev-dependencies]
+proptest = "1"
