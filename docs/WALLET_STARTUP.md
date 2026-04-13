@@ -13,25 +13,46 @@ providing full-UTXO-set anonymity via curve trees.
 
 ## Architecture Overview
 
-The GUI wallet manages two external processes:
+The GUI wallet is a single Tauri process. Wallet operations are performed
+in-process through `wallet_bridge.rs`, which combines two components:
 
-1. **shekyld** (daemon) -- blockchain node, expected to be running
-   independently or managed by the wallet in the future.
-2. **shekyl-wallet-rpc** -- wallet JSON-RPC server, spawned and managed by
-   the GUI wallet as a child process.
-
-Communication with both follows the same pattern: JSON-RPC over HTTP to
-localhost.
+1. **`shekyl-wallet-rpc` (Rust crate)** -- an FFI wrapper around C++ `wallet2`.
+   Today this provides wallet creation, opening, key management, and the
+   construction half of transactions. Despite the crate name, it is currently
+   linked directly into the GUI process; it does not run as a separate RPC
+   server.
+2. **`shekyl-scanner` (Rust crate)** -- pure-Rust output scanning and balance
+   tracking. Runs in a background tokio task that polls the daemon over HTTP
+   and updates `WalletState` as new blocks arrive.
 
 ```
-┌──────────────┐     JSON-RPC      ┌────────────────────┐     JSON-RPC     ┌──────────┐
-│  Tauri App   │ ───────────────── │  shekyl-wallet-rpc │ ─────────────── │  shekyld  │
-│  (Rust + UI) │ :11030/json_rpc  │  (child process)   │ :11029/json_rpc │  (daemon) │
-└──────────────┘                   └────────────────────┘                  └──────────┘
+┌──────────────────────────────────────┐                ┌──────────┐
+│  Tauri App (single process)          │   HTTP/JSON-RPC │          │
+│                                      │ ──────────────► │  shekyld │
+│  ┌────────────────────────────────┐  │                 │ (daemon) │
+│  │  React UI (webview)            │  │ ◄────────────── │          │
+│  └────────────┬───────────────────┘  │                └──────────┘
+│               │ Tauri IPC            │
+│  ┌────────────▼───────────────────┐  │
+│  │  commands.rs                   │  │
+│  └────────────┬───────────────────┘  │
+│  ┌────────────▼───────────────────┐  │
+│  │  wallet_bridge.rs              │  │
+│  │  ┌──────────────┐ ┌──────────┐ │  │
+│  │  │ Wallet2 FFI  │ │ scanner  │ │  │
+│  │  │ (C++ wallet2)│ │ (Rust)   │ │  │
+│  │  └──────────────┘ └──────────┘ │  │
+│  └────────────────────────────────┘  │
+└──────────────────────────────────────┘
 ```
 
-The wallet-rpc runs in `--wallet-dir` mode, which allows creating, opening,
-and closing wallets via RPC without restarting the process.
+### A note on direction
+
+The C++ FFI bridge is **transitional**. The long-term direction is a pure-Rust
+path through `shekyl-wallet-rpc` (which will eventually replace `wallet2`
+entirely), with FFI retained only in the few places where C++ provides
+specific, hardened, audited value. The "RPC" in the crate name reflects that
+end state, not the current in-process linkage.
 
 ---
 
@@ -41,7 +62,7 @@ The frontend uses a phase-based state machine to control what the user sees:
 
 | Phase          | Screen              | Description                                |
 |----------------|---------------------|--------------------------------------------|
-| `loading`      | Loading screen      | Spawning wallet-rpc, scanning for wallets  |
+| `loading`      | Loading screen      | Initializing wallet bridge, scanning files |
 | `no_wallet`    | Welcome             | No .keys files found; offer create/import  |
 | `select_wallet`| Unlock (with picker)| Multiple .keys files; user picks one       |
 | `unlock`       | Unlock              | Single .keys file; enter password          |
@@ -74,65 +95,75 @@ On startup, the Tauri backend scans the platform default wallet directory for
 | macOS    | `~/Library/Application Support/shekyl/wallets/` |
 | Windows  | `%APPDATA%\shekyl\wallets\`                     |
 
-Detection is a pure filesystem operation -- no RPC needed. The `check_wallet_files`
-Tauri command returns a list of `WalletFileInfo` structs (name, path, modified
-timestamp) sorted by most recently modified.
+Detection is a pure filesystem operation -- no FFI or daemon connection
+needed. The `check_wallet_files` Tauri command returns a list of
+`WalletFileInfo` structs (name, path, modified timestamp) sorted by most
+recently modified.
 
 ---
 
-## Wallet-RPC Process Management
+## Wallet Bridge Lifecycle
 
-### Lifecycle
+### Initialization
 
-1. **Spawn**: `init_wallet_rpc` Tauri command spawns the binary with:
-   ```
-   shekyl-wallet-rpc --wallet-dir=<dir> --rpc-bind-port=<port>
-       --daemon-address=<daemon> --disable-rpc-login --non-interactive
-   ```
+`init_wallet_rpc` (Tauri command -- name retained for IPC compatibility)
+initializes the wallet bridge with the network type, daemon address, and
+wallet directory. No external process is started; this is a synchronous
+in-process FFI initialization.
 
-2. **Readiness**: Polls `get_version` RPC every 300ms with a 15s timeout.
+### Open / Close
 
-3. **Stale process detection**: Before spawning, checks if the port is already
-   in use (another instance, or unclean shutdown). If occupied and responding,
-   reuses the existing process.
+When a wallet is opened (`open_wallet`):
 
-4. **Shutdown**: On window close or explicit `shutdown_wallet_rpc`:
-   - Send `stop_wallet` RPC for graceful exit.
-   - Wait 1-2 seconds.
-   - If still running, SIGTERM then SIGKILL.
+1. `wallet2` (C++) opens the `.keys` file and unlocks it with the supplied
+   password.
+2. The bridge extracts scanner keys (view key pair, spend public key) from
+   the C++ wallet via FFI.
+3. A background tokio task is spawned that runs `shekyl_scanner::Scanner`
+   against the daemon, polling for new blocks and updating
+   `Arc<TokioMutex<WalletState>>`.
+4. A `CancellationToken` is stored so the sync loop can be stopped on close
+   or shutdown.
 
-### Binary Resolution
+When a wallet is closed (`close_wallet`) or the window is destroyed:
 
-Layered strategy (first match wins):
+1. The cancellation token is fired; the sync loop finishes its current
+   block and exits.
+2. The C++ `wallet2` instance is dropped; secrets are wiped via `Zeroize`.
+3. Scanner state is cleared.
 
-1. **Tauri sidecar** (production) -- `externalBin` in `tauri.conf.json`.
-2. **PATH lookup** (development) -- `which shekyl-wallet-rpc`.
-3. **Platform-specific install dirs** -- `/usr/local/bin`, homebrew, Program Files.
-4. **User-configured path** (Settings override).
+### Concurrency Model
+
+- The C++ FFI handle (`Wallet2`) sits behind a `std::sync::Mutex` for
+  synchronous access from Tauri commands.
+- Scanner state sits behind a `tokio::sync::Mutex` so the background sync
+  loop and Tauri commands can both read it without blocking the async
+  runtime.
+- All blocking C++ FFI calls from async contexts go through
+  `tokio::task::spawn_blocking` to avoid stalling the async executor.
 
 ---
 
 ## Create Wallet Flow
 
 1. Frontend calls `create_wallet(name, password, language)`.
-2. Backend calls wallet-rpc `create_wallet` then `query_key("mnemonic")` and
-   `get_address(0)`.
+2. Bridge calls `wallet2` FFI to create the wallet, then queries the
+   mnemonic and primary address.
 3. Returns `CreateWalletResult` with name, address, seed, language, network.
 4. Frontend displays seed in a numbered 5x5 grid.
 5. Frontend challenges user to enter 4 randomly chosen words.
 6. On success, transitions to `phase: "ready"`.
 
-The wallet created by `shekyl-wallet-rpc` automatically includes PQC key
-material (Ed25519 + ML-DSA-65) since the wallet-rpc links against shekyl-core
-which calls `generate_pqc_key_material()` during account generation. No
-special flags needed -- all new wallets are v3 PQC wallets.
+The wallet automatically includes PQC key material (Ed25519 + ML-DSA-65)
+because `wallet2` calls `generate_pqc_key_material()` during account
+generation. No special flags needed -- all new wallets are v3 PQC wallets.
 
 New wallets also generate ML-KEM-768 key material for the Bech32m address
 format (`shekyl1:<version><classical ~103 chars>/<pqc ~1750 chars>`, ~1,870
 characters total), enabling per-output PQC key derivation via hybrid KEM
 (X25519 + ML-KEM-768) when receiving transactions. This prevents transaction
-linkability even against quantum adversaries. The wallet displays the classical
-segment by default; the PQC segment is handled internally.
+linkability even against quantum adversaries. The wallet displays the
+classical segment by default; the PQC segment is handled internally.
 
 ---
 
@@ -142,41 +173,50 @@ segment by default; the PQC segment is handled internally.
 
 Calls `restore_deterministic_wallet(filename, seed, password, language, restore_height)`.
 PQC keys are generated automatically for restored wallets via
-`generate_pqc_for_restored_address()` in wallet2.
+`generate_pqc_for_restored_address()` in `wallet2`.
 
 ### From Keys
 
 Calls `generate_from_keys(filename, address, spendkey, viewkey, password, language, restore_height)`.
 If the address includes PQC public key bytes, they are preserved. If not,
-wallet2 generates fresh PQC key material on the restore path.
+`wallet2` generates fresh PQC key material on the restore path.
 
 Both flows set `restore_height` (default 0 = full scan) and transition to
 `phase: "ready"` on success.
 
 ---
 
-## Sidecar Bundling (Future)
+## Transfer Flow (Native-Sign)
 
-When compiled daemon and wallet-rpc binaries are ready for release packaging:
+Outgoing transactions use the native-sign path:
 
-1. Place platform-specific binaries in `src-tauri/binaries/` with Tauri's
-   target-triple naming convention.
-2. Add `"externalBin": ["binaries/shekyld", "binaries/shekyl-wallet-rpc"]`
-   to `tauri.conf.json` under `bundle`.
-3. Tauri's bundler (`deb`, `msi`, `dmg`, `AppImage`) automatically packages
-   them into the installer.
+1. **C++ prepare** -- `wallet2` selects inputs, computes change, and builds
+   the transaction skeleton (output construction, commitment masks; no ring
+   selection -- FCMP++ replaces ring signatures).
+2. **Rust sign** -- the FCMP++ membership proof and PQC `pqc_auth` blobs
+   are produced by the Rust signing crates.
+3. **C++ finalize** -- `wallet2` records the transaction, marks inputs
+   spent, and submits to the daemon.
 
-See `src-tauri/binaries/README.md` for naming conventions.
+If finalize fails after sign, the bridge returns an error to the frontend;
+inputs remain spendable from the wallet's perspective and will be
+reconsidered on the next transfer attempt.
 
 ---
 
-## Port Assignments
+## Daemon Connection
 
-| Network   | Daemon RPC | Wallet RPC |
-|-----------|------------|------------|
-| Mainnet   | 11029      | 11030      |
-| Testnet   | 12029      | 12030      |
-| Stagenet  | 13029      | 13030      |
+The wallet connects to a `shekyld` daemon over HTTP. Default ports:
+
+| Network   | Daemon RPC |
+|-----------|------------|
+| Mainnet   | 11029      |
+| Testnet   | 12029      |
+| Stagenet  | 13029      |
+
+Both the C++ `wallet2` instance (for transaction submission, key image
+checks) and the Rust scanner (for block fetching) talk to the same daemon
+endpoint.
 
 ---
 
@@ -184,9 +224,9 @@ See `src-tauri/binaries/README.md` for naming conventions.
 
 | Error                         | User Experience                                      |
 |-------------------------------|------------------------------------------------------|
-| wallet-rpc binary not found   | Error on loading screen with install instructions    |
 | Wrong password                | Inline error on Unlock, password field stays focused |
 | Daemon not connected          | Wallet opens normally; "Daemon offline" banner shows |
 | Seed confirmation wrong       | User re-attempts; wallet not regenerated             |
-| Stale process on port         | Reuses existing wallet-rpc if healthy                |
-| App crash / unclean shutdown  | Next launch detects occupied port, reuses or kills   |
+| Sync loop fails to start      | Wallet opens; scanner inactive; banner warns         |
+| Transfer finalize fails       | Error surfaced; inputs remain spendable for retry    |
+| App crash / unclean shutdown  | Next launch re-opens normally; wallet file intact    |

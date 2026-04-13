@@ -105,9 +105,11 @@ That's it -- no terminal commands required to get started.
 
 When you open the wallet for the first time, it does three things automatically:
 
-1. **Starts the wallet service** -- the wallet launches `shekyl-wallet-rpc` in
-   the background. This is the process that manages your wallet files and talks
-   to the daemon. You'll briefly see a loading screen with the Shekyl logo.
+1. **Initializes the wallet bridge** -- the wallet sets up its internal
+   connection to the cryptographic engine that manages your wallet files and
+   talks to the daemon. This all happens inside the wallet itself; no
+   separate background process is started. You'll briefly see a loading
+   screen with the Shekyl logo.
 
 2. **Scans for existing wallets** -- the wallet checks your default data
    directory for `.keys` files:
@@ -126,10 +128,10 @@ When you open the wallet for the first time, it does three things automatically:
 The main Dashboard with sidebar, send, receive, staking, and other features
 only becomes accessible after a wallet is successfully opened.
 
-**If the wallet service fails to start**, you'll see an error message with
-instructions. Make sure `shekyl-wallet-rpc` is installed and accessible on
-your system PATH. During development or custom installations, you can configure
-the binary path in Settings.
+**If the wallet bridge fails to initialize**, you'll see an error message
+with details. This is rare and usually indicates a corrupted installation --
+reinstalling the wallet from the official release page resolves it in
+almost all cases.
 
 ---
 
@@ -705,12 +707,13 @@ An open wallet on an unlocked computer is an open wallet.
 - Make sure the wallet and daemon are on the same network (both mainnet,
   both testnet, etc.).
 
-### Wallet service fails to start
+### Wallet bridge fails to initialize
 
-The wallet starts `shekyl-wallet-rpc` in the background. If this fails:
+The wallet's internal bridge sets up the wallet engine when the app starts.
+If this fails:
 
-- Make sure `shekyl-wallet-rpc` is installed and on your system PATH.
-- Check for port conflicts -- another instance might already be running.
+- This is rare and usually indicates a corrupted installation -- reinstalling
+  the wallet from the official release page resolves it in almost all cases.
 - On Linux, check file permissions on the wallet data directory.
 - Look at the wallet log file for specific error messages.
 
@@ -790,7 +793,8 @@ see the
 ---
 
 *This guide is for Shekyl Wallet v0.4.x-beta. Wallet creation, opening,
-import, sending, receiving, staking, and claiming all operate through the
-embedded wallet2 C++ FFI bridge. FCMP++ proof generation and PQC signing
-progress are streamed in real time. Mining and chain health features work
-when connected to a running `shekyld` daemon.*
+import, sending, receiving, staking, and claiming all operate through an
+in-process bridge to the wallet engine -- no separate background process is
+involved. FCMP++ proof generation and PQC signing progress are streamed in
+real time. Mining and chain health features work when connected to a running
+`shekyld` daemon.*

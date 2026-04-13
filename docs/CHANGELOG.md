@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### 🧹 Documentation & Cleanup
+
+- **Removed orphaned source files.** Deleted `src-tauri/src/wallet_rpc.rs`
+  (HTTP JSON-RPC client) and `src-tauri/src/wallet_process.rs` (child-process
+  spawner). These files were left behind from the pre-`wallet_bridge.rs`
+  architecture and were not declared as modules in `lib.rs`, so they were
+  uncompiled dead code. Removing them eliminates a latent attack surface
+  (a network-facing HTTP client and process-spawning logic that could be
+  silently re-enabled by adding `mod` declarations) and matches what
+  `WALLET_RPC_RUST.md` in shekyl-core has documented as removed since the
+  original FFI migration.
+- **Rewrote `docs/WALLET_STARTUP.md`** to describe the actual in-process
+  `wallet_bridge.rs` architecture (Wallet2 FFI handle + shekyl-scanner Rust
+  task, native-sign transfer flow, single-process model). Removed the
+  obsolete sections describing child-process lifecycle, binary resolution,
+  port management, and sidecar bundling. Added a "transitional FFI" framing
+  note clarifying that the long-term direction is a pure-Rust path through
+  `shekyl-wallet-rpc`, with FFI retained only where C++ provides specific
+  hardened, audited value.
+- **Fixed `docs/USER_GUIDE.md`** sections that described launching
+  `shekyl-wallet-rpc` as a background process. The "Your First Launch" and
+  "Wallet service fails to start" troubleshooting sections now match the
+  actual single-process bridge architecture.
+
 ## [0.4.0-beta.2] - 2026-04-13
 
 ### 🔄 Changed
