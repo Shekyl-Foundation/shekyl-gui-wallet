@@ -202,7 +202,7 @@
 
 - **Static linking via `contrib/depends`**: Linux release builds now use
   shekyl-core's `contrib/depends` system to build all third-party libraries
-  (Boost, OpenSSL, libsodium, protobuf, libunbound, hidapi, libusb, zeromq)
+  (Boost, OpenSSL, libsodium, protobuf, libunbound, hidapi, libusb)
   from source with static linking. The `.deb` package only depends on
   `libwebkit2gtk-4.1-0`, `libayatana-appindicator3-1`, and `libudev1`. A single
   universal `.deb` replaces the per-distro packages.

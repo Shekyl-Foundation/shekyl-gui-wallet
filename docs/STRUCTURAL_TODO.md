@@ -9,7 +9,7 @@ addressed as the project matures.
 
 The Linux release build now uses shekyl-core's `contrib/depends` system to build
 all third-party libraries (Boost, OpenSSL, libsodium, protobuf, libunbound,
-hidapi, libusb, zeromq) from source with static linking. The `.deb` only depends
+hidapi, libusb) from source with static linking. The `.deb` only depends
 on system-level packages (`libwebkit2gtk-4.1-0`, `libayatana-appindicator3-1`,
 `libudev1`). A single `.deb` works across Ubuntu 22.04, 24.04, and other distros.
 

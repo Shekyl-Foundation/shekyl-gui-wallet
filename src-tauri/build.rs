@@ -232,7 +232,6 @@ fn link_linux() {
             "hidapi-hidraw",
             "usb-1.0",
             "protobuf-lite",
-            "zmq",
             "udev",
         ] {
             let static_path = format!("{prefix}/lib/lib{lib}.a");
