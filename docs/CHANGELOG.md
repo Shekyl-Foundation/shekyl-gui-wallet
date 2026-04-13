@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.4.0-beta.2] - 2026-04-13
+
+### 🔄 Changed
+
+- **Branch reconciliation.** All content from `main` (CI workflows, cursor
+  rules, CONTRIBUTING.md, GUI_SECURITY.md, validate.rs, wallet_bridge
+  enhancements, proptest coverage) cherry-picked onto `dev`. `main` reset to
+  `dev` + CI-pin commit. Branches now share linear history.
+- **CI pinned to core tag.** `main` CI workflows clone `core-v3.1.0` instead
+  of tracking the moving `dev` HEAD. `dev` CI continues to track
+  `--branch dev` for active development.
+- **Branching policy documented.** CONTRIBUTING.md now specifies: `main` only
+  moves via fast-forward from tagged `dev` commits; no direct commits to
+  `main`.
+- **Version bump to 0.4.0-beta.2** reflecting the reconciliation.
+
 ### 🔒 Security
 
 - **Canary-based secret leak detection (Phase 6, Gate 6).** `validate.rs` now

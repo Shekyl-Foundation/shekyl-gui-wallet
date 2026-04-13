@@ -15,6 +15,22 @@ The GUI wallet is a Tauri 2 application:
 3. Install dependencies: `npm install`
 4. Run in development: `npm run tauri dev`
 
+## Branching Model
+
+- **`main`** is the stable branch. It only moves via fast-forward from a tagged
+  `dev` commit, plus an optional CI-pin commit on top. No feature work, no
+  direct commits.
+- **`dev`** is the integration branch. All feature work branches off `dev` and
+  merges back to `dev`. Version bumps, tags, and CHANGELOG entries happen here.
+- **CI dependency**: `main` CI pins to a core release tag (e.g.
+  `core-v3.1.0`). `dev` CI tracks `--branch dev` of shekyl-core.
+- **Release flow**: When `dev` is release-ready, tag the commit (e.g.
+  `v0.4.0-beta.2`), fast-forward `main` to that tag, then add the CI-pin
+  commit on `main`.
+- **Never commit infrastructure directly to `main`**. This caused a
+  divergence in April 2026 where `main` was ahead of `dev` with infra
+  commits that `dev` did not have. All infra lands on `dev` first.
+
 ## Code Guidelines
 
 ### Input Validation
