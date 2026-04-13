@@ -18,10 +18,8 @@ one of these rules, stop and ask the human first.
 
 2. **Never create a long-lived feature branch.** "Long-lived" means any
    branch expected to exist for more than ~5 working days or accumulate
-   more than ~10 commits before merging. The cautionary example is
-   `feature/msvc-wallet-core` (closed 2026-04): it accumulated 45 commits
-   and 141-commit dev drift before being merged, and the merge itself
-   became a multi-day project. Do not recreate this pattern.
+   more than ~10 commits before merging. The cautionary example, revised. The feature/msvc-wallet-core branch (closed 2026-04-13, archived as archive/feature-msvc-wallet-core-2026-04-13) was kept as a side branch for months while the same portability work was independently landing on dev through normal PRs. When the branch was finally analyzed for merge, 100% of its 43 commits were already present on dev via independent paths — the entire "merge effort" reduced to 3 net-new commits (CMake safety guard, JIT stub documentation, vendoring docs).
+The lesson is not just "long branches drift." It is also: if work needs to land, the right place is a series of small PRs against dev, not a side branch. A side branch defers the integration work; it does not eliminate it. In this case the integration happened organically, but only because the changes were small and obvious enough that other contributors recreated them. For non-obvious work, the side branch would have rotted in isolation. Do not recreate this pattern.
 
 3. **Never merge `dev` into a feature branch to "keep it current".**
    This is the failure pattern that produces orphaned branches. If a
