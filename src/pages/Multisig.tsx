@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Users,
@@ -8,37 +8,111 @@ import {
   FileUp,
   PenTool,
   Copy,
+  Settings,
+  LayoutDashboard,
+  AlertTriangle,
+  Clock,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  ShieldAlert,
 } from "lucide-react";
+import {
+  FingerprintBadge,
+  ProverView,
+  LossAcknowledgment,
+  AddressProvenance,
+  RelayConfig,
+  ViolationAlert,
+  SigningDashboard,
+  GroupDescriptor,
+} from "../components/multisig";
 
 interface MultisigInfo {
   is_multisig: boolean;
   n_total: number;
   m_required: number;
   group_id: string;
+  fingerprint?: string;
+  spend_auth_version?: number;
+  participant_keys?: string[];
 }
 
-type Tab = "setup" | "sign" | "import";
+type Tab = "setup" | "dashboard" | "sign" | "import" | "settings";
 
 export default function Multisig() {
   const [info, setInfo] = useState<MultisigInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("setup");
 
-  useEffect(() => {
-    loadInfo();
-  }, []);
+  const [violations, setViolations] = useState<
+    { invariantId: string; invariantName: string; reporterIndex: number; intentHash: string; timestamp: number }[]
+  >([]);
+  const [relays, setRelays] = useState<{ url: string; operatorId: string }[]>([]);
+  const [lossAcknowledged, setLossAcknowledged] = useState(false);
+  const [relayConnected, setRelayConnected] = useState(true);
+  const [counterDivergence, setCounterDivergence] = useState<{
+    localCounter: number;
+    peerCounter: number;
+    peerId: number;
+  } | null>(null);
+  const [cosignerTimeout, setCosignerTimeout] = useState<{
+    participantIndex: number;
+    lastSeen: number;
+  } | null>(null);
+  const [counterProofFailure, setCounterProofFailure] = useState<{
+    fromParticipant: number;
+    reason: string;
+  } | null>(null);
 
-  async function loadInfo() {
+  const [intents, setIntents] = useState<
+    {
+      intentHash: string;
+      state: "Proposed" | "Verified" | "ProverReady" | "Signed" | "Assembled" | "Broadcast" | "Rejected" | "TimedOut";
+      proposerIndex: number;
+      sigsCollected: number;
+      sigsRequired: number;
+      expiresAt: number;
+      recipients: { address: string; amount: number }[];
+      fee: number;
+    }[]
+  >([]);
+  const [provenanceHistory, setProvenanceHistory] = useState<
+    { fingerprint: string; timestamp: number; source: string }[]
+  >([]);
+  const [proverAssignments, setProverAssignments] = useState<
+    { outputIndex: number; outputPubkey: string; assignedProver: number; amount: number }[]
+  >([]);
+
+  const loadInfo = useCallback(async () => {
     try {
       const result = await invoke<MultisigInfo>("get_multisig_info");
       setInfo(result);
-      if (result.is_multisig) setTab("sign");
+      if (result.is_multisig) setTab("dashboard");
     } catch {
       setInfo(null);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    loadInfo();
+  }, [loadInfo]);
+
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const stuckIntents = intents.filter((i) => i.state === "Signed");
+  const fingerprintChanged =
+    provenanceHistory.length > 1 &&
+    provenanceHistory[0].fingerprint !== provenanceHistory[1]?.fingerprint;
+  const hasActiveAlerts =
+    violations.length > 0 ||
+    !relayConnected ||
+    counterDivergence !== null ||
+    cosignerTimeout !== null ||
+    counterProofFailure !== null ||
+    stuckIntents.length > 0 ||
+    fingerprintChanged;
 
   if (loading) {
     return (
@@ -48,46 +122,45 @@ export default function Multisig() {
     );
   }
 
+  const tabs = info?.is_multisig
+    ? [
+        { id: "dashboard" as Tab, label: "Dashboard", icon: LayoutDashboard },
+        { id: "sign" as Tab, label: "Sign", icon: PenTool },
+        { id: "import" as Tab, label: "File Transport", icon: FileUp },
+        { id: "settings" as Tab, label: "Settings", icon: Settings },
+      ]
+    : [{ id: "setup" as Tab, label: "Setup Group", icon: Users }];
+
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-white">Multisig</h1>
-        {info?.is_multisig && (
-          <span className="rounded-full bg-gold-500/15 px-3 py-1 text-xs font-medium text-gold-400">
-            {info.m_required}-of-{info.n_total}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {hasActiveAlerts && (
+            <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-3 py-1 text-xs font-medium text-red-400">
+              <AlertTriangle className="h-3 w-3" />
+              Alerts
+            </span>
+          )}
+          {info?.is_multisig && (
+            <span className="rounded-full bg-gold-500/15 px-3 py-1 text-xs font-medium text-gold-400">
+              {info.m_required}-of-{info.n_total}
+            </span>
+          )}
+        </div>
       </div>
 
-      {info?.is_multisig && (
-        <div className="card flex items-center gap-3 text-sm">
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-green-400" />
-          <span className="text-purple-200">Group ID:</span>
-          <code className="flex-1 truncate font-mono text-xs text-purple-300">
-            {info.group_id}
-          </code>
-          <button
-            onClick={() => navigator.clipboard.writeText(info.group_id)}
-            className="text-purple-400 hover:text-white"
-            title="Copy group ID"
-          >
-            <Copy className="h-4 w-4" />
-          </button>
-        </div>
+      {info?.is_multisig && info.fingerprint && (
+        <FingerprintBadge
+          fingerprint={info.fingerprint}
+          mRequired={info.m_required}
+          nTotal={info.n_total}
+          spendAuthVersion={info.spend_auth_version ?? 2}
+        />
       )}
 
       <div className="flex gap-1 rounded-lg bg-purple-900/50 p-1">
-        {(!info?.is_multisig
-          ? [{ id: "setup" as Tab, label: "Setup Group", icon: Users }]
-          : [
-              { id: "sign" as Tab, label: "Sign Request", icon: PenTool },
-              {
-                id: "import" as Tab,
-                label: "Import & Sign",
-                icon: FileUp,
-              },
-            ]
-        ).map(({ id, label, icon: Icon }) => (
+        {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -103,12 +176,253 @@ export default function Multisig() {
         ))}
       </div>
 
-      {tab === "setup" && <SetupGroup onCreated={loadInfo} />}
+      {tab === "setup" && (
+        <div className="space-y-6">
+          <LossAcknowledgment
+            nTotal={2}
+            onAcknowledge={() => setLossAcknowledged(true)}
+            acknowledged={lossAcknowledged}
+          />
+          {lossAcknowledged && <SetupGroup onCreated={loadInfo} />}
+        </div>
+      )}
+
+      {tab === "dashboard" && info?.is_multisig && (
+        <div className="space-y-6">
+          {/* Failure-mode alerts */}
+          <FailureAlerts
+            violations={violations}
+            relayConnected={relayConnected}
+            counterDivergence={counterDivergence}
+            cosignerTimeout={cosignerTimeout}
+            counterProofFailure={counterProofFailure}
+            stuckIntents={stuckIntents}
+            fingerprintChanged={fingerprintChanged}
+            onDismissCounterDivergence={() => setCounterDivergence(null)}
+            onDismissCosignerTimeout={() => setCosignerTimeout(null)}
+            onDismissCounterProofFailure={() => setCounterProofFailure(null)}
+          />
+
+          <SigningDashboard
+            intents={intents}
+            ourIndex={0}
+            nowSecs={nowSecs}
+            onSign={(hash) => console.log("sign", hash)}
+            onVeto={(hash) => console.log("veto", hash)}
+          />
+
+          {proverAssignments.length > 0 && (
+            <ProverView
+              ourIndex={0}
+              nTotal={info.n_total}
+              assignments={proverAssignments}
+            />
+          )}
+        </div>
+      )}
+
       {tab === "sign" && <SignRequest />}
       {tab === "import" && <ImportAndSign />}
+
+      {tab === "settings" && info?.is_multisig && (
+        <div className="space-y-6">
+          <GroupDescriptor
+            groupId={info.group_id}
+            mRequired={info.m_required}
+            nTotal={info.n_total}
+          />
+
+          <RelayConfig
+            relays={relays}
+            onRelaysChange={setRelays}
+          />
+
+          {provenanceHistory.length > 0 && (
+            <AddressProvenance
+              current={provenanceHistory[0]}
+              history={provenanceHistory}
+              fingerprintChanged={fingerprintChanged}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
+
+// ─── Failure-mode alerts ──────────────────────────────────────────────────────
+
+interface FailureAlertsProps {
+  violations: { invariantId: string; invariantName: string; reporterIndex: number; intentHash: string; timestamp: number }[];
+  relayConnected: boolean;
+  counterDivergence: { localCounter: number; peerCounter: number; peerId: number } | null;
+  cosignerTimeout: { participantIndex: number; lastSeen: number } | null;
+  counterProofFailure: { fromParticipant: number; reason: string } | null;
+  stuckIntents: { intentHash: string; state: string; expiresAt: number }[];
+  fingerprintChanged: boolean;
+  onDismissCounterDivergence: () => void;
+  onDismissCosignerTimeout: () => void;
+  onDismissCounterProofFailure: () => void;
+}
+
+function FailureAlerts({
+  violations,
+  relayConnected,
+  counterDivergence,
+  cosignerTimeout,
+  counterProofFailure,
+  stuckIntents,
+  fingerprintChanged,
+  onDismissCounterDivergence,
+  onDismissCosignerTimeout,
+  onDismissCounterProofFailure,
+}: FailureAlertsProps) {
+  const hasAny =
+    violations.length > 0 ||
+    !relayConnected ||
+    counterDivergence !== null ||
+    cosignerTimeout !== null ||
+    counterProofFailure !== null ||
+    stuckIntents.length > 0 ||
+    fingerprintChanged;
+
+  if (!hasAny) return null;
+
+  return (
+    <div className="space-y-3">
+      {violations.length > 0 && (
+        <ViolationAlert violations={violations} />
+      )}
+
+      {cosignerTimeout && (
+        <AlertBanner
+          severity="warning"
+          icon={<Clock className="h-4 w-4" />}
+          title="Co-signer unresponsive"
+          onDismiss={onDismissCosignerTimeout}
+        >
+          Participant {cosignerTimeout.participantIndex + 1} has not sent a
+          heartbeat since{" "}
+          {new Date(cosignerTimeout.lastSeen * 1000).toLocaleTimeString()}.
+          They may be offline. You can wait, or veto the active intent and
+          retry when they are available.
+        </AlertBanner>
+      )}
+
+      {counterDivergence && (
+        <AlertBanner
+          severity="warning"
+          icon={<RefreshCw className="h-4 w-4" />}
+          title="Transaction counter divergence"
+          onDismiss={onDismissCounterDivergence}
+        >
+          Your local counter is {counterDivergence.localCounter} but
+          participant {counterDivergence.peerId + 1} reports{" "}
+          {counterDivergence.peerCounter}. A CounterProof exchange is needed
+          to reconcile. This usually means a transaction was broadcast that
+          your wallet missed. Let the reconciliation complete before signing
+          new intents.
+        </AlertBanner>
+      )}
+
+      {!relayConnected && (
+        <AlertBanner severity="error" icon={<WifiOff className="h-4 w-4" />} title="Relay disconnected">
+          No relay connection for 30+ minutes. Messages from co-signers may be
+          delayed. Check your internet connection, or switch to a backup relay
+          in Settings. You can also use file-based transport while the relay is
+          down.
+        </AlertBanner>
+      )}
+
+      {fingerprintChanged && (
+        <AlertBanner severity="error" icon={<ShieldAlert className="h-4 w-4" />} title="Address fingerprint changed">
+          The group address fingerprint differs from the last known value. This
+          could indicate that a participant&apos;s key data has changed.
+          <strong> Do not sign any new intents</strong> until you have verified
+          the fingerprint with all group members out-of-band. Check the
+          Settings tab for details.
+        </AlertBanner>
+      )}
+
+      {stuckIntents.map((intent) => (
+        <AlertBanner
+          key={intent.intentHash}
+          severity="warning"
+          icon={<AlertTriangle className="h-4 w-4" />}
+          title="Signed intent not broadcast"
+        >
+          Intent{" "}
+          <code className="text-xs font-mono">{intent.intentHash.slice(0, 12)}...</code>{" "}
+          has enough signatures but was never broadcast.
+          {intent.expiresAt > Math.floor(Date.now() / 1000) ? (
+            <> It expires in{" "}
+              {Math.round((intent.expiresAt - Math.floor(Date.now() / 1000)) / 60)}{" "}
+              minutes. Try rebroadcasting, or veto and recreate if the relay was
+              down.</>
+          ) : (
+            <> It has expired. Create a new intent to retry the transaction.</>
+          )}
+        </AlertBanner>
+      ))}
+
+      {counterProofFailure && (
+        <AlertBanner
+          severity="error"
+          icon={<ShieldAlert className="h-4 w-4" />}
+          title="CounterProof verification failed"
+          onDismiss={onDismissCounterProofFailure}
+        >
+          A CounterProof from participant {counterProofFailure.fromParticipant + 1}{" "}
+          failed verification: {counterProofFailure.reason}. This may indicate a
+          malicious participant or a chain reorganization. Do not accept their
+          counter value. Contact them out-of-band to resolve, or wait for a
+          valid proof.
+        </AlertBanner>
+      )}
+    </div>
+  );
+}
+
+// ─── Alert banner ─────────────────────────────────────────────────────────────
+
+interface AlertBannerProps {
+  severity: "warning" | "error";
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+  onDismiss?: () => void;
+}
+
+function AlertBanner({ severity, icon, title, children, onDismiss }: AlertBannerProps) {
+  const colors =
+    severity === "error"
+      ? "border-red-500/30 bg-red-500/10 text-red-300"
+      : "border-yellow-500/30 bg-yellow-500/10 text-yellow-300";
+
+  return (
+    <div className={`rounded-lg border p-4 ${colors}`}>
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 shrink-0">{icon}</div>
+        <div className="flex-1 space-y-1">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium">{title}</h4>
+            {onDismiss && (
+              <button
+                onClick={onDismiss}
+                className="text-xs opacity-60 hover:opacity-100"
+              >
+                Dismiss
+              </button>
+            )}
+          </div>
+          <p className="text-xs leading-relaxed opacity-90">{children}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Setup group ──────────────────────────────────────────────────────────────
 
 function SetupGroup({ onCreated }: { onCreated: () => void }) {
   const [nTotal, setNTotal] = useState(2);
@@ -219,6 +533,8 @@ function SetupGroup({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+// ─── Sign request ─────────────────────────────────────────────────────────────
+
 function SignRequest() {
   const [request, setRequest] = useState("");
   const [response, setResponse] = useState<string | null>(null);
@@ -246,8 +562,8 @@ function SignRequest() {
   return (
     <form onSubmit={handleSign} className="card space-y-5">
       <p className="text-sm text-purple-300">
-        Paste a signing request from the coordinator, review, and sign with your
-        key.
+        Paste a signing request from another participant, review, and sign with
+        your key.
       </p>
 
       <div className="space-y-2">
@@ -300,7 +616,7 @@ function SignRequest() {
             readOnly
           />
           <p className="text-xs text-purple-400">
-            Send this response back to the coordinator.
+            Send this response back to the other participants.
           </p>
         </div>
       )}
@@ -308,22 +624,24 @@ function SignRequest() {
   );
 }
 
+// ─── File-based import & sign ─────────────────────────────────────────────────
+
 function ImportAndSign() {
   return (
     <div className="card space-y-4">
       <div className="flex items-center gap-3">
         <FileDown className="h-5 w-5 text-purple-400" />
         <div>
-          <h3 className="font-medium text-white">Import Signing Request</h3>
+          <h3 className="font-medium text-white">File-Based Transport</h3>
           <p className="text-sm text-purple-300">
-            Load a signing request file from disk, review the transaction
-            details, and produce your signature.
+            For air-gapped operation: load signing requests from disk and save
+            responses as files. No relay connection needed.
           </p>
         </div>
       </div>
       <p className="rounded-lg bg-purple-800/30 p-3 text-center text-sm text-purple-400">
-        File-based import/export coming in a future update. Use the JSON
-        paste workflow above for now.
+        File-based import/export will be implemented in task 1.4. Use the JSON
+        paste workflow in the Sign tab for now.
       </p>
     </div>
   );
