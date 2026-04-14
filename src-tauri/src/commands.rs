@@ -910,6 +910,100 @@ pub async fn sign_multisig_partial(
     Ok(serde_json::json!({ "signature_response": resp.signature_response }))
 }
 
+// ─── Group Descriptor import/export ──────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GroupDescriptorPayload {
+    pub version: u8,
+    pub group_id: String,
+    pub m_required: u8,
+    pub n_total: u8,
+    pub spend_auth_version: u8,
+    pub participant_pubkeys: Vec<String>,
+    pub address_fingerprint: String,
+    pub relays: Vec<GroupDescriptorRelay>,
+    pub created_at: u64,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GroupDescriptorRelay {
+    pub url: String,
+    pub operator_id: String,
+}
+
+#[tauri::command]
+pub async fn export_group_descriptor(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
+    let info = wallet_bridge::get_pqc_multisig_info(&state.wallet)?;
+    let info_val = serde_json::to_value(&info).map_err(|e| e.to_string())?;
+
+    let descriptor = GroupDescriptorPayload {
+        version: 1,
+        group_id: info_val["group_id"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
+        m_required: info_val["m_required"].as_u64().unwrap_or(0) as u8,
+        n_total: info_val["n_total"].as_u64().unwrap_or(0) as u8,
+        spend_auth_version: 2,
+        participant_pubkeys: info_val["participant_keys"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        address_fingerprint: info_val["fingerprint"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
+        relays: vec![],
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        notes: None,
+    };
+
+    let json = serde_json::to_string_pretty(&descriptor).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("Failed to write descriptor: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn import_group_descriptor(path: String) -> Result<GroupDescriptorPayload, String> {
+    let json = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read descriptor file: {e}"))?;
+    let desc: GroupDescriptorPayload =
+        serde_json::from_str(&json).map_err(|e| format!("Invalid descriptor format: {e}"))?;
+
+    if desc.version != 1 {
+        return Err(format!(
+            "Unsupported descriptor version: {}",
+            desc.version
+        ));
+    }
+    if desc.m_required == 0 || desc.m_required > desc.n_total {
+        return Err(format!(
+            "Invalid threshold: {}-of-{}",
+            desc.m_required, desc.n_total
+        ));
+    }
+    if desc.participant_pubkeys.len() != desc.n_total as usize {
+        return Err(format!(
+            "Expected {} pubkeys, got {}",
+            desc.n_total,
+            desc.participant_pubkeys.len()
+        ));
+    }
+
+    Ok(desc)
+}
+
 // ─── Scanner commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]

@@ -76,6 +76,8 @@ pub fn run() {
             commands::create_multisig_group,
             commands::get_multisig_info,
             commands::sign_multisig_partial,
+            commands::export_group_descriptor,
+            commands::import_group_descriptor,
             // Scanner
             commands::get_scanner_balance,
             commands::get_scanner_height,
