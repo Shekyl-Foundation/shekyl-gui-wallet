@@ -78,6 +78,9 @@ pub fn run() {
             commands::sign_multisig_partial,
             commands::export_group_descriptor,
             commands::import_group_descriptor,
+            commands::export_signing_request_file,
+            commands::import_signing_request_file,
+            commands::export_signature_response_file,
             // Scanner
             commands::get_scanner_balance,
             commands::get_scanner_height,

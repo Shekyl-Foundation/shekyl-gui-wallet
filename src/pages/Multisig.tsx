@@ -627,8 +627,60 @@ function SignRequest() {
 // ─── File-based import & sign ─────────────────────────────────────────────────
 
 function ImportAndSign() {
+  const [request, setRequest] = useState<string | null>(null);
+  const [response, setResponse] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [signing, setSigning] = useState(false);
+  const [importPath, setImportPath] = useState("");
+
+  async function handleImportFile() {
+    if (!importPath.trim()) return;
+    setError(null);
+    setRequest(null);
+    setResponse(null);
+    try {
+      const content = await invoke<string>("import_signing_request_file", {
+        path: importPath.trim(),
+      });
+      setRequest(content);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleSign() {
+    if (!request) return;
+    setError(null);
+    setSigning(true);
+    try {
+      const result = await invoke<{ signature_response: string }>(
+        "sign_multisig_partial",
+        { signingRequest: request }
+      );
+      setResponse(result.signature_response);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSigning(false);
+    }
+  }
+
+  async function handleExportResponse() {
+    if (!response) return;
+    setError(null);
+    const exportPath = importPath.replace(/\.[^.]+$/, "") + ".response.json";
+    try {
+      await invoke("export_signature_response_file", {
+        response,
+        path: exportPath,
+      });
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   return (
-    <div className="card space-y-4">
+    <div className="card space-y-5">
       <div className="flex items-center gap-3">
         <FileDown className="h-5 w-5 text-purple-400" />
         <div>
@@ -639,10 +691,95 @@ function ImportAndSign() {
           </p>
         </div>
       </div>
-      <p className="rounded-lg bg-purple-800/30 p-3 text-center text-sm text-purple-400">
-        File-based import/export will be implemented in task 1.4. Use the JSON
-        paste workflow in the Sign tab for now.
-      </p>
+
+      <div className="space-y-3">
+        <label className="text-sm font-medium text-purple-200">
+          Signing Request File
+        </label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            className="input flex-1 font-mono text-xs"
+            placeholder="/path/to/shekyl-ms-request.json"
+            value={importPath}
+            onChange={(e) => setImportPath(e.target.value)}
+          />
+          <button
+            onClick={handleImportFile}
+            disabled={!importPath.trim()}
+            className="btn btn-secondary shrink-0"
+          >
+            <FileUp className="h-4 w-4" />
+            Load
+          </button>
+        </div>
+      </div>
+
+      {request && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-purple-900/30 p-3">
+            <label className="mb-1 block text-sm font-medium text-purple-200">
+              Loaded Request
+            </label>
+            <pre className="max-h-32 overflow-auto whitespace-pre-wrap font-mono text-xs text-purple-300">
+              {request.slice(0, 500)}{request.length > 500 ? "..." : ""}
+            </pre>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleSign}
+              disabled={signing}
+              className="btn btn-primary flex-1"
+            >
+              <PenTool className="h-4 w-4" />
+              {signing ? "Signing..." : "Sign This Request"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg bg-red-500/10 p-3 text-sm text-red-300">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {response && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-green-400">
+              Signature Response
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(response)}
+                className="flex items-center gap-1 text-xs text-purple-400 hover:text-white"
+              >
+                <Copy className="h-3 w-3" />
+                Copy
+              </button>
+              <button
+                type="button"
+                onClick={handleExportResponse}
+                className="flex items-center gap-1 text-xs text-gold-400 hover:text-white"
+              >
+                <FileDown className="h-3 w-3" />
+                Save to File
+              </button>
+            </div>
+          </div>
+          <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-purple-900/30 p-3 font-mono text-xs text-purple-300">
+            {response.slice(0, 500)}{response.length > 500 ? "..." : ""}
+          </pre>
+          <p className="text-xs text-purple-400">
+            Send this file to the other participants via USB drive, encrypted
+            email, or any other secure channel.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

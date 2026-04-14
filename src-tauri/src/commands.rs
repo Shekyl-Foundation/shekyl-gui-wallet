@@ -1004,6 +1004,34 @@ pub async fn import_group_descriptor(path: String) -> Result<GroupDescriptorPayl
     Ok(desc)
 }
 
+// ─── File-based transport ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn export_signing_request_file(
+    state: State<'_, AppState>,
+    signing_request: String,
+    path: String,
+) -> Result<(), String> {
+    let _ = &state;
+    std::fs::write(&path, signing_request.as_bytes())
+        .map_err(|e| format!("Failed to write signing request: {e}"))
+}
+
+#[tauri::command]
+pub async fn import_signing_request_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read signing request: {e}"))
+}
+
+#[tauri::command]
+pub async fn export_signature_response_file(
+    response: String,
+    path: String,
+) -> Result<(), String> {
+    std::fs::write(&path, response.as_bytes())
+        .map_err(|e| format!("Failed to write signature response: {e}"))
+}
+
 // ─── Scanner commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]
