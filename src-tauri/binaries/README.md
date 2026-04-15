@@ -3,72 +3,62 @@
 This directory holds platform-specific binaries that are bundled into the
 Shekyl Wallet installer via Tauri's `externalBin` feature.
 
-## Required binaries
+## Bundled binary
 
-| Binary               | Purpose                            |
-|----------------------|------------------------------------|
-| `shekyld`            | Shekyl blockchain daemon           |
-| `shekyl-wallet-rpc`  | Wallet JSON-RPC server             |
+| Binary    | Purpose                  | Bundled since |
+|-----------|--------------------------|---------------|
+| `shekyld` | Shekyl blockchain daemon | alpha.2       |
 
-Download compiled binaries from the
-[shekyl-core releases](https://github.com/Shekyl-Foundation/shekyl-core/releases)
-page, or build from source using the shekyl-core repository.
+`shekyl-wallet-rpc` is **not** bundled — the GUI wallet imports it as a
+Rust library dependency, so no separate binary is needed.
 
-## Naming convention
+## How it works
 
-Tauri requires target-triple suffixed names. After downloading or compiling,
-rename the binaries to match:
+The release CI workflow (`.github/workflows/release.yml`) builds `shekyld`
+from shekyl-core on all three platforms and copies the binary into this
+directory with the required Tauri triple-suffix naming:
 
 ```
 shekyld-x86_64-unknown-linux-gnu
-shekyld-aarch64-unknown-linux-gnu
-shekyld-x86_64-apple-darwin
 shekyld-aarch64-apple-darwin
 shekyld-x86_64-pc-windows-msvc.exe
-
-shekyl-wallet-rpc-x86_64-unknown-linux-gnu
-shekyl-wallet-rpc-aarch64-unknown-linux-gnu
-shekyl-wallet-rpc-x86_64-apple-darwin
-shekyl-wallet-rpc-aarch64-apple-darwin
-shekyl-wallet-rpc-x86_64-pc-windows-msvc.exe
 ```
 
-You can check your local target triple with:
+`tauri.conf.json` declares `"externalBin": ["binaries/shekyld"]`, so
+Tauri automatically selects the matching triple at build time and bundles
+it into the installer.
+
+## Naming convention
+
+Tauri requires target-triple suffixed names. You can check your local
+target triple with:
 
 ```bash
 rustc -vV | grep host
 ```
 
-Only the platforms you intend to build for need binaries present. Tauri
-selects the matching triple at build time.
+Only the platform you build for needs the binary present.
 
-## Enabling sidecar bundling
+## Lifecycle
 
-Once binaries are placed here, add to `tauri.conf.json` under `bundle`:
+The `DaemonManager` in `src-tauri/src/daemon_manager.rs` handles the
+sidecar lifecycle:
 
-```json
-{
-  "bundle": {
-    "externalBin": [
-      "binaries/shekyld",
-      "binaries/shekyl-wallet-rpc"
-    ]
-  }
-}
-```
-
-Do NOT add `externalBin` until binaries are present for every platform
-in the build matrix -- missing binaries cause the build to fail.
+1. On app launch, checks if a daemon is already running on the RPC port.
+2. If not, spawns the bundled `shekyld` sidecar with appropriate flags.
+3. Polls `/get_info` until the daemon is ready (30s timeout).
+4. On app exit, sends SIGTERM (or taskkill on Windows) unless the user
+   has enabled "Keep daemon running after wallet closes" in Settings.
 
 ## Git
 
 These binaries are large and should NOT be committed to the repository.
-They are listed in `.gitignore`. In CI, the release workflow should
-download them from shekyl-core releases before running `tauri build`.
+They are listed in `.gitignore`. CI produces them at build time.
 
 ## Development
 
-During development, binaries are resolved via PATH lookup. Install
-`shekyld` and `shekyl-wallet-rpc` system-wide or set a custom path
-in **Settings > Binary Path** within the wallet UI. No sidecar
-configuration is needed for `npm run tauri dev`.
+During `tauri dev`, the sidecar binary is not present. The
+`DaemonManager` detects this gracefully — it logs a warning, sets the
+daemon mode to `Unavailable`, and the wallet falls back to whatever
+daemon URL is configured in Settings. Run `shekyld` manually or point
+to an existing node.

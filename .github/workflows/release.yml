@@ -95,6 +95,13 @@ jobs:
         working-directory: ../shekyl-core
         run: make depends target=x86_64-unknown-linux-gnu -j$(nproc)
 
+      - name: Place sidecar binary (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          mkdir -p src-tauri/binaries
+          cp ../shekyl-core/build/x86_64-unknown-linux-gnu/release/bin/shekyld \
+             src-tauri/binaries/shekyld-x86_64-unknown-linux-gnu
+
       # ── macOS: Homebrew for now (depends cross-build is stretch goal) ──
 
       - name: Install macOS build dependencies
@@ -115,6 +122,13 @@ jobs:
             -DBUILD_TESTS=OFF \
             -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
           cmake --build ../shekyl-core/build -- -j$(sysctl -n hw.logicalcpu)
+
+      - name: Place sidecar binary (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          mkdir -p src-tauri/binaries
+          cp ../shekyl-core/build/src/daemon/shekyld \
+             src-tauri/binaries/shekyld-aarch64-apple-darwin
 
       # ── Common: Node, Rust, frontend ──
 
@@ -170,6 +184,15 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static
           cmake --build ..\shekyl-core\build --config Release --target wallet_api --parallel 2
+          cmake --build ..\shekyl-core\build --config Release --target daemon --parallel 2
+
+      - name: Place sidecar binary (Windows)
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri\binaries | Out-Null
+          Copy-Item ..\shekyl-core\build\src\daemon\Release\shekyld.exe `
+                    src-tauri\binaries\shekyld-x86_64-pc-windows-msvc.exe
 
       - name: Install frontend dependencies
         run: npm ci
