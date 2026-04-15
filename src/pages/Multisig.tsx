@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   Users,
   AlertCircle,
-  CheckCircle2,
   FileDown,
   FileUp,
   PenTool,
@@ -13,7 +12,6 @@ import {
   AlertTriangle,
   Clock,
   RefreshCw,
-  Wifi,
   WifiOff,
   ShieldAlert,
 } from "lucide-react";
@@ -45,12 +43,12 @@ export default function Multisig() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("setup");
 
-  const [violations, setViolations] = useState<
-    { invariantId: string; invariantName: string; reporterIndex: number; intentHash: string; timestamp: number }[]
+  const [violations] = useState<
+    { invariantId: number; invariantName: string; reporterIndex: number; intentHash: string; timestamp: number }[]
   >([]);
   const [relays, setRelays] = useState<{ url: string; operatorId: string }[]>([]);
   const [lossAcknowledged, setLossAcknowledged] = useState(false);
-  const [relayConnected, setRelayConnected] = useState(true);
+  const [relayConnected] = useState(true);
   const [counterDivergence, setCounterDivergence] = useState<{
     localCounter: number;
     peerCounter: number;
@@ -65,23 +63,23 @@ export default function Multisig() {
     reason: string;
   } | null>(null);
 
-  const [intents, setIntents] = useState<
+  const [intents] = useState<
     {
       intentHash: string;
-      state: "Proposed" | "Verified" | "ProverReady" | "Signed" | "Assembled" | "Broadcast" | "Rejected" | "TimedOut";
+      state: "proposed" | "verified" | "prover_ready" | "signed" | "assembled" | "broadcast" | "rejected" | "timed_out";
       proposerIndex: number;
       sigsCollected: number;
       sigsRequired: number;
       expiresAt: number;
-      recipients: { address: string; amount: number }[];
-      fee: number;
+      recipients: { address: string; amount: string }[];
+      fee: string;
     }[]
   >([]);
-  const [provenanceHistory, setProvenanceHistory] = useState<
+  const [provenanceHistory] = useState<
     { fingerprint: string; timestamp: number; source: string }[]
   >([]);
-  const [proverAssignments, setProverAssignments] = useState<
-    { outputIndex: number; outputPubkey: string; assignedProver: number; amount: number }[]
+  const [proverAssignments] = useState<
+    { outputIndex: number; outputPubkey: string; assignedProver: number; amount: string }[]
   >([]);
 
   const loadInfo = useCallback(async () => {
@@ -101,7 +99,7 @@ export default function Multisig() {
   }, [loadInfo]);
 
   const nowSecs = Math.floor(Date.now() / 1000);
-  const stuckIntents = intents.filter((i) => i.state === "Signed");
+  const stuckIntents = intents.filter((i) => i.state === "signed");
   const fingerprintChanged =
     provenanceHistory.length > 1 &&
     provenanceHistory[0].fingerprint !== provenanceHistory[1]?.fingerprint;
@@ -198,6 +196,7 @@ export default function Multisig() {
             counterProofFailure={counterProofFailure}
             stuckIntents={stuckIntents}
             fingerprintChanged={fingerprintChanged}
+            nowSecs={nowSecs}
             onDismissCounterDivergence={() => setCounterDivergence(null)}
             onDismissCosignerTimeout={() => setCosignerTimeout(null)}
             onDismissCounterProofFailure={() => setCounterProofFailure(null)}
@@ -253,13 +252,14 @@ export default function Multisig() {
 // ─── Failure-mode alerts ──────────────────────────────────────────────────────
 
 interface FailureAlertsProps {
-  violations: { invariantId: string; invariantName: string; reporterIndex: number; intentHash: string; timestamp: number }[];
+  violations: { invariantId: number; invariantName: string; reporterIndex: number; intentHash: string; timestamp: number }[];
   relayConnected: boolean;
   counterDivergence: { localCounter: number; peerCounter: number; peerId: number } | null;
   cosignerTimeout: { participantIndex: number; lastSeen: number } | null;
   counterProofFailure: { fromParticipant: number; reason: string } | null;
   stuckIntents: { intentHash: string; state: string; expiresAt: number }[];
   fingerprintChanged: boolean;
+  nowSecs: number;
   onDismissCounterDivergence: () => void;
   onDismissCosignerTimeout: () => void;
   onDismissCounterProofFailure: () => void;
@@ -273,6 +273,7 @@ function FailureAlerts({
   counterProofFailure,
   stuckIntents,
   fingerprintChanged,
+  nowSecs,
   onDismissCounterDivergence,
   onDismissCosignerTimeout,
   onDismissCounterProofFailure,
@@ -354,9 +355,9 @@ function FailureAlerts({
           Intent{" "}
           <code className="text-xs font-mono">{intent.intentHash.slice(0, 12)}...</code>{" "}
           has enough signatures but was never broadcast.
-          {intent.expiresAt > Math.floor(Date.now() / 1000) ? (
+          {intent.expiresAt > nowSecs ? (
             <> It expires in{" "}
-              {Math.round((intent.expiresAt - Math.floor(Date.now() / 1000)) / 60)}{" "}
+              {Math.round((intent.expiresAt - nowSecs) / 60)}{" "}
               minutes. Try rebroadcasting, or veto and recreate if the relay was
               down.</>
           ) : (

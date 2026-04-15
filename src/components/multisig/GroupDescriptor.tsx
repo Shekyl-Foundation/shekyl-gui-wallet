@@ -22,7 +22,7 @@ interface Props {
   nTotal: number;
 }
 
-export default function GroupDescriptor({ groupId, mRequired, nTotal }: Props) {
+export default function GroupDescriptor({ groupId }: Props) {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importedDesc, setImportedDesc] = useState<GroupDescriptorPayload | null>(null);

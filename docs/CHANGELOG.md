@@ -19,10 +19,25 @@
 - Release CI builds `shekyld` on all three platforms (Linux, macOS,
   Windows) and places it for Tauri bundling.
 
+### Fixed
+
+- Release workflow: replaced deleted `--target wallet_api` CMake target
+  with an unqualified build so Windows artifacts are actually produced.
+- Linux release artifact upload: steps now fail loudly when `.deb` or
+  `.AppImage` is missing, instead of silently succeeding with no upload.
+- Fixed 10 lint errors in multisig scaffolding (unused imports, unused
+  state setters, type mismatches between page state and component props).
+- Replaced inline `Date.now()` calls in `FailureAlerts` render path with
+  a `nowSecs` prop to satisfy the React purity lint rule.
+- Installed missing `@tauri-apps/plugin-dialog` dependency (needed by
+  `GroupDescriptor` file import/export).
+
 ### Changed
 
 - Version bumped to 3.1.0-alpha.2 across all three version sources
   (package.json, src-tauri/Cargo.toml, tauri.conf.json).
+- CI now runs `npm run build` (Vite production build) after typecheck to
+  catch build regressions on every push.
 
 ## [3.1.0-alpha.1] - 2026-04-15
 

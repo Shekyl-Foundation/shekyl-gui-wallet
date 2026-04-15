@@ -52,7 +52,6 @@ const STATE_CONFIG: Record<
 
 export default function SigningDashboard({
   intents,
-  ourIndex,
   nowSecs,
   onSign,
   onVeto,
