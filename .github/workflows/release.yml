@@ -183,8 +183,7 @@ jobs:
             -DUSE_DEVICE_TREZOR=OFF `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static
-          cmake --build ..\shekyl-core\build --config Release --target wallet_api --parallel 2
-          cmake --build ..\shekyl-core\build --config Release --target daemon --parallel 2
+          cmake --build ..\shekyl-core\build --config Release --parallel 2
 
       - name: Place sidecar binary (Windows)
         if: startsWith(matrix.platform, 'windows')
@@ -214,9 +213,11 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           DEB=$(find src-tauri/target/release/bundle/deb -name '*.deb' | head -1)
-          if [ -n "$DEB" ]; then
-            gh release upload "$TAG" "$DEB" --clobber
+          if [ -z "$DEB" ]; then
+            echo "::error::No .deb artifact found after tauri build"
+            exit 1
           fi
+          gh release upload "$TAG" "$DEB" --clobber
 
       - name: Upload Linux AppImage to release
         if: startsWith(matrix.platform, 'ubuntu')
@@ -225,9 +226,11 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
-          if [ -n "$APPIMAGE" ]; then
-            gh release upload "$TAG" "$APPIMAGE" --clobber
+          if [ -z "$APPIMAGE" ]; then
+            echo "::error::No .AppImage artifact found after tauri build"
+            exit 1
           fi
+          gh release upload "$TAG" "$APPIMAGE" --clobber
 
       # ── macOS / Windows: use tauri-action with existing release ──
 

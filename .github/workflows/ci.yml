@@ -53,6 +53,9 @@ jobs:
       - name: TypeScript type-check
         run: npm run typecheck
 
+      - name: Vite production build
+        run: npm run build
+
       - name: Frontend tests
         run: npm test -- --reporter=verbose
 
