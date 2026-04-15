@@ -942,10 +942,7 @@ pub async fn export_group_descriptor(
 
     let descriptor = GroupDescriptorPayload {
         version: 1,
-        group_id: info_val["group_id"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
+        group_id: info_val["group_id"].as_str().unwrap_or("").to_string(),
         m_required: info_val["m_required"].as_u64().unwrap_or(0) as u8,
         n_total: info_val["n_total"].as_u64().unwrap_or(0) as u8,
         spend_auth_version: 2,
@@ -957,10 +954,7 @@ pub async fn export_group_descriptor(
                     .collect()
             })
             .unwrap_or_default(),
-        address_fingerprint: info_val["fingerprint"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
+        address_fingerprint: info_val["fingerprint"].as_str().unwrap_or("").to_string(),
         relays: vec![],
         created_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -982,10 +976,7 @@ pub async fn import_group_descriptor(path: String) -> Result<GroupDescriptorPayl
         serde_json::from_str(&json).map_err(|e| format!("Invalid descriptor format: {e}"))?;
 
     if desc.version != 1 {
-        return Err(format!(
-            "Unsupported descriptor version: {}",
-            desc.version
-        ));
+        return Err(format!("Unsupported descriptor version: {}", desc.version));
     }
     if desc.m_required == 0 || desc.m_required > desc.n_total {
         return Err(format!(
@@ -1019,15 +1010,11 @@ pub async fn export_signing_request_file(
 
 #[tauri::command]
 pub async fn import_signing_request_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read signing request: {e}"))
+    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read signing request: {e}"))
 }
 
 #[tauri::command]
-pub async fn export_signature_response_file(
-    response: String,
-    path: String,
-) -> Result<(), String> {
+pub async fn export_signature_response_file(response: String, path: String) -> Result<(), String> {
     std::fs::write(&path, response.as_bytes())
         .map_err(|e| format!("Failed to write signature response: {e}"))
 }

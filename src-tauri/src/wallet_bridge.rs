@@ -809,7 +809,10 @@ mod tests {
     fn transfer_without_wallet_returns_error_and_preserves_state() {
         let handle = new_handle();
         let result = transfer(&handle, "shekyl1_dummy_address", 1_000_000_000);
-        assert!(result.is_err(), "transfer should fail without initialized wallet");
+        assert!(
+            result.is_err(),
+            "transfer should fail without initialized wallet"
+        );
         let err_msg = result.unwrap_err();
         assert!(
             err_msg.contains("not initialized"),
@@ -817,7 +820,10 @@ mod tests {
         );
 
         let guard = handle.lock().unwrap();
-        assert!(guard.wallet.is_none(), "wallet should still be None after failed transfer");
+        assert!(
+            guard.wallet.is_none(),
+            "wallet should still be None after failed transfer"
+        );
         assert!(
             guard.sync_cancel.is_none(),
             "no sync loop should have been created"
@@ -838,11 +844,13 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let state = rt.block_on(state_arc.lock());
         assert_eq!(
-            state.height(), 0,
+            state.height(),
+            0,
             "scanner state height must be preserved (0) after transfer error"
         );
         assert_eq!(
-            state.transfers().len(), 0,
+            state.transfers().len(),
+            0,
             "scanner transfers must be empty after transfer error"
         );
     }
@@ -871,7 +879,8 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let state = rt.block_on(new_arc.lock());
         assert_eq!(
-            state.height(), 0,
+            state.height(),
+            0,
             "fresh scanner state should have height 0"
         );
     }
