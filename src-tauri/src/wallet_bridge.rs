@@ -343,6 +343,7 @@ fn decode_hex_32(hex_str: &str) -> Result<[u8; 32], String> {
 // ─── Wallet import ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct RestoreWalletResponse {
     pub address: String,
     #[serde(default)]
@@ -379,6 +380,7 @@ pub fn restore_deterministic_wallet(
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GenerateFromKeysResponse {
     pub address: String,
     #[serde(default)]
@@ -415,6 +417,7 @@ pub fn generate_from_keys(
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GetAddressResponse {
     pub address: String,
     #[serde(default)]
@@ -422,6 +425,7 @@ pub struct GetAddressResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct AddressInfo {
     pub address: String,
     #[serde(default)]
@@ -442,6 +446,7 @@ pub fn get_address(
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GetBalanceResponse {
     pub balance: u64,
     pub unlocked_balance: u64,
@@ -469,6 +474,7 @@ pub fn query_key(handle: &WalletHandle, key_type: &str) -> Result<String, String
     })
 }
 
+#[allow(dead_code)]
 pub fn get_version() -> u32 {
     Wallet2::get_version()
 }
@@ -476,6 +482,7 @@ pub fn get_version() -> u32 {
 // ─── Transfers ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct TransferResponse {
     #[serde(default)]
     pub tx_hash: String,
@@ -509,6 +516,7 @@ pub fn transfer(
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct TransferEntry {
     #[serde(default)]
     pub txid: String,
@@ -529,6 +537,7 @@ pub struct TransferEntry {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GetTransfersResponse {
     #[serde(default)]
     pub r#in: Vec<TransferEntry>,
@@ -555,6 +564,7 @@ pub fn get_transfers(
     })
 }
 
+#[allow(dead_code)]
 pub fn stop_wallet(handle: &WalletHandle) -> Result<(), String> {
     with_wallet(handle, |w| w.stop().map_err(wallet_err))
 }
