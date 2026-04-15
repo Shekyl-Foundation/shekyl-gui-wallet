@@ -25,6 +25,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Checkout Shekyl core (path dependency for Rust crates)
+        run: git clone --depth 1 --branch dev --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
+
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
