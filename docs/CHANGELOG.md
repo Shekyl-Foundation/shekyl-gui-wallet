@@ -1,5 +1,29 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.2] - 2026-04-15
+
+### Added
+
+- Bundled `shekyld` daemon as a Tauri sidecar. The installer now ships a
+  complete node+wallet package; users no longer need to install `shekyld`
+  separately.
+- `DaemonManager`: auto-start daemon on wallet launch, health-check
+  polling, graceful shutdown on exit. Detects external daemons and defers
+  to them when already running.
+- Advanced daemon setting: "Keep daemon running after wallet closes"
+  toggle (default: off). Persisted to `{app_config_dir}/daemon.json`.
+- Daemon status indicator on the Settings page (managed/external/offline).
+- Tauri commands: `daemon_status`, `restart_daemon`, `get_daemon_settings`,
+  `set_daemon_settings`.
+- `capabilities/daemon.json` for shell sidecar permissions.
+- Release CI builds `shekyld` on all three platforms (Linux, macOS,
+  Windows) and places it for Tauri bundling.
+
+### Changed
+
+- Version bumped to 3.1.0-alpha.2 across all three version sources
+  (package.json, src-tauri/Cargo.toml, tauri.conf.json).
+
 ## [3.1.0-alpha.1] - 2026-04-15
 
 First release under the unified Shekyl versioning scheme. The version

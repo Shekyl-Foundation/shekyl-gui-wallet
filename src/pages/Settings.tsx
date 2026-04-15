@@ -1,8 +1,20 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Globe, Server, Shield, ShieldCheck } from "lucide-react";
+import { Globe, Server, Shield, ShieldCheck, Settings2 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
 import SecurityPanel from "../components/SecurityPanel";
+
+interface DaemonSettings {
+  keep_running_on_exit: boolean;
+  data_dir: string | null;
+  rpc_port: number;
+}
+
+interface DaemonStatusInfo {
+  mode: "managed" | "external" | "unavailable";
+  ready: boolean;
+  height: number;
+}
 
 const NETWORKS = ["mainnet", "testnet", "stagenet"] as const;
 
@@ -19,6 +31,34 @@ export default function Settings() {
     `http://127.0.0.1:${DEFAULT_PORTS[network]}/json_rpc`,
   );
   const [saving, setSaving] = useState(false);
+  const [daemonSettings, setDaemonSettings] = useState<DaemonSettings | null>(null);
+  const [daemonStatus, setDaemonStatus] = useState<DaemonStatusInfo | null>(null);
+
+  const loadDaemonInfo = useCallback(async () => {
+    try {
+      const [settings, status] = await Promise.all([
+        invoke<DaemonSettings>("get_daemon_settings"),
+        invoke<DaemonStatusInfo>("daemon_status"),
+      ]);
+      setDaemonSettings(settings);
+      setDaemonStatus(status);
+    } catch {
+      // daemon commands not available yet
+    }
+  }, []);
+
+  useEffect(() => { loadDaemonInfo(); }, [loadDaemonInfo]);
+
+  async function handleKeepRunningToggle(value: boolean) {
+    try {
+      const updated = await invoke<DaemonSettings>("set_daemon_settings", {
+        keepRunningOnExit: value,
+      });
+      setDaemonSettings(updated);
+    } catch {
+      // ignore
+    }
+  }
 
   async function handleNetworkSwitch(net: string) {
     setNetwork(net);
@@ -103,6 +143,62 @@ export default function Settings() {
           <p className="text-center text-[10px] text-emerald-400">
             Connected — Block {health.height.toLocaleString()} — {health.version}
           </p>
+        )}
+      </div>
+
+      {/* Daemon Management */}
+      <div className="card space-y-4">
+        <div className="flex items-center gap-2">
+          <Settings2 className="h-4 w-4 text-gold-400" />
+          <h2 className="text-sm font-semibold text-purple-200">
+            Advanced Daemon
+          </h2>
+        </div>
+
+        {daemonStatus && (
+          <div className="flex items-center gap-2 text-xs">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${
+                daemonStatus.ready ? "bg-emerald-400" : "bg-red-400"
+              }`}
+            />
+            <span className="text-purple-300">
+              {daemonStatus.mode === "managed"
+                ? "Managed daemon"
+                : daemonStatus.mode === "external"
+                  ? "External daemon"
+                  : "No daemon"}
+              {daemonStatus.ready ? " (connected)" : " (offline)"}
+            </span>
+          </div>
+        )}
+
+        {daemonSettings && (
+          <label className="flex items-center justify-between gap-3">
+            <span className="text-xs text-purple-300">
+              Keep daemon running after wallet closes
+            </span>
+            <button
+              role="switch"
+              aria-checked={daemonSettings.keep_running_on_exit}
+              onClick={() =>
+                handleKeepRunningToggle(!daemonSettings.keep_running_on_exit)
+              }
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                daemonSettings.keep_running_on_exit
+                  ? "bg-gold-500"
+                  : "bg-purple-700"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  daemonSettings.keep_running_on_exit
+                    ? "translate-x-4"
+                    : "translate-x-0"
+                }`}
+              />
+            </button>
+          </label>
         )}
       </div>
 

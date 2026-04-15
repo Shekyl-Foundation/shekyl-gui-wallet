@@ -26,9 +26,12 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use std::sync::Arc;
+
 use tauri::Manager;
 
 mod commands;
+mod daemon_manager;
 mod daemon_rpc;
 mod state;
 mod validate;
@@ -38,7 +41,22 @@ mod wallet_bridge;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(state::AppState::new())
+        .setup(|app| {
+            let config_dir = app
+                .path()
+                .app_config_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let dm = daemon_manager::DaemonManager::new(config_dir);
+            app.manage(dm.clone());
+
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                dm.start(&handle).await;
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             // Daemon / chain
             commands::get_wallet_status,
@@ -89,11 +107,20 @@ pub fn run() {
             commands::get_scanner_unstakeable_outputs,
             commands::scanner_freeze,
             commands::scanner_thaw,
+            // Daemon lifecycle
+            commands::daemon_status,
+            commands::restart_daemon,
+            commands::get_daemon_settings,
+            commands::set_daemon_settings,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let app_state: tauri::State<'_, state::AppState> = window.state();
                 let _ = wallet_bridge::shutdown(&app_state.wallet);
+
+                let dm: tauri::State<'_, Arc<daemon_manager::DaemonManager>> = window.state();
+                let dm = dm.inner().clone();
+                tauri::async_runtime::block_on(async { dm.shutdown().await });
             }
         })
         .run(tauri::generate_context!())

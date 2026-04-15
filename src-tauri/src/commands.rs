@@ -1084,6 +1084,53 @@ pub async fn scanner_thaw(state: State<'_, AppState>, key_image: String) -> Resu
     wallet_bridge::scanner_thaw(&state.wallet, &key_image).await
 }
 
+// ─── Daemon lifecycle commands ────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn daemon_status(
+    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<crate::daemon_manager::DaemonStatus, String> {
+    Ok(dm.status().await)
+}
+
+#[tauri::command]
+pub async fn restart_daemon(
+    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+    app: tauri::AppHandle,
+) -> Result<crate::daemon_manager::DaemonStatus, String> {
+    dm.shutdown().await;
+    dm.start(&app).await;
+    Ok(dm.status().await)
+}
+
+#[tauri::command]
+pub async fn get_daemon_settings(
+    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<crate::daemon_manager::DaemonConfig, String> {
+    Ok(dm.config().await)
+}
+
+#[tauri::command]
+pub async fn set_daemon_settings(
+    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+    keep_running_on_exit: Option<bool>,
+    data_dir: Option<String>,
+    rpc_port: Option<u16>,
+) -> Result<crate::daemon_manager::DaemonConfig, String> {
+    let mut config = dm.config().await;
+    if let Some(v) = keep_running_on_exit {
+        config.keep_running_on_exit = v;
+    }
+    if let Some(v) = data_dir {
+        config.data_dir = if v.is_empty() { None } else { Some(v) };
+    }
+    if let Some(v) = rpc_port {
+        config.rpc_port = v;
+    }
+    dm.update_config(config.clone()).await?;
+    Ok(config)
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
