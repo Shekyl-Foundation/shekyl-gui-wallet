@@ -127,7 +127,7 @@ jobs:
         if: startsWith(matrix.platform, 'macos')
         run: |
           mkdir -p src-tauri/binaries
-          cp ../shekyl-core/build/src/daemon/shekyld \
+          cp ../shekyl-core/build/bin/shekyld \
              src-tauri/binaries/shekyld-aarch64-apple-darwin
 
       # ── Common: Node, Rust, frontend ──
@@ -190,7 +190,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri\binaries | Out-Null
-          Copy-Item ..\shekyl-core\build\src\daemon\Release\shekyld.exe `
+          Copy-Item ..\shekyl-core\build\bin\Release\shekyld.exe `
                     src-tauri\binaries\shekyld-x86_64-pc-windows-msvc.exe
 
       - name: Install frontend dependencies
@@ -202,7 +202,6 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu')
         env:
           SHEKYL_BUILD_DIR: ${{ github.workspace }}/../shekyl-core/build/x86_64-unknown-linux-gnu/release
-          SHEKYL_SOURCE_DIR: ${{ github.workspace }}/../shekyl-core
           SHEKYL_DEPENDS_PREFIX: ${{ github.workspace }}/../shekyl-core/contrib/depends/x86_64-unknown-linux-gnu
         run: npx tauri build
 

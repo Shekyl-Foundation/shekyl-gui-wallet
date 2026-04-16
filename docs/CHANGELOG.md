@@ -31,6 +31,16 @@
   a `nowSecs` prop to satisfy the React purity lint rule.
 - Installed missing `@tauri-apps/plugin-dialog` dependency (needed by
   `GroupDescriptor` file import/export).
+- Fixed `rust_eh_personality` duplicate symbol linker error on Linux:
+  replaced `rustc-link-lib=static=shekyl_ffi` (which bundles libstd
+  inside the staticlib) with a normal Cargo dependency on `shekyl-ffi`
+  (consumed as rlib, no second libstd).
+- Fixed macOS sidecar copy path (`build/src/daemon/shekyld` ->
+  `build/bin/shekyld`) to match CMake `RUNTIME_OUTPUT_DIRECTORY`.
+- Fixed Windows sidecar copy path (`build\src\daemon\Release\shekyld.exe`
+  -> `build\bin\Release\shekyld.exe`) for same reason.
+- Removed unused `SHEKYL_SOURCE_DIR` env var from release workflow (no
+  longer consumed after shekyl-ffi link strategy change).
 
 ### Changed
 
