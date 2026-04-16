@@ -16,38 +16,11 @@ fn link_shekyl_ffi() {
         }
     };
 
-    // Derive source dir for Rust FFI library (rust/target/<profile>/).
-    // Default: SHEKYL_BUILD_DIR/../  (i.e., the repo root).
-    let source_dir = std::env::var("SHEKYL_SOURCE_DIR").unwrap_or_else(|_| {
-        std::path::Path::new(&build_dir)
-            .parent()
-            .unwrap_or(std::path::Path::new(&build_dir))
-            .to_string_lossy()
-            .into_owned()
-    });
-
-    // Link the Rust shekyl-ffi crate (economics, PQC, memory ops, etc.).
-    // CMake builds it via BuildRust.cmake into rust/target/[<triple>/]<profile>/.
-    let rust_triples = [
-        "",
-        "x86_64-unknown-linux-gnu",
-        "aarch64-apple-darwin",
-        "x86_64-apple-darwin",
-        "x86_64-pc-windows-msvc",
-        "x86_64-pc-windows-gnu",
-    ];
-    for triple in &rust_triples {
-        for profile in ["release", "debug"] {
-            if triple.is_empty() {
-                println!("cargo:rustc-link-search=native={source_dir}/rust/target/{profile}");
-            } else {
-                println!(
-                    "cargo:rustc-link-search=native={source_dir}/rust/target/{triple}/{profile}"
-                );
-            }
-        }
-    }
-    println!("cargo:rustc-link-lib=static=shekyl_ffi");
+    // shekyl-ffi is now a Cargo dependency (rlib), so its #[no_mangle]
+    // symbols are compiled into the cdylib without bundling a second libstd.
+    // The old approach (rustc-link-lib=static=shekyl_ffi) linked the
+    // staticlib archive which bundles libstd, causing duplicate
+    // rust_eh_personality in the cdylib output.
 
     // ── Search paths ────────────────────────────────────────────────────
     let search_dirs = [

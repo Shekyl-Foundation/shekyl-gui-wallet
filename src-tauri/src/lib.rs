@@ -26,6 +26,10 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+// Ensure shekyl-ffi's #[no_mangle] symbols are linked into the cdylib so
+// the C++ wallet libraries (libwallet.a etc.) can resolve them.
+extern crate shekyl_ffi;
+
 use std::sync::Arc;
 
 use tauri::Manager;
