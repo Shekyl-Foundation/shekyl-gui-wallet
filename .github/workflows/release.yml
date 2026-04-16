@@ -121,7 +121,7 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_TESTS=OFF \
             -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
-          cmake --build ../shekyl-core/build -- -j$(sysctl -n hw.logicalcpu)
+          cmake --build ../shekyl-core/build --target daemon wallet -- -j$(sysctl -n hw.logicalcpu)
 
       - name: Place sidecar binary (macOS)
         if: startsWith(matrix.platform, 'macos')
@@ -183,7 +183,7 @@ jobs:
             -DUSE_DEVICE_TREZOR=OFF `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static
-          cmake --build ..\shekyl-core\build --config Release --parallel 2
+          cmake --build ..\shekyl-core\build --config Release --target daemon wallet --parallel 2
 
       - name: Place sidecar binary (Windows)
         if: startsWith(matrix.platform, 'windows')

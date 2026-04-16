@@ -1,5 +1,15 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.6] - 2026-04-16
+
+### Changed
+
+- Release workflow: macOS and Windows CMake builds now use
+  `--target daemon wallet` instead of building the entire tree. Only the
+  sidecar binary and wallet libraries are needed; skipping debug utilities,
+  blockchain utilities, etc. saves build time and avoids compiling
+  unrelated code that may have platform-specific issues.
+
 ## [3.1.0-alpha.5] - 2026-04-16
 
 ### Fixed
