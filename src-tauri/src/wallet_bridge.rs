@@ -91,7 +91,12 @@ pub fn init(
 
     let wallet = Wallet2::new(nettype).map_err(wallet_err)?;
     wallet
-        .init(daemon_address, "", "", true)
+        .init(
+            daemon_address,
+            "",   // username: no HTTP digest auth
+            "",   // password: no HTTP digest auth
+            true, // trusted_daemon
+        )
         .map_err(wallet_err)?;
     wallet.set_wallet_dir(wallet_dir);
     guard.wallet = Some(wallet);
@@ -238,8 +243,10 @@ fn start_sync_loop(
     let ml_kem_dk_hex = keys_json["ml_kem_dk"].as_str().ok_or("missing ml_kem_dk")?;
 
     let mut spend_secret = decode_hex_32(spend_secret_hex)?;
-    let mut view_secret_bytes = decode_hex_32(view_secret_hex)?;
+    let mut view_secret_array = decode_hex_32(view_secret_hex)?;
     let spend_public_bytes = decode_hex_32(spend_public_hex)?;
+    // Decode to validate the hex; the actual view public point is derived
+    // from view_scalar * G inside the scanner, so the raw bytes aren't needed.
     let _view_public_bytes = decode_hex_32(view_public_hex)?;
     let mut x25519_sk = decode_hex_32(x25519_sk_hex)?;
     let ml_kem_dk_bytes =
@@ -253,7 +260,7 @@ fn start_sync_loop(
         .decompress()
         .ok_or("invalid spend public key (decompression failed)")?;
 
-    let view_scalar = Option::from(Scalar::from_canonical_bytes(view_secret_bytes))
+    let view_scalar = Option::from(Scalar::from_canonical_bytes(view_secret_array))
         .ok_or("view secret is not a canonical scalar")?;
 
     let view_pair = shekyl_scanner::ViewPair::new(
@@ -267,7 +274,7 @@ fn start_sync_loop(
     let scanner = shekyl_scanner::Scanner::new(view_pair, zeroize::Zeroizing::new(spend_secret));
 
     spend_secret.zeroize();
-    view_secret_bytes.zeroize();
+    view_secret_array.zeroize();
     x25519_sk.zeroize();
 
     let cancel = CancellationToken::new();
@@ -314,8 +321,7 @@ fn start_sync_loop(
             |_state| {
                 // No on-disk persistence of scanner state yet.
                 // On restart the scanner re-scans from the wallet's
-                // last-known height. Persistence (atomic snapshot to
-                // disk every DESKTOP_FLUSH_INTERVAL blocks) will be
+                // last-known height. Periodic persistence will be
                 // added once WalletState gains serde support.
                 tracing::trace!("on_flush: skipped (no persistence yet)");
             },
