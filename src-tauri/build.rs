@@ -250,6 +250,8 @@ fn link_linux() {
 /// Returns `{homebrew_prefix}/lib` for the given formula (or the global
 /// prefix when `formula` is `None`).  Returns `None` when `brew` is not
 /// available or the command fails.
+// CLIPPY: Only called in the cfg!(target_os = "macos") branch, which is a
+// runtime check (not #[cfg]), so the function compiles on all hosts.
 #[allow(dead_code)]
 fn brew_prefix_lib(formula: Option<&str>) -> Option<String> {
     let mut cmd = std::process::Command::new("brew");
