@@ -1,6 +1,6 @@
 # Shekyl GUI Wallet Changelog
 
-## [3.1.0-alpha.2] - 2026-04-15
+## [3.1.0-alpha.3] - 2026-04-16
 
 ### Added
 
