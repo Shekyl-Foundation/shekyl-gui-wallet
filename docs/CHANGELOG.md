@@ -1,5 +1,20 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.9] - 2026-04-16
+
+### Fixed
+
+- Made all shekyl-core daemon headers self-contained for MSVC: added
+  missing includes to `protocol.h` (6), `p2p.h` (2), `daemon.h` (2),
+  and `rpc.h` (2). This batch fix resolves the remaining MSVC C2061 /
+  C2065 errors that surfaced one-at-a-time across alphas 5-8.
+
+### Changed
+
+- shekyl-core MSVC CI now builds `--target daemon wallet` (was
+  `--target wallet` only), matching this repo's release workflow. Future
+  MSVC regressions will be caught in shekyl-core CI, not here.
+
 ## [3.1.0-alpha.8] - 2026-04-16
 
 ### Fixed
