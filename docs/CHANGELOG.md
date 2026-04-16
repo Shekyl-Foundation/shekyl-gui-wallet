@@ -1,5 +1,15 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.8] - 2026-04-16
+
+### Fixed
+
+- Fixed MSVC build error in daemon's `rpc.h`: the header used `t_core`,
+  `t_p2p`, and `daemon_args` without including the headers that define
+  them. GCC/Clang tolerated this because the includer (`daemon.cpp`) had
+  already pulled them in; MSVC does not (C2061, C2065). Added explicit
+  includes for `core.h`, `p2p.h`, and `command_line_args.h`.
+
 ## [3.1.0-alpha.7] - 2026-04-16
 
 ### Fixed
