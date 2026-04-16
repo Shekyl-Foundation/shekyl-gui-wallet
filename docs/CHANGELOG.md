@@ -1,14 +1,19 @@
 # Shekyl GUI Wallet Changelog
 
-## [3.1.0-alpha.4] - 2026-04-16
+## [3.1.0-alpha.5] - 2026-04-16
 
 ### Fixed
 
 - Implemented missing `wallet2_ffi_get_scanner_keys` C++ FFI function in
   shekyl-core. The function was declared in the Rust FFI bindings and called
   by the GUI wallet's sync loop but had no C++ implementation, causing
-  `Undefined symbols for architecture arm64: _wallet2_ffi_get_scanner_keys`
-  on macOS (and equivalent errors on all platforms).
+  `Undefined symbols` linker errors on all platforms.
+- Fixed three MSVC compilation errors in shekyl-core that blocked the
+  Windows release build:
+  - C3493: explicit lambda capture of constexpr local in `core_rpc_server.cpp`
+  - C2065: replaced `__PRETTY_FUNCTION__` with `__FUNCSIG__` on MSVC
+  - C2039: SFINAE-constrained `network_address` template constructor to
+    prevent MSVC from eagerly instantiating it with incompatible types
 
 ## [3.1.0-alpha.3] - 2026-04-16
 
