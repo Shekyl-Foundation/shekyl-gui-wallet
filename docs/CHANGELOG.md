@@ -1,5 +1,17 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.7] - 2026-04-16
+
+### Fixed
+
+- Fixed two more MSVC build errors surfaced by `--target daemon` pulling
+  in the RPC server:
+  - `core_rpc_server.cpp`: replaced `#ifdef` inside `MERROR()` macro
+    argument (undefined behavior, C2059 on MSVC) with a literal function
+    name string.
+  - `abstract_tcp_server2.inl`: explicitly capture `handshake` in lambda
+    (C3493 on MSVC, same constexpr implicit-capture class as alpha.5).
+
 ## [3.1.0-alpha.6] - 2026-04-16
 
 ### Changed
