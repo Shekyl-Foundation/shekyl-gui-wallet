@@ -1,5 +1,15 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.4] - 2026-04-16
+
+### Fixed
+
+- Implemented missing `wallet2_ffi_get_scanner_keys` C++ FFI function in
+  shekyl-core. The function was declared in the Rust FFI bindings and called
+  by the GUI wallet's sync loop but had no C++ implementation, causing
+  `Undefined symbols for architecture arm64: _wallet2_ffi_get_scanner_keys`
+  on macOS (and equivalent errors on all platforms).
+
 ## [3.1.0-alpha.3] - 2026-04-16
 
 ### Added
@@ -44,7 +54,7 @@
 
 ### Changed
 
-- Version bumped to 3.1.0-alpha.2 across all three version sources
+- Version bumped to 3.1.0-alpha.3 across all three version sources
   (package.json, src-tauri/Cargo.toml, tauri.conf.json).
 - CI now runs `npm run build` (Vite production build) after typecheck to
   catch build regressions on every push.
