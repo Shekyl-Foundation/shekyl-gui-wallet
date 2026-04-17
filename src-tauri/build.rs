@@ -152,7 +152,10 @@ fn link_shekyl_ffi() {
                         .filter_map(|e| e.ok())
                         .map(|e| e.file_name().to_string_lossy().into_owned())
                         .collect();
-                    println!("cargo:warning=vcpkg lib dir {dir} contains {} files", names.len());
+                    println!(
+                        "cargo:warning=vcpkg lib dir {dir} contains {} files",
+                        names.len()
+                    );
                     for n in &names {
                         if n.ends_with(".lib") {
                             println!("cargo:warning=  vcpkg: {n}");
@@ -186,9 +189,10 @@ fn link_shekyl_ffi() {
         ];
         for candidates in vcpkg_static_libs {
             let chosen = if let Some(ref dir) = vcpkg_lib {
-                candidates.iter().copied().find(|name| {
-                    std::path::Path::new(&format!("{dir}/{name}.lib")).exists()
-                })
+                candidates
+                    .iter()
+                    .copied()
+                    .find(|name| std::path::Path::new(&format!("{dir}/{name}.lib")).exists())
             } else {
                 candidates.first().copied()
             };
