@@ -1,5 +1,22 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.14] - 2026-04-17
+
+### Fixed
+
+- Windows build: match vcpkg's MSVC-decorated Boost filenames. The
+  vcpkg x64-windows-static triplet installs Boost as
+  `boost_system-vc145-mt-x64-1_90.lib` (toolset-threading-arch-version),
+  not `boost_system.lib`. alpha.13 diagnostics confirmed the 48-file
+  vcpkg lib listing: OpenSSL/sodium are plain (`libssl.lib`,
+  `libcrypto.lib`, `libsodium.lib`) but Boost is decorated.
+  `src-tauri/build.rs` now scans the vcpkg lib directory and accepts
+  either the plain `{name}.lib` or any decorated `{name}-*.lib`,
+  passing the discovered stem verbatim to rustc.
+- Removed `protobuf` from the Windows static link list. It is only
+  used by the Trezor backend, which is disabled on Windows
+  (`-DUSE_DEVICE_TREZOR=OFF`), and is not installed via vcpkg.
+
 ## [3.1.0-alpha.13] - 2026-04-17
 
 ### Fixed
