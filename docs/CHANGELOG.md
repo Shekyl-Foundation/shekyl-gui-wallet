@@ -1,5 +1,22 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.13] - 2026-04-17
+
+### Fixed
+
+- Windows release workflow: actually propagate `VCPKG_INSTALLATION_ROOT`
+  into later steps. alpha.11/12 tried to pass it via
+  `${{ env.VCPKG_INSTALLATION_ROOT }}` in the tauri-action step, but
+  that expression resolves against the workflow's `env` context (empty
+  for this var) rather than the runner's OS environment, so the
+  variable was silently overwritten with an empty string. The vcpkg
+  search path then became `/installed/x64-windows-static/lib`, which
+  does not exist, and every vcpkg static library was skipped. Fix:
+  the "Install Windows build dependencies" step now writes
+  `VCPKG_INSTALLATION_ROOT=$env:VCPKG_INSTALLATION_ROOT` into
+  `$GITHUB_ENV` so subsequent steps (and their `env:` blocks) see
+  the real value.
+
 ## [3.1.0-alpha.12] - 2026-04-17
 
 ### Fixed

@@ -167,6 +167,12 @@ jobs:
         env:
           VCPKG_BINARY_SOURCES: clear;files,C:\vcpkg\archives,readwrite
         run: |
+          # Export VCPKG_INSTALLATION_ROOT as a workflow-level env var so
+          # later steps (including tauri-action) can reference it via
+          # ${{ env.VCPKG_INSTALLATION_ROOT }} instead of the OS-only
+          # $env:VCPKG_INSTALLATION_ROOT which doesn't propagate to
+          # javascript action env blocks.
+          "VCPKG_INSTALLATION_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           vcpkg install --triplet x64-windows-static --overlay-ports="${{ github.workspace }}/../shekyl-core/vcpkg-overlay/ports" boost openssl libsodium libusb lmdb
 
       - name: Build Shekyl wallet library (Windows / MSVC)
