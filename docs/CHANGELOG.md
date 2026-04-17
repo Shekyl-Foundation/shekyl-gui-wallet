@@ -1,5 +1,23 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.10] - 2026-04-17
+
+### Fixed
+
+- shekyl-core: broke circular include dependency in daemon headers
+  (`core.h`, `p2p.h`, `rpc.h`) by moving constructor/destructor bodies
+  to `.cpp` files, eliminating the Windows daemonizer include chain that
+  caused persistent MSVC C2039/C2061 errors.
+- shekyl-core: removed the entire `daemonizer/` layer (Windows service,
+  POSIX fork). `shekyld` and `shekyl-wallet-rpc` now run in foreground
+  only, with OS service managers handling backgrounding.
+- shekyl-core: fixed `ARCH_ID` case mismatch that prevented RandomX JIT
+  compilation on MSVC (uppercase `AMD64` vs lowercase `amd64` check).
+- shekyl-core: fixed C/C++ linkage mismatch in `blocks.cpp` for
+  generated `.c` symbols (missing `extern "C"`).
+- shekyl-core: added missing `#include <windows.h>` to `math_helper.h`
+  for `FILETIME` type (exposed by GCC 15 `-Wtemplate-body`).
+
 ## [3.1.0-alpha.9] - 2026-04-16
 
 ### Fixed
