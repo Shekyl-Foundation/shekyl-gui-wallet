@@ -143,10 +143,17 @@ fn link_shekyl_ffi() {
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=IOKit");
     } else if cfg!(target_os = "windows") {
-        if let Ok(root) = std::env::var("VCPKG_INSTALLATION_ROOT") {
-            let vcpkg_lib = format!("{root}/installed/x64-windows-static/lib");
-            println!("cargo:rustc-link-search=native={vcpkg_lib}");
-        }
+        let vcpkg_lib = match std::env::var("VCPKG_INSTALLATION_ROOT") {
+            Ok(root) => {
+                let dir = format!("{root}/installed/x64-windows-static/lib");
+                println!("cargo:rustc-link-search=native={dir}");
+                Some(dir)
+            }
+            Err(_) => {
+                println!("cargo:warning=VCPKG_INSTALLATION_ROOT not set; vcpkg libraries will not be found. Set this env var to your vcpkg root (e.g. C:\\vcpkg).");
+                None
+            }
+        };
 
         for lib in &[
             "boost_system",
@@ -158,6 +165,13 @@ fn link_shekyl_ffi() {
             "boost_date_time",
             "boost_regex",
         ] {
+            if let Some(ref dir) = vcpkg_lib {
+                let path = format!("{dir}/{lib}.lib");
+                if !std::path::Path::new(&path).exists() {
+                    println!("cargo:warning={lib}.lib not found at {path}, skipping (may be header-only)");
+                    continue;
+                }
+            }
             println!("cargo:rustc-link-lib=static={lib}");
         }
         for lib in &["libssl", "libcrypto", "sodium", "libprotobuf"] {
