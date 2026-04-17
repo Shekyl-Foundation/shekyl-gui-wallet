@@ -147,6 +147,18 @@ fn link_shekyl_ffi() {
             Ok(root) => {
                 let dir = format!("{root}/installed/x64-windows-static/lib");
                 println!("cargo:rustc-link-search=native={dir}");
+                if let Ok(entries) = std::fs::read_dir(&dir) {
+                    let names: Vec<String> = entries
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.file_name().to_string_lossy().into_owned())
+                        .collect();
+                    println!("cargo:warning=vcpkg lib dir {dir} contains {} files", names.len());
+                    for n in &names {
+                        if n.ends_with(".lib") {
+                            println!("cargo:warning=  vcpkg: {n}");
+                        }
+                    }
+                }
                 Some(dir)
             }
             Err(_) => {
@@ -155,28 +167,39 @@ fn link_shekyl_ffi() {
             }
         };
 
-        for lib in &[
-            "boost_system",
-            "boost_filesystem",
-            "boost_thread",
-            "boost_serialization",
-            "boost_program_options",
-            "boost_chrono",
-            "boost_date_time",
-            "boost_regex",
-        ] {
-            if let Some(ref dir) = vcpkg_lib {
-                let path = format!("{dir}/{lib}.lib");
-                if !std::path::Path::new(&path).exists() {
-                    println!("cargo:warning={lib}.lib not found at {path}, skipping (may be header-only)");
-                    continue;
-                }
+        // Candidate name sets for each logical library. vcpkg ports
+        // historically differ in whether they emit a `lib` prefix on
+        // Windows; try both forms and link whichever exists.
+        let vcpkg_static_libs: &[&[&str]] = &[
+            &["boost_system"],
+            &["boost_filesystem"],
+            &["boost_thread"],
+            &["boost_serialization"],
+            &["boost_program_options"],
+            &["boost_chrono"],
+            &["boost_date_time"],
+            &["boost_regex"],
+            &["libssl", "ssl"],
+            &["libcrypto", "crypto"],
+            &["sodium", "libsodium"],
+            &["libprotobuf", "protobuf"],
+        ];
+        for candidates in vcpkg_static_libs {
+            let chosen = if let Some(ref dir) = vcpkg_lib {
+                candidates.iter().copied().find(|name| {
+                    std::path::Path::new(&format!("{dir}/{name}.lib")).exists()
+                })
+            } else {
+                candidates.first().copied()
+            };
+            match chosen {
+                Some(name) => println!("cargo:rustc-link-lib=static={name}"),
+                None => println!(
+                    "cargo:warning=none of {candidates:?} found in vcpkg lib dir; skipping"
+                ),
             }
-            println!("cargo:rustc-link-lib=static={lib}");
         }
-        for lib in &["libssl", "libcrypto", "sodium", "libprotobuf"] {
-            println!("cargo:rustc-link-lib=static={lib}");
-        }
+
         for lib in &[
             "ws2_32", "bcrypt", "crypt32", "userenv", "ntdll", "iphlpapi", "advapi32", "ole32",
             "shell32",
