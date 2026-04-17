@@ -1,5 +1,20 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.11] - 2026-04-17
+
+### Fixed
+
+- Windows build: pass `VCPKG_INSTALLATION_ROOT` through to the Tauri build
+  step so the Rust linker can find vcpkg-installed Boost static libraries.
+  The C++ daemon build already discovered Boost via the vcpkg toolchain
+  file, but `src-tauri/build.rs` did its own linking and failed with
+  `could not find native static library boost_system` when the env var
+  was not inherited.
+- `src-tauri/build.rs`: emit an explicit `cargo:warning` when
+  `VCPKG_INSTALLATION_ROOT` is unset on Windows, and skip Boost libraries
+  whose `.lib` file does not exist at the expected vcpkg path (handles
+  header-only components gracefully).
+
 ## [3.1.0-alpha.10] - 2026-04-17
 
 ### Fixed
