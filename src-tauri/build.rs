@@ -143,66 +143,7 @@ fn link_shekyl_ffi() {
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=IOKit");
     } else if cfg!(target_os = "windows") {
-        let vcpkg_lib = match std::env::var("VCPKG_INSTALLATION_ROOT") {
-            Ok(root) => {
-                let dir = format!("{root}/installed/x64-windows-static/lib");
-                println!("cargo:rustc-link-search=native={dir}");
-                if let Ok(entries) = std::fs::read_dir(&dir) {
-                    let names: Vec<String> = entries
-                        .filter_map(|e| e.ok())
-                        .map(|e| e.file_name().to_string_lossy().into_owned())
-                        .collect();
-                    println!(
-                        "cargo:warning=vcpkg lib dir {dir} contains {} files",
-                        names.len()
-                    );
-                    for n in &names {
-                        if n.ends_with(".lib") {
-                            println!("cargo:warning=  vcpkg: {n}");
-                        }
-                    }
-                }
-                Some(dir)
-            }
-            Err(_) => {
-                println!("cargo:warning=VCPKG_INSTALLATION_ROOT not set; vcpkg libraries will not be found. Set this env var to your vcpkg root (e.g. C:\\vcpkg).");
-                None
-            }
-        };
-
-        // Candidate name sets for each logical library. vcpkg ports
-        // historically differ in whether they emit a `lib` prefix on
-        // Windows; try both forms and link whichever exists.
-        let vcpkg_static_libs: &[&[&str]] = &[
-            &["boost_system"],
-            &["boost_filesystem"],
-            &["boost_thread"],
-            &["boost_serialization"],
-            &["boost_program_options"],
-            &["boost_chrono"],
-            &["boost_date_time"],
-            &["boost_regex"],
-            &["libssl", "ssl"],
-            &["libcrypto", "crypto"],
-            &["sodium", "libsodium"],
-            &["libprotobuf", "protobuf"],
-        ];
-        for candidates in vcpkg_static_libs {
-            let chosen = if let Some(ref dir) = vcpkg_lib {
-                candidates
-                    .iter()
-                    .copied()
-                    .find(|name| std::path::Path::new(&format!("{dir}/{name}.lib")).exists())
-            } else {
-                candidates.first().copied()
-            };
-            match chosen {
-                Some(name) => println!("cargo:rustc-link-lib=static={name}"),
-                None => println!(
-                    "cargo:warning=none of {candidates:?} found in vcpkg lib dir; skipping"
-                ),
-            }
-        }
+        link_windows_vcpkg();
 
         for lib in &[
             "ws2_32", "bcrypt", "crypt32", "userenv", "ntdll", "iphlpapi", "advapi32", "ole32",
@@ -286,6 +227,100 @@ fn link_linux() {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
     }
+}
+
+/// Link third-party libraries on Windows via vcpkg (x64-windows-static).
+///
+/// vcpkg's port conventions vary by library:
+/// - OpenSSL, libsodium: plain names like `libssl.lib`, `libcrypto.lib`,
+///   `libsodium.lib` (undecorated).
+/// - Boost: MSVC-decorated names like
+///   `boost_system-vc145-mt-x64-1_90.lib`. The `rustc-link-lib=static=X`
+///   directive passes `X` verbatim to the linker, so for decorated libs
+///   we must pass the full undecorated-extension filename.
+///
+/// For each logical library, we search the vcpkg lib directory for
+/// either the plain name or a `{prefix}-*` decorated name, then emit
+/// `rustc-link-lib=static=<stem>` with whichever stem we found.
+///
+/// Protobuf is not linked: it's only needed for the Trezor device
+/// backend, which is disabled on Windows (`-DUSE_DEVICE_TREZOR=OFF`
+/// in `.github/workflows/release.yml`). We also do not install it
+/// via vcpkg, so it won't be present in the lib directory.
+// CLIPPY: Only called in the cfg!(target_os = "windows") branch.
+#[allow(dead_code)]
+fn link_windows_vcpkg() {
+    let dir = match std::env::var("VCPKG_INSTALLATION_ROOT") {
+        Ok(root) => format!("{root}/installed/x64-windows-static/lib"),
+        Err(_) => {
+            println!(
+                "cargo:warning=VCPKG_INSTALLATION_ROOT not set; vcpkg libraries will not be \
+                 found. Set this env var to your vcpkg root (e.g. C:\\vcpkg)."
+            );
+            return;
+        }
+    };
+    println!("cargo:rustc-link-search=native={dir}");
+
+    let names: Vec<String> = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".lib"))
+            .collect(),
+        Err(e) => {
+            println!("cargo:warning=could not read vcpkg lib dir {dir}: {e}");
+            return;
+        }
+    };
+    println!(
+        "cargo:warning=vcpkg lib dir {dir} contains {} .lib files",
+        names.len()
+    );
+
+    // Each entry is a logical library with a list of acceptable name
+    // prefixes. For Boost the expected file is `{prefix}-*.lib`
+    // (MSVC-decorated); for OpenSSL/sodium it's `{prefix}.lib` exactly.
+    // We accept either.
+    let wanted: &[&[&str]] = &[
+        &["boost_system"],
+        &["boost_filesystem"],
+        &["boost_thread"],
+        &["boost_serialization"],
+        &["boost_program_options"],
+        &["boost_chrono"],
+        &["boost_date_time"],
+        &["boost_regex"],
+        &["libssl", "ssl"],
+        &["libcrypto", "crypto"],
+        &["libsodium", "sodium"],
+    ];
+    for prefixes in wanted {
+        let chosen = prefixes.iter().find_map(|p| find_vcpkg_lib(&names, p));
+        match chosen {
+            Some(stem) => println!("cargo:rustc-link-lib=static={stem}"),
+            None => {
+                println!("cargo:warning=no vcpkg library matching {prefixes:?} found; skipping")
+            }
+        }
+    }
+}
+
+/// Find a vcpkg-installed lib whose filename is either `{prefix}.lib`
+/// (plain) or `{prefix}-<decoration>.lib` (MSVC-decorated). Returns the
+/// stem (filename without the `.lib` extension), which is what rustc's
+/// `-l` directive expects.
+#[allow(dead_code)]
+fn find_vcpkg_lib(names: &[String], prefix: &str) -> Option<String> {
+    let plain = format!("{prefix}.lib");
+    if names.iter().any(|n| n == &plain) {
+        return Some(prefix.to_string());
+    }
+    let decorated_prefix = format!("{prefix}-");
+    names
+        .iter()
+        .find(|n| n.starts_with(&decorated_prefix) && n.ends_with(".lib"))
+        .map(|n| n.trim_end_matches(".lib").to_string())
 }
 
 /// Returns `{homebrew_prefix}/lib` for the given formula (or the global
