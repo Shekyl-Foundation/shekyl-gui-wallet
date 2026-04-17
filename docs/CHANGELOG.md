@@ -1,5 +1,20 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.12] - 2026-04-17
+
+### Fixed
+
+- Windows build: handle alternate vcpkg library naming for OpenSSL,
+  libsodium, and protobuf. `src-tauri/build.rs` now probes both the
+  `lib`-prefixed and bare forms (`libssl`/`ssl`, `libcrypto`/`crypto`,
+  `sodium`/`libsodium`, `libprotobuf`/`protobuf`) and links whichever
+  is present in the vcpkg lib directory. alpha.11 fixed Boost but
+  failed at the next step because vcpkg 1.90's OpenSSL port uses
+  different names than were hard-coded.
+- `src-tauri/build.rs`: dump the vcpkg lib directory contents as
+  `cargo:warning` lines so future naming mismatches are diagnosable
+  from CI logs without guesswork.
+
 ## [3.1.0-alpha.11] - 2026-04-17
 
 ### Fixed
