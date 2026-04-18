@@ -1,6 +1,44 @@
 # Shekyl GUI Wallet Changelog
 
-## [3.1.0-alpha.2] - 2026-04-18
+## [3.1.0-alpha.3] - 2026-04-18
+
+### Security
+
+- **Bump `rustls-webpki` from `0.103.10` to `0.103.12`** (transitive via
+  `rustls` → `reqwest` → `tauri`) to pick up fixes for two advisories
+  disclosed 2026-04-14:
+  - [RUSTSEC-2026-0098](https://rustsec.org/advisories/RUSTSEC-2026-0098):
+    `rustls-webpki` accepted malformed X.509 name constraints that could
+    allow a crafted certificate chain to bypass name-constraint
+    verification.
+  - [RUSTSEC-2026-0099](https://rustsec.org/advisories/RUSTSEC-2026-0099):
+    denial-of-service via unbounded recursion during certificate path
+    building.
+
+  `rustls-webpki` is used only for outgoing HTTPS from the GUI shell
+  (Tauri/reqwest), not by the bundled `shekyld` daemon or any on-chain
+  verification path. Neither advisory is reachable by connecting to a
+  malicious server the user did not initiate a request to, but "the PR
+  isn't green" is a hard rule — alpha.2 shipped with a cargo-audit
+  failure and is deleted accordingly.
+
+### Changed
+
+- **Deleted `v3.1.0-alpha.2` release and tag.** The alpha.2 release
+  build produced working artifacts on Linux/macOS/Windows, but the
+  corresponding `dev` branch audit went red within hours of the tag
+  push when RustSec indexed the two `rustls-webpki` advisories. We
+  don't ship binaries behind a known-red audit, even in alpha. Same
+  pattern as the alpha.1–alpha.14 cleanup: if the tag isn't green, it
+  doesn't stay tagged.
+- `src-tauri/Cargo.toml`, `package.json`, `src-tauri/tauri.conf.json`,
+  `src-tauri/Cargo.lock` all bumped to `3.1.0-alpha.3`.
+
+## [3.1.0-alpha.2] - 2026-04-18 [DELETED]
+
+> Tag and release deleted 2026-04-18 — see alpha.3 Security notes. The
+> entry below is retained as engineering history for the version-reset
+> event; it is not a shipped release.
 
 ### Changed
 
