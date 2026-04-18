@@ -56,3 +56,44 @@ Create a dedicated multisig integration plan for alpha.3 that:
 4. Wires the Rust FROST handlers to the Tauri command layer.
 5. Connects the UI components to real backend data.
 6. Adds integration tests for the multisig signing round-trip.
+
+---
+
+## Pin shekyl-core by tag in release workflow — target: alpha.4
+
+`.github/workflows/release.yml` currently clones `shekyl-core` from the
+`dev` branch (and `ci.yml` / `codeql.yml` do the same):
+
+```
+git clone --depth 1 --branch dev --recurse-submodules \
+  https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
+```
+
+This is a reproducibility gap: replaying the GUI wallet `vX.Y.Z` build a
+week later pulls whatever `dev` points at today, not what shipped. The
+bundled `shekyld` binary in a release tarball therefore cannot be
+reproduced from the git tag alone — it depends on when you run the
+build.
+
+For alpha releases the gap is acceptable (the whole alpha pipeline is
+still in motion), but before we tag anything users would hold long-term
+(beta, stable, or any release labeled reproducible) the release workflow
+must pin to a specific `shekyl-core` tag that matches the GUI wallet
+version. Options, in order of preference:
+
+1. **Matching-tag pin.** GUI wallet `v3.1.0-alpha.N` clones
+   `shekyl-core` at tag `v3.1.0-alpha.N`. Requires that the shekyl-core
+   tag exists before the GUI wallet tag is pushed. Makes the "which
+   daemon ships in which wallet release" question trivially auditable.
+2. **Pinned SHA.** The GUI wallet workflow reads a `SHEKYL_CORE_REV` file
+   from its own repo and clones that exact commit. More flexible, less
+   self-documenting, but decouples the two tag cadences.
+
+CI (`ci.yml`) and CodeQL (`codeql.yml`) can stay on `dev` — they're
+"does current dev still build against current dev" checks, which is
+exactly what we want there.
+
+Before closing this item: verify the release workflow actually passes
+the pinned tag to all three platforms' checkout commands, and update
+`docs/BUILD.md` (or equivalent) to document the pin policy for anyone
+building from source.
