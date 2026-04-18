@@ -40,12 +40,14 @@ mod daemon_rpc;
 mod state;
 mod validate;
 mod wallet_bridge;
+mod wallet_name;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::new())
         .setup(|app| {
             let config_dir = app
@@ -78,6 +80,9 @@ pub fn run() {
             commands::check_wallet_files,
             commands::init_wallet_rpc,
             commands::shutdown_wallet_rpc,
+            commands::set_wallet_dir,
+            commands::reset_wallet_dir,
+            commands::get_wallet_dir,
             // Wallet lifecycle
             commands::create_wallet,
             commands::open_wallet,

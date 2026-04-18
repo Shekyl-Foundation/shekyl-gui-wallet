@@ -35,9 +35,10 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::daemon_rpc;
-use crate::state::{AppState, NetworkType};
+use crate::state::{self, AppState, NetworkType};
 use crate::validate;
 use crate::wallet_bridge;
+use crate::wallet_name;
 
 const SCALE: f64 = 1_000_000.0;
 const BLOCKS_PER_YEAR: f64 = 262_800.0; // 2-minute blocks
@@ -436,10 +437,46 @@ pub async fn init_wallet_rpc(
         NetworkType::Stagenet => 2,
     };
 
-    let dir_str = wallet_dir.to_string_lossy().to_string();
-    wallet_bridge::init(&state.wallet, nettype, &daemon_addr, &dir_str)?;
+    // Guarantee the configured wallet directory exists before any
+    // create/open flow runs. mkdir -p semantics on POSIX and Windows.
+    wallet_name::ensure_dir_exists(&wallet_dir)?;
+
+    wallet_bridge::init(&state.wallet, nettype, &daemon_addr)?;
     wallet_bridge::setup_progress_bridge(&state.wallet, app)?;
     Ok(true)
+}
+
+/// Override the wallet directory with a user-chosen path (Advanced
+/// directory picker in the create/import UI). Ensures the directory
+/// exists before swapping it in; returns the canonical display string
+/// that the UI can show back to the user.
+#[tauri::command]
+pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<String, String> {
+    let path = std::path::PathBuf::from(&dir);
+    if path.as_os_str().is_empty() {
+        return Err("Wallet directory must not be empty".into());
+    }
+    wallet_name::ensure_dir_exists(&path)?;
+    let display = path.to_string_lossy().to_string();
+    *state.wallet_dir.write().await = path;
+    Ok(display)
+}
+
+/// Reset the wallet directory to the platform default.
+#[tauri::command]
+pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
+    let default = state::default_wallet_dir();
+    wallet_name::ensure_dir_exists(&default)?;
+    let display = default.to_string_lossy().to_string();
+    *state.wallet_dir.write().await = default;
+    Ok(display)
+}
+
+/// Return the currently configured wallet directory as a display string.
+#[tauri::command]
+pub async fn get_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
+    let dir = state.wallet_dir.read().await.clone();
+    Ok(dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -460,22 +497,32 @@ pub async fn create_wallet(
     password: String,
     language: Option<String>,
 ) -> Result<CreateWalletResult, String> {
-    validate::validate_wallet_name(&name)?;
+    // Sanitize first (collapses whitespace, replaces spaces with '_') so
+    // the on-disk name is filesystem-friendly regardless of what the
+    // user typed.
+    let sanitized = wallet_name::sanitize(&name);
+    validate::validate_wallet_name(&sanitized)?;
     validate::validate_password(&password)?;
 
     let network = state.network.read().await;
     let lang = language.unwrap_or_else(|| "English".into());
 
-    wallet_bridge::create_wallet(&state.wallet, &name, &password, &lang)?;
+    let wallet_dir = state.wallet_dir.read().await.clone();
+    wallet_name::ensure_dir_exists(&wallet_dir)?;
+    let full_path = wallet_name::build_wallet_path(&wallet_dir, &sanitized);
+    validate::validate_wallet_path(&full_path)?;
+    let path_str = full_path.to_string_lossy().to_string();
+
+    wallet_bridge::create_wallet(&state.wallet, &path_str, &password, &lang)?;
 
     let addr_resp = wallet_bridge::get_address(&state.wallet, 0)?;
     let seed = wallet_bridge::query_key(&state.wallet, "mnemonic")?;
 
     *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(name.clone());
+    *state.wallet_name.write().await = Some(sanitized.clone());
 
     Ok(CreateWalletResult {
-        name,
+        name: sanitized,
         address: addr_resp.address,
         seed,
         seed_language: lang,
@@ -490,21 +537,63 @@ pub async fn open_wallet(
     filename: String,
     password: String,
 ) -> Result<WalletInfo, String> {
-    validate::validate_wallet_name(&filename)?;
     validate::validate_password(&password)?;
 
     let network = state.network.read().await;
     let daemon_addr = state.daemon_address().await;
+    let wallet_dir = state.wallet_dir.read().await.clone();
+    wallet_name::ensure_dir_exists(&wallet_dir)?;
 
-    wallet_bridge::open_wallet(&state.wallet, &filename, &password, &daemon_addr, app)?;
+    // Dual-search: users created wallets with spaces in the name before
+    // the sanitize pass existed. Try the sanitized form first (the
+    // forward-looking default); on miss, fall back to the raw input so
+    // legacy files keep opening. The fallback branch has a removal
+    // target — see docs/FOLLOWUPS.md.
+    let sanitized = wallet_name::sanitize(&filename);
+    validate::validate_wallet_name(&sanitized)?;
+
+    let candidate_sanitized = wallet_name::build_wallet_path(&wallet_dir, &sanitized);
+    let keys_sanitized = candidate_sanitized.with_extension("keys");
+
+    // The raw input may contain spaces — we skip validate_wallet_name on
+    // it (spaces aren't path separators, just whitespace), but still
+    // reject anything with actual path separators or null bytes to
+    // prevent traversal via the legacy path.
+    let raw_has_separator =
+        filename.contains('/') || filename.contains('\\') || filename.contains('\0');
+
+    let (chosen_path, chosen_name) = if keys_sanitized.exists() || !raw_has_separator {
+        // Either the sanitized file exists, or the raw input has no
+        // traversal characters — safe to consider the raw fallback.
+        let candidate_raw = wallet_name::build_wallet_path(&wallet_dir, &filename);
+        let keys_raw = candidate_raw.with_extension("keys");
+
+        if keys_sanitized.exists() {
+            (candidate_sanitized, sanitized.clone())
+        } else if keys_raw.exists() && !raw_has_separator {
+            (candidate_raw, filename.clone())
+        } else {
+            // Neither form exists on disk. The sanitized form is the
+            // canonical one to report back (matches what the UI will
+            // show for a new create).
+            (candidate_sanitized, sanitized.clone())
+        }
+    } else {
+        (candidate_sanitized, sanitized.clone())
+    };
+
+    validate::validate_wallet_path(&chosen_path)?;
+    let path_str = chosen_path.to_string_lossy().to_string();
+
+    wallet_bridge::open_wallet(&state.wallet, &path_str, &password, &daemon_addr, app)?;
 
     let addr_resp = wallet_bridge::get_address(&state.wallet, 0)?;
 
     *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(filename.clone());
+    *state.wallet_name.write().await = Some(chosen_name.clone());
 
     Ok(WalletInfo {
-        name: filename,
+        name: chosen_name,
         address: addr_resp.address,
         seed_language: "English".into(),
         network: network.as_str().into(),
@@ -529,7 +618,8 @@ pub async fn import_wallet_from_seed(
     language: Option<String>,
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
-    validate::validate_wallet_name(&name)?;
+    let sanitized = wallet_name::sanitize(&name);
+    validate::validate_wallet_name(&sanitized)?;
     validate::validate_seed(&seed)?;
     validate::validate_password(&password)?;
 
@@ -537,9 +627,15 @@ pub async fn import_wallet_from_seed(
     let lang = language.unwrap_or_else(|| "English".into());
     let height = restore_height.unwrap_or(0);
 
+    let wallet_dir = state.wallet_dir.read().await.clone();
+    wallet_name::ensure_dir_exists(&wallet_dir)?;
+    let full_path = wallet_name::build_wallet_path(&wallet_dir, &sanitized);
+    validate::validate_wallet_path(&full_path)?;
+    let path_str = full_path.to_string_lossy().to_string();
+
     let resp = wallet_bridge::restore_deterministic_wallet(
         &state.wallet,
-        &name,
+        &path_str,
         &seed,
         &password,
         &lang,
@@ -548,10 +644,10 @@ pub async fn import_wallet_from_seed(
     )?;
 
     *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(name.clone());
+    *state.wallet_name.write().await = Some(sanitized.clone());
 
     Ok(WalletInfo {
-        name,
+        name: sanitized,
         address: resp.address,
         seed_language: lang,
         network: network.as_str().into(),
@@ -570,7 +666,8 @@ pub async fn import_wallet_from_keys(
     language: Option<String>,
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
-    validate::validate_wallet_name(&name)?;
+    let sanitized = wallet_name::sanitize(&name);
+    validate::validate_wallet_name(&sanitized)?;
     validate::validate_address(&address)?;
     validate::validate_secret_key(&spendkey, "spend key")?;
     validate::validate_secret_key(&viewkey, "view key")?;
@@ -580,9 +677,15 @@ pub async fn import_wallet_from_keys(
     let lang = language.unwrap_or_else(|| "English".into());
     let height = restore_height.unwrap_or(0);
 
+    let wallet_dir = state.wallet_dir.read().await.clone();
+    wallet_name::ensure_dir_exists(&wallet_dir)?;
+    let full_path = wallet_name::build_wallet_path(&wallet_dir, &sanitized);
+    validate::validate_wallet_path(&full_path)?;
+    let path_str = full_path.to_string_lossy().to_string();
+
     let resp = wallet_bridge::generate_from_keys(
         &state.wallet,
-        &name,
+        &path_str,
         &address,
         &spendkey,
         &viewkey,
@@ -592,10 +695,10 @@ pub async fn import_wallet_from_keys(
     )?;
 
     *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(name.clone());
+    *state.wallet_name.write().await = Some(sanitized.clone());
 
     Ok(WalletInfo {
-        name,
+        name: sanitized,
         address: resp.address,
         seed_language: lang,
         network: network.as_str().into(),

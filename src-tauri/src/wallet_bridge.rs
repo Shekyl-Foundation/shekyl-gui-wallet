@@ -75,12 +75,13 @@ fn wallet_err(e: shekyl_wallet_rpc::WalletError) -> String {
 }
 
 /// Initialize the wallet2 instance with daemon connection.
-pub fn init(
-    handle: &WalletHandle,
-    nettype: u8,
-    daemon_address: &str,
-    wallet_dir: &str,
-) -> Result<(), String> {
+///
+/// `wallet2_ffi` no longer tracks a base wallet directory on the C++
+/// side; callers build full paths in Rust via [`crate::wallet_name`] and
+/// pass them to the create/open/restore functions below. See
+/// `shekyl-core` `docs/CHANGELOG.md` §"wallet2_ffi no longer carries
+/// wallet-directory state".
+pub fn init(handle: &WalletHandle, nettype: u8, daemon_address: &str) -> Result<(), String> {
     let mut guard = handle
         .lock()
         .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
@@ -98,7 +99,6 @@ pub fn init(
             true, // trusted_daemon
         )
         .map_err(wallet_err)?;
-    wallet.set_wallet_dir(wallet_dir);
     guard.wallet = Some(wallet);
     Ok(())
 }
@@ -151,12 +151,12 @@ pub fn setup_progress_bridge(handle: &WalletHandle, app: tauri::AppHandle) -> Re
 
 pub fn create_wallet(
     handle: &WalletHandle,
-    filename: &str,
+    wallet_path: &str,
     password: &str,
     language: &str,
 ) -> Result<(), String> {
     with_wallet(handle, |w| {
-        w.create_wallet(filename, password, language)
+        w.create_wallet(wallet_path, password, language)
             .map_err(wallet_err)
     })
 }
@@ -167,7 +167,7 @@ pub fn create_wallet(
 /// for new blocks and feeding them through the Rust KEM scanner.
 pub fn open_wallet(
     handle: &WalletHandle,
-    filename: &str,
+    wallet_path: &str,
     password: &str,
     daemon_url: &str,
     app: tauri::AppHandle,
@@ -177,12 +177,14 @@ pub fn open_wallet(
         .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
 
     let wallet = guard.wallet.as_ref().ok_or("Wallet not initialized")?;
-    wallet.open_wallet(filename, password).map_err(wallet_err)?;
+    wallet
+        .open_wallet(wallet_path, password)
+        .map_err(wallet_err)?;
 
     // Extract scanner keys from C++ wallet and start the sync loop
     match wallet.get_scanner_keys() {
         Ok(keys_json) => match start_sync_loop(&mut guard, &keys_json, daemon_url, app) {
-            Ok(()) => info!("sync loop started for {filename}"),
+            Ok(()) => info!("sync loop started"),
             Err(e) => warn!(
                 error = %e,
                 "failed to start sync loop; wallet opened but scanner inactive"
@@ -363,7 +365,7 @@ pub struct RestoreWalletResponse {
 #[allow(clippy::too_many_arguments)]
 pub fn restore_deterministic_wallet(
     handle: &WalletHandle,
-    filename: &str,
+    wallet_path: &str,
     seed: &str,
     password: &str,
     language: &str,
@@ -373,7 +375,7 @@ pub fn restore_deterministic_wallet(
     with_wallet(handle, |w| {
         let val = w
             .restore_deterministic_wallet(
-                filename,
+                wallet_path,
                 seed,
                 password,
                 language,
@@ -396,7 +398,7 @@ pub struct GenerateFromKeysResponse {
 #[allow(clippy::too_many_arguments)]
 pub fn generate_from_keys(
     handle: &WalletHandle,
-    filename: &str,
+    wallet_path: &str,
     address: &str,
     spendkey: &str,
     viewkey: &str,
@@ -407,7 +409,7 @@ pub fn generate_from_keys(
     with_wallet(handle, |w| {
         let val = w
             .generate_from_keys(
-                filename,
+                wallet_path,
                 address,
                 spendkey,
                 viewkey,

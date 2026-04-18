@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useWallet } from "../context/useWallet";
 import type { CreateWalletResult } from "../types/wallet";
+import WalletDirAdvanced from "../components/WalletDirAdvanced";
 
 type Step = "setup" | "seed" | "confirm" | "done";
 
@@ -152,6 +153,10 @@ export default function CreateWallet() {
                 placeholder="My Wallet"
                 autoFocus
               />
+              <p className="text-[11px] text-purple-400">
+                Spaces are converted to underscores on disk, so "My Wallet"
+                becomes <code>My_Wallet</code>.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -214,6 +219,8 @@ export default function CreateWallet() {
                 </>
               )}
             </button>
+
+            <WalletDirAdvanced />
           </div>
         )}
 

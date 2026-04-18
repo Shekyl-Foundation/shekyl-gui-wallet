@@ -15,6 +15,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [rpcReady, setRpcReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [walletDir, setWalletDir] = useState<string | null>(null);
 
   const refreshFiles = useCallback(async () => {
     try {
@@ -27,6 +28,29 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshWalletDir = useCallback(async () => {
+    const dir = await invoke<string>("get_wallet_dir");
+    setWalletDir(dir);
+    return dir;
+  }, []);
+
+  const setCustomWalletDir = useCallback(
+    async (dir: string) => {
+      const canonical = await invoke<string>("set_wallet_dir", { dir });
+      setWalletDir(canonical);
+      await refreshFiles();
+      return canonical;
+    },
+    [refreshFiles],
+  );
+
+  const resetWalletDir = useCallback(async () => {
+    const canonical = await invoke<string>("reset_wallet_dir");
+    setWalletDir(canonical);
+    await refreshFiles();
+    return canonical;
+  }, [refreshFiles]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -35,6 +59,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         await invoke<boolean>("init_wallet_rpc");
         if (cancelled) return;
         setRpcReady(true);
+        try {
+          const dir = await invoke<string>("get_wallet_dir");
+          if (!cancelled) setWalletDir(dir);
+        } catch {
+          // non-fatal; UI can request it later
+        }
       } catch (e) {
         if (cancelled) return;
         setError(
@@ -173,6 +203,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         lockWallet,
         setPhase,
         refreshFiles,
+        walletDir,
+        setCustomWalletDir,
+        resetWalletDir,
+        refreshWalletDir,
       }}
     >
       {children}

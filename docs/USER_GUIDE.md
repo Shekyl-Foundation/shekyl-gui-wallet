@@ -111,11 +111,16 @@ When you open the wallet for the first time, it does three things automatically:
    separate background process is started. You'll briefly see a loading
    screen with the Shekyl logo.
 
-2. **Scans for existing wallets** -- the wallet checks your default data
-   directory for `.keys` files:
+2. **Scans for existing wallets** -- the wallet ensures the default data
+   directory exists (creating it if needed) and checks for `.keys` files:
    - **Linux**: `~/.shekyl/wallets/`
    - **macOS**: `~/Library/Application Support/shekyl/wallets/`
    - **Windows**: `%APPDATA%\shekyl\wallets\`
+
+   Advanced users can point at a different folder (for example, an
+   encrypted volume) via the **Advanced: wallet file location**
+   disclosure on the Create, Import, and Unlock screens. The chosen
+   folder is created automatically if it doesn't exist.
 
 3. **Routes you to the right screen**:
    - **No wallet found**: You'll see the **Welcome** screen with two options:
@@ -157,9 +162,11 @@ If this is your first time, you'll see the Welcome screen. Click
 **Create New Wallet** to start the setup wizard:
 
 1. **Name and password.** Choose a name (just a label for you -- it doesn't
-   appear on the blockchain) and a strong password. A strength indicator helps
-   you pick something secure. This password encrypts your wallet file. If
-   someone steals your computer, they can't open the wallet without it.
+   appear on the blockchain) and a strong password. Spaces in the name are
+   converted to underscores on disk, so "My Wallet" is saved as
+   `My_Wallet.keys`. A strength indicator helps you pick something secure.
+   This password encrypts your wallet file. If someone steals your
+   computer, they can't open the wallet without it.
 
 2. **Seed phrase.** The wallet generates a **25-word mnemonic seed** and
    displays it in a numbered grid. This is the most important thing you'll

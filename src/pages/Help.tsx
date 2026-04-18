@@ -6,9 +6,9 @@ import {
   Users,
   ShieldCheck,
   HelpCircle,
-  ChevronDown,
-  ChevronRight,
 } from "lucide-react";
+
+import CollapsibleSection from "../components/CollapsibleSection";
 
 interface SectionProps {
   icon: React.ComponentType<{ className?: string }>;
@@ -19,28 +19,16 @@ interface SectionProps {
   onToggle: (id: string) => void;
 }
 
-function Section({ icon: Icon, title, id, children, open, onToggle }: SectionProps) {
-  const isOpen = open === id;
+function Section({ icon, title, id, children, open, onToggle }: SectionProps) {
   return (
-    <div className="card">
-      <button
-        onClick={() => onToggle(id)}
-        className="flex w-full items-center gap-3 text-left"
-      >
-        <Icon className="h-5 w-5 shrink-0 text-gold-400" />
-        <span className="flex-1 text-sm font-semibold text-white">{title}</span>
-        {isOpen ? (
-          <ChevronDown className="h-4 w-4 text-purple-400" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-purple-400" />
-        )}
-      </button>
-      {isOpen && (
-        <div className="mt-4 space-y-3 border-t border-purple-700/50 pt-4 text-xs leading-relaxed text-purple-200">
-          {children}
-        </div>
-      )}
-    </div>
+    <CollapsibleSection
+      icon={icon}
+      title={title}
+      open={open === id}
+      onToggle={() => onToggle(id)}
+    >
+      {children}
+    </CollapsibleSection>
   );
 }
 

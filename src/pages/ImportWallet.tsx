@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useWallet } from "../context/useWallet";
 import type { WalletProgress } from "../types/daemon";
+import WalletDirAdvanced from "../components/WalletDirAdvanced";
 
 type Tab = "seed" | "keys";
 
@@ -273,6 +274,10 @@ export default function ImportWallet() {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Restored Wallet"
                 />
+                <p className="text-[11px] text-purple-400">
+                  Spaces are converted to underscores on disk, so "My Wallet"
+                  becomes <code>My_Wallet</code>.
+                </p>
               </div>
 
               {/* Seed tab */}
@@ -402,6 +407,8 @@ export default function ImportWallet() {
                     ? "Restore from Seed"
                     : "Import from Keys"}
               </button>
+
+              <WalletDirAdvanced />
             </div>
           </>
         )}

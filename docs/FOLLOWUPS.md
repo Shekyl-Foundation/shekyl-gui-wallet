@@ -97,3 +97,81 @@ Before closing this item: verify the release workflow actually passes
 the pinned tag to all three platforms' checkout commands, and update
 `docs/BUILD.md` (or equivalent) to document the pin policy for anyone
 building from source.
+
+---
+
+## Remove `open_wallet` dual-search fallback — target: alpha.5
+
+`commands::open_wallet` currently tries the sanitized filename first
+(`"My_Wallet.keys"`) and falls back to the raw filename
+(`"My Wallet.keys"`) if the sanitized variant is not present on disk.
+This exists only to rescue wallets created against alpha.1–alpha.3
+builds, which wrote filenames with spaces intact on Windows and
+consequently produced the separator-corruption bug documented in the
+Unreleased changelog.
+
+Once users on those alphas have been prompted (via the in-app "Wallets
+with spaces in their names have been renamed to use underscores"
+helper text, not yet shipped) and at least one minor-release window
+has passed, the raw-filename branch in `commands::open_wallet` should
+be deleted. Rationale per `15-deletion-and-debt.mdc`: migration code
+is permanent attack surface for a finite problem.
+
+Deletion checklist:
+
+1. Remove the raw-filename fallback in `src-tauri/src/commands.rs`
+   (the `if sanitized_path_exists { … } else { raw_path }` block).
+2. Remove the helper-text pointing at "wallets with spaces were
+   renamed" from `Unlock.tsx` / release notes.
+3. Update `CHANGELOG.md` under the release that removes it.
+
+---
+
+## Broaden `wallet_name::sanitize` character policy — target: alpha.5
+
+`sanitize` currently only replaces whitespace with underscores. The
+wider set of filesystem-unsafe characters on Windows (`<>:"/\?*`) is
+rejected upstream by `validate::validate_wallet_name`, so they never
+reach `sanitize`. That split works today but creates two places where
+filename policy lives.
+
+Before stable, collapse the two: `sanitize` should be the single
+source of truth for "what does a filesystem-friendly Shekyl wallet
+name look like" and `validate_wallet_name` should only check length
+and non-empty after sanitization. This also lets us be more generous
+with what the user can type (e.g. hyphens and dots) without risking
+an error-message round trip.
+
+Scope when this is picked up:
+
+1. Decide the final allowed character class (recommend: Unicode
+   letters/digits + `-_. ` with whitespace collapsed to `_`, all
+   other characters replaced with `_` rather than rejected).
+2. Update `sanitize` and its unit tests.
+3. Simplify `validate_wallet_name` to post-sanitize-only checks.
+4. Re-run proptest and fuzz corpora.
+
+---
+
+## Persist custom wallet directory across launches — target: alpha.5
+
+`set_wallet_dir` / `reset_wallet_dir` currently only update in-memory
+`AppState`; on next launch `init_wallet_rpc` re-derives the platform
+default. For the Advanced picker to be useful long-term (e.g. an
+encrypted-volume user who wants their wallets to live on
+`D:\Vault\Shekyl`), the chosen directory needs to survive a restart.
+
+Proposed shape:
+
+1. Tauri app-config dir gets a tiny `gui-config.json`
+   (`wallet_dir_override: Option<String>`). Not encrypted —
+   it's a filepath, not a secret.
+2. `init_wallet_rpc` reads the override before picking the default,
+   and falls back to the default if the override is missing or the
+   directory can't be accessed (e.g. external drive unplugged).
+3. UI surfaces "override in effect, but directory not accessible"
+   as a soft warning rather than a hard failure — the user can
+   reset or choose a new location.
+
+This is deliberately a separate item from the initial Advanced-picker
+change so the persistence design can be reviewed on its own.
