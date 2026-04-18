@@ -1,5 +1,30 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.2] - 2026-04-18
+
+### Changed
+
+- **Version reset to match shekyl-core.** Prior alpha cycle (alpha.1
+  through alpha.14) burned 14 tags debugging the Windows/vcpkg/Boost
+  build chain; alpha.14 was the first to produce working artifacts on
+  all three platforms (Linux, macOS, Windows). The `v3.1.0-alpha.1`
+  through `v3.1.0-alpha.14` GitHub releases and tags have been deleted
+  to align GUI wallet versioning with shekyl-core, which is now at
+  `v3.1.0-alpha.2`. The changelog entries below are retained as
+  engineering history — the vcpkg-decoration and environment-variable
+  pitfalls are exactly the kind of thing a future maintainer hitting a
+  similar problem will want to find.
+- `src-tauri/Cargo.toml`, `package.json`, `src-tauri/tauri.conf.json`,
+  `src-tauri/Cargo.lock` all updated to `3.1.0-alpha.2`.
+
+### Added
+
+- `docs/FOLLOWUPS.md` entry: pin `shekyl-core` checkout to the matching
+  tag in `release.yml` before any release labeled reproducible. Target
+  alpha.4. Current behavior (clone `shekyl-core` dev) is acceptable for
+  alpha cadence but makes released `shekyld` binaries non-reproducible
+  from the GUI wallet tag alone.
+
 ## [3.1.0-alpha.14] - 2026-04-17
 
 ### Fixed
