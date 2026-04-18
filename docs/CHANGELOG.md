@@ -1,6 +1,12 @@
 # Shekyl GUI Wallet Changelog
 
-## [Unreleased]
+## [3.1.0-alpha.4] - 2026-04-18
+
+> **alpha.3 is broken on Windows.** Wallet creation produced a mixed-
+> separator path (`C:\Users\…\Shekyl/My Wallet.keys`) that Windows
+> refused, so alpha.3 could not create or open wallets on Windows at
+> all. alpha.4 fixes this; anyone who tried alpha.3 on Windows should
+> upgrade directly and discard any partial wallet directory.
 
 ### Fixed
 
@@ -15,6 +21,14 @@
   the host separator is always correct. User-supplied names are
   sanitized (`"My Wallet"` → `"My_Wallet"`) before ever touching disk.
   Addresses the alpha.3 field report; bugfix only, no consensus change.
+
+- **Dependency-Audit CI workflow now runs on `dev`.** The scaffolded
+  trigger referenced a `develop` branch that has never existed in this
+  repo, so direct pushes to `dev` silently skipped the audit. The lag
+  showed up concretely in the alpha.2 → alpha.3 cycle: RustSec indexed
+  RUSTSEC-2026-0098 and -0099 within hours of tagging alpha.2 and we
+  only caught it on the next scheduled run. Retargeting the workflow
+  closes that window.
 
 ### Added
 

@@ -5056,7 +5056,7 @@ dependencies = [
 
 [[package]]
 name = "shekyl-wallet"
-version = "3.1.0-alpha.3"
+version = "3.1.0-alpha.4"
 dependencies = [
  "curve25519-dalek",
  "dirs",
