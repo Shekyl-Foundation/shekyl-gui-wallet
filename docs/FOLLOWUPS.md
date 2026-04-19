@@ -35,16 +35,20 @@ them to the backend is blocked on the items below.
   pure scaffolding — state is initialized but never populated from backend
   commands that don't exist yet.
 
-### Type mismatches
+### Type mismatches — resolved in alpha.2
 
-- `SigningDashboard` expects lowercase `IntentState` (`"proposed"`,
-  `"signed"`, etc.); the page's state types previously used PascalCase.
-  Fixed in alpha.2 to lowercase to match the component, but the backend
-  wire format needs to be confirmed when the signing flow is implemented.
-- `ProverView` expects `amount: string`; page state previously used
-  `number`. Fixed in alpha.2.
-- `ViolationAlert` expects `invariantId: number`; page state previously
-  used `string`. Fixed in alpha.2.
+Three prop-type mismatches between multisig page state and the
+components consuming it were pinned in alpha.2: `SigningDashboard`
+now uses lowercase `IntentState` (`"proposed"` / `"signed"` / …)
+instead of PascalCase, `ProverView` uses `amount: string` instead
+of `number`, and `ViolationAlert` uses `invariantId: number` instead
+of `string`. The TS types and component contracts now agree; see
+`CHANGELOG.md` and the alpha.2 commit for the code. The lowercase
+`IntentState` choice was made to match the component; the backend
+wire format has not yet been specified, and step 5 of the plan below
+is where the wire format gets confirmed against what the components
+actually consume — if the backend returns PascalCase, the adapter
+belongs at the Tauri command layer, not in the components.
 
 ### Plan
 
@@ -54,7 +58,10 @@ Create a dedicated multisig integration plan for alpha.3 that:
 2. Extends `get_pqc_multisig_info` to return all fields the UI needs.
 3. Enables the `multisig` feature in the GUI wallet's Cargo.toml.
 4. Wires the Rust FROST handlers to the Tauri command layer.
-5. Connects the UI components to real backend data.
+5. Connects the UI components to real backend data, confirming the
+   wire format (`IntentState` casing, `amount`/`invariantId` types)
+   matches what the components already consume, or introducing an
+   adapter at the Tauri boundary if it doesn't.
 6. Adds integration tests for the multisig signing round-trip.
 
 ---
