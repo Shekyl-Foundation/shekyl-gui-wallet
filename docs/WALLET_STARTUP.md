@@ -86,8 +86,12 @@ ready ──► no_wallet (close wallet, no other wallets exist)
 
 ## Wallet File Detection
 
-On startup, the Tauri backend scans the platform default wallet directory for
-`.keys` files:
+On startup, the Tauri backend ensures the active wallet directory exists
+(via `wallet_name::ensure_dir_exists`, which maps to
+`std::fs::create_dir_all` -- equivalent to `mkdir -p`) and then scans it
+for `.keys` files.
+
+### Default directory
 
 | Platform | Default Path                                    |
 |----------|-------------------------------------------------|
@@ -95,10 +99,31 @@ On startup, the Tauri backend scans the platform default wallet directory for
 | macOS    | `~/Library/Application Support/shekyl/wallets/` |
 | Windows  | `%APPDATA%\shekyl\wallets\`                     |
 
-Detection is a pure filesystem operation -- no FFI or daemon connection
-needed. The `check_wallet_files` Tauri command returns a list of
-`WalletFileInfo` structs (name, path, modified timestamp) sorted by most
-recently modified.
+### Custom directory
+
+Users can override the default via the "Advanced: wallet file location"
+disclosure on the Create, Import, and Unlock screens. The Tauri commands
+`set_wallet_dir(dir)`, `reset_wallet_dir()`, and `get_wallet_dir()` back
+this UI; `set_wallet_dir` validates the path, runs `mkdir -p` on it, and
+refreshes the wallet-file list. The override currently lives in
+`AppState` only and does not persist across launches -- see
+`docs/FOLLOWUPS.md` for the persistence follow-up.
+
+### Filename normalization
+
+When the user types a wallet name like `My Wallet`, `wallet_name::sanitize`
+normalizes it to `My_Wallet` before any filesystem call, and
+`wallet_name::build_wallet_path` joins it with the active directory via
+`PathBuf::join` so the host separator is always correct (e.g.
+`C:\Users\<user>\AppData\Roaming\shekyl\wallets\My_Wallet.keys` on
+Windows). Opening a wallet uses dual-search: the sanitized name is tried
+first, and the raw name is tried as a fallback for wallets created on
+pre-normalization builds.
+
+Detection itself is a pure filesystem operation -- no FFI or daemon
+connection needed. The `check_wallet_files` Tauri command returns a list
+of `WalletFileInfo` structs (name, path, modified timestamp) sorted by
+most recently modified.
 
 ---
 

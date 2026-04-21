@@ -9,9 +9,12 @@
 //! the C++ wallet2 FFI. A malformed destination address or amount that
 //! reaches C++ is a DoS at best, memory corruption at worst.
 
+use std::path::Path;
+
 use shekyl_address::ShekylAddress;
 
 const MAX_WALLET_NAME_LEN: usize = 255;
+const MAX_WALLET_PATH_LEN: usize = 4096;
 const MAX_PASSWORD_LEN: usize = 1024;
 const MAX_MNEMONIC_WORDS: usize = 30;
 
@@ -68,6 +71,41 @@ pub fn validate_wallet_name(name: &str) -> Result<(), String> {
     }
     if name.starts_with('.') {
         return Err("Wallet name must not start with a dot".into());
+    }
+    Ok(())
+}
+
+/// Validate a fully-constructed wallet path before it crosses the FFI
+/// boundary into C++.
+///
+/// The FFI side [no longer carries filesystem state](../../shekyl-core/docs/CHANGELOG.md)
+/// — it just opens whatever path we pass. This is the last chance to
+/// reject obviously hostile inputs (null bytes, empty, absurd length).
+/// Full path-component validation (evil filenames, traversal) is handled
+/// upstream by [`validate_wallet_name`]; this guard is defense-in-depth
+/// against programmer error in the bridge layer.
+///
+/// Error messages never echo the input path — they describe the class of
+/// failure only, preserving the no-secret-leakage posture covered by the
+/// `wallet_name_error_does_not_leak_path_secret` test and extended here
+/// by `wallet_path_error_does_not_leak_input`.
+pub fn validate_wallet_path(path: &Path) -> Result<(), String> {
+    let s = path.as_os_str();
+    if s.is_empty() {
+        return Err("Wallet path must not be empty".into());
+    }
+    let lossy = s.to_string_lossy();
+    if lossy.len() > MAX_WALLET_PATH_LEN {
+        return Err(format!(
+            "Wallet path too long (max {MAX_WALLET_PATH_LEN} chars)"
+        ));
+    }
+    if lossy.contains('\0') {
+        return Err("Wallet path must not contain null bytes".into());
+    }
+    // A wallet path should resolve to a file, not a bare directory.
+    if path.file_name().is_none() {
+        return Err("Wallet path must include a filename component".into());
     }
     Ok(())
 }
@@ -263,6 +301,43 @@ mod tests {
     }
 
     #[test]
+    fn wallet_path_accepts_typical_path() {
+        let p = std::path::PathBuf::from("/tmp/shekyl/wallets/my_wallet");
+        assert!(validate_wallet_path(&p).is_ok());
+    }
+
+    #[test]
+    fn wallet_path_rejects_empty() {
+        let p = std::path::PathBuf::from("");
+        assert!(validate_wallet_path(&p).is_err());
+    }
+
+    #[test]
+    fn wallet_path_rejects_bare_directory() {
+        let p = std::path::PathBuf::from("/");
+        assert!(validate_wallet_path(&p).is_err());
+    }
+
+    #[test]
+    fn wallet_path_rejects_oversize() {
+        let long = "a".repeat(MAX_WALLET_PATH_LEN + 16);
+        let p = std::path::PathBuf::from(long);
+        assert!(validate_wallet_path(&p).is_err());
+    }
+
+    #[test]
+    fn wallet_path_error_does_not_leak_input() {
+        let evil = std::path::PathBuf::from(format!("/tmp/{CANARY_HEX}"));
+        let long = "Z".repeat(MAX_WALLET_PATH_LEN + 16);
+        let big = std::path::PathBuf::from(long);
+        // Valid path — no error to check, so force an oversize error.
+        let err = validate_wallet_path(&big).unwrap_err();
+        assert!(!err.contains("ZZZZZ"), "wallet_path leaked input content");
+        // Confirm a non-error path doesn't panic or leak via debug fmt.
+        let _ = validate_wallet_path(&evil);
+    }
+
+    #[test]
     fn wallet_name_error_does_not_leak_path_secret() {
         let evil_name = format!("../../../{CANARY_SHORT}/secrets");
         let err = validate_wallet_name(&evil_name).unwrap_err();
@@ -327,6 +402,11 @@ mod tests {
             #[test]
             fn validate_wallet_name_never_panics(s in "\\PC{0,500}") {
                 let _ = validate_wallet_name(&s);
+            }
+
+            #[test]
+            fn validate_wallet_path_never_panics(s in "\\PC{0,5000}") {
+                let _ = validate_wallet_path(std::path::Path::new(&s));
             }
 
             #[test]

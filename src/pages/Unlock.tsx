@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { Lock, Eye, EyeOff, ChevronDown } from "lucide-react";
 import { useWallet } from "../context/useWallet";
+import WalletDirAdvanced from "../components/WalletDirAdvanced";
 
 export default function Unlock() {
   const { walletFiles, openWallet, setPhase, error: ctxError } = useWallet();
@@ -148,6 +149,8 @@ export default function Unlock() {
           >
             {loading ? "Unlocking..." : "Unlock"}
           </button>
+
+          <WalletDirAdvanced />
         </div>
 
         {/* Help links */}

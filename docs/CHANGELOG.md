@@ -1,5 +1,90 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.4] - 2026-04-18
+
+> **alpha.3 is broken on Windows.** Wallet creation produced a mixed-
+> separator path (`C:\Users\…\Shekyl/My Wallet.keys`) that Windows
+> refused, so alpha.3 could not create or open wallets on Windows at
+> all. alpha.4 fixes this; anyone who tried alpha.3 on Windows should
+> upgrade directly and discard any partial wallet directory.
+
+### Fixed
+
+- **Windows wallet-file path corruption.** On Windows, creating a wallet
+  named "My Wallet" produced the path
+  `C:\Users\<user>\...\Shekyl/My Wallet.keys` — correct directory
+  separators for the profile prefix, a POSIX `/` for the join, and an
+  unescaped space in the filename. Path construction has been moved
+  from the C++ `wallet2_ffi` layer (which previously carried
+  `wallet_dir` state and concatenated strings manually) into a new Rust
+  module `src-tauri/src/wallet_name.rs` that uses `PathBuf::join`, so
+  the host separator is always correct. User-supplied names are
+  sanitized (`"My Wallet"` → `"My_Wallet"`) before ever touching disk.
+  Addresses the alpha.3 field report; bugfix only, no consensus change.
+
+- **Dependency-Audit CI workflow now runs on `dev`.** The scaffolded
+  trigger referenced a `develop` branch that has never existed in this
+  repo, so direct pushes to `dev` silently skipped the audit. The lag
+  showed up concretely in the alpha.2 → alpha.3 cycle: RustSec indexed
+  RUSTSEC-2026-0098 and -0099 within hours of tagging alpha.2 and we
+  only caught it on the next scheduled run. Retargeting the workflow
+  closes that window.
+
+### Added
+
+- **`wallet_name` Rust module** (`src-tauri/src/wallet_name.rs`)
+  centralising wallet-filename policy:
+  - `sanitize()` — trims, collapses internal whitespace, replaces with
+    underscores; idempotent.
+  - `build_wallet_path()` — `PathBuf::join` wrapper so callers can't
+    accidentally hand-concatenate separators.
+  - `ensure_dir_exists()` — `mkdir -p` via `std::fs::create_dir_all`
+    with a user-safe error message that does not echo the input path
+    back (preserves the no-secret-leakage posture asserted in
+    `validate` tests).
+- **`validate::validate_wallet_path()`** — rejects empty paths, paths
+  over `MAX_WALLET_PATH_LEN` (4096 bytes), paths containing null
+  bytes, and paths with no filename component. Covered by proptest
+  entry `validate_wallet_path_never_panics`.
+- **Dual-search on `open_wallet`.** If the user types a wallet name
+  with spaces, the backend first tries the sanitized
+  (`"My_Wallet"`) filename and falls back to the raw
+  (`"My Wallet"`) filename so pre-alpha wallets created before the
+  sanitizer shipped still open. Tracked for deletion in
+  `FOLLOWUPS.md` after one minor release.
+- **Custom wallet directory.** New Tauri commands `set_wallet_dir`,
+  `reset_wallet_dir`, `get_wallet_dir` and context methods
+  `setCustomWalletDir`, `resetWalletDir`, `refreshWalletDir` let users
+  move the wallet folder off the platform default (e.g. onto an
+  encrypted volume). `set_wallet_dir` runs `mkdir -p` on the chosen
+  path and refreshes the wallet-file list.
+- **"Advanced: wallet file location" disclosure** on the Create,
+  Import, and Unlock screens. Collapsed by default so the happy-path
+  user never has to think about filesystem layout; advanced users
+  open the disclosure to see the current directory and pick a
+  different folder via the native `tauri-plugin-dialog` picker.
+- **`tauri-plugin-dialog` v2** added to `src-tauri/Cargo.toml` and
+  registered in `lib.rs`. Capability `default.json` gains
+  `dialog:default`, `dialog:allow-open`, `dialog:allow-save` so the
+  frontend can invoke `open({ directory: true })` without a custom
+  permission grant.
+- **Shared `CollapsibleSection` component** extracted from
+  `pages/Help.tsx` to `components/CollapsibleSection.tsx`. Supports
+  both controlled (Help, one-panel-at-a-time) and uncontrolled
+  (Advanced disclosure) modes.
+
+### Changed
+
+- **`wallet_bridge::init` no longer takes `wallet_dir`.** Paired with
+  the shekyl-core change that removes `wallet_dir` state from
+  `wallet2_ffi`. The `filename` parameter on `create_wallet`,
+  `open_wallet`, `restore_deterministic_wallet`, and
+  `generate_from_keys` is now `wallet_path` — the Rust caller is
+  responsible for joining, sanitizing, and validating.
+- **`init_wallet_rpc` ensures the default wallet directory exists**
+  on startup via `wallet_name::ensure_dir_exists`, matching the
+  mkdir-p behaviour users expect from `monero-wallet-rpc --wallet-dir`.
+
 ## [3.1.0-alpha.3] - 2026-04-18
 
 ### Security
