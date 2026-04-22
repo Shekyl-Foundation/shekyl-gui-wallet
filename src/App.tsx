@@ -71,6 +71,9 @@ function WalletGate() {
               <Route path="chain-health" element={<ChainHealthPage />} />
               <Route path="multisig" element={<Multisig />} />
               <Route path="help" element={<Help />} />
+              {/* Catch-all so stale URLs from the no-wallet/unlock phases
+                  (e.g. /create, /import) never render an empty tree. */}
+              <Route path="*" element={<Dashboard />} />
             </Route>
           </Routes>
         </DaemonProvider>

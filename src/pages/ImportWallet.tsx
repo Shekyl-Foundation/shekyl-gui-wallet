@@ -99,6 +99,9 @@ export default function ImportWallet() {
 
       setRestoreStage("complete");
       stageTimer.current = setTimeout(() => {
+        // Navigate before flipping phase; see CreateWallet.handleFinish for
+        // why (ready-phase routes don't match /import).
+        navigate("/", { replace: true });
         setPhase("ready");
       }, 1500);
     } catch (e) {
@@ -106,7 +109,7 @@ export default function ImportWallet() {
       setError(String(e));
       setLoading(false);
     }
-  }, [importFromSeed, name, seed, password, restoreHeight, setPhase]);
+  }, [importFromSeed, name, seed, password, restoreHeight, navigate, setPhase]);
 
   const handleImportKeys = useCallback(async () => {
     setError(null);
@@ -126,6 +129,7 @@ export default function ImportWallet() {
 
       setRestoreStage("complete");
       stageTimer.current = setTimeout(() => {
+        navigate("/", { replace: true });
         setPhase("ready");
       }, 1500);
     } catch (e) {
@@ -141,6 +145,7 @@ export default function ImportWallet() {
     viewKey,
     password,
     restoreHeight,
+    navigate,
     setPhase,
   ]);
 
