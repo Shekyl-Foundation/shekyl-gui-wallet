@@ -98,8 +98,13 @@ export default function CreateWallet() {
   }, [result]);
 
   const handleFinish = useCallback(() => {
+    // Navigate before flipping phase: the ready-phase <Routes> in WalletGate
+    // has no /create entry, so leaving the URL on /create would unmount this
+    // page into an unmatched route and expose the body's bg-purple-900 as a
+    // blank screen.
+    navigate("/", { replace: true });
     setPhase("ready");
-  }, [setPhase]);
+  }, [navigate, setPhase]);
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-purple-900">
