@@ -4310,9 +4310,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.12"
+version = "0.103.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8279bb85272c9f10811ae6a6c547ff594d6a7f3c6c6b02ee9726d1d0dcfcdd06"
+checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -4935,6 +4935,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-logging"
+version = "3.1.0"
+dependencies = [
+ "libc",
+ "thiserror 2.0.18",
+ "time",
+ "tracing",
+ "tracing-appender",
+ "tracing-core",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "shekyl-oxide"
 version = "0.1.4-alpha"
 dependencies = [
@@ -5091,12 +5104,12 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
+ "shekyl-logging",
  "shekyl-scanner",
  "shekyl-tx-builder",
  "tokio",
  "tower-http",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5352,6 +5365,12 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "symlink"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a"
 
 [[package]]
 name = "syn"
@@ -6145,6 +6164,19 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-appender"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
+dependencies = [
+ "crossbeam-channel",
+ "symlink",
+ "thiserror 2.0.18",
+ "time",
+ "tracing-subscriber",
 ]
 
 [[package]]
