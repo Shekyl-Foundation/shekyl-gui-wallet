@@ -16,7 +16,7 @@ providing full-UTXO-set anonymity via curve trees.
 The GUI wallet is a single Tauri process. Wallet operations are performed
 in-process through `wallet_bridge.rs`, which combines two components:
 
-1. **`shekyl-wallet-rpc` (Rust crate)** -- an FFI wrapper around C++ `wallet2`.
+1. **`shekyl-engine-rpc` (Rust crate)** -- an FFI wrapper around C++ `wallet2`.
    Today this provides wallet creation, opening, key management, and the
    construction half of transactions. Despite the crate name, it is currently
    linked directly into the GUI process; it does not run as a separate RPC
@@ -49,7 +49,7 @@ in-process through `wallet_bridge.rs`, which combines two components:
 ### A note on direction
 
 The C++ FFI bridge is **transitional**. The long-term direction is a pure-Rust
-path through `shekyl-wallet-rpc` (which will eventually replace `wallet2`
+path through `shekyl-engine-rpc` (which will eventually replace `wallet2`
 entirely), with FFI retained only in the few places where C++ provides
 specific, hardened, audited value. The "RPC" in the crate name reflects that
 end state, not the current in-process linkage.

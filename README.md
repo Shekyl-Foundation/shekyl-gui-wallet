@@ -50,7 +50,7 @@ TLS:       rustls (no OpenSSL dependency)
 The Rust backend connects to a `shekyld` daemon via JSON-RPC for chain health,
 staking, and economic data, and via plain HTTP endpoints for mining control.
 Wallet-side operations (create, transfer, stake, claim, import) are handled by
-the `shekyl-wallet-rpc` crate which wraps the wallet2 C++ core through a safe
+the `shekyl-engine-rpc` crate which wraps the wallet2 C++ core through a safe
 FFI boundary. Progress events (FCMP++ proof generation, PQC signing, broadcast)
 flow from C++ through an `mpsc` channel to the Tauri event system.
 
