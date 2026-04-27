@@ -29,7 +29,7 @@
 //! Tauri commands for the Shekyl wallet.
 //!
 //! Chain/staking/mining commands call the daemon via JSON-RPC.
-//! Wallet commands call shekyl-wallet-rpc via JSON-RPC.
+//! Wallet commands call shekyl-engine-rpc via JSON-RPC.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;

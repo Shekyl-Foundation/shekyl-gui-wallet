@@ -13,7 +13,7 @@ This document describes the security architecture of the Shekyl GUI wallet (Taur
 │   wallet_bridge.rs   │  ← Rust: type-safe, no unsafe
 │   commands.rs        │
 ├──────────────────────┤
-│ shekyl-wallet-rpc    │  ← C++ wallet2 FFI (prepare/finalize)
+│ shekyl-engine-rpc    │  ← C++ wallet2 FFI (prepare/finalize)
 │ shekyl-scanner       │  ← Rust scanner (scan/balance/state)
 │ shekyl-tx-builder    │  ← Rust signing (native-sign)
 └──────────────────────┘

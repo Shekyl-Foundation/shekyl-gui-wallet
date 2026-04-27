@@ -101,7 +101,7 @@ pub struct AppState {
     pub network: RwLock<NetworkType>,
     pub http: Client,
 
-    // Wallet (direct FFI via shekyl-wallet-rpc)
+    // Wallet (direct FFI via shekyl-engine-rpc)
     pub wallet_dir: RwLock<PathBuf>,
     pub wallet_open: RwLock<bool>,
     pub wallet_name: RwLock<Option<String>>,

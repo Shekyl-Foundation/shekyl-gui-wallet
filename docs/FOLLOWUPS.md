@@ -25,7 +25,7 @@ them to the backend is blocked on the items below.
 
 ### GUI wallet gaps
 
-- The `multisig` feature on `shekyl-wallet-rpc` is not enabled in
+- The `multisig` feature on `shekyl-engine-rpc` is not enabled in
   `src-tauri/Cargo.toml`, so the Rust FROST multisig handlers are not
   compiled into the wallet binary.
 - `export_group_descriptor` produces mostly-empty data because

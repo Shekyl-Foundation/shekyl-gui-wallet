@@ -3,7 +3,7 @@
 // All rights reserved.
 // BSD-3-Clause
 
-//! Direct FFI bridge to wallet2 via shekyl-wallet-rpc.
+//! Direct FFI bridge to wallet2 via shekyl-engine-rpc.
 //!
 //! Combines the C++ wallet2 FFI handle with a Rust scanner backed by
 //! `shekyl-scanner`. On `open_wallet`, a background sync loop starts
@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use shekyl_scanner::WalletState;
-use shekyl_wallet_rpc::{ProgressEvent, Wallet2};
+use shekyl_engine_rpc::{ProgressEvent, Wallet2};
 use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -70,7 +70,7 @@ fn scanner_state(handle: &WalletHandle) -> Result<Arc<TokioMutex<WalletState>>, 
     Ok(guard.scanner_state.clone())
 }
 
-fn wallet_err(e: shekyl_wallet_rpc::WalletError) -> String {
+fn engine_err(e: shekyl_engine_rpc::EngineError) -> String {
     format!("Wallet error: {}", e.message)
 }
 
@@ -90,7 +90,7 @@ pub fn init(handle: &WalletHandle, nettype: u8, daemon_address: &str) -> Result<
         return Ok(());
     }
 
-    let wallet = Wallet2::new(nettype).map_err(wallet_err)?;
+    let wallet = Wallet2::new(nettype).map_err(engine_err)?;
     wallet
         .init(
             daemon_address,
@@ -98,7 +98,7 @@ pub fn init(handle: &WalletHandle, nettype: u8, daemon_address: &str) -> Result<
             "",   // password: no HTTP digest auth
             true, // trusted_daemon
         )
-        .map_err(wallet_err)?;
+        .map_err(engine_err)?;
     guard.wallet = Some(wallet);
     Ok(())
 }
@@ -157,7 +157,7 @@ pub fn create_wallet(
 ) -> Result<(), String> {
     with_wallet(handle, |w| {
         w.create_wallet(wallet_path, password, language)
-            .map_err(wallet_err)
+            .map_err(engine_err)
     })
 }
 
@@ -179,7 +179,7 @@ pub fn open_wallet(
     let wallet = guard.wallet.as_ref().ok_or("Wallet not initialized")?;
     wallet
         .open_wallet(wallet_path, password)
-        .map_err(wallet_err)?;
+        .map_err(engine_err)?;
 
     // Extract scanner keys from C++ wallet and start the sync loop
     match wallet.get_scanner_keys() {
@@ -213,7 +213,7 @@ pub fn close_wallet(handle: &WalletHandle) -> Result<(), String> {
     }
 
     let wallet = guard.wallet.as_ref().ok_or("Wallet not initialized")?;
-    wallet.close_wallet(true).map_err(wallet_err)?;
+    wallet.close_wallet(true).map_err(engine_err)?;
 
     // Replace scanner state with a fresh one (old WalletState wipes secrets via Drop)
     guard.scanner_state = Arc::new(TokioMutex::new(WalletState::new()));
@@ -382,7 +382,7 @@ pub fn restore_deterministic_wallet(
                 restore_height,
                 seed_offset,
             )
-            .map_err(wallet_err)?;
+            .map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -417,7 +417,7 @@ pub fn generate_from_keys(
                 language,
                 restore_height,
             )
-            .map_err(wallet_err)?;
+            .map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -448,7 +448,7 @@ pub fn get_address(
     account_index: u32,
 ) -> Result<GetAddressResponse, String> {
     with_wallet(handle, |w| {
-        let val = w.get_address(account_index).map_err(wallet_err)?;
+        let val = w.get_address(account_index).map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -467,14 +467,14 @@ pub fn get_balance(
     account_index: u32,
 ) -> Result<GetBalanceResponse, String> {
     with_wallet(handle, |w| {
-        let val = w.get_balance(account_index).map_err(wallet_err)?;
+        let val = w.get_balance(account_index).map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
 
 pub fn query_key(handle: &WalletHandle, key_type: &str) -> Result<String, String> {
     with_wallet(handle, |w| {
-        let val = w.query_key(key_type).map_err(wallet_err)?;
+        let val = w.query_key(key_type).map_err(engine_err)?;
         val["key"]
             .as_str()
             .map(String::from)
@@ -518,7 +518,7 @@ pub fn transfer(
         let dest_json = serde_json::json!([{"amount": amount, "address": address}]).to_string();
         let val = wallet
             .transfer_native(&dest_json, 0, 0)
-            .map_err(wallet_err)?;
+            .map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -567,14 +567,14 @@ pub fn get_transfers(
     with_wallet(handle, |w| {
         let val = w
             .get_transfers(r#in, out, pending, false, pool, 0)
-            .map_err(wallet_err)?;
+            .map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
 
 #[allow(dead_code)]
 pub fn stop_wallet(handle: &WalletHandle) -> Result<(), String> {
-    with_wallet(handle, |w| w.stop().map_err(wallet_err))
+    with_wallet(handle, |w| w.stop().map_err(engine_err))
 }
 
 // ─── Staking ─────────────────────────────────────────────────────────────────
@@ -584,14 +584,14 @@ pub fn stake(handle: &WalletHandle, tier: u8, amount: u64) -> Result<TransferRes
         let params = serde_json::json!({ "tier": tier, "amount": amount });
         let val = w
             .json_rpc_call("stake", &params.to_string())
-            .map_err(wallet_err)?;
+            .map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
 
 pub fn claim_rewards(handle: &WalletHandle) -> Result<TransferResponse, String> {
     with_wallet(handle, |w| {
-        let val = w.json_rpc_call("claim_rewards", "{}").map_err(wallet_err)?;
+        let val = w.json_rpc_call("claim_rewards", "{}").map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -622,7 +622,7 @@ pub fn get_staked_outputs(handle: &WalletHandle) -> Result<GetStakedOutputsRespo
     with_wallet(handle, |w| {
         let val = w
             .json_rpc_call("get_staked_outputs", "{}")
-            .map_err(wallet_err)?;
+            .map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -650,7 +650,7 @@ pub fn create_pqc_multisig_group(
         });
         let val = w
             .json_rpc_call("create_pqc_multisig_group", &params.to_string())
-            .map_err(wallet_err)?;
+            .map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -670,7 +670,7 @@ pub fn get_pqc_multisig_info(handle: &WalletHandle) -> Result<PqcMultisigInfo, S
     with_wallet(handle, |w| {
         let val = w
             .json_rpc_call("get_pqc_multisig_info", "{}")
-            .map_err(wallet_err)?;
+            .map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }
@@ -812,7 +812,7 @@ pub fn sign_multisig_partial(
         let params = serde_json::json!({ "signing_request": signing_request });
         let val = w
             .json_rpc_call("sign_multisig_partial", &params.to_string())
-            .map_err(wallet_err)?;
+            .map_err(engine_err)?;
         serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
     })
 }

@@ -69,7 +69,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setError(
           `Could not start wallet service: ${String(e)}. ` +
-            "Make sure shekyl-wallet-rpc is installed and accessible.",
+            "Make sure shekyl-engine-rpc is installed and accessible.",
         );
         setPhase("no_wallet");
         return;

@@ -21,7 +21,7 @@ src-tauri/gen/
 
 # Sidecar binaries (downloaded from shekyl-core releases, not committed)
 src-tauri/binaries/shekyld-*
-src-tauri/binaries/shekyl-wallet-rpc-*
+src-tauri/binaries/shekyl-engine-rpc-*
 
 # Environment
 .env
