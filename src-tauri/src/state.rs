@@ -32,7 +32,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::wallet_bridge;
+use crate::{gui_config, wallet_bridge};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -103,6 +103,12 @@ pub struct AppState {
 
     // Wallet (direct FFI via shekyl-engine-rpc)
     pub wallet_dir: RwLock<PathBuf>,
+    /// `Some(path)` when the persisted wallet-dir override was
+    /// unreachable at startup and we fell back to the platform default.
+    /// Surfaced via `get_wallet_dir` so the UI can warn the user;
+    /// cleared by `set_wallet_dir` / `reset_wallet_dir` once the user
+    /// picks a working location.
+    pub wallet_dir_warning: RwLock<Option<PathBuf>>,
     pub wallet_open: RwLock<bool>,
     pub wallet_name: RwLock<Option<String>>,
     pub wallet: wallet_bridge::WalletHandle,
@@ -111,6 +117,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         let net = NetworkType::default();
+        let resolved = gui_config::resolve_wallet_dir(default_wallet_dir());
         Self {
             daemon_url: RwLock::new(format!(
                 "http://127.0.0.1:{}/json_rpc",
@@ -121,7 +128,8 @@ impl AppState {
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .expect("failed to create HTTP client"),
-            wallet_dir: RwLock::new(default_wallet_dir()),
+            wallet_dir: RwLock::new(resolved.dir),
+            wallet_dir_warning: RwLock::new(resolved.fallback_from),
             wallet_open: RwLock::new(false),
             wallet_name: RwLock::new(None),
             wallet: wallet_bridge::new_handle(),

@@ -37,6 +37,7 @@ use tauri::Manager;
 mod commands;
 mod daemon_manager;
 mod daemon_rpc;
+mod gui_config;
 mod state;
 mod validate;
 mod wallet_bridge;

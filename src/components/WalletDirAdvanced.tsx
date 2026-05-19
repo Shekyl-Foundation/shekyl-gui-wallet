@@ -16,8 +16,13 @@ import CollapsibleSection from "./CollapsibleSection";
  * `init_wallet_rpc` does the same for the platform default on startup.
  */
 export default function WalletDirAdvanced() {
-  const { walletDir, setCustomWalletDir, resetWalletDir, refreshWalletDir } =
-    useWallet();
+  const {
+    walletDir,
+    walletDirFallbackFrom,
+    setCustomWalletDir,
+    resetWalletDir,
+    refreshWalletDir,
+  } = useWallet();
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +82,22 @@ export default function WalletDirAdvanced() {
       <div className="rounded-md bg-purple-900/60 px-3 py-2 font-mono text-[11px] text-gold-300 break-all">
         {walletDir ?? "Loading…"}
       </div>
+
+      {walletDirFallbackFrom && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-900/30 px-3 py-2 text-amber-200">
+          <div className="font-medium">
+            Your custom wallet location is unavailable.
+          </div>
+          <div className="text-amber-300/80 text-[11px] mt-1 break-all">
+            Falling back to the default. Custom path was:{" "}
+            <span className="font-mono">{walletDirFallbackFrom}</span>
+          </div>
+          <div className="text-amber-300/80 text-[11px] mt-1">
+            Pick a new folder below or reset to default to clear this
+            warning.
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-md border border-red-500/40 bg-red-900/30 px-3 py-2 text-red-200">
