@@ -70,15 +70,15 @@ The transfer uses a three-phase native-sign path:
 2. **Rust Sign**: `shekyl-tx-builder` generates FCMP++ proof, BP+ proof, PQC auth
 3. **C++ Finalize**: wallet2 inserts proofs, broadcasts to daemon
 
-No optimistic spent-marking is performed on the scanner side. The scanner's sync loop is the sole authority for marking outputs as spent — it does so only when key images appear on-chain. If signing succeeds but finalize fails (daemon unreachable, relay rejected), `WalletState` is unaffected and no rollback is needed. Outputs remain spendable for a retry.
+No optimistic spent-marking is performed on the scanner side. The scanner's sync loop is the sole authority for marking outputs as spent — it does so only when key images appear on-chain. If signing succeeds but finalize fails (daemon unreachable, relay rejected), the scanner's `(LedgerBlock, LedgerIndexes)` state is unaffected and no rollback is needed. Outputs remain spendable for a retry.
 
 ## Secret Key Handling
 
 - All wallet secrets (spend key, view key, X25519 SK, ML-KEM DK) are wrapped in `Zeroizing<T>` in Rust and wiped on drop
 - The scanner keys extracted via `wallet2_ffi_get_scanner_keys` are zeroized immediately after constructing the `ViewPair` and `Scanner`
-- `WalletState` implements `Drop` with `zeroize()` on all sensitive fields
+- `LedgerBlock` / `LedgerIndexes` (the scanner state pair) implement `Drop` with `zeroize()` on all sensitive fields in `shekyl-engine-state`
 - `TransferDetails` implements `Drop` with `zeroize()` and a redacting `Debug`
-- On `close_wallet`, the sync loop is cancelled and the scanner state is replaced (triggering Drop/zeroize on the old state)
+- On `close_wallet`, the sync loop is cancelled and the scanner state is replaced with `(LedgerBlock::empty(), LedgerIndexes::empty())` (triggering Drop/zeroize on the old state)
 - On `shutdown` (window destroy), the same wipe occurs — sync loop cancelled and scanner state replaced
 
 ## Seed/Password Entry Threat Model
@@ -121,7 +121,7 @@ These are tracked for implementation in future releases:
 
 ## Scanner State Persistence
 
-The scanner state is currently in-memory only. No partial state is persisted to disk between sessions. On wallet reopen, the scanner re-scans from the wallet's last-known height. The `on_flush` callback in the sync loop is a deliberate no-op pending `WalletState` serde support. This means:
+The scanner state is currently in-memory only. No partial state is persisted to disk between sessions. On wallet reopen, the scanner re-scans from the wallet's last-known height. There is no `on_flush` checkpoint hook today; the in-process sync loop in `wallet_bridge.rs` keeps `(LedgerBlock, LedgerIndexes)` purely in memory pending serde support for the pair (`shekyl-engine-state` does not yet expose persistence-safe serialization). This means:
 
 - A crash mid-scan loses in-memory outputs discovered since the last open
 - Recovery is automatic: the scanner detects missed blocks on next open and re-scans

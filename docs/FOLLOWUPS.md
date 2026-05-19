@@ -11,7 +11,9 @@ Items without a target version get one within 30 days or get closed as
 Pre-release audit (2026-04-15) found the multisig UI is scaffolding that
 has not been re-verified against the reworked shekyl-core V3.1 multisig
 API. The UI components shipped in alpha.1 as visual scaffolding; wiring
-them to the backend is blocked on the items below.
+them to the backend is blocked on the items below. Still blocked as of
+alpha.5 — no shekyl-core side work landed in the alpha.4 → alpha.5
+window.
 
 ### Backend gaps (shekyl-core side)
 
@@ -66,7 +68,7 @@ Create a dedicated multisig integration plan for alpha.3 that:
 
 ---
 
-## Pin shekyl-core by tag in release workflow — target: alpha.4
+## Pin shekyl-core by tag in release workflow — target: beta cadence
 
 `.github/workflows/release.yml` currently clones `shekyl-core` from the
 `dev` branch (and `ci.yml` / `codeql.yml` do the same):
@@ -82,23 +84,39 @@ bundled `shekyld` binary in a release tarball therefore cannot be
 reproduced from the git tag alone — it depends on when you run the
 build.
 
-For alpha releases the gap is acceptable (the whole alpha pipeline is
-still in motion), but before we tag anything users would hold long-term
-(beta, stable, or any release labeled reproducible) the release workflow
-must pin to a specific `shekyl-core` tag that matches the GUI wallet
-version. Options, in order of preference:
+**Status as of alpha.5:** explicitly deferred to beta cadence. The
+alpha pipeline is still in motion on both sides (core's KeyEngine
+migration, DAA LWMA-1 phase rollout, RandomX v2 phase work), so the
+GUI continues cloning `shekyl-core/dev`. Each alpha changelog entry
+records the specific dev SHA the bundled `shekyld` was built from so
+the gap is at least auditable.
 
-1. **Matching-tag pin.** GUI wallet `v3.1.0-alpha.N` clones
-   `shekyl-core` at tag `v3.1.0-alpha.N`. Requires that the shekyl-core
+**Reversion criteria.** Per `shekyl-core/.cursor/rules/21-reversion-clause-discipline.mdc`,
+the deferred-rejection here reopens to a positive decision when **any
+one of**:
+
+1. The GUI moves out of alpha cadence (first beta or RC tag).
+2. `shekyl-core` publishes a `v3.1.0-alpha.N` tag matching a GUI
+   alpha.N release window (and continues to do so).
+3. An audit response or downstream user explicitly requests
+   reproducible bundle builds for an alpha.
+
+For alpha releases the gap is acceptable. Before tagging anything
+users would hold long-term (beta, stable, or any release labeled
+reproducible) the release workflow must pin to a specific
+`shekyl-core` revision. Options, in order of preference:
+
+1. **Matching-tag pin.** GUI wallet `v3.1.0-betaN` clones
+   `shekyl-core` at tag `v3.1.0-betaN`. Requires that the shekyl-core
    tag exists before the GUI wallet tag is pushed. Makes the "which
    daemon ships in which wallet release" question trivially auditable.
 2. **Pinned SHA.** The GUI wallet workflow reads a `SHEKYL_CORE_REV` file
    from its own repo and clones that exact commit. More flexible, less
    self-documenting, but decouples the two tag cadences.
 
-CI (`ci.yml`) and CodeQL (`codeql.yml`) can stay on `dev` — they're
-"does current dev still build against current dev" checks, which is
-exactly what we want there.
+CI (`ci.yml`) and CodeQL (`codeql.yml`) can stay on `dev` regardless
+of release-workflow policy — they're "does current dev still build
+against current dev" checks, which is exactly what we want there.
 
 Before closing this item: verify the release workflow actually passes
 the pinned tag to all three platforms' checkout commands, and update
@@ -107,7 +125,7 @@ building from source.
 
 ---
 
-## Remove `open_wallet` dual-search fallback — target: alpha.5
+## Remove `open_wallet` dual-search fallback — target: alpha.6
 
 `commands::open_wallet` currently tries the sanitized filename first
 (`"My_Wallet.keys"`) and falls back to the raw filename
@@ -115,70 +133,120 @@ building from source.
 This exists only to rescue wallets created against alpha.1–alpha.3
 builds, which wrote filenames with spaces intact on Windows and
 consequently produced the separator-corruption bug documented in the
-Unreleased changelog.
+alpha.4 changelog.
 
-Once users on those alphas have been prompted (via the in-app "Wallets
-with spaces in their names have been renamed to use underscores"
-helper text, not yet shipped) and at least one minor-release window
-has passed, the raw-filename branch in `commands::open_wallet` should
-be deleted. Rationale per `15-deletion-and-debt.mdc`: migration code
-is permanent attack surface for a finite problem.
+**Re-targeted from alpha.5 → alpha.6 because the named prerequisite
+("in-app helper text shipped first") did not land in alpha.5.** The
+sanitize broadening in alpha.5 widened the set of sanitization
+transformations (path-separator replacement, leading-dot stripping,
+Windows-reserved-char replacement), making the dual-search fallback
+load-bearing for *more* potential pre-alpha.5 names, not fewer. The
+fallback removal must be paired with helper text that names the
+specific transformations users might be affected by, otherwise
+deleting the fallback is a silent UX regression for any user whose
+wallet name produced different sanitize output before and after
+alpha.5.
 
-Deletion checklist:
+Deletion checklist (when the prerequisite ships):
 
-1. Remove the raw-filename fallback in `src-tauri/src/commands.rs`
-   (the `if sanitized_path_exists { … } else { raw_path }` block).
-2. Remove the helper-text pointing at "wallets with spaces were
-   renamed" from `Unlock.tsx` / release notes.
-3. Update `CHANGELOG.md` under the release that removes it.
-
----
-
-## Broaden `wallet_name::sanitize` character policy — target: alpha.5
-
-`sanitize` currently only replaces whitespace with underscores. The
-wider set of filesystem-unsafe characters on Windows (`<>:"/\?*`) is
-rejected upstream by `validate::validate_wallet_name`, so they never
-reach `sanitize`. That split works today but creates two places where
-filename policy lives.
-
-Before stable, collapse the two: `sanitize` should be the single
-source of truth for "what does a filesystem-friendly Shekyl wallet
-name look like" and `validate_wallet_name` should only check length
-and non-empty after sanitization. This also lets us be more generous
-with what the user can type (e.g. hyphens and dots) without risking
-an error-message round trip.
-
-Scope when this is picked up:
-
-1. Decide the final allowed character class (recommend: Unicode
-   letters/digits + `-_. ` with whitespace collapsed to `_`, all
-   other characters replaced with `_` rather than rejected).
-2. Update `sanitize` and its unit tests.
-3. Simplify `validate_wallet_name` to post-sanitize-only checks.
-4. Re-run proptest and fuzz corpora.
+1. Ship in-app helper text on the unlock screen pointing at "if you
+   created a wallet on alpha.1–alpha.4 and don't see it listed, rename
+   the file using the new sanitization rules"; include the broadened-
+   policy examples (`My Wallet` → `My_Wallet`, `wallet:bak` →
+   `wallet_bak`, `.hidden` → `hidden`).
+2. Remove the raw-filename fallback in `src-tauri/src/commands.rs`
+   (the `if sanitized_path_exists { … } else { raw_path }` block and
+   the `raw_has_separator` guard).
+3. Remove the helper text once one minor-release window has passed
+   without user reports.
+4. Update `CHANGELOG.md` under the release that removes it.
 
 ---
 
-## Persist custom wallet directory across launches — target: alpha.5
+## Adopt `Engine::start_refresh` / `RefreshHandle` — target: post-wallet rewrite
 
-`set_wallet_dir` / `reset_wallet_dir` currently only update in-memory
-`AppState`; on next launch `init_wallet_rpc` re-derives the platform
-default. For the Advanced picker to be useful long-term (e.g. an
-encrypted-volume user who wants their wallets to live on
-`D:\Vault\Shekyl`), the chosen directory needs to survive a restart.
+Forward-tracking shekyl-core's pending wallet-engine migration.
+`docs/design/STAGE_1_PR_4_REFRESH_ENGINE.md` (and its preflight notes)
+define a pure-Rust refresh engine that replaces the C++
+`wallet2::refresh` loop with an isolated process driving
+`LedgerIndexes::process_scanned_outputs` and reorg handling. The GUI
+currently runs an in-process local sync loop in `wallet_bridge.rs`
+(landed in alpha.5); when the engine lands in core and reaches feature
+parity with the C++ `wallet2` FFI, the GUI's local loop is replaced
+by a thin `RefreshHandle` client.
 
-Proposed shape:
+**No GUI implementation work today.** `STAGE_1_PR_4` is design-only;
+adopting it now would build against an unmerged API. Tracked so the
+in-process loop's deletion target is named.
 
-1. Tauri app-config dir gets a tiny `gui-config.json`
-   (`wallet_dir_override: Option<String>`). Not encrypted —
-   it's a filepath, not a secret.
-2. `init_wallet_rpc` reads the override before picking the default,
-   and falls back to the default if the override is missing or the
-   directory can't be accessed (e.g. external drive unplugged).
-3. UI surfaces "override in effect, but directory not accessible"
-   as a soft warning rather than a hard failure — the user can
-   reset or choose a new location.
+**Reversion criteria.** Adopt when **all** of:
 
-This is deliberately a separate item from the initial Advanced-picker
-change so the persistence design can be reviewed on its own.
+1. `shekyl-core` ships a working `Engine` with feature parity to the
+   GUI's current `Wallet2` FFI surface (specifically: `get_balance`,
+   `get_address`, `query_key`, `transfer_native`, `stake`,
+   `claim_rewards`, `get_transfers`).
+2. The engine carries its own `start_refresh` / `RefreshHandle`
+   surface (the GUI doesn't need to write a custom driver for the
+   refresh loop).
+3. The migration path is documented (config knob, side-by-side
+   support window, deletion target for the C++ FFI shim).
+
+---
+
+## Adopt `PendingTxEngine` / `TxToSign` shape — target: post-`STAGE_1_PR_5`
+
+Forward-tracking shekyl-core's pending transaction-signing migration.
+`docs/design/STAGE_1_PR_5_PENDING_TX_ENGINE.md` defines a pure-Rust
+pending-tx engine. The GUI's `transfer_native` path today is
+"C++ wallet2 prepare → Rust sign → C++ finalize"; `STAGE_1_PR_5`
+moves the bridge fully into Rust and reduces the surface to an
+"engine returns `TxToSign`, GUI signs, engine finalizes" handshake.
+
+**No GUI implementation work today.** The `STAGE_1_PR_5` design is
+not yet merged; adopting it now would build against an unmerged API.
+
+**Reversion criteria.** Adopt when `STAGE_1_PR_5` lands in
+`shekyl-core/dev` and the new engine is paired with a working FFI
+or Rust client surface the GUI can consume without the legacy
+`transfer_native` path.
+
+---
+
+## Track `RANDOMX_V2_RUST.md` Phase 2+ — target: when phase 2 lands
+
+Forward-tracking shekyl-core's RandomX v2 Rust verifier work.
+`docs/design/RANDOMX_V2_RUST.md` Phase 1 (bundled `shekyld` build
+wiring) landed in alpha.5 with no GUI behaviour change. Phase 2+ adds
+the pure-Rust verifier; when it lands the bundled daemon switches
+over and the GUI's `daemon_rpc.rs` may gain a verification-status
+RPC field for the unlock/dashboard surface.
+
+**No GUI implementation work today.** Phase 2 is build-wiring only
+in core; consensus activation is gated on validation that the verifier
+matches the C++ implementation across the RandomX test vector suite.
+
+**Reversion criteria.** Re-evaluate when **any one of**:
+
+1. `shekyl-core` lands the Rust verifier as the active path.
+2. The daemon JSON-RPC contract gains a field exposing verifier
+   identity / version that the GUI surfaces.
+3. A consensus hard-fork activates the new verifier, requiring the
+   bundled `shekyld` to migrate in lockstep.
+
+---
+
+## Track `WALLET_REWRITE_PLAN.md` — target: post-V3.x
+
+Placeholder for the eventual deletion of `shekyl-engine-rpc`'s
+`wallet2` FFI dependency in favor of the pure-Rust `Engine` (the
+combination of `STAGE_1_PR_3` Key Engine, `STAGE_1_PR_4` Refresh
+Engine, `STAGE_1_PR_5` Pending Tx Engine, and follow-ups). When the
+rewrite reaches feature parity, the GUI drops `shekyl-ffi` /
+`shekyl-engine-rpc`'s C++ surface and links the Rust engine directly.
+
+**No GUI implementation work today.** The wallet rewrite is staged
+across multiple `shekyl-core` PRs and a multi-quarter timeline.
+
+**Reversion criteria.** Track via the per-PR followups above; this
+entry is the umbrella deletion target for the C++ `wallet2`
+dependency once all per-PR migrations are complete.
