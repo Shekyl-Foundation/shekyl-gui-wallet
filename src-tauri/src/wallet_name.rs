@@ -37,37 +37,63 @@
 
 use std::path::{Path, PathBuf};
 
-/// Normalize a user-supplied wallet name for disk storage.
+/// Filename policy: which characters are kept verbatim by [`sanitize`].
 ///
-/// Trims surrounding whitespace, collapses runs of internal Unicode
-/// whitespace into single spaces, and replaces those spaces with
-/// underscores. Idempotent: `sanitize(sanitize(x)) == sanitize(x)`.
-///
-/// The goal is "My Wallet" → "My_Wallet", not to be a general
-/// filesystem-safe sanitizer. Characters that are unsafe on Windows
-/// (`<>:"/\|?*`) are rejected upstream by [`crate::validate::validate_wallet_name`];
-/// this function assumes its input already passed that check and focuses
-/// only on whitespace handling.
-pub fn sanitize(input: &str) -> String {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
+/// The accepted set is `[A-Za-z0-9_\-.]` plus any character that
+/// [`char::is_alphabetic`] recognises as a Unicode letter (so non-ASCII
+/// scripts like "café" round-trip without mangling). Every other
+/// character — path separators, null bytes, Windows-reserved punctuation,
+/// emoji, control bytes — is replaced with `_` and run-collapsed.
+fn is_filename_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c.is_alphabetic() || matches!(c, '_' | '-' | '.')
+}
 
-    let mut out = String::with_capacity(trimmed.len());
-    let mut in_ws = false;
-    for c in trimmed.chars() {
-        if c.is_whitespace() {
-            if !in_ws {
-                out.push('_');
-                in_ws = true;
+/// Normalize an arbitrary user-supplied string into a filesystem-safe
+/// wallet filename. **Single source of truth for filename policy.**
+///
+/// 1. Replace every character outside the accepted set
+///    (see [`is_filename_char`]) with `_`.
+/// 2. Collapse runs of `_` (whether originally present or produced by
+///    rule 1) to a single `_`.
+/// 3. Trim leading/trailing `_`, `.`, and whitespace. Leading dots are
+///    stripped so the result is never a POSIX hidden file or a `.` /
+///    `..` traversal token; trailing dots are stripped so Windows
+///    doesn't quietly drop them at create-file time.
+/// 4. Return the result (which may be empty if the input was entirely
+///    unrepresentable, e.g. `////`). Callers couple this with
+///    [`crate::validate::validate_wallet_name`] for the post-sanitize
+///    empty / oversize check.
+///
+/// Idempotent: `sanitize(sanitize(x)) == sanitize(x)`. The earlier
+/// design rejected `/`, `\`, `\0`, leading dots, and other unsafe
+/// characters at validation time; pulling that work into sanitize lets
+/// the GUI accept arbitrary user input (drag-and-drop, paste from
+/// arbitrary sources) without surfacing path-policy errors to the user.
+pub fn sanitize(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut last_was_underscore = false;
+    for c in input.chars() {
+        if is_filename_char(c) {
+            // `_` is in the allowed set; the collapse rule applies
+            // uniformly to both "originally `_`" and "replacement `_`"
+            // so a string like "a___b" or "a   b" both collapse to
+            // "a_b".
+            if c == '_' {
+                if !last_was_underscore {
+                    out.push('_');
+                    last_was_underscore = true;
+                }
+            } else {
+                out.push(c);
+                last_was_underscore = false;
             }
-        } else {
-            out.push(c);
-            in_ws = false;
+        } else if !last_was_underscore {
+            out.push('_');
+            last_was_underscore = true;
         }
     }
-    out
+    out.trim_matches(|c: char| c == '_' || c == '.' || c.is_whitespace())
+        .to_string()
 }
 
 /// Join a wallet directory and a name into a full path using the host
@@ -112,6 +138,8 @@ mod tests {
     fn sanitize_leaves_simple_name_unchanged() {
         assert_eq!(sanitize("wallet"), "wallet");
         assert_eq!(sanitize("MyWallet"), "MyWallet");
+        assert_eq!(sanitize("wallet.bak"), "wallet.bak");
+        assert_eq!(sanitize("my-wallet_2026"), "my-wallet_2026");
     }
 
     #[test]
@@ -147,7 +175,25 @@ mod tests {
 
     #[test]
     fn sanitize_is_idempotent() {
-        let cases = ["My Wallet", "A  B  C", "  wallet  ", "wallet", ""];
+        let cases = [
+            "My Wallet",
+            "A  B  C",
+            "  wallet  ",
+            "wallet",
+            "",
+            "../evil",
+            "..hidden",
+            "evil\\name",
+            "evil/name",
+            "evil\0name",
+            "wallet.bak",
+            "wallet.",
+            "_wallet_",
+            "café wallet",
+            "C:\\Users\\me\\wallets\\My Wallet",
+            "<>:\"/\\|?*",
+            "🚀 wallet 🚀",
+        ];
         for c in cases {
             let once = sanitize(c);
             let twice = sanitize(&once);
@@ -158,6 +204,142 @@ mod tests {
     #[test]
     fn sanitize_preserves_unicode_letters() {
         assert_eq!(sanitize("café wallet"), "café_wallet");
+        assert_eq!(sanitize("日本語 wallet"), "日本語_wallet");
+    }
+
+    #[test]
+    fn sanitize_replaces_path_separators() {
+        assert_eq!(sanitize("../evil"), "evil");
+        assert_eq!(sanitize("evil/name"), "evil_name");
+        assert_eq!(sanitize("evil\\name"), "evil_name");
+        assert_eq!(sanitize("C:\\Users\\me\\wallet"), "C_Users_me_wallet");
+        assert_eq!(sanitize("/abs/wallet"), "abs_wallet");
+    }
+
+    #[test]
+    fn sanitize_replaces_null_bytes() {
+        assert_eq!(sanitize("evil\0name"), "evil_name");
+        assert_eq!(sanitize("\0\0wallet"), "wallet");
+    }
+
+    #[test]
+    fn sanitize_strips_leading_dots() {
+        // Leading dots would either hide the file on POSIX
+        // (`.wallet`) or be parsed as a traversal token (`..`).
+        // The post-sanitize result is never a hidden file.
+        assert_eq!(sanitize(".hidden"), "hidden");
+        assert_eq!(sanitize("..hidden"), "hidden");
+        assert_eq!(sanitize("..."), "");
+    }
+
+    #[test]
+    fn sanitize_strips_trailing_dots() {
+        // Windows silently drops trailing dots at file creation; the
+        // sanitize step does so explicitly so the on-disk name and
+        // the in-memory name agree.
+        assert_eq!(sanitize("wallet."), "wallet");
+        assert_eq!(sanitize("wallet..."), "wallet");
+    }
+
+    #[test]
+    fn sanitize_strips_windows_reserved_chars() {
+        // `<>:"/\|?*` plus the control range — none survive sanitize.
+        assert_eq!(sanitize("a<b>c:d\"e/f\\g|h?i*j"), "a_b_c_d_e_f_g_h_i_j");
+    }
+
+    #[test]
+    fn sanitize_replaces_emoji() {
+        assert_eq!(sanitize("🚀 wallet 🚀"), "wallet");
+        assert_eq!(sanitize("rocket🚀wallet"), "rocket_wallet");
+    }
+
+    #[test]
+    fn sanitize_collapses_underscore_runs() {
+        assert_eq!(sanitize("a___b"), "a_b");
+        assert_eq!(sanitize("a_b_c"), "a_b_c");
+        assert_eq!(sanitize("____"), "");
+    }
+
+    #[test]
+    fn sanitize_only_unsafe_chars_returns_empty() {
+        // All chars stripped → empty result → caller errors at
+        // `validate_wallet_name` with "must not be empty".
+        assert_eq!(sanitize("////"), "");
+        assert_eq!(sanitize("\0\0\0"), "");
+        assert_eq!(sanitize("<>?*"), "");
+    }
+
+    #[test]
+    fn sanitize_output_contains_only_allowed_chars() {
+        // Spot check the post-sanitize alphabet across a varied input.
+        let s = sanitize("../My 🚀 Wallet/2026\\.bak");
+        assert!(
+            s.chars()
+                .all(|c| is_filename_char(c)),
+            "sanitize leaked a forbidden char: {s:?}"
+        );
+        assert!(!s.starts_with('.'), "leading dot survived: {s:?}");
+        assert!(!s.ends_with('.'), "trailing dot survived: {s:?}");
+        assert!(!s.starts_with('_'), "leading underscore survived: {s:?}");
+        assert!(!s.ends_with('_'), "trailing underscore survived: {s:?}");
+    }
+
+    // ── Proptest: sanitize never panics and always produces a safe output ──
+
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn sanitize_never_panics(s in "\\PC{0,1000}") {
+                let _ = sanitize(&s);
+            }
+
+            #[test]
+            fn sanitize_output_is_filesystem_safe(s in "\\PC{0,500}") {
+                let out = sanitize(&s);
+                prop_assert!(
+                    out.chars().all(is_filename_char),
+                    "sanitize allowed forbidden char in output: {:?}",
+                    out
+                );
+                prop_assert!(
+                    !out.contains('/'),
+                    "sanitize allowed path separator: {:?}",
+                    out
+                );
+                prop_assert!(
+                    !out.contains('\\'),
+                    "sanitize allowed backslash: {:?}",
+                    out
+                );
+                prop_assert!(
+                    !out.contains('\0'),
+                    "sanitize allowed null byte: {:?}",
+                    out
+                );
+                if !out.is_empty() {
+                    prop_assert!(
+                        !out.starts_with('.'),
+                        "sanitize allowed leading dot: {:?}",
+                        out
+                    );
+                    prop_assert!(
+                        !out.starts_with('_'),
+                        "sanitize allowed leading underscore: {:?}",
+                        out
+                    );
+                }
+            }
+
+            #[test]
+            fn sanitize_is_idempotent_proptest(s in "\\PC{0,500}") {
+                let once = sanitize(&s);
+                let twice = sanitize(&once);
+                prop_assert_eq!(once, twice);
+            }
+        }
     }
 
     // ── build_wallet_path ──────────────────────────────────────────────────
