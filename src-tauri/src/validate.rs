@@ -56,7 +56,29 @@ pub fn validate_hex(hex_str: &str, expected_bytes: usize, field_name: &str) -> R
     Ok(())
 }
 
-/// Validate a wallet filename.
+/// Validate a wallet filename **after** it has been normalized by
+/// [`crate::wallet_name::sanitize`].
+///
+/// Filename policy (path-separator rejection, leading-dot stripping,
+/// Windows-reserved-char replacement, null-byte rejection, Unicode-
+/// letter preservation) is owned entirely by `sanitize` —
+/// see its rustdoc for the full set. By the time a name reaches this
+/// function it is already filesystem-safe; the only failure modes left
+/// are "input collapsed to empty" and "input exceeds
+/// [`MAX_WALLET_NAME_LEN`]".
+///
+/// Callers must wrap raw user input as:
+///
+/// ```ignore
+/// let sanitized = wallet_name::sanitize(&raw);
+/// validate::validate_wallet_name(&sanitized)?;
+/// ```
+///
+/// Passing raw (unsanitized) input here means accepting whatever the
+/// user typed and letting `sanitize`'s policy do the work; this
+/// function is intentionally permissive about ASCII shape so that a
+/// previously-stored wallet whose name uses an idiosyncratic character
+/// set still loads.
 pub fn validate_wallet_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("Wallet name must not be empty".into());
@@ -65,12 +87,6 @@ pub fn validate_wallet_name(name: &str) -> Result<(), String> {
         return Err(format!(
             "Wallet name too long (max {MAX_WALLET_NAME_LEN} chars)"
         ));
-    }
-    if name.contains('/') || name.contains('\\') || name.contains('\0') {
-        return Err("Wallet name must not contain path separators or null bytes".into());
-    }
-    if name.starts_with('.') {
-        return Err("Wallet name must not start with a dot".into());
     }
     Ok(())
 }
@@ -203,20 +219,38 @@ mod tests {
     }
 
     #[test]
-    fn reject_wallet_name_with_path_separator() {
-        assert!(validate_wallet_name("../evil").is_err());
-        assert!(validate_wallet_name("evil\\name").is_err());
+    fn reject_empty_wallet_name() {
+        // Post-sanitize empty (e.g. all-forbidden input like "////")
+        // surfaces here as the empty-string check.
+        assert!(validate_wallet_name("").is_err());
     }
 
     #[test]
-    fn reject_wallet_name_starting_with_dot() {
-        assert!(validate_wallet_name(".hidden").is_err());
+    fn reject_oversize_wallet_name() {
+        let long = "a".repeat(MAX_WALLET_NAME_LEN + 1);
+        assert!(validate_wallet_name(&long).is_err());
     }
 
     #[test]
     fn accept_valid_wallet_name() {
         assert!(validate_wallet_name("my_wallet").is_ok());
+        assert!(validate_wallet_name("MyWallet").is_ok());
+        assert!(validate_wallet_name("café_wallet").is_ok());
     }
+
+    // Path-separator / leading-dot / null-byte rejection now lives in
+    // `wallet_name::sanitize` (single source of truth). The tests for
+    // those behaviours have moved to `src/wallet_name.rs`:
+    //
+    //   - sanitize_replaces_path_separators
+    //   - sanitize_strips_leading_dots
+    //   - sanitize_replaces_null_bytes
+    //   - sanitize_strips_windows_reserved_chars
+    //   - sanitize_output_contains_only_allowed_chars (proptest)
+    //
+    // Production code paths in `commands.rs` already pipe raw user
+    // input through `sanitize` *before* calling `validate_wallet_name`,
+    // so the policy is enforced end-to-end.
 
     #[test]
     fn reject_null_in_password() {
@@ -338,10 +372,15 @@ mod tests {
     }
 
     #[test]
-    fn wallet_name_error_does_not_leak_path_secret() {
-        let evil_name = format!("../../../{CANARY_SHORT}/secrets");
-        let err = validate_wallet_name(&evil_name).unwrap_err();
-        assert_no_canary(&err, &[CANARY_SHORT]);
+    fn wallet_name_error_does_not_leak_canary() {
+        // `validate_wallet_name` only rejects empty / oversize after
+        // `wallet_name::sanitize` has scrubbed path traversal,
+        // separators, null bytes, etc. (see this module's rustdoc).
+        // The leak-canary guarantee remains: the oversize error
+        // message does not echo any of the input back to the caller.
+        let evil = format!("{}{CANARY_HEX}", "X".repeat(MAX_WALLET_NAME_LEN));
+        let err = validate_wallet_name(&evil).unwrap_err();
+        assert_no_canary(&err, &[CANARY_HEX, CANARY_SHORT, "XXXXX"]);
     }
 
     #[test]
