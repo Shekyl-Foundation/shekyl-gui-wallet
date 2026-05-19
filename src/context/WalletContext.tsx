@@ -6,7 +6,7 @@ import type {
   WalletInfo,
   CreateWalletResult,
 } from "../types/wallet";
-import { WalletContext } from "./walletState";
+import { WalletContext, type WalletDirResponse } from "./walletState";
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<WalletPhase>("loading");
@@ -16,6 +16,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [rpcReady, setRpcReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [walletDir, setWalletDir] = useState<string | null>(null);
+  const [walletDirFallbackFrom, setWalletDirFallbackFrom] = useState<
+    string | null
+  >(null);
 
   const refreshFiles = useCallback(async () => {
     try {
@@ -29,15 +32,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshWalletDir = useCallback(async () => {
-    const dir = await invoke<string>("get_wallet_dir");
-    setWalletDir(dir);
-    return dir;
+    const resp = await invoke<WalletDirResponse>("get_wallet_dir");
+    setWalletDir(resp.dir);
+    setWalletDirFallbackFrom(resp.fallback_from ?? null);
+    return resp.dir;
   }, []);
 
   const setCustomWalletDir = useCallback(
     async (dir: string) => {
       const canonical = await invoke<string>("set_wallet_dir", { dir });
       setWalletDir(canonical);
+      // An explicit successful choice clears any stale fallback warning.
+      setWalletDirFallbackFrom(null);
       await refreshFiles();
       return canonical;
     },
@@ -47,6 +53,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const resetWalletDir = useCallback(async () => {
     const canonical = await invoke<string>("reset_wallet_dir");
     setWalletDir(canonical);
+    setWalletDirFallbackFrom(null);
     await refreshFiles();
     return canonical;
   }, [refreshFiles]);
@@ -60,8 +67,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setRpcReady(true);
         try {
-          const dir = await invoke<string>("get_wallet_dir");
-          if (!cancelled) setWalletDir(dir);
+          const resp = await invoke<WalletDirResponse>("get_wallet_dir");
+          if (!cancelled) {
+            setWalletDir(resp.dir);
+            setWalletDirFallbackFrom(resp.fallback_from ?? null);
+          }
         } catch {
           // non-fatal; UI can request it later
         }
@@ -204,6 +214,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setPhase,
         refreshFiles,
         walletDir,
+        walletDirFallbackFrom,
         setCustomWalletDir,
         resetWalletDir,
         refreshWalletDir,

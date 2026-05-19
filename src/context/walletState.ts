@@ -46,6 +46,14 @@ export interface WalletContextValue {
    */
   walletDir: string | null;
   /**
+   * Set when the persisted custom wallet directory was unreachable at
+   * startup (permission denied, target is a file, etc.) and the app
+   * silently fell back to the platform default. The UI uses this to
+   * show a "your custom location is unavailable" banner; cleared once
+   * the user picks a new (working) directory or resets to default.
+   */
+  walletDirFallbackFrom: string | null;
+  /**
    * Override the wallet directory. Creates the directory if it does not
    * exist (mkdir -p semantics). Returns the canonical display path.
    */
@@ -54,6 +62,17 @@ export interface WalletContextValue {
   resetWalletDir: () => Promise<string>;
   /** Re-read the current directory from the backend into `walletDir`. */
   refreshWalletDir: () => Promise<string>;
+}
+
+/**
+ * Tauri command response for `get_wallet_dir`. The backend now returns
+ * a struct so it can surface the soft "fell back from override"
+ * warning alongside the active directory. `fallback_from` is omitted
+ * (undefined) when no fallback occurred.
+ */
+export interface WalletDirResponse {
+  dir: string;
+  fallback_from?: string;
 }
 
 export const WalletContext = createContext<WalletContextValue>({
@@ -73,6 +92,7 @@ export const WalletContext = createContext<WalletContextValue>({
   refreshFiles: () => Promise.resolve([]),
 
   walletDir: null,
+  walletDirFallbackFrom: null,
   setCustomWalletDir: () => Promise.reject("Not initialized"),
   resetWalletDir: () => Promise.reject("Not initialized"),
   refreshWalletDir: () => Promise.reject("Not initialized"),

@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::daemon_rpc;
+use crate::gui_config;
 use crate::state::{self, AppState, NetworkType};
 use crate::validate;
 use crate::wallet_bridge;
@@ -449,7 +450,8 @@ pub async fn init_wallet_rpc(
 /// Override the wallet directory with a user-chosen path (Advanced
 /// directory picker in the create/import UI). Ensures the directory
 /// exists before swapping it in; returns the canonical display string
-/// that the UI can show back to the user.
+/// that the UI can show back to the user. The choice is persisted to
+/// `gui-config.json` so the next launch defaults to it.
 #[tauri::command]
 pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<String, String> {
     let path = std::path::PathBuf::from(&dir);
@@ -458,25 +460,56 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
     }
     wallet_name::ensure_dir_exists(&path)?;
     let display = path.to_string_lossy().to_string();
+    gui_config::save(&gui_config::GuiConfig {
+        schema_version: gui_config::SCHEMA_VERSION,
+        wallet_dir_override: Some(path.clone()),
+    });
     *state.wallet_dir.write().await = path;
+    // A successful explicit choice clears any stale "fell back from"
+    // warning the user might still be looking at.
+    *state.wallet_dir_warning.write().await = None;
     Ok(display)
 }
 
-/// Reset the wallet directory to the platform default.
+/// Reset the wallet directory to the platform default and clear any
+/// persisted override.
 #[tauri::command]
 pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
     let default = state::default_wallet_dir();
     wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
+    gui_config::save(&gui_config::GuiConfig {
+        schema_version: gui_config::SCHEMA_VERSION,
+        wallet_dir_override: None,
+    });
     *state.wallet_dir.write().await = default;
+    *state.wallet_dir_warning.write().await = None;
     Ok(display)
 }
 
-/// Return the currently configured wallet directory as a display string.
+/// Response shape for [`get_wallet_dir`].
+///
+/// `fallback_from` is `Some(path)` when the persisted wallet-dir
+/// override was unreachable at startup and we silently fell back to
+/// the platform default; the UI uses this to surface a "your custom
+/// location is unavailable, using default" banner.
+#[derive(Debug, Serialize)]
+pub struct WalletDirResponse {
+    pub dir: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_from: Option<String>,
+}
+
+/// Return the currently configured wallet directory plus a soft
+/// warning if it was reached via fallback (override unreachable).
 #[tauri::command]
-pub async fn get_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
+pub async fn get_wallet_dir(state: State<'_, AppState>) -> Result<WalletDirResponse, String> {
     let dir = state.wallet_dir.read().await.clone();
-    Ok(dir.to_string_lossy().to_string())
+    let fallback = state.wallet_dir_warning.read().await.clone();
+    Ok(WalletDirResponse {
+        dir: dir.to_string_lossy().to_string(),
+        fallback_from: fallback.map(|p| p.to_string_lossy().to_string()),
+    })
 }
 
 #[tauri::command]
