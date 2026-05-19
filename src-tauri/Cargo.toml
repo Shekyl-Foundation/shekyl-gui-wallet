@@ -1,6 +1,6 @@
 [package]
 name = "shekyl-wallet"
-version = "3.1.0-alpha.4"
+version = "3.1.0-alpha.5"
 description = "Shekyl desktop wallet"
 authors = ["The Shekyl Foundation"]
 license = "BSD-3-Clause"
@@ -26,13 +26,17 @@ reqwest = { version = "0.13.2", default-features = false, features = ["json", "r
 dirs = "6"
 hex = "0.4"
 shekyl-engine-rpc = { path = "../../shekyl-core/rust/shekyl-engine-rpc", features = ["rust-scanner", "native-sign"] }
-shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner", features = ["rust-scanner"] }
+shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner" }
 shekyl-simple-request-rpc = { path = "../../shekyl-core/rust/shekyl-oxide/shekyl-oxide/rpc/simple-request" }
+shekyl-rpc = { path = "../../shekyl-core/rust/shekyl-oxide/shekyl-oxide/rpc" }
+shekyl-oxide = { path = "../../shekyl-core/rust/shekyl-oxide/shekyl-oxide" }
+shekyl-crypto-pq = { path = "../../shekyl-core/rust/shekyl-crypto-pq" }
 shekyl-address = { path = "../../shekyl-core/rust/shekyl-address" }
 shekyl-ffi = { path = "../../shekyl-core/rust/shekyl-ffi" }
 curve25519-dalek = { version = "4", features = ["zeroize"] }
 tokio-util = "0.7"
 tracing = "0.1"
+thiserror = "1"
 zeroize = { version = "1", features = ["alloc"] }
 
 [target.'cfg(unix)'.dependencies]

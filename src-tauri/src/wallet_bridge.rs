@@ -7,28 +7,52 @@
 //!
 //! Combines the C++ wallet2 FFI handle with a Rust scanner backed by
 //! `shekyl-scanner`. On `open_wallet`, a background sync loop starts
-//! that scans blocks from the daemon, populates `WalletState` with outputs,
-//! and detects spends. On `close_wallet` (or window destroy), the sync
-//! loop is cancelled and secrets are wiped.
+//! that scans blocks from the daemon, populates a
+//! `(LedgerBlock, LedgerIndexes)` pair with outputs, and detects spends.
+//! On `close_wallet` (or window destroy), the sync loop is cancelled and
+//! secrets are wiped.
 //!
 //! The `transfer` flow uses the native-sign path:
 //! C++ prepare → Rust sign → C++ finalize, with rollback on failure.
+//!
+//! ### Why the in-process loop instead of `shekyl_scanner::sync`
+//!
+//! `shekyl_scanner::sync::run_sync_loop` was retired in `shekyl-core`
+//! commit `252d942d2` (2026-04-26) as part of the
+//! `RuntimeWalletState` → `(LedgerBlock, LedgerIndexes)` migration.
+//! The forward-looking driver lives at
+//! [`shekyl_engine_core::Engine::start_refresh`], which presumes the
+//! Rust-native `Engine` owns wallet state. The GUI still bridges
+//! through the C++ `wallet2` FFI (`Wallet2`); switching to `Engine`
+//! waits for the wallet rewrite (`docs/FOLLOWUPS.md`: "Adopt
+//! `Engine::start_refresh` / `RefreshHandle`"). Until then, this
+//! module carries the smallest possible local sync loop driving the
+//! new `(LedgerBlock, LedgerIndexes)` shape.
 
 use std::sync::Arc;
 
 use serde::Deserialize;
-use shekyl_scanner::WalletState;
+use shekyl_crypto_pq::key_image::KeyImage;
 use shekyl_engine_rpc::{ProgressEvent, Wallet2};
+use shekyl_oxide::transaction::Input;
+use shekyl_rpc::Rpc;
+use shekyl_scanner::{LedgerBlock, LedgerBlockExt, LedgerIndexes, LedgerIndexesExt};
 use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use zeroize::Zeroize;
 
 /// Shared wallet state including both the C++ FFI handle and the Rust scanner.
 pub struct WalletBridge {
     pub wallet: Option<Wallet2>,
     /// Scanner state shared with the background sync loop.
-    pub scanner_state: Arc<TokioMutex<WalletState>>,
+    ///
+    /// `LedgerBlock` is the persisted on-chain-derived state;
+    /// `LedgerIndexes` is the runtime-only lookup-and-accrual state.
+    /// Held under a single lock because every block-ingestion path
+    /// mutates both — splitting the lock would invite torn observation
+    /// windows.
+    pub scanner_state: Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>,
     sync_cancel: Option<CancellationToken>,
 }
 
@@ -36,7 +60,10 @@ impl WalletBridge {
     fn new() -> Self {
         WalletBridge {
             wallet: None,
-            scanner_state: Arc::new(TokioMutex::new(WalletState::new())),
+            scanner_state: Arc::new(TokioMutex::new((
+                LedgerBlock::empty(),
+                LedgerIndexes::empty(),
+            ))),
             sync_cancel: None,
         }
     }
@@ -63,7 +90,9 @@ where
 }
 
 /// Get a clone of the scanner state Arc for async operations.
-fn scanner_state(handle: &WalletHandle) -> Result<Arc<TokioMutex<WalletState>>, String> {
+fn scanner_state(
+    handle: &WalletHandle,
+) -> Result<Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>, String> {
     let guard = handle
         .lock()
         .map_err(|e| format!("Wallet lock poisoned: {e}"))?;
@@ -123,8 +152,12 @@ pub fn shutdown(handle: &WalletHandle) -> Result<(), String> {
     }
     guard.wallet = None;
 
-    // Wipe scanner state — replaces the Arc, old WalletState triggers Drop/zeroize
-    guard.scanner_state = Arc::new(TokioMutex::new(WalletState::new()));
+    // Replace scanner state with a fresh pair (old tuple's transfers
+    // wipe via TransferDetails' own zeroize discipline as it drops).
+    guard.scanner_state = Arc::new(TokioMutex::new((
+        LedgerBlock::empty(),
+        LedgerIndexes::empty(),
+    )));
 
     Ok(())
 }
@@ -215,13 +248,24 @@ pub fn close_wallet(handle: &WalletHandle) -> Result<(), String> {
     let wallet = guard.wallet.as_ref().ok_or("Wallet not initialized")?;
     wallet.close_wallet(true).map_err(engine_err)?;
 
-    // Replace scanner state with a fresh one (old WalletState wipes secrets via Drop)
-    guard.scanner_state = Arc::new(TokioMutex::new(WalletState::new()));
+    // Replace scanner state with a fresh pair (old state drops, wiping
+    // any TransferDetails-resident secrets via their own zeroize impls).
+    guard.scanner_state = Arc::new(TokioMutex::new((
+        LedgerBlock::empty(),
+        LedgerIndexes::empty(),
+    )));
 
     Ok(())
 }
 
 // ─── Sync loop management ────────────────────────────────────────────────────
+
+/// Daemon polling interval when at-tip.
+const SYNC_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+/// Maximum retries for transient per-block RPC failures.
+const MAX_BLOCK_FETCH_RETRIES: u32 = 5;
+/// Initial backoff for block-fetch retries; doubles each failure up to 30s.
+const INITIAL_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 
 fn start_sync_loop(
     bridge: &mut WalletBridge,
@@ -301,41 +345,264 @@ fn start_sync_loop(
             }
         };
 
-        let result = shekyl_scanner::sync::run_sync_loop(
-            rpc,
-            scanner,
-            state.clone(),
-            cancel,
-            std::time::Duration::from_secs(5),
-            false,
-            |progress| {
-                let _ = tauri::Emitter::emit(
-                    &app_clone,
-                    "scanner-progress",
-                    &serde_json::json!({
-                        "height": progress.height,
-                        "daemon_height": progress.daemon_height,
-                        "outputs_found": progress.outputs_found,
-                        "spends_detected": progress.spends_detected,
-                    }),
-                );
-            },
-            |_state| {
-                // No on-disk persistence of scanner state yet.
-                // On restart the scanner re-scans from the wallet's
-                // last-known height. Periodic persistence will be
-                // added once WalletState gains serde support.
-                tracing::trace!("on_flush: skipped (no persistence yet)");
-            },
-        )
-        .await;
-
-        if let Err(e) = result {
+        if let Err(e) = run_local_sync_loop(rpc, scanner, state, cancel, app_clone).await {
             error!(error = %e, "sync loop exited with error");
         }
     });
 
     Ok(())
+}
+
+/// Sync-loop error class. Both branches stop the loop; the caller logs.
+#[derive(Debug, thiserror::Error)]
+enum SyncError {
+    #[error("rpc error: {0}")]
+    Rpc(#[from] shekyl_rpc::RpcError),
+    #[error("scan error: {0}")]
+    Scan(#[from] shekyl_scanner::ScanError),
+}
+
+/// Local replacement for the retired `shekyl_scanner::sync::run_sync_loop`.
+///
+/// Drives the new `(LedgerBlock, LedgerIndexes)` shape directly. Mirrors
+/// the previous loop's contract:
+///
+/// 1. Poll `rpc.get_height()` every [`SYNC_POLL_INTERVAL`] when at-tip.
+/// 2. Fetch blocks `wallet_height + 1 ..= daemon_height` with bounded
+///    retry/backoff via [`fetch_block_with_retry`].
+/// 3. Detect reorgs by comparing each block's `previous` hash against
+///    the stored hash for the prior height; on mismatch, walk back to
+///    the fork point and call [`LedgerIndexes::handle_reorg`].
+/// 4. Per accepted block: `Scanner::scan` → owned-output set →
+///    `LedgerIndexesExt::process_scanned_outputs` (atomically updates
+///    the ledger), then `LedgerIndexes::detect_spends` against the
+///    block's miner + non-miner key images.
+/// 5. Emit a `scanner-progress` Tauri event after each block.
+async fn run_local_sync_loop(
+    rpc: shekyl_simple_request_rpc::SimpleRequestRpc,
+    scanner: Arc<TokioMutex<shekyl_scanner::Scanner>>,
+    state: Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>,
+    cancel: CancellationToken,
+    app: tauri::AppHandle,
+) -> Result<(), SyncError> {
+    info!("sync loop started");
+
+    'outer: loop {
+        if cancel.is_cancelled() {
+            info!("sync loop cancelled");
+            break;
+        }
+
+        let daemon_height = match rpc.get_height().await {
+            Ok(h) => h as u64,
+            Err(e) => {
+                warn!(error = %e, "failed to get daemon height, retrying after poll interval");
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = tokio::time::sleep(SYNC_POLL_INTERVAL) => continue,
+                }
+            }
+        };
+
+        let wallet_height = {
+            let guard = state.lock().await;
+            guard.0.height()
+        };
+
+        if wallet_height >= daemon_height {
+            debug!(wallet_height, daemon_height, "wallet is synced, sleeping");
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = tokio::time::sleep(SYNC_POLL_INTERVAL) => continue,
+            }
+        }
+
+        let start_height = wallet_height + 1;
+
+        for h in start_height..=daemon_height {
+            if cancel.is_cancelled() {
+                info!(height = h, "sync loop cancelled mid-batch");
+                break 'outer;
+            }
+
+            let scannable = fetch_block_with_retry(&rpc, h, &cancel).await?;
+
+            // --- Reorg detection ---
+            // Compare the block's `previous` hash against what we stored
+            // for `h - 1`. Mismatch means the chain forked while we were
+            // away; walk back to the fork point and roll the ledger.
+            if h > 1 {
+                let parent_hash = scannable.block.header.previous;
+                let expected = {
+                    let guard = state.lock().await;
+                    guard.0.block_hash_at(h - 1).copied()
+                };
+
+                if let Some(stored_hash) = expected {
+                    if stored_hash != parent_hash {
+                        warn!(
+                            height = h,
+                            expected = hex::encode(stored_hash),
+                            actual_parent = hex::encode(parent_hash),
+                            "chain reorg detected, rolling back"
+                        );
+
+                        let fork_height = find_fork_point(&rpc, &state, h - 1, &cancel).await?;
+
+                        {
+                            let mut guard = state.lock().await;
+                            let (ledger, indexes) = &mut *guard;
+                            indexes.handle_reorg(ledger, fork_height);
+                        }
+
+                        info!(fork_height, "reorg handled, restarting scan from fork point");
+                        continue 'outer;
+                    }
+                }
+            }
+
+            let block_hash = scannable.block.hash();
+
+            let outputs = {
+                let mut scanner_guard = scanner.lock().await;
+                match scanner_guard.scan(scannable.clone()) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        error!(height = h, error = %e, "scan failed, aborting batch");
+                        return Err(SyncError::Scan(e));
+                    }
+                }
+            };
+
+            // Collect every key image consumed by this block (miner + non-miner).
+            // Both `Input::ToKey` and `Input::StakeClaim` carry one in
+            // `CompressedPoint(pub [u8; 32])` form; wrap into the typed
+            // `KeyImage` for `detect_spends`.
+            let mut block_key_images: Vec<KeyImage> = Vec::new();
+            let miner_tx = scannable.block.miner_transaction();
+            for input in &miner_tx.prefix().inputs {
+                if let Input::ToKey { key_image, .. } | Input::StakeClaim { key_image, .. } = input
+                {
+                    block_key_images.push(KeyImage::from_canonical_bytes(key_image.0));
+                }
+            }
+            for tx in &scannable.transactions {
+                for input in &tx.prefix().inputs {
+                    if let Input::ToKey { key_image, .. }
+                    | Input::StakeClaim { key_image, .. } = input
+                    {
+                        block_key_images.push(KeyImage::from_canonical_bytes(key_image.0));
+                    }
+                }
+            }
+
+            let (outputs_found, spends_detected) = {
+                let mut guard = state.lock().await;
+                let (ledger, indexes) = &mut *guard;
+                let range = indexes.process_scanned_outputs(ledger, h, block_hash, outputs);
+                let found = range.len();
+                let spent = indexes.detect_spends(ledger, h, &block_key_images);
+                (found, spent)
+            };
+
+            if outputs_found > 0 || spends_detected > 0 {
+                info!(
+                    height = h,
+                    outputs_found, spends_detected, "block processed with wallet activity"
+                );
+            }
+
+            let _ = tauri::Emitter::emit(
+                &app,
+                "scanner-progress",
+                &serde_json::json!({
+                    "height": h,
+                    "daemon_height": daemon_height,
+                    "outputs_found": outputs_found,
+                    "spends_detected": spends_detected,
+                }),
+            );
+        }
+    }
+
+    info!("sync loop stopped");
+    Ok(())
+}
+
+/// Fetch a block with exponential backoff on transient failures.
+async fn fetch_block_with_retry(
+    rpc: &shekyl_simple_request_rpc::SimpleRequestRpc,
+    height: u64,
+    cancel: &CancellationToken,
+) -> Result<shekyl_rpc::ScannableBlock, SyncError> {
+    let mut delay = INITIAL_RETRY_DELAY;
+    for attempt in 0..MAX_BLOCK_FETCH_RETRIES {
+        match rpc.get_scannable_block_by_number(height as usize).await {
+            Ok(b) => return Ok(b),
+            Err(e) if attempt + 1 < MAX_BLOCK_FETCH_RETRIES => {
+                warn!(
+                    height,
+                    attempt = attempt + 1,
+                    max = MAX_BLOCK_FETCH_RETRIES,
+                    error = %e,
+                    "block fetch failed, retrying after backoff"
+                );
+                tokio::select! {
+                    _ = cancel.cancelled() => return Err(SyncError::Rpc(e)),
+                    _ = tokio::time::sleep(delay) => {}
+                }
+                delay = std::cmp::min(delay * 2, std::time::Duration::from_secs(30));
+            }
+            Err(e) => {
+                error!(
+                    height,
+                    error = %e,
+                    "block fetch failed after {} attempts, aborting",
+                    MAX_BLOCK_FETCH_RETRIES,
+                );
+                return Err(SyncError::Rpc(e));
+            }
+        }
+    }
+    unreachable!()
+}
+
+/// Walk backwards from `from_height` to find the fork point where the
+/// stored block hash matches the daemon's chain.
+async fn find_fork_point(
+    rpc: &shekyl_simple_request_rpc::SimpleRequestRpc,
+    state: &Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>,
+    from_height: u64,
+    cancel: &CancellationToken,
+) -> Result<u64, SyncError> {
+    let mut h = from_height;
+    loop {
+        if h == 0 {
+            return Ok(1);
+        }
+        if cancel.is_cancelled() {
+            return Ok(h + 1);
+        }
+
+        let stored = {
+            let guard = state.lock().await;
+            guard.0.block_hash_at(h).copied()
+        };
+
+        let Some(stored_hash) = stored else {
+            return Ok(h + 1);
+        };
+
+        let daemon_block = fetch_block_with_retry(rpc, h, cancel).await?;
+        let daemon_hash = daemon_block.block.hash();
+
+        if daemon_hash == stored_hash {
+            return Ok(h + 1);
+        }
+
+        debug!(height = h, "fork point search: mismatch, going back");
+        h -= 1;
+    }
 }
 
 fn decode_hex_32(hex_str: &str) -> Result<[u8; 32], String> {
@@ -682,9 +949,10 @@ pub async fn get_scanner_balance(
     handle: &WalletHandle,
 ) -> Result<shekyl_scanner::BalanceSummary, String> {
     let state_arc = scanner_state(handle)?;
-    let state = state_arc.lock().await;
-    let height = state.height();
-    Ok(state.balance(height))
+    let guard = state_arc.lock().await;
+    let (ledger, _indexes) = &*guard;
+    let height = ledger.height();
+    Ok(ledger.balance(height))
 }
 
 /// Get staked outputs from the Rust scanner state.
@@ -692,9 +960,10 @@ pub async fn get_scanner_staked_outputs(
     handle: &WalletHandle,
 ) -> Result<serde_json::Value, String> {
     let state_arc = scanner_state(handle)?;
-    let state = state_arc.lock().await;
-    let height = state.height();
-    let staked: Vec<serde_json::Value> = state
+    let guard = state_arc.lock().await;
+    let (ledger, _indexes) = &*guard;
+    let height = ledger.height();
+    let staked: Vec<serde_json::Value> = ledger
         .staked_outputs()
         .iter()
         .map(|td| {
@@ -715,9 +984,10 @@ pub async fn get_scanner_claimable_stakes(
     handle: &WalletHandle,
 ) -> Result<serde_json::Value, String> {
     let state_arc = scanner_state(handle)?;
-    let state = state_arc.lock().await;
-    let height = state.height();
-    let claimable: Vec<serde_json::Value> = state
+    let guard = state_arc.lock().await;
+    let (ledger, _indexes) = &*guard;
+    let height = ledger.height();
+    let claimable: Vec<serde_json::Value> = ledger
         .claimable_outputs(height)
         .iter()
         .map(|td| {
@@ -746,9 +1016,10 @@ pub async fn get_scanner_unstakeable_outputs(
     handle: &WalletHandle,
 ) -> Result<serde_json::Value, String> {
     let state_arc = scanner_state(handle)?;
-    let state = state_arc.lock().await;
-    let height = state.height();
-    let unstakeable: Vec<serde_json::Value> = state
+    let guard = state_arc.lock().await;
+    let (ledger, _indexes) = &*guard;
+    let height = ledger.height();
+    let unstakeable: Vec<serde_json::Value> = ledger
         .unstakeable_outputs(height)
         .iter()
         .map(|td| {
@@ -768,33 +1039,37 @@ pub async fn get_scanner_unstakeable_outputs(
 pub async fn scanner_freeze(handle: &WalletHandle, key_image_hex: &str) -> Result<bool, String> {
     let ki = parse_key_image(key_image_hex)?;
     let state_arc = scanner_state(handle)?;
-    let mut state = state_arc.lock().await;
-    Ok(state.freeze_by_key_image(&ki))
+    let mut guard = state_arc.lock().await;
+    let (ledger, indexes) = &mut *guard;
+    Ok(indexes.freeze_by_key_image(ledger, &ki))
 }
 
 /// Thaw a frozen output by key image via the scanner state.
 pub async fn scanner_thaw(handle: &WalletHandle, key_image_hex: &str) -> Result<bool, String> {
     let ki = parse_key_image(key_image_hex)?;
     let state_arc = scanner_state(handle)?;
-    let mut state = state_arc.lock().await;
-    Ok(state.thaw_by_key_image(&ki))
+    let mut guard = state_arc.lock().await;
+    let (ledger, indexes) = &mut *guard;
+    Ok(indexes.thaw_by_key_image(ledger, &ki))
 }
 
 /// Get the scanner's synced height.
 pub async fn get_scanner_height(handle: &WalletHandle) -> Result<u64, String> {
     let state_arc = scanner_state(handle)?;
-    let state = state_arc.lock().await;
-    Ok(state.height())
+    let guard = state_arc.lock().await;
+    let (ledger, _indexes) = &*guard;
+    Ok(ledger.height())
 }
 
-fn parse_key_image(hex_str: &str) -> Result<[u8; 32], String> {
+fn parse_key_image(hex_str: &str) -> Result<KeyImage, String> {
     if hex_str.len() != 64 {
         return Err(format!(
             "key_image must be 64 hex chars, got {}",
             hex_str.len()
         ));
     }
-    decode_hex_32(hex_str)
+    let bytes = decode_hex_32(hex_str)?;
+    Ok(KeyImage::from_canonical_bytes(bytes))
 }
 
 // ─── PQC Multisig signing ────────────────────────────────────────────────────
@@ -861,13 +1136,14 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let state = rt.block_on(state_arc.lock());
+        let (ledger, _indexes) = &*state;
         assert_eq!(
-            state.height(),
+            ledger.height(),
             0,
             "scanner state height must be preserved (0) after transfer error"
         );
         assert_eq!(
-            state.transfers().len(),
+            ledger.transfers().len(),
             0,
             "scanner transfers must be empty after transfer error"
         );
@@ -896,11 +1172,8 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let state = rt.block_on(new_arc.lock());
-        assert_eq!(
-            state.height(),
-            0,
-            "fresh scanner state should have height 0"
-        );
+        let (ledger, _indexes) = &*state;
+        assert_eq!(ledger.height(), 0, "fresh scanner state should have height 0");
     }
 
     #[test]
@@ -929,5 +1202,5 @@ mod tests {
     // sequence is handled entirely within C++ wallet2::transfer_native; the Rust
     // bridge does NOT perform optimistic spent-marking (see transfer() doc comment).
     // The unmark_spent logic itself is exercised by Gate 5a tests in
-    // shekyl-scanner/src/wallet_state.rs.
+    // `shekyl-engine-state`'s ledger-index test suite.
 }
