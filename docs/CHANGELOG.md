@@ -1,5 +1,143 @@
 # Shekyl GUI Wallet Changelog
 
+## [3.1.0-alpha.5] - 2026-05-19
+
+> Resync against `shekyl-core/dev` after the April 26 scanner-state
+> migration. alpha.4 does **not** compile against current
+> `shekyl-core/dev` (`shekyl_scanner::WalletState` /
+> `shekyl_scanner::sync::run_sync_loop` were retired upstream); alpha.5
+> swaps the GUI's scanner bridge to the new `(LedgerBlock,
+> LedgerIndexes)` shape, broadens filename sanitization to be the
+> single source of truth, and persists the custom wallet directory
+> across launches. The bundled `shekyld` carries upstream's DAA LWMA-1
+> Phase 4 and RandomX v2 Phase 1 wiring; neither changes the daemon
+> JSON-RPC contract the GUI reads.
+>
+> **shekyl-core pinned at `fe0457737`** (dev tip, 2026-05-19). The
+> `release.yml` workflow still tracks `dev` per the alpha-cadence
+> decision; pinning by tag is deferred to beta cadence (see
+> `FOLLOWUPS.md`).
+
+### Fixed
+
+- **Build against current `shekyl-core/dev`.** `shekyl-scanner` retired
+  `WalletState` and `sync::run_sync_loop` in upstream commit
+  `252d942d2` (2026-04-26). The GUI's `wallet_bridge.rs` was the only
+  consumer, and continued referencing the removed surface — alpha.4
+  no longer compiles against current core. alpha.5 migrates to the
+  forward shape (`(LedgerBlock, LedgerIndexes)` tuple per
+  `shekyl-engine-rpc::ScannerState::LiveLedger`) and replaces
+  `run_sync_loop` with a thin in-process loop in `wallet_bridge.rs`.
+  Behavioural contract unchanged: same daemon polling cadence (5s
+  when at-tip), same reorg detection (parent-hash compare → fork
+  walk → `LedgerIndexes::handle_reorg`), same `scanner-progress`
+  Tauri event after each block.
+
+### Changed
+
+- **Scanner bridge migrated to `(LedgerBlock, LedgerIndexes)`.**
+  `WalletBridge.scanner_state` is now
+  `Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>` — the same shape
+  core uses internally. All scanner-backed query commands
+  (`get_scanner_balance`, `get_scanner_staked_outputs`,
+  `get_scanner_claimable_stakes`, `get_scanner_unstakeable_outputs`,
+  `get_scanner_height`, `scanner_freeze`, `scanner_thaw`) updated to
+  destructure the tuple and use the methods that landed on
+  `LedgerBlock` (read-only queries) and `LedgerIndexes`
+  (mutating-and-spend ops). `scanner_freeze` / `scanner_thaw` now
+  route through `LedgerIndexes::{freeze,thaw}_by_key_image`, which
+  hold the indexes side immutably and mutate the ledger.
+
+- **`wallet_name::sanitize` is now the single source of truth for
+  filename policy.** Previously sanitize only handled whitespace and
+  `validate_wallet_name` separately rejected path separators, null
+  bytes, and leading dots. The split led to two policy authorities
+  that could (and did, in cross-platform edge cases) disagree.
+  alpha.5 broadens `sanitize` to the full filesystem-safe
+  transformation:
+
+  - Any character outside `[A-Za-z0-9_\-.]` plus Unicode letters is
+    replaced with `_`.
+  - Runs of `_` (originally present or produced by the replacement
+    pass) collapse to a single `_`.
+  - Leading / trailing `_`, `.`, and whitespace are trimmed (so
+    `..hidden` → `hidden`, `wallet.` → `wallet`).
+
+  `validate_wallet_name` now only checks "not empty" (catches the
+  all-forbidden-chars input → empty sanitize output case) and
+  "under `MAX_WALLET_NAME_LEN`". Path-policy tests moved from
+  `validate.rs` to `wallet_name.rs`; a new proptest
+  (`sanitize_output_is_filesystem_safe`) asserts the post-sanitize
+  alphabet across arbitrary `\PC{0,500}` inputs. The dual-search
+  fallback on `open_wallet` is retained for one more release so
+  pre-alpha.5 wallets keep opening; see `FOLLOWUPS.md`.
+
+- **`get_wallet_dir` returns `{ dir, fallback_from? }` instead of a
+  bare string.** When the persisted custom wallet directory is
+  unreachable at startup (permission denied, target-is-a-file,
+  symlink to a missing target), the app silently falls back to the
+  platform default and surfaces the original path in
+  `fallback_from`. The Advanced disclosure renders an amber warning
+  banner using this field; explicit `set_wallet_dir` or
+  `reset_wallet_dir` clears it. The TypeScript context exposes
+  `walletDirFallbackFrom: string | null` for component consumers.
+
+### Added
+
+- **Persistent custom wallet directory** via
+  `gui-config.json`. Stored under the platform's per-app config
+  directory (`~/.config/org.shekyl.wallet/gui-config.json` on Linux,
+  `~/Library/Application Support/org.shekyl.wallet/gui-config.json`
+  on macOS, `%APPDATA%\org.shekyl.wallet\gui-config.json` on
+  Windows), the file persists the user's chosen wallet directory
+  across launches. Failures are silent and recoverable: a missing,
+  malformed, or future-schema file falls back to the platform
+  default without error. Writes are atomic
+  (`*.tmp` + `rename`), best-effort, and logged at `warn!` on
+  failure. Schema is `{ "schema_version": 1, "wallet_dir_override":
+  "..." | null }` — additive future fields use `#[serde(default)]`.
+
+- **`gui_config` Rust module** (`src-tauri/src/gui_config.rs`)
+  exposes `load()`, `save(&GuiConfig)`, and
+  `resolve_wallet_dir(default_dir) -> ResolvedWalletDir`. Tests use
+  path-injected variants (`load_from_path`, `save_to_path`,
+  `resolve_wallet_dir_in`) so they don't touch the developer's real
+  config dir and don't mutate process env vars (deprecation-warned
+  in Rust 1.83+).
+
+- **Bundled `shekyld` carries shekyl-core's May-window consensus
+  work** (no GUI behaviour change, listed here for traceability):
+
+  - **DAA LWMA-1 Phase 4** (atomic cutover landed in core
+    `PR #53`). New mainnet difficulty algorithm targeting 120-second
+    blocks. The `mining_status.block_target` and `get_info.target`
+    RPC fields are pinned to `120`; `daemon_rpc.rs` already models
+    those fields correctly, so the GUI displays the new target
+    without code changes.
+  - **RandomX v2 Phase 1** (build-wiring only, core `PR #54`). The
+    bundled daemon now compiles against the RandomX v2 source tree
+    via a Git submodule; no consensus change yet. `release.yml`
+    already passes `--recurse-submodules`; local developer
+    workflows pulling against a sibling `../shekyl-core` clone
+    need a one-time
+    `git submodule update --init --recursive`.
+
+### Build notes
+
+- New direct dependencies on shekyl-core path crates:
+  `shekyl-rpc`, `shekyl-oxide`, `shekyl-crypto-pq`. These are
+  required for the in-process sync loop (`Rpc` trait, `Input`
+  enum, `KeyImage` wrapper); previously the scanner re-exports
+  carried them transitively. Adding direct deps surfaces the
+  workspace path in `Cargo.toml` review.
+- `shekyl-scanner` no longer needs its `rust-scanner` feature flag
+  (the scanner crate retired the feature in core commit
+  `252d942d2`). The `rust-scanner` feature on **`shekyl-engine-rpc`**
+  survives because it still gates the scanner-crate import; the GUI
+  enables it on `shekyl-engine-rpc` only.
+- `thiserror = "1"` added as a direct dep (already transitive) for
+  the local `SyncError` enum in `wallet_bridge.rs`.
+
 ## [3.1.0-alpha.4] - 2026-04-18
 
 > **alpha.3 is broken on Windows.** Wallet creation produced a mixed-

@@ -23,7 +23,16 @@ in-process through `wallet_bridge.rs`, which combines two components:
    server.
 2. **`shekyl-scanner` (Rust crate)** -- pure-Rust output scanning and balance
    tracking. Runs in a background tokio task that polls the daemon over HTTP
-   and updates `WalletState` as new blocks arrive.
+   and updates a `(LedgerBlock, LedgerIndexes)` pair as new blocks arrive.
+   This pair matches `shekyl-engine-rpc::ScannerState::LiveLedger` in
+   `shekyl-core`; `LedgerBlock` holds the wallet's view of confirmed outputs
+   and per-output state, and `LedgerIndexes` holds the spend/freeze indexes.
+   Block ingestion goes through
+   `LedgerIndexes::process_scanned_outputs(&mut ledger_block, height,
+   block_hash, outputs)` from the `LedgerIndexesExt` trait; reorg handling
+   uses `LedgerIndexes::handle_reorg`. Both sides live behind one
+   `tokio::sync::Mutex` so the in-process sync loop and Tauri commands see
+   a consistent snapshot.
 
 ```
 ┌──────────────────────────────────────┐                ┌──────────┐
@@ -105,9 +114,21 @@ Users can override the default via the "Advanced: wallet file location"
 disclosure on the Create, Import, and Unlock screens. The Tauri commands
 `set_wallet_dir(dir)`, `reset_wallet_dir()`, and `get_wallet_dir()` back
 this UI; `set_wallet_dir` validates the path, runs `mkdir -p` on it, and
-refreshes the wallet-file list. The override currently lives in
-`AppState` only and does not persist across launches -- see
-`docs/FOLLOWUPS.md` for the persistence follow-up.
+refreshes the wallet-file list.
+
+The override persists across launches via `gui-config.json` in the
+Tauri app-config dir (`~/.config/org.shekyl.wallet/gui-config.json` on
+Linux, `~/Library/Application Support/org.shekyl.wallet/gui-config.json`
+on macOS, `%APPDATA%\org.shekyl.wallet\gui-config.json` on Windows;
+see `src-tauri/src/gui_config.rs`). At startup, `AppState::new` reads
+the override and probes the directory. If the override is missing,
+malformed, or unreachable (permission denied, target-is-a-file, broken
+symlink), the app silently falls back to the platform default; the
+original path is surfaced via `get_wallet_dir`'s `fallback_from` field
+so the Advanced disclosure can render a soft warning banner. Explicit
+`set_wallet_dir` / `reset_wallet_dir` calls write the new state and
+clear `fallback_from`. Writes are atomic (`*.tmp` + rename),
+best-effort, and logged at `warn!` on failure.
 
 ### Filename normalization
 
@@ -116,9 +137,21 @@ normalizes it to `My_Wallet` before any filesystem call, and
 `wallet_name::build_wallet_path` joins it with the active directory via
 `PathBuf::join` so the host separator is always correct (e.g.
 `C:\Users\<user>\AppData\Roaming\shekyl\wallets\My_Wallet.keys` on
-Windows). Opening a wallet uses dual-search: the sanitized name is tried
+Windows).
+
+As of alpha.5, `sanitize` is the single source of truth for filename
+policy. Any character outside `[A-Za-z0-9_\-.]` plus the Unicode-letter
+superset is replaced with `_`; runs of `_` collapse to a single
+underscore; leading/trailing `_`, `.`, and whitespace are trimmed. This
+covers path separators (`/`, `\`), Windows-reserved characters (`<>:"|?*`),
+null bytes, control characters, and emoji uniformly. `validate_wallet_name`
+only checks non-empty and length-under-cap after sanitization runs.
+
+Opening a wallet still uses dual-search: the sanitized name is tried
 first, and the raw name is tried as a fallback for wallets created on
-pre-normalization builds.
+pre-normalization builds. The fallback is scheduled for removal in
+alpha.6 once the alpha.5 sanitize-broadening notice and helper text
+have shipped (see `docs/FOLLOWUPS.md`).
 
 Detection itself is a pure filesystem operation -- no FFI or daemon
 connection needed. The `check_wallet_files` Tauri command returns a list
@@ -144,9 +177,16 @@ When a wallet is opened (`open_wallet`):
    password.
 2. The bridge extracts scanner keys (view key pair, spend public key) from
    the C++ wallet via FFI.
-3. A background tokio task is spawned that runs `shekyl_scanner::Scanner`
-   against the daemon, polling for new blocks and updating
-   `Arc<TokioMutex<WalletState>>`.
+3. A background tokio task is spawned that runs an in-process sync loop
+   in `wallet_bridge.rs`. The loop polls the daemon via the `Rpc` trait
+   (`get_height`, `get_scannable_block_by_number`), runs each block
+   through `shekyl_scanner::Scanner::scan`, and feeds the recovered
+   outputs into
+   `Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>` via
+   `LedgerIndexes::process_scanned_outputs`. Spends are detected with
+   `LedgerIndexes::detect_spends`; parent-hash mismatches trigger a
+   fork walk and `LedgerIndexes::handle_reorg`. Each ingested block
+   emits a `scanner-progress` Tauri event.
 4. A `CancellationToken` is stored so the sync loop can be stopped on close
    or shutdown.
 
@@ -155,7 +195,7 @@ When a wallet is closed (`close_wallet`) or the window is destroyed:
 1. The cancellation token is fired; the sync loop finishes its current
    block and exits.
 2. The C++ `wallet2` instance is dropped; secrets are wiped via `Zeroize`.
-3. Scanner state is cleared.
+3. Scanner state is reset to `(LedgerBlock::empty(), LedgerIndexes::empty())`.
 
 ### Concurrency Model
 

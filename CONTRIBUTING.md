@@ -42,8 +42,11 @@ See `docs/GUI_SECURITY.md` for the full validation table.
 ### Secret Key Handling
 
 - All secrets are wrapped in `Zeroizing<T>` on the Rust side.
-- `WalletState` and `TransferDetails` implement `ZeroizeOnDrop`.
-- `close_wallet` and `shutdown` wipe scanner state explicitly.
+- The scanner state (`(LedgerBlock, LedgerIndexes)` from
+  `shekyl-engine-state`) and `TransferDetails` implement `ZeroizeOnDrop`.
+- `close_wallet` and `shutdown` wipe scanner state explicitly (the
+  `Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>` is reset to the
+  empty pair, dropping the old secrets through `Zeroize`).
 - Never log, serialize to plaintext, or return secrets in error messages.
 
 ### Testing
