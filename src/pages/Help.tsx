@@ -78,8 +78,8 @@ export default function Help() {
             <p>
               On first launch, click <strong>Create New Wallet</strong> on the
               Welcome screen. Choose a name and password, then carefully save
-              your 25-word mnemonic seed. You'll need to confirm 4 random words
-              from your seed before proceeding. This seed is the only way to
+              your 24-word recovery phrase. You'll need to confirm 4 random words
+              from your phrase before proceeding. This phrase is the only way to
               recover your funds if you lose access. Your wallet is
               automatically protected by hybrid PQC signatures.
             </p>
@@ -89,7 +89,7 @@ export default function Help() {
             <p>
               If you already have a Shekyl wallet, click{" "}
               <strong>Import Existing Wallet</strong> on the Welcome screen.
-              You can restore from a 25-word seed phrase or from your private
+              You can restore from a 24-word recovery phrase or from your private
               keys (spend key + view key). Set a restore height to speed up
               blockchain scanning, or leave it at 0 to scan everything.
             </p>

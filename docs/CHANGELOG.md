@@ -1,5 +1,23 @@
 # Shekyl GUI Wallet Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **BIP-39 prep (GUI only).** User-facing copy, import validation, and docs now
+  describe a **24-word recovery phrase** (BIP-39 English) instead of a
+  25-word legacy seed. Import rejects 25-word phrases client-side with a clear
+  message. Optional passphrase field on import (UI only; wired in the
+  follow-up integration PR). Info banners note that full create/restore requires
+  an updated Shekyl core build.
+
+### Note
+
+- Functional mainnet create and BIP-39 restore are **not** complete until
+  shekyl-core ships `wallet2_ffi_create_wallet_from_bip39` and BIP-39 restore
+  FFI and the gui-wallet integration PR lands. See
+  `docs/design/BIP39_GUI_PREP.md`.
+
 ## [3.1.0-alpha.5] - 2026-05-19
 
 > Resync against `shekyl-core/dev` after the April 26 scanner-state

@@ -37,7 +37,7 @@ export default function Welcome() {
           </button>
           <p className="text-xs text-purple-300">
             Generate a fresh wallet with hybrid PQC protection.
-            You'll receive a 25-word recovery phrase.
+            You'll receive a 24-word recovery phrase.
           </p>
 
           <div className="relative py-2">

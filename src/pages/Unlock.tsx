@@ -156,8 +156,8 @@ export default function Unlock() {
         {/* Help links */}
         <div className="space-y-2 text-center text-[11px] text-purple-400">
           <p>
-            Forgot your password? You can restore your wallet using your 25-word
-            seed phrase.
+            Forgot your password? You can restore your wallet using your 24-word
+            recovery phrase.
           </p>
           <button
             onClick={() => setPhase("no_wallet")}

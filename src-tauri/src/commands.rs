@@ -653,7 +653,7 @@ pub async fn import_wallet_from_seed(
 ) -> Result<WalletInfo, String> {
     let sanitized = wallet_name::sanitize(&name);
     validate::validate_wallet_name(&sanitized)?;
-    validate::validate_seed(&seed)?;
+    validate::validate_recovery_phrase(&seed)?;
     validate::validate_password(&password)?;
 
     let network = state.network.read().await;

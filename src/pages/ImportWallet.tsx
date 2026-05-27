@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useWallet } from "../context/useWallet";
 import type { WalletProgress } from "../types/daemon";
+import { BIP39_RECOVERY_PHRASE_WORD_COUNT } from "../constants/wallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
 
 type Tab = "seed" | "keys";
@@ -46,6 +47,8 @@ export default function ImportWallet() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [showPassphrase, setShowPassphrase] = useState(false);
+  const [passphrase, setPassphrase] = useState("");
   const [restoreStage, setRestoreStage] = useState<RestoreStage>("idle");
   const [progressDetail, setProgressDetail] = useState("");
   const stageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -154,7 +157,9 @@ export default function ImportWallet() {
     .split(/\s+/)
     .filter(Boolean).length;
   const canSubmitSeed =
-    name.trim().length > 0 && password.length >= 8 && seedWordCount === 25;
+    name.trim().length > 0 &&
+    password.length >= 8 &&
+    seedWordCount === BIP39_RECOVERY_PHRASE_WORD_COUNT;
   const canSubmitKeys =
     name.trim().length > 0 &&
     password.length >= 8 &&
@@ -245,7 +250,7 @@ export default function ImportWallet() {
                 }`}
               >
                 <FileText className="h-3.5 w-3.5" />
-                Seed Phrase
+                Recovery Phrase
               </button>
               <button
                 onClick={() => setTab("keys")}
@@ -285,24 +290,62 @@ export default function ImportWallet() {
                 </p>
               </div>
 
-              {/* Seed tab */}
+              {/* Recovery phrase tab */}
               {tab === "seed" && (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-purple-200">
-                    25-Word Seed Phrase
-                  </label>
-                  <textarea
-                    className="input min-h-[100px] resize-none font-mono text-sm"
-                    value={seed}
-                    onChange={(e) => setSeed(e.target.value)}
-                    placeholder="Enter your 25-word mnemonic seed phrase, separated by spaces"
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                  <p className="text-[10px] text-purple-400">
-                    {seedWordCount}/25 words
-                  </p>
-                </div>
+                <>
+                  <div className="rounded-lg border border-purple-500/40 bg-purple-900/30 p-3 text-xs text-purple-200">
+                    Shekyl uses a 24-word recovery phrase. Full restore support
+                    requires an updated Shekyl core build; if restore fails,
+                    update Shekyl and try again.
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-purple-200">
+                      24-Word Recovery Phrase
+                    </label>
+                    <textarea
+                      className="input min-h-[100px] resize-none font-mono text-sm"
+                      value={seed}
+                      onChange={(e) => setSeed(e.target.value)}
+                      placeholder="Enter your 24-word recovery phrase, separated by spaces"
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                    <p className="text-[10px] text-purple-400">
+                      {seedWordCount}/{BIP39_RECOVERY_PHRASE_WORD_COUNT} words
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-purple-200">
+                      Passphrase{" "}
+                      <span className="text-purple-400">(optional)</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassphrase ? "text" : "password"}
+                        className="input pr-10"
+                        value={passphrase}
+                        onChange={(e) => setPassphrase(e.target.value)}
+                        placeholder="Only if you used one when creating the wallet"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassphrase(!showPassphrase)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-purple-400 hover:text-purple-200"
+                      >
+                        {showPassphrase ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-purple-400">
+                      Must match the passphrase used when the wallet was
+                      created. Leave blank if you did not set one.
+                    </p>
+                  </div>
+                </>
               )}
 
               {/* Keys tab */}
@@ -409,7 +452,7 @@ export default function ImportWallet() {
                 {loading
                   ? "Importing..."
                   : tab === "seed"
-                    ? "Restore from Seed"
+                    ? "Restore from Recovery Phrase"
                     : "Import from Keys"}
               </button>
 

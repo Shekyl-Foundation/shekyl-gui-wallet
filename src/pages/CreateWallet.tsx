@@ -146,6 +146,11 @@ export default function CreateWallet() {
         {/* Step: Setup */}
         {step === "setup" && (
           <div className="card space-y-5">
+            <div className="rounded-lg border border-purple-500/40 bg-purple-900/30 p-3 text-xs text-purple-200">
+              Wallet creation may not succeed until you are running a Shekyl
+              build with full recovery-phrase support. If creation fails,
+              update Shekyl and try again.
+            </div>
             <div className="space-y-2">
               <label className="text-xs font-medium text-purple-200">
                 Wallet Name
@@ -237,8 +242,8 @@ export default function CreateWallet() {
               <div className="text-xs text-orange-200">
                 <p className="font-semibold">Write these words down now.</p>
                 <p className="mt-1">
-                  This 25-word phrase is your only backup. If you lose it, your
-                  funds cannot be recovered. Never share it with anyone.
+                  This 24-word recovery phrase is your only backup. If you lose
+                  it, your funds cannot be recovered. Never share it with anyone.
                 </p>
               </div>
             </div>
