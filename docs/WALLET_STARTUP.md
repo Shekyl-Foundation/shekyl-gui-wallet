@@ -211,11 +211,19 @@ When a wallet is closed (`close_wallet`) or the window is destroyed:
 
 ## Create Wallet Flow
 
-1. Frontend calls `create_wallet(name, password, language)`.
-2. Bridge calls `wallet2` FFI to create the wallet, then queries the
-   mnemonic and primary address.
-3. Returns `CreateWalletResult` with name, address, seed, language, network.
-4. Frontend displays seed in a numbered 5x5 grid.
+**Current (pre–BIP-39 integration):** Frontend calls
+`create_wallet(name, password, language)`. The `language` parameter is legacy
+and will be removed in the integration PR.
+
+**Planned (after shekyl-core BIP-39 FFI + gui integration PR):**
+`create_wallet(name, password)` → `wallet2_ffi_create_wallet_from_bip39`, then
+`query_key("mnemonic")` for the 24-word recovery phrase. No seed-language
+parameter.
+
+1. Bridge creates the wallet file and queries the recovery phrase and primary
+   address.
+2. Returns `CreateWalletResult` with name, address, seed, network.
+3. Frontend displays the phrase in a numbered grid (24 words).
 5. Frontend challenges user to enter 4 randomly chosen words.
 6. On success, transitions to `phase: "ready"`.
 
@@ -234,9 +242,18 @@ classical segment by default; the PQC segment is handled internally.
 
 ## Import Wallet Flows
 
-### From Seed Phrase
+### From Recovery Phrase
 
-Calls `restore_deterministic_wallet(filename, seed, password, language, restore_height)`.
+**Current (pre–BIP-39 integration):** Calls
+`restore_deterministic_wallet(filename, seed, password, language, restore_height)`.
+The GUI prep PR validates 24-word input client-side; full BIP-39 restore
+requires the integration PR and updated shekyl-core FFI.
+
+**Planned:** `restore_from_bip39(filename, phrase, password, passphrase, restore_height)`
+(replaces Electrum restore). Optional BIP-39 passphrase maps to
+`seed_passphrase` in wallet2 JSON semantics per
+`shekyl-core/docs/design/ELECTRUM_WORDS_REMOVAL.md` §4.5.1.
+
 PQC keys are generated automatically for restored wallets via
 `generate_pqc_for_restored_address()` in `wallet2`.
 

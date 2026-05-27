@@ -274,8 +274,7 @@ mod tests {
         // Spot check the post-sanitize alphabet across a varied input.
         let s = sanitize("../My 🚀 Wallet/2026\\.bak");
         assert!(
-            s.chars()
-                .all(|c| is_filename_char(c)),
+            s.chars().all(is_filename_char),
             "sanitize leaked a forbidden char: {s:?}"
         );
         assert!(!s.starts_with('.'), "leading dot survived: {s:?}");

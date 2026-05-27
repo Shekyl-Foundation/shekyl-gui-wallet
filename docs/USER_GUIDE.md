@@ -16,7 +16,7 @@ confident about what's happening with your money at every step.
 5. [The Dashboard](#the-dashboard)
 6. [Creating a Wallet](#creating-a-wallet)
 7. [Importing / Restoring a Wallet](#importing--restoring-a-wallet)
-8. [Your Mnemonic Seed -- Read This Carefully](#your-mnemonic-seed--read-this-carefully)
+8. [Your Recovery Phrase -- Read This Carefully](#your-recovery-phrase--read-this-carefully)
 9. [Receiving SKL](#receiving-skl)
 10. [Sending SKL](#sending-skl)
 11. [Transaction History](#transaction-history)
@@ -168,12 +168,12 @@ If this is your first time, you'll see the Welcome screen. Click
    This password encrypts your wallet file. If someone steals your
    computer, they can't open the wallet without it.
 
-2. **Seed phrase.** The wallet generates a **25-word mnemonic seed** and
-   displays it in a numbered grid. This is the most important thing you'll
-   encounter. Read the next section carefully. You can also copy it to your
-   clipboard, but **write it down on paper immediately**.
+2. **Recovery phrase.** The wallet generates a **24-word BIP-39 English recovery
+   phrase** and displays it in a numbered grid. This is the most important thing
+   you'll encounter. Read the next section carefully. You can also copy it to
+   your clipboard, but **write it down on paper immediately**.
 
-3. **Seed confirmation.** To make sure you actually saved your seed, the wallet
+3. **Phrase confirmation.** To make sure you actually saved your phrase, the wallet
    asks you to enter 4 randomly chosen words (e.g., "Enter word #3, #8, #17,
    #22"). This prevents accidentally clicking through without saving.
 
@@ -191,12 +191,13 @@ material (Ed25519 + ML-DSA-65). No extra steps are needed for PQC protection.
 If you already have a wallet -- perhaps from a previous installation, a
 backup, or the CLI tools -- you can import it instead of creating a new one.
 
-### Restoring from a seed phrase
+### Restoring from a recovery phrase
 
 1. On the Welcome screen, click **Import Existing Wallet**.
-2. Choose **Import from Seed**.
-3. Enter your **25 words** in the text area. The wallet validates the words
-   as you type and highlights any errors.
+2. Choose **Recovery Phrase**.
+3. Enter your **24 words** in the text area. The wallet checks the word count
+   before restore. An optional **passphrase** field is available if you used
+   one when the wallet was created.
 4. Set a **restore height** (optional but recommended). This is the block
    height at which your wallet was first created. If you know it, enter it --
    the wallet will skip scanning blocks before that height, which is much
@@ -232,9 +233,9 @@ too high. For CLI-equivalent commands, see the
 
 ---
 
-## Your Mnemonic Seed -- Read This Carefully
+## Your Recovery Phrase -- Read This Carefully
 
-When your wallet is created, you'll be shown 25 words. These words *are* your
+When your wallet is created, you'll be shown 24 words. These words *are* your
 wallet. Anyone who has these words can access your funds from any computer,
 even years from now. This is both powerful and dangerous.
 
@@ -663,9 +664,9 @@ Click the badge to open the Help Center for more details.
 Cryptocurrency gives you full control of your money, which means full
 responsibility too. Here are the essentials:
 
-### Protect your seed words
+### Protect your recovery phrase
 
-We covered this earlier, but it bears repeating: your 25-word mnemonic seed
+We covered this earlier, but it bears repeating: your 24-word recovery phrase
 is the master key to everything. Store it offline, in a safe place, and never
 share it. No legitimate person will ever ask for it.
 
@@ -770,7 +771,7 @@ see the
 | **Emission Era** | Named phases in the emission schedule (e.g., Foundation, Growth), each with different characteristics. |
 | **Hash Rate** | The speed at which your CPU attempts mining puzzles. Measured in hashes per second (H/s). |
 | **Hybrid Signature** | Two signatures on every transaction: one classical (Ed25519) and one quantum-resistant (ML-DSA-65). |
-| **Mnemonic Seed** | The 25 words that can fully restore your wallet. Treat these like a master password you can never change. |
+| **Recovery Phrase** | The 24 BIP-39 English words that can fully restore your wallet. Treat these like a master password you can never change. |
 | **ML-DSA-65** | A quantum-resistant signature algorithm standardized by NIST. Part of Shekyl's hybrid protection. |
 | **Privacy** | Shekyl hides who sends to whom using FCMP++ full-chain membership proofs, stealth addresses, and per-output PQC keys (hybrid X25519 + ML-KEM-768). This is automatic. |
 | **RandomX** | Shekyl's mining algorithm. Runs efficiently on regular CPUs. |

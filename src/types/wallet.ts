@@ -7,6 +7,7 @@ export interface WalletFileInfo {
 export interface WalletInfo {
   name: string;
   address: string;
+  /** Deprecated: removed when BIP-39 integration PR drops Rust `seed_language`. */
   seed_language: string;
   network: string;
 }
@@ -15,6 +16,7 @@ export interface CreateWalletResult {
   name: string;
   address: string;
   seed: string;
+  /** Deprecated: removed when BIP-39 integration PR drops Rust `seed_language`. */
   seed_language: string;
   network: string;
 }

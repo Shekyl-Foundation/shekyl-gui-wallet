@@ -16,7 +16,15 @@ use shekyl_address::ShekylAddress;
 const MAX_WALLET_NAME_LEN: usize = 255;
 const MAX_WALLET_PATH_LEN: usize = 4096;
 const MAX_PASSWORD_LEN: usize = 1024;
-const MAX_MNEMONIC_WORDS: usize = 30;
+
+/// BIP-39 English recovery phrase length for Shekyl genesis wallets.
+pub const BIP39_RECOVERY_PHRASE_WORD_COUNT: usize = 24;
+
+/// User-facing rejection when a legacy 25-word phrase is supplied.
+/// Aligned with shekyl-core V6 hint (`wallet2.cpp` parse_wallet_create_data).
+const ERR_LEGACY_25_WORD_PHRASE: &str = "Shekyl uses a 24-word recovery phrase. \
+    25-word phrases from other wallets are not supported — Shekyl begins at its \
+    own genesis and does not use legacy seed formats.";
 
 /// Validate a Shekyl address string.
 ///
@@ -137,24 +145,30 @@ pub fn validate_password(password: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a mnemonic seed phrase.
-pub fn validate_seed(seed: &str) -> Result<(), String> {
-    if seed.is_empty() {
-        return Err("Seed phrase must not be empty".into());
+/// Validate a BIP-39 English recovery phrase (24 words) for import/restore.
+///
+/// Error messages describe the failure class only; the phrase is never echoed.
+pub fn validate_recovery_phrase(phrase: &str) -> Result<(), String> {
+    if phrase.is_empty() {
+        return Err("Recovery phrase must not be empty".into());
     }
-    let word_count = seed.split_whitespace().count();
-    if word_count == 0 || word_count > MAX_MNEMONIC_WORDS {
-        return Err(format!(
-            "Seed must have 1-{MAX_MNEMONIC_WORDS} words, got {word_count}"
-        ));
+    if phrase.contains('\0') {
+        return Err("Recovery phrase must not contain null bytes".into());
     }
-    if !seed.is_ascii() {
-        return Err("Seed phrase must be ASCII".into());
+    if !phrase.is_ascii() {
+        return Err("Recovery phrase must use English letters only".into());
     }
-    if seed.contains('\0') {
-        return Err("Seed phrase must not contain null bytes".into());
+
+    let word_count = phrase.split_whitespace().count();
+    if word_count == BIP39_RECOVERY_PHRASE_WORD_COUNT {
+        return Ok(());
     }
-    Ok(())
+    if word_count == 25 {
+        return Err(ERR_LEGACY_25_WORD_PHRASE.into());
+    }
+    Err(format!(
+        "Recovery phrase must be exactly {BIP39_RECOVERY_PHRASE_WORD_COUNT} words"
+    ))
 }
 
 /// Validate a key image hex string (32 bytes = 64 hex chars).
@@ -257,19 +271,44 @@ mod tests {
         assert!(validate_password("pass\0word").is_err());
     }
 
-    #[test]
-    fn reject_empty_seed() {
-        assert!(validate_seed("").is_err());
+    fn twenty_four_word_phrase() -> String {
+        (1..=BIP39_RECOVERY_PHRASE_WORD_COUNT)
+            .map(|i| format!("word{i}"))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     #[test]
-    fn reject_non_ascii_seed() {
-        assert!(validate_seed("café latté").is_err());
+    fn reject_empty_recovery_phrase() {
+        assert!(validate_recovery_phrase("").is_err());
     }
 
     #[test]
-    fn accept_valid_seed() {
-        assert!(validate_seed("word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24 word25").is_ok());
+    fn reject_non_ascii_recovery_phrase() {
+        assert!(validate_recovery_phrase("café latté").is_err());
+    }
+
+    #[test]
+    fn accept_valid_recovery_phrase() {
+        assert!(validate_recovery_phrase(&twenty_four_word_phrase()).is_ok());
+    }
+
+    #[test]
+    fn reject_25_word_recovery_phrase() {
+        let mut phrase = twenty_four_word_phrase();
+        phrase.push_str(" extra");
+        let err = validate_recovery_phrase(&phrase).unwrap_err();
+        assert_eq!(err, ERR_LEGACY_25_WORD_PHRASE);
+    }
+
+    #[test]
+    fn reject_wrong_word_count_recovery_phrase() {
+        let short = (1..23).map(|i| format!("word{i}")).collect::<Vec<_>>().join(" ");
+        let err = validate_recovery_phrase(&short).unwrap_err();
+        assert!(
+            err.contains("exactly 24"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -391,10 +430,10 @@ mod tests {
     }
 
     #[test]
-    fn seed_error_does_not_leak_words() {
+    fn recovery_phrase_error_does_not_leak_words() {
         let canary_seed = "abandon ability able about above absent absorb abstract absurd abuse \
                            access accident account accuse achieve acid acoustic acquire across act action";
-        let err = validate_seed(&format!("{canary_seed}\0injected")).unwrap_err();
+        let err = validate_recovery_phrase(&format!("{canary_seed}\0injected")).unwrap_err();
         assert_no_canary(&err, &["abandon", "acoustic", "injected"]);
     }
 
@@ -454,8 +493,8 @@ mod tests {
             }
 
             #[test]
-            fn validate_seed_never_panics(s in "\\PC{0,1000}") {
-                let _ = validate_seed(&s);
+            fn validate_recovery_phrase_never_panics(s in "\\PC{0,1000}") {
+                let _ = validate_recovery_phrase(&s);
             }
 
             #[test]
