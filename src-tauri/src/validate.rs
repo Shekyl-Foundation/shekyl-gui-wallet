@@ -303,12 +303,12 @@ mod tests {
 
     #[test]
     fn reject_wrong_word_count_recovery_phrase() {
-        let short = (1..23).map(|i| format!("word{i}")).collect::<Vec<_>>().join(" ");
+        let short = (1..23)
+            .map(|i| format!("word{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         let err = validate_recovery_phrase(&short).unwrap_err();
-        assert!(
-            err.contains("exactly 24"),
-            "unexpected error: {err}"
-        );
+        assert!(err.contains("exactly 24"), "unexpected error: {err}");
     }
 
     #[test]
