@@ -5,6 +5,7 @@ import { useDaemon } from "../context/useDaemon";
 import { formatSkl, formatSklCompact, formatPercent } from "../lib/format";
 import EmissionGauge from "../components/EmissionGauge";
 import StakeTierCard from "../components/StakeTierCard";
+import ShardIdentityPreview from "../components/staking/ShardIdentityPreview";
 import type { TierYield, WalletStakingInfo, StakedOutput } from "../types/daemon";
 
 export default function Staking() {
@@ -53,6 +54,8 @@ export default function Staking() {
           </div>
         </div>
       </div>
+
+      <ShardIdentityPreview />
 
       {/* Network staking gauges */}
       {health && (
