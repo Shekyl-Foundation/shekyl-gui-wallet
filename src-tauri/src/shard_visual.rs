@@ -94,7 +94,10 @@ pub fn render_shard_preview(
     let fixture = fixtures::by_id(&request.fixture_id)
         .ok_or_else(|| format!("unknown fixture {:?}", request.fixture_id))?;
 
-    let size = request.size.unwrap_or(DEFAULT_SIZE).clamp(MIN_SIZE, MAX_SIZE);
+    let size = request
+        .size
+        .unwrap_or(DEFAULT_SIZE)
+        .clamp(MIN_SIZE, MAX_SIZE);
     let hash_override = parse_hash_override(request.hash_override.as_deref())?;
 
     let cache_key = cache_digest(&fixture, hash_override, size);
@@ -150,18 +153,12 @@ fn parse_hash_override(raw: Option<&str>) -> Result<Option<[u8; 32]>, String> {
         return Ok(None);
     }
     let bytes = hex::decode(trimmed).map_err(|e| format!("invalid hash_override hex: {e}"))?;
-    Ok(Some(
-        bytes
-            .try_into()
-            .map_err(|_| "hash_override must be 32 bytes (64 hex characters)".to_string())?,
-    ))
+    Ok(Some(bytes.try_into().map_err(|_| {
+        "hash_override must be 32 bytes (64 hex characters)".to_string()
+    })?))
 }
 
-fn cache_digest(
-    fixture: &PreviewFixture,
-    hash_override: Option<[u8; 32]>,
-    size: u32,
-) -> String {
+fn cache_digest(fixture: &PreviewFixture, hash_override: Option<[u8; 32]>, size: u32) -> String {
     let hash = hash_override.unwrap_or(fixture.aggregate.shard_hash);
     let mut hasher = Sha256::new();
     hasher.update(b"shard-visual-v1");
