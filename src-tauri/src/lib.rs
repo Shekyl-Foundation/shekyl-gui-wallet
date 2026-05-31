@@ -38,6 +38,7 @@ mod commands;
 mod daemon_manager;
 mod daemon_rpc;
 mod gui_config;
+mod shard_visual;
 mod state;
 mod validate;
 mod wallet_bridge;
@@ -100,6 +101,9 @@ pub fn run() {
             commands::get_staking_info,
             commands::stake,
             commands::claim_rewards,
+            // Shard identity preview (pre-archival beta)
+            shard_visual::list_shard_preview_fixtures,
+            shard_visual::render_shard_preview,
             // PQC Multisig
             commands::create_multisig_group,
             commands::get_multisig_info,
