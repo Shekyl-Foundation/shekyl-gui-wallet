@@ -455,7 +455,10 @@ async fn run_local_sync_loop(
                             indexes.handle_reorg(ledger, fork_height);
                         }
 
-                        info!(fork_height, "reorg handled, restarting scan from fork point");
+                        info!(
+                            fork_height,
+                            "reorg handled, restarting scan from fork point"
+                        );
                         continue 'outer;
                     }
                 }
@@ -488,8 +491,8 @@ async fn run_local_sync_loop(
             }
             for tx in &scannable.transactions {
                 for input in &tx.prefix().inputs {
-                    if let Input::ToKey { key_image, .. }
-                    | Input::StakeClaim { key_image, .. } = input
+                    if let Input::ToKey { key_image, .. } | Input::StakeClaim { key_image, .. } =
+                        input
                     {
                         block_key_images.push(KeyImage::from_canonical_bytes(key_image.0));
                     }
@@ -1173,7 +1176,11 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let state = rt.block_on(new_arc.lock());
         let (ledger, _indexes) = &*state;
-        assert_eq!(ledger.height(), 0, "fresh scanner state should have height 0");
+        assert_eq!(
+            ledger.height(),
+            0,
+            "fresh scanner state should have height 0"
+        );
     }
 
     #[test]

@@ -241,11 +241,8 @@ mod tests {
     /// 1.83+). Tests call `path_in(&dir)`, `load_from_path`,
     /// `save_to_path`, and the `resolve_*_in` helpers directly.
     fn fresh_test_dir(label: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "shekyl_guicfg_{}_{}",
-            label,
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("shekyl_guicfg_{}_{}", label, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
