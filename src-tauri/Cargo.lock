@@ -5581,6 +5581,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-archival-retention"
+version = "3.1.0"
+dependencies = [
+ "sha3",
+ "shekyl-crypto-pq",
+ "shekyl-fcmp",
+ "shekyl-io",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "shekyl-bulletproofs"
 version = "0.1.0"
 dependencies = [
@@ -5662,6 +5673,7 @@ dependencies = [
 name = "shekyl-economics"
 version = "3.1.0"
 dependencies = [
+ "blake2",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -5699,6 +5711,7 @@ dependencies = [
  "rustix",
  "serde",
  "sha2",
+ "shekyl-units",
  "tempfile",
  "thiserror 2.0.18",
  "toml 0.8.2",
@@ -5720,6 +5733,7 @@ dependencies = [
  "shekyl-logging",
  "shekyl-scanner",
  "shekyl-tx-builder",
+ "shekyl-units",
  "tokio",
  "tower-http",
  "tracing",
@@ -5730,6 +5744,7 @@ name = "shekyl-engine-state"
 version = "3.1.0"
 dependencies = [
  "curve25519-dalek",
+ "getrandom 0.2.17",
  "hex",
  "postcard",
  "postcard-schema",
@@ -5739,6 +5754,7 @@ dependencies = [
  "shekyl-crypto-pq",
  "shekyl-oxide",
  "shekyl-staking",
+ "shekyl-units",
  "thiserror 2.0.18",
  "tracing",
  "zeroize",
@@ -5802,6 +5818,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shekyl-address",
+ "shekyl-archival-retention",
  "shekyl-chacha",
  "shekyl-consensus",
  "shekyl-crypto-hash",
@@ -5817,6 +5834,7 @@ dependencies = [
  "shekyl-proofs",
  "shekyl-staking",
  "shekyl-tx-builder",
+ "shekyl-units",
  "tracing",
  "zeroize",
 ]
@@ -5868,6 +5886,7 @@ version = "0.1.4-alpha"
 dependencies = [
  "curve25519-dalek",
  "hex-literal",
+ "shekyl-archival-retention",
  "shekyl-bulletproofs",
  "shekyl-fcmp-plus-plus",
  "shekyl-generators",
@@ -5933,6 +5952,7 @@ dependencies = [
  "shekyl-oxide",
  "shekyl-rpc",
  "shekyl-staking",
+ "shekyl-units",
  "thiserror 2.0.18",
  "tracing",
  "zeroize",
@@ -5970,6 +5990,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shekyl-economics",
+ "shekyl-units",
  "thiserror 2.0.18",
 ]
 
@@ -5989,8 +6010,19 @@ dependencies = [
  "shekyl-fcmp",
  "shekyl-generators",
  "shekyl-io",
+ "shekyl-oxide",
  "shekyl-primitives",
+ "shekyl-units",
  "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
+name = "shekyl-units"
+version = "3.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
  "zeroize",
 ]
 
