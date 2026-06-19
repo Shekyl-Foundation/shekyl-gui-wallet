@@ -1,33 +1,56 @@
 import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Coins, Lock, TrendingUp, ShieldCheck, Info, Gift } from "lucide-react";
+import {
+  Coins,
+  Lock,
+  LockOpen,
+  TrendingUp,
+  ShieldCheck,
+  Info,
+  Gift,
+  Clock,
+  Hourglass,
+} from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
 import { formatSkl, formatSklCompact, formatPercent } from "../lib/format";
 import EmissionGauge from "../components/EmissionGauge";
 import StakeTierCard from "../components/StakeTierCard";
 import ShardIdentityPreview from "../components/staking/ShardIdentityPreview";
-import type { TierYield, WalletStakingInfo, StakedOutput } from "../types/daemon";
+import type { TierYield } from "../types/daemon";
+import type { StakeView } from "../types/staking";
+
+/** ~2-minute blocks → a compact human duration for a maturity countdown. */
+function blocksToDuration(blocks: number): string {
+  const minutes = blocks * 2;
+  if (minutes < 60) return `~${minutes}m`;
+  const hours = minutes / 60;
+  if (hours < 48) return `~${Math.round(hours)}h`;
+  return `~${Math.round(hours / 24)}d`;
+}
 
 export default function Staking() {
   const { health } = useDaemon();
   const [tiers, setTiers] = useState<TierYield[]>([]);
   const [selectedTier, setSelectedTier] = useState<number | null>(null);
   const [stakeAmount, setStakeAmount] = useState("");
-  const [stakingInfo, setStakingInfo] = useState<WalletStakingInfo | null>(null);
+  const [stakeViews, setStakeViews] = useState<StakeView[]>([]);
   const [staking, setStaking] = useState(false);
   const [claiming, setClaiming] = useState(false);
+  const [unstaking, setUnstaking] = useState(false);
   const [stakeError, setStakeError] = useState<string | null>(null);
 
-  const fetchStakingInfo = useCallback(() => {
-    invoke<WalletStakingInfo>("get_staking_info")
-      .then(setStakingInfo)
+  const fetchStakes = useCallback(() => {
+    invoke<StakeView[]>("get_stake_views")
+      .then(setStakeViews)
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     invoke<TierYield[]>("get_tier_yields").then(setTiers).catch(() => {});
-    fetchStakingInfo();
-  }, [health, fetchStakingInfo]);
+    fetchStakes();
+  }, [health, fetchStakes]);
+
+  const totalStaked = stakeViews.reduce((sum, s) => sum + s.amount, 0);
 
   const stakeRatioPct = health ? (health.stake_ratio / 1_000_000) * 100 : 0;
   const emSharePct = health
@@ -124,45 +147,107 @@ export default function Staking() {
       </div>
 
       {/* Your stakes */}
-      {stakingInfo && stakingInfo.staked_outputs.length > 0 && (
+      {stakeViews.length > 0 && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-purple-200">Your Stakes</h2>
             <span className="text-xs text-purple-300">
-              Total: {formatSkl(stakingInfo.total_staked)} SKL
+              Total: {formatSkl(totalStaked)} SKL
             </span>
           </div>
           <div className="space-y-2">
-            {stakingInfo.staked_outputs.map((so: StakedOutput, idx: number) => (
-              <div key={idx} className="flex items-center justify-between rounded-lg border border-purple-600/30 bg-purple-800/30 px-3 py-2 text-xs">
-                <div>
-                  <span className="font-semibold text-white">{formatSkl(so.amount)} SKL</span>
-                  <span className="ml-2 text-purple-300">Tier {so.tier}</span>
-                  <span className="ml-2 text-purple-400">
-                    {so.claimable ? "Unlocked" : `Locked until block ${so.unlock_height.toLocaleString()}`}
+            {stakeViews.map((s) => (
+              <div
+                key={s.global_output_index}
+                className="space-y-2 rounded-lg border border-purple-600/30 bg-purple-800/30 px-3 py-2.5 text-xs"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-white">
+                      {formatSkl(s.amount)} SKL
+                    </span>
+                    <span className="rounded bg-purple-700/40 px-1.5 py-0.5 text-[10px] text-purple-200">
+                      Tier {s.tier}
+                    </span>
+                  </div>
+                  {s.pending_unstake ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
+                      <Hourglass className="h-3 w-3" />
+                      Unstaking…
+                    </span>
+                  ) : s.matured ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">
+                      <LockOpen className="h-3 w-3" />
+                      Unlocked
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-purple-500/40 bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-200">
+                      <Clock className="h-3 w-3" />
+                      {s.blocks_until_mature.toLocaleString()} blk (
+                      {blocksToDuration(s.blocks_until_mature)})
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-3 text-[11px] text-purple-300">
+                  <span>
+                    Claimable now:{" "}
+                    <span className="text-purple-100">
+                      {formatSkl(s.accrued_claimable)} SKL
+                    </span>
+                  </span>
+                  <span>
+                    Est. by maturity:{" "}
+                    <span className="text-purple-100">
+                      {formatSkl(s.estimated_yield_to_maturity)} SKL
+                    </span>
                   </span>
                 </div>
-                {so.claimable && (
-                  <button
-                    className="btn btn-primary px-3 py-1 text-xs"
-                    disabled={claiming}
-                    onClick={async () => {
-                      setClaiming(true);
-                      setStakeError(null);
-                      try {
-                        await invoke("claim_rewards");
-                        fetchStakingInfo();
-                      } catch (e) {
-                        setStakeError(String(e));
-                      } finally {
-                        setClaiming(false);
-                      }
-                    }}
-                  >
-                    <Gift className="h-3 w-3" />
-                    {claiming ? "Claiming..." : "Claim"}
-                  </button>
-                )}
+
+                <div className="flex justify-end gap-2">
+                  {s.accrued_claimable > 0 && (
+                    <button
+                      className="btn btn-secondary px-3 py-1 text-xs"
+                      disabled={claiming || unstaking}
+                      onClick={async () => {
+                        setClaiming(true);
+                        setStakeError(null);
+                        try {
+                          await invoke("claim_rewards");
+                          fetchStakes();
+                        } catch (e) {
+                          setStakeError(String(e));
+                        } finally {
+                          setClaiming(false);
+                        }
+                      }}
+                    >
+                      <Gift className="h-3 w-3" />
+                      {claiming ? "Claiming…" : "Claim"}
+                    </button>
+                  )}
+                  {s.matured && !s.pending_unstake && (
+                    <button
+                      className="btn btn-primary px-3 py-1 text-xs"
+                      disabled={unstaking || claiming}
+                      onClick={async () => {
+                        setUnstaking(true);
+                        setStakeError(null);
+                        try {
+                          await invoke("unstake");
+                          fetchStakes();
+                        } catch (e) {
+                          setStakeError(String(e));
+                        } finally {
+                          setUnstaking(false);
+                        }
+                      }}
+                    >
+                      <LockOpen className="h-3 w-3" />
+                      {unstaking ? "Unstaking…" : "Unstake"}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -201,7 +286,7 @@ export default function Staking() {
                 amount: Number(atomic),
               });
               setStakeAmount("");
-              fetchStakingInfo();
+              fetchStakes();
             } catch (e) {
               setStakeError(String(e));
             } finally {

@@ -101,6 +101,8 @@ pub fn run() {
             commands::get_staking_info,
             commands::stake,
             commands::claim_rewards,
+            commands::unstake,
+            commands::get_stake_views,
             // Shard identity preview (pre-archival beta)
             shard_visual::list_shard_preview_fixtures,
             shard_visual::render_shard_preview,

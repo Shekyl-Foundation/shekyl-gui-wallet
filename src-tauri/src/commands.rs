@@ -965,6 +965,22 @@ pub async fn claim_rewards(state: State<'_, AppState>) -> Result<TxInfo, String>
 }
 
 #[tauri::command]
+pub async fn unstake(state: State<'_, AppState>) -> Result<wallet_bridge::UnstakeResponse, String> {
+    let is_open = *state.wallet_open.read().await;
+    if !is_open {
+        return Err("No wallet is open".into());
+    }
+    wallet_bridge::unstake(&state.wallet).await
+}
+
+#[tauri::command]
+pub async fn get_stake_views(
+    state: State<'_, AppState>,
+) -> Result<Vec<shekyl_scanner::StakeView>, String> {
+    wallet_bridge::get_scanner_stake_views(&state.wallet).await
+}
+
+#[tauri::command]
 pub async fn get_curve_tree_info(
     state: State<'_, AppState>,
 ) -> Result<daemon_rpc::CurveTreeInfo, String> {

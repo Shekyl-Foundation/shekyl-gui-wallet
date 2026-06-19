@@ -36,7 +36,7 @@ use shekyl_crypto_pq::key_image::KeyImage;
 use shekyl_engine_rpc::{ProgressEvent, Wallet2};
 use shekyl_oxide::transaction::Input;
 use shekyl_rpc::Rpc;
-use shekyl_scanner::{LedgerBlock, LedgerBlockExt, LedgerIndexes, LedgerIndexesExt};
+use shekyl_scanner::{LedgerBlock, LedgerBlockExt, LedgerIndexes, LedgerIndexesExt, StakeView};
 use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -866,6 +866,47 @@ pub fn claim_rewards(handle: &WalletHandle) -> Result<TransferResponse, String> 
     })
 }
 
+/// Response of the `unstake` wallet RPC (`{tx_hash_list, amount}`).
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UnstakeResponse {
+    #[serde(default)]
+    pub tx_hash_list: Vec<String>,
+    #[serde(default)]
+    pub amount: u64,
+}
+
+/// Unstake all matured staked outputs.
+///
+/// Interim: the mutation still rides the C++ `wallet2` path via `json_rpc_call`
+/// (the daemon-side FFI work that moves this to the Rust native-sign path lands
+/// separately). After a successful broadcast we mark every currently-matured,
+/// unspent staked output as a pending unstake in the scanner ledger so the UI
+/// can badge it; the marker clears when the sync loop observes the spend.
+/// `create_unstake_transaction` selects *all* matured outputs, so marking all
+/// matured is accurate.
+pub async fn unstake(handle: &WalletHandle) -> Result<UnstakeResponse, String> {
+    let resp: UnstakeResponse = with_wallet(handle, |w| {
+        let val = w.json_rpc_call("unstake", "{}").map_err(engine_err)?;
+        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
+    })?;
+
+    let state_arc = scanner_state(handle)?;
+    let mut guard = state_arc.lock().await;
+    let (ledger, indexes) = &mut *guard;
+    let height = ledger.height();
+    let matured: Vec<u64> = ledger
+        .transfers()
+        .iter()
+        .filter(|td| td.is_matured_stake(height) && !td.spent)
+        .map(|td| td.global_output_index)
+        .collect();
+    for goi in matured {
+        indexes.mark_pending_unstake(goi);
+    }
+
+    Ok(resp)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct StakedOutput {
     #[serde(default)]
@@ -956,6 +997,25 @@ pub async fn get_scanner_balance(
     let (ledger, _indexes) = &*guard;
     let height = ledger.height();
     Ok(ledger.balance(height))
+}
+
+/// Get the unified per-stake view from the Rust scanner state.
+///
+/// One [`StakeView`] per live staked output — maturity countdown, accrued and
+/// projected reward, and the pending-unstake flag — the single shape the
+/// staking UI consumes. Supersedes the three ad-hoc reads below for the new UI.
+/// Weight and claim-range come single-sourced from `shekyl-ffi`.
+pub async fn get_scanner_stake_views(handle: &WalletHandle) -> Result<Vec<StakeView>, String> {
+    let state_arc = scanner_state(handle)?;
+    let guard = state_arc.lock().await;
+    let (ledger, indexes) = &*guard;
+    let height = ledger.height();
+    Ok(ledger.stake_views(
+        indexes,
+        height,
+        shekyl_ffi::shekyl_stake_weight,
+        shekyl_ffi::shekyl_stake_max_claim_range(),
+    ))
 }
 
 /// Get staked outputs from the Rust scanner state.
