@@ -38,10 +38,11 @@ use std::path::{Path, PathBuf};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use shekyl_shard_visual::fixtures::{self, PreviewFixture};
+use shekyl_shard_source::{FixtureShardSource, ShardRenderHandle, ShardSource, ShardSummary};
+use shekyl_shard_visual::fixtures;
 use shekyl_shard_visual::{
     parameters_from_aggregate, parameters_with_hash_override, recipe_from_params,
-    render_candidate_png, CandidateRecipe, VisualError,
+    render_candidate_png, CandidateRecipe, ShardAggregate, VisualError,
 };
 use tauri::{AppHandle, Manager};
 
@@ -100,20 +101,15 @@ pub fn render_shard_preview(
         .clamp(MIN_SIZE, MAX_SIZE);
     let hash_override = parse_hash_override(request.hash_override.as_deref())?;
 
-    let cache_key = cache_digest(&fixture, hash_override, size);
-    if let Some(png) = read_cache(&app, &cache_key, size)? {
-        let recipe = recipe_for(&fixture, hash_override);
-        return Ok(RenderShardPreviewResponse {
-            png_base64: STANDARD.encode(&png),
-            recipe,
-            cache_key,
-            label: fixture.label.clone(),
-        });
-    }
-
-    let png = render_png(&fixture, hash_override, size).map_err(|e| e.to_string())?;
-    write_cache(&app, &cache_key, size, &png)?;
-    let recipe = recipe_for(&fixture, hash_override);
+    let cache_key = cache_digest(
+        &fixture.id,
+        fixture.aggregate.shard_hash,
+        hash_override,
+        size,
+    );
+    let recipe = recipe_for(&fixture.aggregate, hash_override);
+    let png = render_cached(&app, &cache_key, &fixture.aggregate, hash_override, size)
+        .map_err(|e| e.to_string())?;
 
     Ok(RenderShardPreviewResponse {
         png_base64: STANDARD.encode(&png),
@@ -123,21 +119,93 @@ pub fn render_shard_preview(
     })
 }
 
-fn recipe_for(fixture: &PreviewFixture, hash_override: Option<[u8; 32]>) -> CandidateRecipe {
+// ── Shards page (ShardSource-backed; cutover-stable seam) ─────────────────
+//
+// The Staking-tab preview above renders one fixture inline. The Shards page
+// lists every visible shard and renders each, through the `ShardSource`
+// abstraction (`shekyl-shard-source`). Today that source is fixtures; at
+// Stage 5 it becomes `ArchivalShardSource` and only the constructor below
+// changes — these commands and their wire types stay fixed.
+
+/// Render result for a single shard on the Shards page.
+#[derive(Debug, Serialize)]
+pub struct ShardRenderResponse {
+    pub png_base64: String,
+    pub recipe: CandidateRecipe,
+    pub cache_key: String,
+    pub shard_id: u64,
+}
+
+/// The active shard source. Swap this one line at the Stage 5 cutover.
+fn shard_source() -> impl ShardSource {
+    FixtureShardSource
+}
+
+#[tauri::command]
+pub fn list_shards() -> Result<Vec<ShardSummary>, String> {
+    shard_source().list_shards().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_shard_render(
+    app: AppHandle,
+    handle: ShardRenderHandle,
+) -> Result<ShardRenderResponse, String> {
+    let aggregate = shard_source()
+        .aggregate_for(&handle)
+        .map_err(|e| e.to_string())?;
+    let size = handle.size.clamp(MIN_SIZE, MAX_SIZE);
+    let hash_override = handle.hash_override;
+
+    let cache_key = cache_digest(
+        &handle.shard_id.to_string(),
+        aggregate.shard_hash,
+        hash_override,
+        size,
+    );
+    let recipe = recipe_for(&aggregate, hash_override);
+    let png = render_cached(&app, &cache_key, &aggregate, hash_override, size)
+        .map_err(|e| e.to_string())?;
+
+    Ok(ShardRenderResponse {
+        png_base64: STANDARD.encode(&png),
+        recipe,
+        cache_key,
+        shard_id: handle.shard_id,
+    })
+}
+
+/// Return the cached PNG for `cache_key`, rendering and persisting it on miss.
+fn render_cached(
+    app: &AppHandle,
+    cache_key: &str,
+    aggregate: &ShardAggregate,
+    hash_override: Option<[u8; 32]>,
+    size: u32,
+) -> Result<Vec<u8>, String> {
+    if let Some(png) = read_cache(app, cache_key, size)? {
+        return Ok(png);
+    }
+    let png = render_png(aggregate, hash_override, size).map_err(|e| e.to_string())?;
+    write_cache(app, cache_key, size, &png)?;
+    Ok(png)
+}
+
+fn recipe_for(aggregate: &ShardAggregate, hash_override: Option<[u8; 32]>) -> CandidateRecipe {
     let params = if let Some(hash) = hash_override {
-        parameters_with_hash_override(&fixture.aggregate, hash)
+        parameters_with_hash_override(aggregate, hash)
     } else {
-        parameters_from_aggregate(&fixture.aggregate)
+        parameters_from_aggregate(aggregate)
     };
     recipe_from_params(&params)
 }
 
 fn render_png(
-    fixture: &PreviewFixture,
+    aggregate: &ShardAggregate,
     hash_override: Option<[u8; 32]>,
     size: u32,
 ) -> Result<Vec<u8>, VisualError> {
-    let mut agg = fixture.aggregate.clone();
+    let mut agg = aggregate.clone();
     if let Some(hash) = hash_override {
         agg.shard_hash = hash;
     }
@@ -158,12 +226,17 @@ fn parse_hash_override(raw: Option<&str>) -> Result<Option<[u8; 32]>, String> {
     })?))
 }
 
-fn cache_digest(fixture: &PreviewFixture, hash_override: Option<[u8; 32]>, size: u32) -> String {
-    let hash = hash_override.unwrap_or(fixture.aggregate.shard_hash);
+fn cache_digest(
+    id: &str,
+    base_hash: [u8; 32],
+    hash_override: Option<[u8; 32]>,
+    size: u32,
+) -> String {
+    let hash = hash_override.unwrap_or(base_hash);
     let mut hasher = Sha256::new();
     hasher.update(b"shard-visual-v1");
     hasher.update(hash);
-    hasher.update(fixture.id.as_bytes());
+    hasher.update(id.as_bytes());
     hasher.update(size.to_le_bytes());
     hex::encode(hasher.finalize())
 }

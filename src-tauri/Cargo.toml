@@ -28,6 +28,7 @@ hex = "0.4"
 base64 = "0.22"
 sha2 = "0.10"
 shekyl-shard-visual = { path = "../../shekyl-core/rust/shekyl-shard-visual" }
+shekyl-shard-source = { path = "../../shekyl-core/rust/shekyl-shard-source" }
 shekyl-engine-rpc = { path = "../../shekyl-core/rust/shekyl-engine-rpc", features = ["rust-scanner", "native-sign"] }
 shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner" }
 shekyl-simple-request-rpc = { path = "../../shekyl-core/rust/shekyl-oxide/shekyl-oxide/rpc/simple-request" }

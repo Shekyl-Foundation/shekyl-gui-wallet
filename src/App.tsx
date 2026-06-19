@@ -8,6 +8,7 @@ import Send from "./pages/Send";
 import Receive from "./pages/Receive";
 import Mining from "./pages/Mining";
 import Staking from "./pages/Staking";
+import Shards from "./pages/Shards";
 import Transactions from "./pages/Transactions";
 import Settings from "./pages/Settings";
 import ChainHealthPage from "./pages/ChainHealth";
@@ -66,6 +67,7 @@ function WalletGate() {
               <Route path="receive" element={<Receive />} />
               <Route path="mining" element={<Mining />} />
               <Route path="staking" element={<Staking />} />
+              <Route path="shards" element={<Shards />} />
               <Route path="transactions" element={<Transactions />} />
               <Route path="settings" element={<Settings />} />
               <Route path="chain-health" element={<ChainHealthPage />} />
