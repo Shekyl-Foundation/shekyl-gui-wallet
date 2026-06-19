@@ -104,6 +104,9 @@ pub fn run() {
             // Shard identity preview (pre-archival beta)
             shard_visual::list_shard_preview_fixtures,
             shard_visual::render_shard_preview,
+            // Shards page (ShardSource-backed; cutover-stable)
+            shard_visual::list_shards,
+            shard_visual::get_shard_render,
             // PQC Multisig
             commands::create_multisig_group,
             commands::get_multisig_info,
