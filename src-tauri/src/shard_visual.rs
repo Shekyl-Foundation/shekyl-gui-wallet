@@ -176,6 +176,12 @@ pub fn get_shard_render(
 }
 
 /// Return the cached PNG for `cache_key`, rendering and persisting it on miss.
+///
+/// Concurrent renders for the same key can race on the write: both miss the
+/// cache, both render, and the second `rename` may fail (especially on
+/// platforms where rename refuses an existing destination). In that case the
+/// other writer already produced a valid file — read it back rather than
+/// failing a successful render.
 fn render_cached(
     app: &AppHandle,
     cache_key: &str,
@@ -187,8 +193,13 @@ fn render_cached(
         return Ok(png);
     }
     let png = render_png(aggregate, hash_override, size).map_err(|e| e.to_string())?;
-    write_cache(app, cache_key, size, &png)?;
-    Ok(png)
+    match write_cache(app, cache_key, size, &png) {
+        Ok(()) => Ok(png),
+        Err(write_err) => match read_cache(app, cache_key, size)? {
+            Some(cached) => Ok(cached),
+            None => Err(write_err),
+        },
+    }
 }
 
 fn recipe_for(aggregate: &ShardAggregate, hash_override: Option<[u8; 32]>) -> CandidateRecipe {
