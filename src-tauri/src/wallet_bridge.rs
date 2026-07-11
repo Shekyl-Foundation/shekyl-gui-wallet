@@ -33,10 +33,14 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use shekyl_crypto_pq::key_image::KeyImage;
+use shekyl_engine_core::DaemonClient;
 use shekyl_engine_rpc::{ProgressEvent, Wallet2};
-use shekyl_oxide::transaction::Input;
-use shekyl_rpc::Rpc;
-use shekyl_scanner::{LedgerBlock, LedgerBlockExt, LedgerIndexes, LedgerIndexesExt};
+use shekyl_rpc_client::{Rpc, RpcError};
+use shekyl_rpc_transport::SimpleRequestRpc;
+use shekyl_scanner::{
+    LedgerBlock, LedgerBlockExt, LedgerIndexes, LedgerIndexesExt, ScannableBlock,
+};
+use shekyl_wire::Input;
 use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -333,12 +337,8 @@ fn start_sync_loop(
     let app_clone = app.clone();
 
     tokio::spawn(async move {
-        let rpc = match shekyl_simple_request_rpc::SimpleRequestRpc::new(format!(
-            "http://{daemon_url_owned}"
-        ))
-        .await
-        {
-            Ok(r) => r,
+        let rpc = match SimpleRequestRpc::new(format!("http://{daemon_url_owned}")).await {
+            Ok(r) => DaemonClient::new(r),
             Err(e) => {
                 error!(error = %e, "failed to connect to daemon for sync");
                 return;
@@ -357,7 +357,7 @@ fn start_sync_loop(
 #[derive(Debug, thiserror::Error)]
 enum SyncError {
     #[error("rpc error: {0}")]
-    Rpc(#[from] shekyl_rpc::RpcError),
+    Rpc(#[from] RpcError),
     #[error("scan error: {0}")]
     Scan(#[from] shekyl_scanner::ScanError),
 }
@@ -379,7 +379,7 @@ enum SyncError {
 ///    block's miner + non-miner key images.
 /// 5. Emit a `scanner-progress` Tauri event after each block.
 async fn run_local_sync_loop(
-    rpc: shekyl_simple_request_rpc::SimpleRequestRpc,
+    rpc: DaemonClient,
     scanner: Arc<TokioMutex<shekyl_scanner::Scanner>>,
     state: Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>,
     cancel: CancellationToken,
@@ -478,23 +478,18 @@ async fn run_local_sync_loop(
             };
 
             // Collect every key image consumed by this block (miner + non-miner).
-            // Both `Input::ToKey` and `Input::StakeClaim` carry one in
-            // `CompressedPoint(pub [u8; 32])` form; wrap into the typed
-            // `KeyImage` for `detect_spends`.
+            // Spends are `Input::ToKey` with a raw `[u8; 32]` key image on the
+            // shekyl-wire surface (StakeClaim was deleted with the oxide dissolve).
             let mut block_key_images: Vec<KeyImage> = Vec::new();
-            let miner_tx = scannable.block.miner_transaction();
-            for input in &miner_tx.prefix().inputs {
-                if let Input::ToKey { key_image, .. } | Input::StakeClaim { key_image, .. } = input
-                {
-                    block_key_images.push(KeyImage::from_canonical_bytes(key_image.0));
+            for input in &scannable.block.miner_transaction.prefix.inputs {
+                if let Input::ToKey { key_image, .. } = input {
+                    block_key_images.push(KeyImage::from_canonical_bytes(*key_image));
                 }
             }
             for tx in &scannable.transactions {
-                for input in &tx.prefix().inputs {
-                    if let Input::ToKey { key_image, .. } | Input::StakeClaim { key_image, .. } =
-                        input
-                    {
-                        block_key_images.push(KeyImage::from_canonical_bytes(key_image.0));
+                for input in &tx.prefix.inputs {
+                    if let Input::ToKey { key_image, .. } = input {
+                        block_key_images.push(KeyImage::from_canonical_bytes(*key_image));
                     }
                 }
             }
@@ -534,13 +529,13 @@ async fn run_local_sync_loop(
 
 /// Fetch a block with exponential backoff on transient failures.
 async fn fetch_block_with_retry(
-    rpc: &shekyl_simple_request_rpc::SimpleRequestRpc,
+    rpc: &DaemonClient,
     height: u64,
     cancel: &CancellationToken,
-) -> Result<shekyl_rpc::ScannableBlock, SyncError> {
+) -> Result<ScannableBlock, SyncError> {
     let mut delay = INITIAL_RETRY_DELAY;
     for attempt in 0..MAX_BLOCK_FETCH_RETRIES {
-        match rpc.get_scannable_block_by_number(height as usize).await {
+        match rpc.fetch_scannable_block(height as usize).await {
             Ok(b) => return Ok(b),
             Err(e) if attempt + 1 < MAX_BLOCK_FETCH_RETRIES => {
                 warn!(
@@ -573,7 +568,7 @@ async fn fetch_block_with_retry(
 /// Walk backwards from `from_height` to find the fork point where the
 /// stored block hash matches the daemon's chain.
 async fn find_fork_point(
-    rpc: &shekyl_simple_request_rpc::SimpleRequestRpc,
+    rpc: &DaemonClient,
     state: &Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>,
     from_height: u64,
     cancel: &CancellationToken,
