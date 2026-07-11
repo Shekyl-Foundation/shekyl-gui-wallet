@@ -763,9 +763,12 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
     // Read from Rust scanner state (primary) with C++ fallback
     match wallet_bridge::get_scanner_balance(&state.wallet).await {
         Ok(summary) => Ok(Balance {
-            total: summary.total,
-            unlocked: summary.unlocked,
-            staked: summary.staked_total,
+            total: summary.total.to_raw(),
+            unlocked: summary.unlocked.to_raw(),
+            // Staked totals moved off BalanceSummary with the oxide/stake
+            // dissolve; StakeView (core feat/scanner-stake-views) is the
+            // replacement. Report 0 until that lands.
+            staked: 0,
         }),
         Err(_) => {
             let resp = wallet_bridge::get_balance(&state.wallet, 0)?;
@@ -1161,11 +1164,14 @@ pub async fn export_signature_response_file(response: String, path: String) -> R
 pub async fn get_scanner_balance(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let summary = wallet_bridge::get_scanner_balance(&state.wallet).await?;
     Ok(serde_json::json!({
-        "total": summary.total,
-        "unlocked": summary.unlocked,
-        "staked": summary.staked_total,
-        "locked": summary.locked_by_timelock,
-        "staked_matured": summary.staked_matured,
+        "total": summary.total.to_raw(),
+        "unlocked": summary.unlocked.to_raw(),
+        // See get_balance: staked fields await StakeView cutover.
+        "staked": 0u64,
+        "locked": summary.locked_by_timelock.to_raw(),
+        "staked_matured": 0u64,
+        "frozen": summary.frozen.to_raw(),
+        "awaiting_confirmation": summary.awaiting_confirmation.to_raw(),
     }))
 }
 

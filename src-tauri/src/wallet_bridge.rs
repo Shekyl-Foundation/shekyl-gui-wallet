@@ -954,83 +954,35 @@ pub async fn get_scanner_balance(
 }
 
 /// Get staked outputs from the Rust scanner state.
+///
+/// Empty until core lands `LedgerBlockExt::stake_views` /
+/// `feat/scanner-stake-views` — TransferDetails no longer carries
+/// stake_tier / stake_lock_until on the current ledger shape.
 pub async fn get_scanner_staked_outputs(
     handle: &WalletHandle,
 ) -> Result<serde_json::Value, String> {
-    let state_arc = scanner_state(handle)?;
-    let guard = state_arc.lock().await;
-    let (ledger, _indexes) = &*guard;
-    let height = ledger.height();
-    let staked: Vec<serde_json::Value> = ledger
-        .staked_outputs()
-        .iter()
-        .map(|td| {
-            serde_json::json!({
-                "amount": td.amount(),
-                "tier": td.stake_tier,
-                "lock_height": td.block_height,
-                "unlock_height": td.stake_lock_until,
-                "claimable": td.is_matured_stake(height),
-            })
-        })
-        .collect();
-    Ok(serde_json::json!({ "staked_outputs": staked }))
+    let _ = scanner_state(handle)?;
+    Ok(serde_json::json!({ "staked_outputs": [] }))
 }
 
 /// Get claimable staked outputs from the Rust scanner state.
+///
+/// Empty stub — see [`get_scanner_staked_outputs`].
 pub async fn get_scanner_claimable_stakes(
     handle: &WalletHandle,
 ) -> Result<serde_json::Value, String> {
-    let state_arc = scanner_state(handle)?;
-    let guard = state_arc.lock().await;
-    let (ledger, _indexes) = &*guard;
-    let height = ledger.height();
-    let claimable: Vec<serde_json::Value> = ledger
-        .claimable_outputs(height)
-        .iter()
-        .map(|td| {
-            let accrual_cap = std::cmp::min(height, td.stake_lock_until);
-            let watermark = if td.last_claimed_height > 0 {
-                td.last_claimed_height
-            } else {
-                td.block_height
-            };
-            serde_json::json!({
-                "amount": td.amount(),
-                "tier": td.stake_tier,
-                "lock_until": td.stake_lock_until,
-                "from_height": watermark,
-                "to_height": accrual_cap,
-                "accrual_frozen": height >= td.stake_lock_until,
-                "global_output_index": td.global_output_index,
-            })
-        })
-        .collect();
-    Ok(serde_json::json!({ "claimable_stakes": claimable }))
+    let _ = scanner_state(handle)?;
+    Ok(serde_json::json!({ "claimable_stakes": [] }))
 }
 
 /// Get unstakeable (matured) outputs from the Rust scanner state.
+///
+/// Empty stub — see [`get_scanner_staked_outputs`].
 pub async fn get_scanner_unstakeable_outputs(
     handle: &WalletHandle,
 ) -> Result<serde_json::Value, String> {
-    let state_arc = scanner_state(handle)?;
-    let guard = state_arc.lock().await;
-    let (ledger, _indexes) = &*guard;
-    let height = ledger.height();
-    let unstakeable: Vec<serde_json::Value> = ledger
-        .unstakeable_outputs(height)
-        .iter()
-        .map(|td| {
-            serde_json::json!({
-                "amount": td.amount(),
-                "tier": td.stake_tier,
-                "lock_until": td.stake_lock_until,
-                "has_unclaimed_backlog": td.has_claimable_rewards(height),
-                "global_output_index": td.global_output_index,
-            })
-        })
-        .collect();
-    Ok(serde_json::json!({ "unstakeable_outputs": unstakeable }))
+    let _ = scanner_state(handle)?;
+    Ok(serde_json::json!({ "unstakeable_outputs": [] }))
 }
 
 /// Freeze an output by key image via the scanner state.
