@@ -32,7 +32,8 @@ export interface ShardSummary {
 export interface ShardRenderHandle {
   shard_id: number;
   shard_hash: string;
-  hash_override?: string | null;
+  /** Compositor-seed override; omit when unset (wire: absent, not null). */
+  hash_override?: string;
   size: number;
 }
 

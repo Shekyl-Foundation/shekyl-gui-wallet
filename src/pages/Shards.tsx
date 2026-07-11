@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertTriangle, Boxes, ImageIcon, RefreshCw } from "lucide-react";
 import type {
+  ShardRenderHandle,
   ShardRenderResponse,
   ShardSummary,
 } from "../types/shards";
@@ -109,14 +110,18 @@ function ShardCard({ shard }: { shard: ShardSummary }) {
 
   useEffect(() => {
     let cancelled = false;
-    invoke<ShardRenderResponse>("get_shard_render", {
-      handle: {
-        shard_id: aggregate.shard_id,
-        shard_hash: aggregate.shard_hash,
-        hash_override: null,
-        size: RENDER_SIZE,
-      },
-    })
+    // Clear prior render so a hash/id change never shows a stale image or
+    // error while the new request is in flight (rule 82).
+    setPng(null);
+    setError(null);
+    // Omit hash_override so the wire payload matches the core contract
+    // (absent when unset, not JSON null).
+    const handle: ShardRenderHandle = {
+      shard_id: aggregate.shard_id,
+      shard_hash: aggregate.shard_hash,
+      size: RENDER_SIZE,
+    };
+    invoke<ShardRenderResponse>("get_shard_render", { handle })
       .then((res) => {
         if (!cancelled) setPng(res.png_base64);
       })
