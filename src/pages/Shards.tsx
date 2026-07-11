@@ -95,7 +95,10 @@ export default function Shards() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {shards.map((shard) => (
-            <ShardCard key={shard.aggregate.shard_id} shard={shard} />
+            <ShardCard
+              key={`${shard.aggregate.shard_id}-${shard.aggregate.shard_hash}`}
+              shard={shard}
+            />
           ))}
         </div>
       )}
@@ -105,33 +108,50 @@ export default function Shards() {
 
 function ShardCard({ shard }: { shard: ShardSummary }) {
   const { aggregate, label } = shard;
-  const [png, setPng] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Results are tagged with the hash they belong to so a hash/id change never
+  // displays a stale image or error while the new request is in flight — without
+  // synchronous setState in the effect (react-hooks/set-state-in-effect).
+  const [result, setResult] = useState<{
+    shard_hash: string;
+    png: string;
+  } | null>(null);
+  const [error, setError] = useState<{
+    shard_hash: string;
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    // Clear prior render so a hash/id change never shows a stale image or
-    // error while the new request is in flight (rule 82).
-    setPng(null);
-    setError(null);
+    const shardHash = aggregate.shard_hash;
     // Omit hash_override so the wire payload matches the core contract
     // (absent when unset, not JSON null).
     const handle: ShardRenderHandle = {
       shard_id: aggregate.shard_id,
-      shard_hash: aggregate.shard_hash,
+      shard_hash: shardHash,
       size: RENDER_SIZE,
     };
     invoke<ShardRenderResponse>("get_shard_render", { handle })
       .then((res) => {
-        if (!cancelled) setPng(res.png_base64);
+        if (!cancelled) {
+          setResult({ shard_hash: shardHash, png: res.png_base64 });
+          setError(null);
+        }
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e));
+        if (!cancelled) {
+          setError({ shard_hash: shardHash, message: String(e) });
+          setResult(null);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [aggregate.shard_id, aggregate.shard_hash]);
+
+  const png =
+    result?.shard_hash === aggregate.shard_hash ? result.png : null;
+  const displayError =
+    error?.shard_hash === aggregate.shard_hash ? error.message : null;
 
   const claimed = aggregate.stake_events_claimed;
   const created = aggregate.stake_events_created;
@@ -148,7 +168,7 @@ function ShardCard({ shard }: { shard: ShardSummary }) {
               width={RENDER_SIZE}
               height={RENDER_SIZE}
             />
-          ) : error ? (
+          ) : displayError ? (
             <AlertTriangle className="h-5 w-5 text-red-300" />
           ) : (
             <ImageIcon className="h-5 w-5 animate-pulse text-purple-400" />
