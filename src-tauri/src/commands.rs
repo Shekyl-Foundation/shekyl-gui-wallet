@@ -760,22 +760,24 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
         });
     }
 
-    // Read from Rust scanner state (primary) with C++ fallback
+    // Scanner BalanceSummary no longer carries staked totals (StakeView
+    // cutover). Until that lands, staked comes from the wallet2
+    // `get_staked_outputs` RPC — the same source `get_staking_info` uses —
+    // so BalanceCard cannot silently report zero while stakes exist.
+    let staked = wallet_bridge::get_staked_outputs(&state.wallet)?.total_staked;
+
     match wallet_bridge::get_scanner_balance(&state.wallet).await {
         Ok(summary) => Ok(Balance {
             total: summary.total.to_raw(),
             unlocked: summary.unlocked.to_raw(),
-            // Staked totals moved off BalanceSummary with the oxide/stake
-            // dissolve; StakeView (core feat/scanner-stake-views) is the
-            // replacement. Report 0 until that lands.
-            staked: 0,
+            staked,
         }),
         Err(_) => {
             let resp = wallet_bridge::get_balance(&state.wallet, 0)?;
             Ok(Balance {
                 total: resp.balance,
                 unlocked: resp.unlocked_balance,
-                staked: 0,
+                staked,
             })
         }
     }
@@ -1163,13 +1165,21 @@ pub async fn export_signature_response_file(response: String, path: String) -> R
 #[tauri::command]
 pub async fn get_scanner_balance(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let summary = wallet_bridge::get_scanner_balance(&state.wallet).await?;
+    // Staked fields are not on BalanceSummary yet — pull from wallet2 until
+    // StakeView lands (same source as get_balance / get_staking_info).
+    let staking = wallet_bridge::get_staked_outputs(&state.wallet)?;
+    let staked_matured = staking
+        .staked_outputs
+        .iter()
+        .filter(|o| o.claimable)
+        .try_fold(0u64, |acc, o| acc.checked_add(o.amount))
+        .ok_or_else(|| "staked_matured overflow".to_string())?;
     Ok(serde_json::json!({
         "total": summary.total.to_raw(),
         "unlocked": summary.unlocked.to_raw(),
-        // See get_balance: staked fields await StakeView cutover.
-        "staked": 0u64,
+        "staked": staking.total_staked,
         "locked": summary.locked_by_timelock.to_raw(),
-        "staked_matured": 0u64,
+        "staked_matured": staked_matured,
         "frozen": summary.frozen.to_raw(),
         "awaiting_confirmation": summary.awaiting_confirmation.to_raw(),
     }))

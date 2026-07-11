@@ -955,34 +955,43 @@ pub async fn get_scanner_balance(
 
 /// Get staked outputs from the Rust scanner state.
 ///
-/// Empty until core lands `LedgerBlockExt::stake_views` /
-/// `feat/scanner-stake-views` — TransferDetails no longer carries
-/// stake_tier / stake_lock_until on the current ledger shape.
+/// Unavailable until core lands `LedgerBlockExt::stake_views` /
+/// `feat/scanner-stake-views`. Returning an empty list would be
+/// indistinguishable from "wallet has no stakes" (rule 82) — fail loud.
 pub async fn get_scanner_staked_outputs(
     handle: &WalletHandle,
 ) -> Result<serde_json::Value, String> {
     let _ = scanner_state(handle)?;
-    Ok(serde_json::json!({ "staked_outputs": [] }))
+    Err(
+        "scanner stake views not available yet (awaiting core StakeView / feat/scanner-stake-views)"
+            .into(),
+    )
 }
 
 /// Get claimable staked outputs from the Rust scanner state.
 ///
-/// Empty stub — see [`get_scanner_staked_outputs`].
+/// See [`get_scanner_staked_outputs`] — fail loud until StakeView lands.
 pub async fn get_scanner_claimable_stakes(
     handle: &WalletHandle,
 ) -> Result<serde_json::Value, String> {
     let _ = scanner_state(handle)?;
-    Ok(serde_json::json!({ "claimable_stakes": [] }))
+    Err(
+        "scanner stake views not available yet (awaiting core StakeView / feat/scanner-stake-views)"
+            .into(),
+    )
 }
 
 /// Get unstakeable (matured) outputs from the Rust scanner state.
 ///
-/// Empty stub — see [`get_scanner_staked_outputs`].
+/// See [`get_scanner_staked_outputs`] — fail loud until StakeView lands.
 pub async fn get_scanner_unstakeable_outputs(
     handle: &WalletHandle,
 ) -> Result<serde_json::Value, String> {
     let _ = scanner_state(handle)?;
-    Ok(serde_json::json!({ "unstakeable_outputs": [] }))
+    Err(
+        "scanner stake views not available yet (awaiting core StakeView / feat/scanner-stake-views)"
+            .into(),
+    )
 }
 
 /// Freeze an output by key image via the scanner state.
