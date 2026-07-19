@@ -34,15 +34,19 @@ shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner" }
 shekyl-rpc-client = { path = "../../shekyl-core/rust/shekyl-rpc-client" }
 shekyl-rpc-transport = { path = "../../shekyl-core/rust/shekyl-rpc-transport" }
 shekyl-engine-core = { path = "../../shekyl-core/rust/shekyl-engine-core" }
+shekyl-engine-file = { path = "../../shekyl-core/rust/shekyl-engine-file" }
+shekyl-engine-prefs = { path = "../../shekyl-core/rust/shekyl-engine-prefs" }
 shekyl-wire = { path = "../../shekyl-core/rust/shekyl-wire" }
 shekyl-crypto-pq = { path = "../../shekyl-core/rust/shekyl-crypto-pq" }
 shekyl-address = { path = "../../shekyl-core/rust/shekyl-address" }
+shekyl-units = { path = "../../shekyl-core/rust/shekyl-units" }
 shekyl-ffi = { path = "../../shekyl-core/rust/shekyl-ffi" }
 curve25519-dalek = { version = "4", features = ["zeroize"] }
 tokio-util = "0.7"
 tracing = "0.1"
 thiserror = "1"
 zeroize = { version = "1", features = ["alloc"] }
+rand = "0.8"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

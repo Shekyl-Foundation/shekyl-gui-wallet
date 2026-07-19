@@ -37,6 +37,7 @@ use tauri::Manager;
 mod commands;
 mod daemon_manager;
 mod daemon_rpc;
+mod engine_session;
 mod gui_config;
 mod shard_visual;
 mod state;
@@ -92,6 +93,9 @@ pub fn run() {
             commands::import_wallet_from_seed,
             commands::import_wallet_from_keys,
             commands::get_seed,
+            commands::get_engine_backend,
+            commands::set_engine_backend,
+            commands::refresh_wallet,
             // Wallet data
             commands::get_balance,
             commands::get_address,
@@ -134,6 +138,10 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 let app_state: tauri::State<'_, state::AppState> = window.state();
                 let _ = wallet_bridge::shutdown(&app_state.wallet);
+                tauri::async_runtime::block_on(async {
+                    let mut eng = app_state.engine.lock().await;
+                    let _ = eng.close().await;
+                });
 
                 let dm: tauri::State<'_, Arc<daemon_manager::DaemonManager>> = window.state();
                 let dm = dm.inner().clone();

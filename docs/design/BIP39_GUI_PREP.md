@@ -1,11 +1,17 @@
 # BIP-39 GUI prep — shekyl-gui-wallet
 
-**Status:** Prep landed (GUI-only). Integration blocked on shekyl-core FFI.
+**Status:** Prep landed; **Engine path integration landed in GUI-PR1**.
+
+Create/restore on the pure-Rust Engine backend uses BIP-39 via
+`shekyl-crypto-pq` (`generate_account_from_bip39` / `mnemonic_from_entropy`)
+— **not** new `wallet2_ffi_*` symbols. Wallet2 remains only when
+`SHEKYL_ENGINE_BACKEND=0`.
 
 **Authority:**
 
 - `shekyl-core/docs/design/ELECTRUM_WORDS_REMOVAL.md` §3.2.1
-- `shekyl-core/docs/FOLLOWUPS.md` — `wallet2_ffi_create_wallet` mainnet-broken cleanup
+- `shekyl-core` `shekyl-wallet-rpc` lifecycle (same BIP-39 create path)
+- GUI plan: Rust-forward / FFI collapse
 
 ## What this prep PR delivers
 

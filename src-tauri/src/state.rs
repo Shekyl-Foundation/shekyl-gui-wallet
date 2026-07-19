@@ -32,7 +32,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::{gui_config, wallet_bridge};
+use crate::{engine_session, gui_config, wallet_bridge};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -101,7 +101,7 @@ pub struct AppState {
     pub network: RwLock<NetworkType>,
     pub http: Client,
 
-    // Wallet (direct FFI via shekyl-engine-rpc)
+    // Wallet directory / open metadata
     pub wallet_dir: RwLock<PathBuf>,
     /// `Some(path)` when the persisted wallet-dir override was
     /// unreachable at startup and we fell back to the platform default.
@@ -111,7 +111,13 @@ pub struct AppState {
     pub wallet_dir_warning: RwLock<Option<PathBuf>>,
     pub wallet_open: RwLock<bool>,
     pub wallet_name: RwLock<Option<String>>,
+    /// Transitional Wallet2 / wallet2_ffi bridge (deletion-bound).
     pub wallet: wallet_bridge::WalletHandle,
+    /// Pure-Rust Engine session (GUI-PR1 mainline).
+    pub engine: tokio::sync::Mutex<engine_session::EngineSession>,
+    /// Prefer Engine over Wallet2 when true (Rust-forward). Default from
+    /// `SHEKYL_ENGINE_BACKEND` env (on unless set to 0/false/off).
+    pub engine_backend: RwLock<bool>,
 }
 
 impl AppState {
@@ -133,7 +139,14 @@ impl AppState {
             wallet_open: RwLock::new(false),
             wallet_name: RwLock::new(None),
             wallet: wallet_bridge::new_handle(),
+            engine: tokio::sync::Mutex::new(engine_session::EngineSession::new()),
+            engine_backend: RwLock::new(engine_session::engine_backend_default_from_env()),
         }
+    }
+
+    /// HTTP base URL for Engine daemon client (no `/json_rpc` suffix).
+    pub async fn daemon_http_base(&self) -> String {
+        self.base_url().await
     }
 
     pub async fn url(&self) -> String {

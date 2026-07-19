@@ -2,7 +2,30 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Pure-Rust Engine wallet session (GUI-PR1).** New `engine_session` module
+  embeds `shekyl-engine-core::Engine` directly (create / open / close /
+  refresh / balance / primary address / BIP-39 restore). Default backend is
+  Engine (`SHEKYL_ENGINE_BACKEND=0` forces legacy Wallet2). Tauri commands:
+  `get_engine_backend`, `set_engine_backend`, `refresh_wallet`. Engine files
+  use `{name}.wallet` + `{name}.wallet.keys`. Create returns a BIP-39
+  mnemonic on mainnet/stagenet (raw hex on testnet). Mid-session seed display
+  is intentionally unavailable (seed dropped at open).
+
 ### Changed
+
+- **Staking honesty mode (GUI-PR0).** Claim-era tier lock / claim-rewards UX is
+  removed from the Staking page. The page now explains archival staking
+  (activate → fund persona → hold shards → later unbond/drain), shows
+  network-wide daemon stats only, and states that personal actions are not
+  available in this build. Tauri `stake` / `claim_rewards` refuse loudly;
+  `get_balance` / scanner balance no longer call claim-era
+  `get_staked_outputs` (personal `staked` reports zero until Engine queries
+  land). Help center and `USER_GUIDE.md` restated to match.
+  **shekyl-core pin:** `cf375a786` (dev tip, 2026-07-18 — stake activation
+  entry PR #336). Product default: principal-focused desktop UX (not full
+  operator node in-app).
 
 - **BIP-39 prep (GUI only).** User-facing copy, import validation, and docs now
   describe a **24-word recovery phrase** (BIP-39 English) instead of a
@@ -17,6 +40,8 @@
   shekyl-core ships `wallet2_ffi_create_wallet_from_bip39` and BIP-39 restore
   FFI and the gui-wallet integration PR lands. See
   `docs/design/BIP39_GUI_PREP.md`.
+- Archival staker activation / funding / drain require the Engine backend
+  (GUI-PR1+) and are intentionally not faked in this release.
 
 ## [3.1.0-alpha.5] - 2026-05-19
 
