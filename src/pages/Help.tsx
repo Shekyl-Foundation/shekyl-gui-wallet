@@ -173,39 +173,42 @@ export default function Help() {
               What is Staking in Shekyl?
             </h4>
             <p>
-              Shekyl uses a <strong>claim-based staking model</strong>, not
-              delegation. You lock SKL for a chosen duration and earn a share
-              of the emission pool when you claim your rewards. This is
-              different from delegated proof-of-stake -- you retain full
-              custody of your funds.
+              Staking is <strong>archival participation</strong>, not a
+              tier-lock yield product. A staker posts collateral, holds
+              chain-history shards as useful work, and earns archival rewards.
+              You keep custody of principal keys; the protocol&apos;s bond and
+              cooldown rules govern when collateral can return.
             </p>
           </div>
           <div>
-            <h4 className="font-semibold text-white">Tiers and Lock Durations</h4>
+            <h4 className="font-semibold text-white">Status in this wallet</h4>
             <p>
-              There are three staking tiers with increasing lock periods and
-              yield multipliers. <strong>Tier 0</strong> has a short lock with
-              1x multiplier, <strong>Tier 1</strong> has a medium lock with
-              1.5x, and <strong>Tier 2</strong> has the longest lock with 2x.
-              Longer locks earn proportionally more rewards.
+              Personal stake / claim actions are <strong>not available</strong>{" "}
+              in this build. The old tier-and-claim flow was retired with the
+              protocol rewrite. Activation, funding, and reward recovery will
+              return once the Engine backend is wired. The Staking page still
+              shows <strong>network-wide</strong> stats when a daemon is
+              connected.
             </p>
           </div>
           <div>
-            <h4 className="font-semibold text-white">Privacy Benefit</h4>
+            <h4 className="font-semibold text-white">What will ship next</h4>
             <p>
-              Staked funds <strong>commingle in the accrual pool</strong>.
-              When you claim rewards, they draw from pooled funds, providing{" "}
-              <strong>plausible deniability</strong> on the source of yield.
-              Staking is both yield generation and privacy participation.
+              <strong>Activate</strong> as a staker, <strong>fund</strong> your
+              archival persona, hold shards, then later <strong>unbond</strong>{" "}
+              and <strong>drain</strong> rewards to your principal wallet.
+              Desktop focus is principal-side actions first; full node-operator
+              duties (onion service, challenges) are documented separately for
+              operators.
             </p>
           </div>
           <div>
-            <h4 className="font-semibold text-white">Estimated APY</h4>
+            <h4 className="font-semibold text-white">Operator caution</h4>
             <p>
-              The APY shown on the Staking page is an estimate based on
-              current network conditions -- emission rate, total staked amount,
-              and your chosen tier's multiplier. Actual returns depend on
-              network activity over your lock period.
+              Collateral release uses a multi-epoch cooldown. Do not drop a
+              shard expecting to fund another immediately, and do not batch
+              multiple activations on one schedule. See shekyl-core&apos;s{" "}
+              <span className="font-mono">STAKER_OPERATOR_GUIDE.md</span>.
             </p>
           </div>
         </div>

@@ -842,26 +842,36 @@ pub fn stop_wallet(handle: &WalletHandle) -> Result<(), String> {
     with_wallet(handle, |w| w.stop().map_err(engine_err))
 }
 
-// ─── Staking ─────────────────────────────────────────────────────────────────
-
-pub fn stake(handle: &WalletHandle, tier: u8, amount: u64) -> Result<TransferResponse, String> {
-    with_wallet(handle, |w| {
-        let params = serde_json::json!({ "tier": tier, "amount": amount });
-        let val = w
-            .json_rpc_call("stake", &params.to_string())
-            .map_err(engine_err)?;
-        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
-    })
+pub fn refresh(handle: &WalletHandle) -> Result<(), String> {
+    with_wallet(handle, |w| w.refresh().map_err(engine_err))
 }
 
-pub fn claim_rewards(handle: &WalletHandle) -> Result<TransferResponse, String> {
-    with_wallet(handle, |w| {
-        let val = w.json_rpc_call("claim_rewards", "{}").map_err(engine_err)?;
-        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
-    })
+// ─── Staking (claim-era surface retired — GUI-PR0) ───────────────────────────
+//
+// Core's production `stake` is archival activation (`password` only) on the
+// Engine / shekyl-wallet-rpc path. The Wallet2 claim-era methods
+// (`stake(tier,amount)`, `claim_rewards`, `get_staked_outputs`) are not
+// invoked from the GUI anymore. Keep the types for a short transition if
+// external tooling still deserializes them; do not call into wallet2 for
+// these names (they either are gone or mean something else on Engine).
+
+/// Shared refusal for claim-era wallet2 staking helpers.
+const CLAIM_ERA_BRIDGE_RETIRED: &str = "\
+claim-era wallet2 staking helpers are retired; use Engine archival staking \
+when the GUI Engine backend lands";
+
+#[allow(dead_code)]
+pub fn stake(_handle: &WalletHandle, _tier: u8, _amount: u64) -> Result<TransferResponse, String> {
+    Err(CLAIM_ERA_BRIDGE_RETIRED.into())
+}
+
+#[allow(dead_code)]
+pub fn claim_rewards(_handle: &WalletHandle) -> Result<TransferResponse, String> {
+    Err(CLAIM_ERA_BRIDGE_RETIRED.into())
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct StakedOutput {
     #[serde(default)]
     pub amount: u64,
@@ -876,6 +886,7 @@ pub struct StakedOutput {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct GetStakedOutputsResponse {
     #[serde(default)]
     pub staked_outputs: Vec<StakedOutput>,
@@ -883,13 +894,9 @@ pub struct GetStakedOutputsResponse {
     pub total_staked: u64,
 }
 
-pub fn get_staked_outputs(handle: &WalletHandle) -> Result<GetStakedOutputsResponse, String> {
-    with_wallet(handle, |w| {
-        let val = w
-            .json_rpc_call("get_staked_outputs", "{}")
-            .map_err(engine_err)?;
-        serde_json::from_value(val).map_err(|e| format!("Parse error: {e}"))
-    })
+#[allow(dead_code)]
+pub fn get_staked_outputs(_handle: &WalletHandle) -> Result<GetStakedOutputsResponse, String> {
+    Err(CLAIM_ERA_BRIDGE_RETIRED.into())
 }
 
 // ─── PQC Multisig ────────────────────────────────────────────────────────────

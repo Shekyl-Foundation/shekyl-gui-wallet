@@ -34,7 +34,12 @@ export default function BalanceCard() {
           <p className="text-sm font-semibold text-white">{unlocked} SKL</p>
         </div>
         <div>
-          <p className="text-xs text-purple-300">Staked</p>
+          <p
+            className="text-xs text-purple-300"
+            title="Personal archival stake totals return when Engine staking ships. This field is zero until then."
+          >
+            Staked
+          </p>
           <p className="text-sm font-semibold text-white">{staked} SKL</p>
         </div>
       </div>

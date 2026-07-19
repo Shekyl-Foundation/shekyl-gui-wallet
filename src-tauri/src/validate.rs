@@ -182,6 +182,9 @@ pub fn validate_secret_key(key: &str, name: &str) -> Result<(), String> {
 }
 
 /// Validate a staking tier.
+/// Claim-era lock tiers (0–2). Unused after GUI-PR0 honesty mode; kept until
+/// `get_tier_yields` / StakeTierCard cleanup removes the last tier consumers.
+#[allow(dead_code)]
 pub fn validate_tier(tier: u8) -> Result<(), String> {
     if tier > 2 {
         return Err(format!("Invalid staking tier: {tier}. Must be 0, 1, or 2"));

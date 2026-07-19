@@ -79,7 +79,8 @@ describe("Help", () => {
   it("shows staking guide content when expanded", () => {
     renderHelp();
     fireEvent.click(screen.getByText("Staking Guide"));
-    expect(screen.getByText(/claim-based staking model/)).toBeInTheDocument();
-    expect(screen.getByText("Privacy Benefit")).toBeInTheDocument();
+    expect(screen.getByText(/archival participation/)).toBeInTheDocument();
+    expect(screen.getByText("Status in this wallet")).toBeInTheDocument();
+    expect(screen.getByText("What will ship next")).toBeInTheDocument();
   });
 });
