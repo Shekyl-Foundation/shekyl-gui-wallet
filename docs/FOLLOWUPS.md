@@ -25,14 +25,16 @@ is gone; network stats remain. Real staking needs the Engine path.
 |----|------|-----------|--------|
 | GUI-PR0 | Honesty-mode staking | — | **done** |
 | GUI-PR1 | Engine session (create/open/close/refresh/balance) | Engine lifecycle on dev | **done** (default on; `SHEKYL_ENGINE_BACKEND=0` → Wallet2) |
-| GUI-PR2 | Engine transfer (build+submit) + fee estimate + ledger history | same | next |
-| GUI-PR3 | `activate_staker` / `stake { password }` + status + error map | PR #336 landed | pending |
+| GUI-PR2 | Engine transfer (build+submit) + fee estimate + ledger history | same | **done** |
+| GUI-PR3 | `activate_staker` / `stake { password }` + status + error map | PR #336 landed | next |
 | GUI-PR4 | `stake_in` funding UX | public/RPC `stake_in` (core PR-P3+) | pending |
 | GUI-PR5 | Multisig address-fingerprint cutover | group_id deleted in core | pending |
 | GUI-PR6+ | unbond / drain / live shards | PR-P4/P5/P6 + emission | pending |
 
-**GUI-PR1 leftovers:** transfer / history still not on Engine — GUI-PR2.
-Multisig still Wallet2 scaffolding.
+**GUI-PR2 leftovers:** one-shot send (no review modal for fee re-anchor
+beyond silent single resubmit); outgoing history is ledger-output based
+(no full spend graph). Multisig still Wallet2 scaffolding. Next: GUI-PR3
+staker activation.
 
 **Delete when done:** claim-era leftovers (`StakeTierCard` if unused,
 `get_tier_yields` if daemon tiers vanish, scanner stake stubs once

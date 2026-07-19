@@ -24,15 +24,17 @@ use shekyl_crypto_pq::account::{
 };
 use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES};
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
+use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    Credentials, DaemonClient, Engine, EngineCreateParams, Network, OpenedEngine, PScanHandle,
-    RefreshOptions, SoloSigner,
+    Credentials, DaemonClient, Engine, EngineCreateParams, FeePriority, Network, OpenedEngine,
+    PScanHandle, RefreshOptions, SoloSigner, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
 use shekyl_rpc_transport::SimpleRequestRpc;
 use shekyl_scanner::LedgerBlockExt;
+use shekyl_units::AtomicUnits;
 use tokio::sync::RwLock;
 use tracing::warn;
 use zeroize::{Zeroize, Zeroizing};
@@ -342,6 +344,125 @@ impl EngineSession {
         ))
     }
 
+    /// One-shot send: build pending tx + submit (GUI transfer command).
+    ///
+    /// Mirrors wallet-rpc `build_pending_tx` → `submit_pending_tx` with
+    /// `FeePriority::Standard`. On CT-5d `ContentChanged`, resubmits once
+    /// with the advanced `content_gen` (user already confirmed the send
+    /// intent at the UI layer for this one-shot path).
+    pub async fn transfer(&self, address: &str, amount_atomic: u64) -> Result<TransferOutcome, String> {
+        let shared = self
+            .engine
+            .clone()
+            .ok_or_else(|| "No wallet is open".to_string())?;
+
+        let request = TxRequest {
+            recipients: vec![TxRecipient {
+                address: address.to_owned(),
+                amount_atomic_units: AtomicUnits::from_raw(amount_atomic),
+            }],
+            priority: FeePriority::Standard,
+        };
+
+        let mut engine = shared.write().await;
+        let pending = engine
+            .build_pending_tx_async(&request)
+            .await
+            .map_err(|e| format!("build transfer: {e}"))?;
+
+        let fee = pending.fee_atomic_units.to_raw();
+        let id = pending.id;
+        let mut seen_gen = pending.content_gen;
+
+        let tx_hash = match engine.submit_pending_tx_async(id, seen_gen).await {
+            Ok(h) => h,
+            Err(SubmitError::ContentChanged {
+                content_gen,
+                reservation_id,
+            }) => {
+                // One-shot GUI path: re-confirm is implicit; resubmit once.
+                seen_gen = content_gen;
+                engine
+                    .submit_pending_tx_async(reservation_id, seen_gen)
+                    .await
+                    .map_err(|e| {
+                        // Best-effort discard so funds unlock if still held.
+                        let _ = engine.discard_pending_tx(reservation_id);
+                        format!("submit transfer (after re-anchor): {e}")
+                    })?
+            }
+            Err(e) => {
+                let _ = engine.discard_pending_tx(id);
+                return Err(format!("submit transfer: {e}"));
+            }
+        };
+
+        Ok(TransferOutcome {
+            tx_hash: tx_hash.to_string(),
+            amount: amount_atomic,
+            fee,
+        })
+    }
+
+    /// Estimate fee by building (then discarding) a pending tx.
+    pub async fn estimate_fee(&self, address: &str, amount_atomic: u64) -> Result<u64, String> {
+        let shared = self
+            .engine
+            .clone()
+            .ok_or_else(|| "No wallet is open".to_string())?;
+
+        let request = TxRequest {
+            recipients: vec![TxRecipient {
+                address: address.to_owned(),
+                amount_atomic_units: AtomicUnits::from_raw(amount_atomic),
+            }],
+            priority: FeePriority::Standard,
+        };
+
+        let mut engine = shared.write().await;
+        let pending = engine
+            .build_pending_tx_async(&request)
+            .await
+            .map_err(|e| format!("fee estimate: {e}"))?;
+        let fee = pending.fee_atomic_units.to_raw();
+        let _ = engine.discard_pending_tx(pending.id);
+        Ok(fee)
+    }
+
+    /// Project ledger receive-side outputs into a simple transfer list.
+    pub async fn list_transfers(&self) -> Result<Vec<TransferRow>, String> {
+        let shared = self
+            .engine
+            .as_ref()
+            .ok_or_else(|| "No wallet is open".to_string())?;
+        let g = shared.read().await;
+        let ledger = g.ledger();
+        let tip = ledger.ledger.height();
+        let mut rows = Vec::new();
+        for td in ledger.ledger.transfers() {
+            let hash = td.tx_hash.to_string();
+            let amount = td.amount().to_raw();
+            let confirmed = td.block_height > 0 && tip.saturating_sub(td.block_height) >= 1;
+            rows.push(TransferRow {
+                hash,
+                amount,
+                fee: 0,
+                height: td.block_height,
+                timestamp: 0,
+                direction: if td.spent {
+                    "spent".into()
+                } else {
+                    "in".into()
+                },
+                confirmed,
+                pqc_protected: true,
+            });
+        }
+        // Newest first when heights differ.
+        rows.sort_by(|a, b| b.height.cmp(&a.height));
+        Ok(rows)
+    }
+
     /// Seed available only immediately after create (if BIP-39 path).
     pub fn take_create_mnemonic(&mut self) -> Option<String> {
         self.create_mnemonic.take()
@@ -352,6 +473,25 @@ impl EngineSession {
         "recovery phrase is only shown once at wallet creation on the Engine backend; \
          mid-session seed display requires a credentialed reopen (not yet exposed)"
     }
+}
+
+/// Result of a one-shot Engine transfer.
+pub struct TransferOutcome {
+    pub tx_hash: String,
+    pub amount: u64,
+    pub fee: u64,
+}
+
+/// Ledger row projected for the transactions list.
+pub struct TransferRow {
+    pub hash: String,
+    pub amount: u64,
+    pub fee: u64,
+    pub height: u64,
+    pub timestamp: u64,
+    pub direction: String,
+    pub confirmed: bool,
+    pub pqc_protected: bool,
 }
 
 impl Default for EngineSession {

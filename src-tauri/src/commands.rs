@@ -969,10 +969,17 @@ pub async fn transfer(
     {
         let eng = state.engine.lock().await;
         if eng.is_open() {
-            return Err(
-                "send is not yet available on the Engine backend (GUI-PR2);                  set SHEKYL_ENGINE_BACKEND=0 for legacy Wallet2 send"
-                    .into(),
-            );
+            let outcome = eng.transfer(&address, amount).await?;
+            return Ok(TxInfo {
+                hash: outcome.tx_hash,
+                amount: outcome.amount,
+                fee: outcome.fee,
+                height: 0,
+                timestamp: 0,
+                direction: "out".into(),
+                confirmed: false,
+                pqc_protected: true,
+            });
         }
     }
 
@@ -992,14 +999,21 @@ pub async fn transfer(
 
 #[tauri::command]
 pub async fn estimate_fee(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     address: String,
     amount: u64,
 ) -> Result<u64, String> {
     validate::validate_address(&address)?;
     validate::validate_amount(amount)?;
 
-    // Static FCMP++ weight estimate (Engine fee estimate lands in GUI-PR2).
+    {
+        let eng = state.engine.lock().await;
+        if eng.is_open() {
+            return eng.estimate_fee(&address, amount).await;
+        }
+    }
+
+    // Wallet2 path: static FCMP++ weight estimate until daemon fee RPC is wired.
     const BASE_FEE_PER_BYTE: u64 = 20;
     const ESTIMATED_TX_BYTES: u64 = 18_000;
     Ok(BASE_FEE_PER_BYTE * ESTIMATED_TX_BYTES)
@@ -1019,8 +1033,20 @@ pub async fn get_transactions(
     {
         let eng = state.engine.lock().await;
         if eng.is_open() {
-            // Transfer history projection lands with GUI-PR2.
-            return Ok(vec![]);
+            let rows = eng.list_transfers().await?;
+            return Ok(rows
+                .into_iter()
+                .map(|r| TxInfo {
+                    hash: r.hash,
+                    amount: r.amount,
+                    fee: r.fee,
+                    height: r.height,
+                    timestamp: r.timestamp,
+                    direction: r.direction,
+                    confirmed: r.confirmed,
+                    pqc_protected: r.pqc_protected,
+                })
+                .collect());
         }
     }
 

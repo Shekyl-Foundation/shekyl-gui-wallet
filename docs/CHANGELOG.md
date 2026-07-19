@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Engine send lifecycle (GUI-PR2).** `transfer` on the Engine backend builds
+  and submits a pending tx (`build_pending_tx_async` → `submit_pending_tx_async`,
+  `FeePriority::Standard`). CT-5d `ContentChanged` is resubmitted once with the
+  advanced `content_gen`. `estimate_fee` builds then discards a pending tx for a
+  real fee. `get_transactions` projects ledger receive outputs (spent marked
+  `direction: "spent"`). Wallet2 send remains only when the Engine session is
+  not open.
+
 - **Pure-Rust Engine wallet session (GUI-PR1).** New `engine_session` module
   embeds `shekyl-engine-core::Engine` directly (create / open / close /
   refresh / balance / primary address / BIP-39 restore). Default backend is
