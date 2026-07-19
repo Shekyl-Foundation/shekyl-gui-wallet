@@ -96,6 +96,8 @@ pub fn run() {
             commands::get_engine_backend,
             commands::set_engine_backend,
             commands::refresh_wallet,
+            commands::get_staker_status,
+            commands::activate_staker,
             // Wallet data
             commands::get_balance,
             commands::get_address,

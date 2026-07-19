@@ -26,11 +26,12 @@ use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES}
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    Credentials, DaemonClient, Engine, EngineCreateParams, FeePriority, Network, OpenedEngine,
-    PScanHandle, RefreshOptions, SoloSigner, TxRecipient, TxRequest,
+    Capability, Credentials, DaemonClient, Engine, EngineCreateParams, FeePriority, FirstStakeError,
+    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, TxRecipient,
+    TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
-use shekyl_engine_file::SafetyOverrides;
+use shekyl_engine_file::{SafetyOverrides, WalletFile};
 use shekyl_engine_prefs::WalletPrefs;
 use shekyl_rpc_transport::SimpleRequestRpc;
 use shekyl_scanner::LedgerBlockExt;
@@ -49,6 +50,10 @@ pub struct EngineSession {
     engine: Option<SharedEngine>,
     pscan: Option<PScanHandle>,
     name: Option<String>,
+    /// Engine file base (`…/{name}.wallet`) for credentialed reopen.
+    base_path: Option<PathBuf>,
+    network: Option<Network>,
+    daemon_http_base: Option<String>,
     /// One-shot mnemonic retained only until the create response is
     /// delivered (Engine drops seed material at open; mid-session
     /// `get_seed` cannot re-materialize it without a password reopen).
@@ -61,6 +66,9 @@ impl EngineSession {
             engine: None,
             pscan: None,
             name: None,
+            base_path: None,
+            network: None,
+            daemon_http_base: None,
             create_mnemonic: None,
         }
     }
@@ -69,9 +77,35 @@ impl EngineSession {
         self.engine.is_some()
     }
 
-    #[allow(dead_code)] // used by future stake activation reopen
     pub fn open_name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    fn remember_open(
+        &mut self,
+        name: &str,
+        base: PathBuf,
+        network: Network,
+        daemon_http_base: &str,
+        shared: SharedEngine,
+        pscan: Option<PScanHandle>,
+    ) {
+        self.engine = Some(shared);
+        self.pscan = pscan;
+        self.name = Some(name.to_owned());
+        self.base_path = Some(base);
+        self.network = Some(network);
+        self.daemon_http_base = Some(daemon_http_base.to_owned());
+    }
+
+    fn clear_open(&mut self) {
+        self.engine = None;
+        self.pscan = None;
+        self.name = None;
+        self.base_path = None;
+        self.network = None;
+        self.daemon_http_base = None;
+        self.create_mnemonic = None;
     }
 
     /// Create a fresh Engine wallet (BIP-39 on mainnet/stagenet; raw32 on testnet).
@@ -132,9 +166,7 @@ impl EngineSession {
             .map_err(|e| format!("encode address: {e}"))?;
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
-        self.engine = Some(shared);
-        self.pscan = pscan;
-        self.name = Some(name.to_owned());
+        self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
 
         let seed = match backup {
             SeedBackup::Mnemonic(m) => {
@@ -220,9 +252,7 @@ impl EngineSession {
             .map_err(|e| format!("encode address: {e}"))?;
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
-        self.engine = Some(shared);
-        self.pscan = pscan;
-        self.name = Some(name.to_owned());
+        self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.create_mnemonic = None;
 
         Ok(address)
@@ -273,9 +303,7 @@ impl EngineSession {
             .map_err(|e| format!("encode address: {e}"))?;
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
-        self.engine = Some(shared);
-        self.pscan = pscan;
-        self.name = Some(name.to_owned());
+        self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.create_mnemonic = None;
 
         Ok(address)
@@ -284,9 +312,7 @@ impl EngineSession {
     /// Persist and close the open Engine wallet.
     pub async fn close(&mut self) -> Result<(), String> {
         let Some(shared) = self.engine.take() else {
-            self.pscan = None;
-            self.name = None;
-            self.create_mnemonic = None;
+            self.clear_open();
             return Ok(());
         };
         if let Some(handle) = self.pscan.take() {
@@ -298,9 +324,231 @@ impl EngineSession {
         let engine = lock.into_inner();
         tokio::task::block_in_place(|| engine.persist_for_close()).map_err(map_open_err)?;
         drop(engine);
-        self.name = None;
-        self.create_mnemonic = None;
+        self.clear_open();
         Ok(())
+    }
+
+    /// Archival staker status for the Staking page.
+    pub async fn staker_status(&self) -> Result<StakerStatus, String> {
+        let shared = self
+            .engine
+            .as_ref()
+            .ok_or_else(|| "No wallet is open".to_string())?;
+        let g = shared.read().await;
+        let staking = &g.ledger().staking;
+        Ok(StakerStatus {
+            staking_enabled: staking.staking_enabled,
+            has_stake_engine: g.has_stake_engine(),
+            bonded_slot_count: staking.bonded_slots.len() as u32,
+            has_pscan: self.pscan.is_some(),
+        })
+    }
+
+    /// Become a staker: credentialed first-stake activation (GUI-PR3).
+    ///
+    /// Mirrors `shekyl-wallet-rpc` `stake { password }`: verify password →
+    /// optional intent reopen → `Engine::first_stake`. No broadcast on this
+    /// path (`state: pending_dispatch`).
+    pub async fn activate_staker(&mut self, password: &str) -> Result<ActivateStakerOutcome, String> {
+        let shared = self
+            .engine
+            .clone()
+            .ok_or_else(|| "No wallet is open".to_string())?;
+        let base = self
+            .base_path
+            .clone()
+            .ok_or_else(|| "Engine session missing wallet path".to_string())?;
+        let network = self
+            .network
+            .ok_or_else(|| "Engine session missing network".to_string())?;
+        let daemon_base = self
+            .daemon_http_base
+            .clone()
+            .ok_or_else(|| "Engine session missing daemon address".to_string())?;
+        let name = self
+            .name
+            .clone()
+            .ok_or_else(|| "Engine session missing wallet name".to_string())?;
+
+        let password_z = Zeroizing::new(password.as_bytes().to_vec());
+
+        let (needs_intent_open, slot) = {
+            let g = shared.read().await;
+            if g.capability() != Capability::Full {
+                return Err("staking requires a full-capability wallet".into());
+            }
+            let staking = &g.ledger().staking;
+            let slot = if staking.staking_enabled {
+                staking
+                    .bonded_slots
+                    .first()
+                    .copied()
+                    .unwrap_or_else(|| staking.monotone_current_slot_from_record())
+            } else {
+                staking.monotone_current_slot_from_record()
+            };
+            let has_scan = self.pscan.is_some();
+            (!g.has_stake_engine() || !has_scan, slot)
+        };
+
+        let shared = if needs_intent_open {
+            drop(shared);
+            self.reopen_with_first_stake_intent(&base, network, &daemon_base, &name, password_z, slot)
+                .await?
+        } else {
+            drop(password_z);
+            shared
+        };
+
+        let outcome = Engine::first_stake(shared, slot)
+            .await
+            .map_err(map_first_stake_err)?;
+
+        Ok(ActivateStakerOutcome::from(outcome))
+    }
+
+    /// SA-R1-a: verify password, close, reopen with first-stake intent, start P-scan.
+    async fn reopen_with_first_stake_intent(
+        &mut self,
+        base: &Path,
+        network: Network,
+        daemon_http_base: &str,
+        name: &str,
+        password: Zeroizing<Vec<u8>>,
+        slot: u32,
+    ) -> Result<SharedEngine, String> {
+        // Verify-then-close: wrong password refuses with wallet still open.
+        tokio::task::block_in_place(|| WalletFile::verify_password(base, password.as_slice()))
+            .map_err(|e| match e {
+                shekyl_engine_file::WalletFileError::Envelope(_) => {
+                    "incorrect password".to_string()
+                }
+                other => format!("password verification failed: {other}"),
+            })?;
+
+        let daemon = make_daemon(daemon_http_base).await?;
+
+        // Close current session (persist + scan shutdown).
+        let shared = self
+            .engine
+            .take()
+            .ok_or_else(|| "No wallet is open".to_string())?;
+        if let Some(handle) = self.pscan.take() {
+            handle.shutdown().await;
+        }
+        let lock = Arc::try_unwrap(shared).map_err(|_| {
+            "cannot re-open for staking: wallet engine still in use by another task".to_string()
+        })?;
+        let engine = lock.into_inner();
+        if let Err(e) = tokio::task::block_in_place(|| engine.persist_for_close()) {
+            // Restore open without intent.
+            let shared = Arc::new(RwLock::new(engine));
+            let pscan = restart_pscan(&shared).await;
+            self.remember_open(
+                name,
+                base.to_path_buf(),
+                network,
+                daemon_http_base,
+                shared,
+                pscan,
+            );
+            return Err(format!("could not close for stake activation: {e}"));
+        }
+        drop(engine);
+
+        let reopened = tokio::task::block_in_place(|| {
+            let creds = Credentials::password_only(password.as_slice());
+            Engine::<SoloSigner>::open_full_with_first_stake_intent(
+                base,
+                &creds,
+                network,
+                daemon,
+                SafetyOverrides::none(),
+                slot,
+            )
+        });
+
+        let engine = match reopened {
+            Ok(OpenedEngine::Loaded(w)) | Ok(OpenedEngine::Restored { wallet: w, .. }) => w,
+            Err(e) => {
+                // Best-effort plain reopen so the user is not logged out.
+                let restore = async {
+                    let pw = Zeroizing::new(password.as_slice().to_vec());
+                    let daemon = make_daemon(daemon_http_base).await?;
+                    let creds = Credentials::password_only(pw.as_slice());
+                    let opened = tokio::task::block_in_place(|| {
+                        Engine::<SoloSigner>::open_full(
+                            base,
+                            &creds,
+                            network,
+                            daemon,
+                            SafetyOverrides::none(),
+                        )
+                    })
+                    .map_err(map_open_err)?;
+                    Ok::<_, String>(match opened {
+                        OpenedEngine::Loaded(w) | OpenedEngine::Restored { wallet: w, .. } => w,
+                    })
+                }
+                .await;
+                match restore {
+                    Ok(w) => {
+                        let (shared, pscan) = wrap_and_start_pscan(w).await?;
+                        self.remember_open(
+                            name,
+                            base.to_path_buf(),
+                            network,
+                            daemon_http_base,
+                            shared,
+                            pscan,
+                        );
+                        return Err(format!(
+                            "stake activation reopen failed ({e}); wallet remains open — retry"
+                        ));
+                    }
+                    Err(restore_err) => {
+                        self.clear_open();
+                        return Err(format!(
+                            "stake activation reopen failed ({e}) and restore failed ({restore_err}); \
+                             open the wallet again"
+                        ));
+                    }
+                }
+            }
+        };
+
+        // On-demand P-scan under intent (fail-closed if dark).
+        let shared: SharedEngine = Arc::new(RwLock::new(engine));
+        match Engine::start_pscan(shared.clone()).await {
+            Ok(handle) => {
+                self.remember_open(
+                    name,
+                    base.to_path_buf(),
+                    network,
+                    daemon_http_base,
+                    shared.clone(),
+                    Some(handle),
+                );
+                Ok(shared)
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "first-stake intent reopen: P-scan failed; wallet open without scan"
+                );
+                self.remember_open(
+                    name,
+                    base.to_path_buf(),
+                    network,
+                    daemon_http_base,
+                    shared,
+                    None,
+                );
+                Err(format!(
+                    "persona scan failed to start ({e}); wallet remains open — retry activation"
+                ))
+            }
+        }
     }
 
     /// Run a one-shot refresh (blocks until complete).
@@ -494,6 +742,35 @@ pub struct TransferRow {
     pub pqc_protected: bool,
 }
 
+/// Archival staker status (GUI-PR3).
+#[derive(Debug, Clone)]
+pub struct StakerStatus {
+    pub staking_enabled: bool,
+    pub has_stake_engine: bool,
+    pub bonded_slot_count: u32,
+    pub has_pscan: bool,
+}
+
+/// Outcome of `activate_staker` (bond sealed, not yet broadcast).
+#[derive(Debug, Clone)]
+pub struct ActivateStakerOutcome {
+    pub slot: u32,
+    pub swept_inputs: usize,
+    pub resumed: bool,
+    pub state: &'static str,
+}
+
+impl From<FirstStakeOutcome> for ActivateStakerOutcome {
+    fn from(o: FirstStakeOutcome) -> Self {
+        Self {
+            slot: o.p_slot,
+            swept_inputs: o.swept_inputs,
+            resumed: o.resumed,
+            state: "pending_dispatch",
+        }
+    }
+}
+
 impl Default for EngineSession {
     fn default() -> Self {
         Self::new()
@@ -592,8 +869,48 @@ async fn wrap_and_start_pscan(
     }
 }
 
+/// Re-arm P-scan on restore paths; degrade to None rather than failing open.
+async fn restart_pscan(shared: &SharedEngine) -> Option<PScanHandle> {
+    match Engine::start_pscan_if_staker(shared.clone()).await {
+        Ok(handle) => handle,
+        Err(e) => {
+            warn!(error = %e, "failed to re-arm P-scan while restoring open wallet");
+            None
+        }
+    }
+}
+
 fn map_open_err(e: shekyl_engine_core::OpenError) -> String {
     format!("wallet error: {e}")
+}
+
+fn map_first_stake_err(e: FirstStakeError) -> String {
+    match e {
+        FirstStakeError::BondInFlight => {
+            "a signed bond post is already awaiting dispatch (stake in flight)".into()
+        }
+        FirstStakeError::AlreadyStaked => {
+            "this wallet is already an active staker".into()
+        }
+        FirstStakeError::Funding(detail) => {
+            format!(
+                "not ready to stake ({detail}); fund the persona (stake_in) and sync, then retry"
+            )
+        }
+        FirstStakeError::FeeEstimate(_) => {
+            "fee estimation failed; check the daemon connection and retry".into()
+        }
+        FirstStakeError::NoStakeEngine => {
+            "stake engine not ready after intent open; retry activation".into()
+        }
+        FirstStakeError::WrongSlot { .. } => format!("stake: {e}"),
+        FirstStakeError::State(d) => {
+            format!("stake preflight failed ({d}); nothing durable was written")
+        }
+        FirstStakeError::Persist(d) | FirstStakeError::Engine(d) => {
+            format!("stake failed mid-flow ({d}); call activate again to resume")
+        }
+    }
 }
 
 /// Whether the process should prefer the Engine backend.

@@ -565,6 +565,86 @@ pub async fn refresh_wallet(state: State<'_, AppState>) -> Result<bool, String> 
     Ok(true)
 }
 
+/// Archival staker status (Engine only).
+#[derive(Debug, Serialize)]
+pub struct StakerStatusInfo {
+    pub staking_enabled: bool,
+    pub has_stake_engine: bool,
+    pub bonded_slot_count: u32,
+    pub has_pscan: bool,
+    pub engine_backend: bool,
+}
+
+/// Result of archival first-stake activation.
+#[derive(Debug, Serialize)]
+pub struct ActivateStakerResult {
+    pub slot: u32,
+    pub swept_inputs: usize,
+    pub resumed: bool,
+    pub state: String,
+}
+
+#[tauri::command]
+pub async fn get_staker_status(state: State<'_, AppState>) -> Result<StakerStatusInfo, String> {
+    let engine_backend = *state.engine_backend.read().await;
+    if !*state.wallet_open.read().await {
+        return Ok(StakerStatusInfo {
+            staking_enabled: false,
+            has_stake_engine: false,
+            bonded_slot_count: 0,
+            has_pscan: false,
+            engine_backend,
+        });
+    }
+    {
+        let eng = state.engine.lock().await;
+        if eng.is_open() {
+            let s = eng.staker_status().await?;
+            return Ok(StakerStatusInfo {
+                staking_enabled: s.staking_enabled,
+                has_stake_engine: s.has_stake_engine,
+                bonded_slot_count: s.bonded_slot_count,
+                has_pscan: s.has_pscan,
+                engine_backend: true,
+            });
+        }
+    }
+    Ok(StakerStatusInfo {
+        staking_enabled: false,
+        has_stake_engine: false,
+        bonded_slot_count: 0,
+        has_pscan: false,
+        engine_backend: false,
+    })
+}
+
+/// Become an archival staker (Engine `first_stake` / password re-auth).
+#[tauri::command]
+pub async fn activate_staker(
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<ActivateStakerResult, String> {
+    validate::validate_password(&password)?;
+    if !*state.wallet_open.read().await {
+        return Err("No wallet is open".into());
+    }
+    let mut eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err(
+            "staker activation requires the Engine backend; open an Engine wallet \
+             (default) or set SHEKYL_ENGINE_BACKEND=1"
+                .into(),
+        );
+    }
+    let outcome = eng.activate_staker(&password).await?;
+    Ok(ActivateStakerResult {
+        slot: outcome.slot,
+        swept_inputs: outcome.swept_inputs,
+        resumed: outcome.resumed,
+        state: outcome.state.to_owned(),
+    })
+}
+
 // ─── Wallet lifecycle commands ───────────────────────────────────────────────
 
 #[tauri::command]

@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Staker activation (GUI-PR3).** Staking page can activate an archival
+  staker on the Engine backend: password re-auth → optional first-stake
+  intent reopen → `Engine::first_stake`. Bond post is sealed as
+  `pending_dispatch` (not broadcast on this call). Tauri commands:
+  `activate_staker`, `get_staker_status`. Errors map funding / in-flight /
+  already-staked refusals to clear UI text.
+
 - **Engine send lifecycle (GUI-PR2).** `transfer` on the Engine backend builds
   and submits a pending tx (`build_pending_tx_async` → `submit_pending_tx_async`,
   `FeePriority::Standard`). CT-5d `ContentChanged` is resubmitted once with the
