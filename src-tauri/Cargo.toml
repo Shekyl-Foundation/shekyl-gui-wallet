@@ -29,7 +29,6 @@ base64 = "0.22"
 sha2 = "0.10"
 shekyl-shard-visual = { path = "../../shekyl-core/rust/shekyl-shard-visual" }
 shekyl-shard-source = { path = "../../shekyl-core/rust/shekyl-shard-source" }
-shekyl-engine-rpc = { path = "../../shekyl-core/rust/shekyl-engine-rpc", features = ["rust-scanner", "native-sign"] }
 shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner" }
 shekyl-rpc-client = { path = "../../shekyl-core/rust/shekyl-rpc-client" }
 shekyl-rpc-transport = { path = "../../shekyl-core/rust/shekyl-rpc-transport" }
@@ -40,7 +39,6 @@ shekyl-wire = { path = "../../shekyl-core/rust/shekyl-wire" }
 shekyl-crypto-pq = { path = "../../shekyl-core/rust/shekyl-crypto-pq" }
 shekyl-address = { path = "../../shekyl-core/rust/shekyl-address" }
 shekyl-units = { path = "../../shekyl-core/rust/shekyl-units" }
-shekyl-ffi = { path = "../../shekyl-core/rust/shekyl-ffi" }
 curve25519-dalek = { version = "4", features = ["zeroize"] }
 tokio-util = "0.7"
 tracing = "0.1"

@@ -401,18 +401,19 @@ archival rewards under protocol rules.
 
 ### Status in this wallet build
 
-**Personal staking actions are not available yet.** The wallet's Staking page
-is honesty-mode only:
+The Engine wallet backend is live, and staker **activation** now works from
+the Staking page (a password re-auth seals your first bond). The remaining
+archival actions are still pending:
 
 - You can read **network-wide** stats (stake ratio, emission share, pool
   balances) when a daemon is connected.
-- You **cannot** pick a lock tier, stake an amount, or claim rewards. That
-  older model was retired with the protocol rewrite in shekyl-core.
-- Activation, persona funding, unbond, and drain will return in follow-up
-  releases after the Engine wallet backend is wired.
+- You can **activate** as an archival staker on the Engine backend.
+- You **cannot** yet fund your persona, unbond, or drain rewards — those land
+  in follow-up releases. The retired lock-tier / claim-rewards model is gone.
 
-The dashboard **Staked** balance field stays at zero until those archival
-views land — that is intentional, not a silent failure to load stakes.
+The dashboard **Staked** balance field stays at zero because the Engine does
+not yet compute a personal archival-stake total — that is "not yet
+available", not a silent failure to load stakes.
 
 ### How staking will work (roadmap)
 
@@ -772,8 +773,8 @@ see the
 ---
 
 *This guide is for Shekyl Wallet 3.1.x-alpha. Wallet creation, opening,
-import, sending, and receiving operate through an in-process bridge to the
-wallet stack -- no separate wallet-rpc process is required. Personal
-archival staking actions are honesty-mode only until the Engine backend
-lands. Mining and chain health features work when connected to a running
-`shekyld` daemon.*
+import, sending, and receiving run on the in-process Engine backend -- no
+separate wallet-rpc process is required. Staker activation is available on
+the Engine backend; persona funding, unbond, and drain are still pending.
+Mining and chain health features work when connected to a running `shekyld`
+daemon.*

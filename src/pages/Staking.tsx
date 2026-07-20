@@ -20,7 +20,6 @@ interface StakerStatusInfo {
   has_stake_engine: boolean;
   bonded_slot_count: number;
   has_pscan: boolean;
-  engine_backend: boolean;
 }
 
 interface ActivateStakerResult {
@@ -70,7 +69,7 @@ export default function Staking() {
 
   const canActivate =
     walletOpen &&
-    status?.engine_backend &&
+    status &&
     !status.staking_enabled &&
     password.length > 0 &&
     !activating;
@@ -131,14 +130,6 @@ export default function Staking() {
           </p>
         )}
 
-        {walletOpen && status && !status.engine_backend && (
-          <p className="text-xs text-amber-200/90">
-            Activation requires the Engine backend (default). Legacy Wallet2
-            wallets cannot activate; create or open an Engine wallet, or set{" "}
-            <span className="font-mono">SHEKYL_ENGINE_BACKEND=1</span>.
-          </p>
-        )}
-
         {walletOpen && status?.staking_enabled && (
           <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
             <p className="font-semibold text-emerald-200">Staker active</p>
@@ -155,7 +146,7 @@ export default function Staking() {
           </div>
         )}
 
-        {walletOpen && status?.engine_backend && !status.staking_enabled && (
+        {walletOpen && status && !status.staking_enabled && (
           <>
             <p className="text-xs text-purple-300">
               Re-enter your wallet password to activate. This re-materializes

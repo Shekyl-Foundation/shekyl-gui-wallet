@@ -36,7 +36,7 @@ export default function BalanceCard() {
         <div>
           <p
             className="text-xs text-purple-300"
-            title="Personal archival stake totals return when Engine staking ships. This field is zero until then."
+            title="The Engine backend is live, but it does not yet compute a personal archival-stake total (Stage 3). This field reads 0 until that lands — it is 'not yet available', not a confirmed zero."
           >
             Staked
           </p>

@@ -24,7 +24,6 @@ beforeEach(() => {
         has_stake_engine: false,
         bonded_slot_count: 0,
         has_pscan: false,
-        engine_backend: false,
       };
     }
     return null;
@@ -93,7 +92,6 @@ describe("Staking (archival activation)", () => {
           has_stake_engine: false,
           bonded_slot_count: 0,
           has_pscan: false,
-          engine_backend: true,
         };
       }
       return null;

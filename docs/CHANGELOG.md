@@ -15,32 +15,46 @@
   and submits a pending tx (`build_pending_tx_async` → `submit_pending_tx_async`,
   `FeePriority::Standard`). CT-5d `ContentChanged` is resubmitted once with the
   advanced `content_gen`. `estimate_fee` builds then discards a pending tx for a
-  real fee. `get_transactions` projects ledger receive outputs (spent marked
-  `direction: "spent"`). Wallet2 send remains only when the Engine session is
-  not open.
+  real fee. `get_transactions` projects ledger receive outputs as incoming
+  rows grouped by transaction.
 
 - **Pure-Rust Engine wallet session (GUI-PR1).** New `engine_session` module
   embeds `shekyl-engine-core::Engine` directly (create / open / close /
-  refresh / balance / primary address / BIP-39 restore). Default backend is
-  Engine (`SHEKYL_ENGINE_BACKEND=0` forces legacy Wallet2). Tauri commands:
-  `get_engine_backend`, `set_engine_backend`, `refresh_wallet`. Engine files
-  use `{name}.wallet` + `{name}.wallet.keys`. Create returns a BIP-39
-  mnemonic on mainnet/stagenet (raw hex on testnet). Mid-session seed display
-  is intentionally unavailable (seed dropped at open).
+  refresh / balance / primary address / BIP-39 restore). Tauri command:
+  `refresh_wallet`. Engine files use `{name}.wallet` + `{name}.wallet.keys`.
+  Create returns a BIP-39 mnemonic on mainnet/stagenet (raw hex on testnet).
+  Mid-session seed display is intentionally unavailable (seed dropped at open).
 
 ### Changed
+
+- **Engine is the sole wallet backend.** The transitional Wallet2 /
+  `shekyl-engine-rpc` path and the `SHEKYL_ENGINE_BACKEND` flag are removed;
+  `wallet_bridge` and the `get_engine_backend` / `set_engine_backend` commands
+  are gone. Every wallet lifecycle and money command now runs only on the
+  Engine. Features that lived solely on Wallet2 (import-from-keys, PQC
+  multisig, scanner freeze/thaw + `get_scanner_*`) stay registered but return
+  an honest "not available on the Engine backend" error until they are ported.
+  Retired claim-era dead code (`stake` / `claim_rewards` commands,
+  `validate_tier`) is deleted.
+
+- **Transaction history no longer fabricates debits.** `list_transfers`
+  projects the receive-side ledger as incoming rows grouped by transaction —
+  outputs that were later spent are no longer re-projected as full-amount
+  outgoing debits. Confirmation now counts a receipt mined at the synced tip
+  as confirmed, and unconfirmed (mempool) receipts sort to the top. A faithful
+  send/fee history awaits engine-side transaction journaling.
 
 - **Staking honesty mode (GUI-PR0).** Claim-era tier lock / claim-rewards UX is
   removed from the Staking page. The page now explains archival staking
   (activate → fund persona → hold shards → later unbond/drain), shows
-  network-wide daemon stats only, and states that personal actions are not
-  available in this build. Tauri `stake` / `claim_rewards` refuse loudly;
-  `get_balance` / scanner balance no longer call claim-era
-  `get_staked_outputs` (personal `staked` reports zero until Engine queries
-  land). Help center and `USER_GUIDE.md` restated to match.
-  **shekyl-core pin:** `cf375a786` (dev tip, 2026-07-18 — stake activation
-  entry PR #336). Product default: principal-focused desktop UX (not full
-  operator node in-app).
+  network-wide daemon stats only, and (with GUI-PR3) offers staker activation
+  on the Engine backend while funding / unbond / drain remain pending.
+  `get_balance` no longer reports a claim-era staked total; the Engine does
+  not yet compute a personal `staked` total (Stage 3), so it reads zero as an
+  honest "not yet available". Help center and `USER_GUIDE.md` restated to
+  match. **shekyl-core pin:** `cf375a786` (dev tip, 2026-07-18 — stake
+  activation entry PR #336). Product default: principal-focused desktop UX
+  (not full operator node in-app).
 
 - **BIP-39 prep (GUI only).** User-facing copy, import validation, and docs now
   describe a **24-word recovery phrase** (BIP-39 English) instead of a

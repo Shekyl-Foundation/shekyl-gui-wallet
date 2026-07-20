@@ -26,10 +26,6 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Ensure shekyl-ffi's #[no_mangle] symbols are linked into the cdylib so
-// the C++ wallet libraries (libwallet.a etc.) can resolve them.
-extern crate shekyl_ffi;
-
 use std::sync::Arc;
 
 use tauri::Manager;
@@ -42,7 +38,6 @@ mod gui_config;
 mod shard_visual;
 mod state;
 mod validate;
-mod wallet_bridge;
 mod wallet_name;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -93,8 +88,6 @@ pub fn run() {
             commands::import_wallet_from_seed,
             commands::import_wallet_from_keys,
             commands::get_seed,
-            commands::get_engine_backend,
-            commands::set_engine_backend,
             commands::refresh_wallet,
             commands::get_staker_status,
             commands::activate_staker,
@@ -105,8 +98,6 @@ pub fn run() {
             commands::estimate_fee,
             commands::get_transactions,
             commands::get_staking_info,
-            commands::stake,
-            commands::claim_rewards,
             // Shard identity preview (pre-archival beta)
             shard_visual::list_shard_preview_fixtures,
             shard_visual::render_shard_preview,
@@ -139,7 +130,6 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let app_state: tauri::State<'_, state::AppState> = window.state();
-                let _ = wallet_bridge::shutdown(&app_state.wallet);
                 tauri::async_runtime::block_on(async {
                     let mut eng = app_state.engine.lock().await;
                     let _ = eng.close().await;

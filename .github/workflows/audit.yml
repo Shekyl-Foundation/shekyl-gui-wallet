@@ -35,13 +35,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The audit job only compiles the `cargo-audit` tool and reads
+      # `Cargo.lock`; it does not build the project, so it tracks the latest
+      # stable toolchain rather than the project MSRV pin. (Pinning to 1.94.0
+      # broke here once cargo-audit's deps required rustc 1.96.)
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: '1.94.0'
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit
+        run: cargo install cargo-audit --locked
 
       - name: Run cargo audit
         run: cargo audit

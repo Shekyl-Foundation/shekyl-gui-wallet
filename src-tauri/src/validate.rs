@@ -5,16 +5,13 @@
 
 //! Input validation for Tauri bridge commands.
 //!
-//! Every command that accepts user input must validate before hitting
-//! the C++ wallet2 FFI. A malformed destination address or amount that
-//! reaches C++ is a DoS at best, memory corruption at worst.
-
-use std::path::Path;
+//! Every command that accepts user input must validate before it reaches
+//! the Engine backend. A malformed destination address or amount that slips
+//! through is a correctness hazard at best and a denial-of-service at worst.
 
 use shekyl_address::ShekylAddress;
 
 const MAX_WALLET_NAME_LEN: usize = 255;
-const MAX_WALLET_PATH_LEN: usize = 4096;
 const MAX_PASSWORD_LEN: usize = 1024;
 
 /// BIP-39 English recovery phrase length for Shekyl genesis wallets.
@@ -99,41 +96,6 @@ pub fn validate_wallet_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a fully-constructed wallet path before it crosses the FFI
-/// boundary into C++.
-///
-/// The FFI side [no longer carries filesystem state](../../shekyl-core/docs/CHANGELOG.md)
-/// — it just opens whatever path we pass. This is the last chance to
-/// reject obviously hostile inputs (null bytes, empty, absurd length).
-/// Full path-component validation (evil filenames, traversal) is handled
-/// upstream by [`validate_wallet_name`]; this guard is defense-in-depth
-/// against programmer error in the bridge layer.
-///
-/// Error messages never echo the input path — they describe the class of
-/// failure only, preserving the no-secret-leakage posture covered by the
-/// `wallet_name_error_does_not_leak_path_secret` test and extended here
-/// by `wallet_path_error_does_not_leak_input`.
-pub fn validate_wallet_path(path: &Path) -> Result<(), String> {
-    let s = path.as_os_str();
-    if s.is_empty() {
-        return Err("Wallet path must not be empty".into());
-    }
-    let lossy = s.to_string_lossy();
-    if lossy.len() > MAX_WALLET_PATH_LEN {
-        return Err(format!(
-            "Wallet path too long (max {MAX_WALLET_PATH_LEN} chars)"
-        ));
-    }
-    if lossy.contains('\0') {
-        return Err("Wallet path must not contain null bytes".into());
-    }
-    // A wallet path should resolve to a file, not a bare directory.
-    if path.file_name().is_none() {
-        return Err("Wallet path must include a filename component".into());
-    }
-    Ok(())
-}
-
 /// Validate a wallet password.
 pub fn validate_password(password: &str) -> Result<(), String> {
     if password.len() > MAX_PASSWORD_LEN {
@@ -179,17 +141,6 @@ pub fn validate_key_image(key_image: &str) -> Result<(), String> {
 /// Validate a secret key hex string (32 bytes = 64 hex chars).
 pub fn validate_secret_key(key: &str, name: &str) -> Result<(), String> {
     validate_hex(key, 32, name)
-}
-
-/// Validate a staking tier.
-/// Claim-era lock tiers (0–2). Unused after GUI-PR0 honesty mode; kept until
-/// `get_tier_yields` / StakeTierCard cleanup removes the last tier consumers.
-#[allow(dead_code)]
-pub fn validate_tier(tier: u8) -> Result<(), String> {
-    if tier > 2 {
-        return Err(format!("Invalid staking tier: {tier}. Must be 0, 1, or 2"));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -314,19 +265,6 @@ mod tests {
         assert!(err.contains("exactly 24"), "unexpected error: {err}");
     }
 
-    #[test]
-    fn reject_invalid_tier() {
-        assert!(validate_tier(3).is_err());
-        assert!(validate_tier(255).is_err());
-    }
-
-    #[test]
-    fn accept_valid_tier() {
-        assert!(validate_tier(0).is_ok());
-        assert!(validate_tier(1).is_ok());
-        assert!(validate_tier(2).is_ok());
-    }
-
     // ── Gate 6: Canary-based secret leak detection ──
     //
     // These tests plant known canary byte patterns in input fields that could
@@ -374,43 +312,6 @@ mod tests {
         let short_sk = &CANARY_HEX[..32];
         let err = validate_secret_key(short_sk, "spend_key").unwrap_err();
         assert_no_canary(&err, &[short_sk, CANARY_SHORT]);
-    }
-
-    #[test]
-    fn wallet_path_accepts_typical_path() {
-        let p = std::path::PathBuf::from("/tmp/shekyl/wallets/my_wallet");
-        assert!(validate_wallet_path(&p).is_ok());
-    }
-
-    #[test]
-    fn wallet_path_rejects_empty() {
-        let p = std::path::PathBuf::from("");
-        assert!(validate_wallet_path(&p).is_err());
-    }
-
-    #[test]
-    fn wallet_path_rejects_bare_directory() {
-        let p = std::path::PathBuf::from("/");
-        assert!(validate_wallet_path(&p).is_err());
-    }
-
-    #[test]
-    fn wallet_path_rejects_oversize() {
-        let long = "a".repeat(MAX_WALLET_PATH_LEN + 16);
-        let p = std::path::PathBuf::from(long);
-        assert!(validate_wallet_path(&p).is_err());
-    }
-
-    #[test]
-    fn wallet_path_error_does_not_leak_input() {
-        let evil = std::path::PathBuf::from(format!("/tmp/{CANARY_HEX}"));
-        let long = "Z".repeat(MAX_WALLET_PATH_LEN + 16);
-        let big = std::path::PathBuf::from(long);
-        // Valid path — no error to check, so force an oversize error.
-        let err = validate_wallet_path(&big).unwrap_err();
-        assert!(!err.contains("ZZZZZ"), "wallet_path leaked input content");
-        // Confirm a non-error path doesn't panic or leak via debug fmt.
-        let _ = validate_wallet_path(&evil);
     }
 
     #[test]
@@ -486,11 +387,6 @@ mod tests {
             }
 
             #[test]
-            fn validate_wallet_path_never_panics(s in "\\PC{0,5000}") {
-                let _ = validate_wallet_path(std::path::Path::new(&s));
-            }
-
-            #[test]
             fn validate_password_never_panics(s in "\\PC{0,2000}") {
                 let _ = validate_password(&s);
             }
@@ -503,11 +399,6 @@ mod tests {
             #[test]
             fn validate_key_image_never_panics(s in "\\PC{0,200}") {
                 let _ = validate_key_image(&s);
-            }
-
-            #[test]
-            fn validate_tier_never_panics(t: u8) {
-                let _ = validate_tier(t);
             }
 
             #[test]

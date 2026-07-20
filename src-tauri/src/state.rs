@@ -32,7 +32,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::{engine_session, gui_config, wallet_bridge};
+use crate::{engine_session, gui_config};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -111,13 +111,8 @@ pub struct AppState {
     pub wallet_dir_warning: RwLock<Option<PathBuf>>,
     pub wallet_open: RwLock<bool>,
     pub wallet_name: RwLock<Option<String>>,
-    /// Transitional Wallet2 / wallet2_ffi bridge (deletion-bound).
-    pub wallet: wallet_bridge::WalletHandle,
-    /// Pure-Rust Engine session (GUI-PR1 mainline).
+    /// Pure-Rust Engine session — the sole wallet backend.
     pub engine: tokio::sync::Mutex<engine_session::EngineSession>,
-    /// Prefer Engine over Wallet2 when true (Rust-forward). Default from
-    /// `SHEKYL_ENGINE_BACKEND` env (on unless set to 0/false/off).
-    pub engine_backend: RwLock<bool>,
 }
 
 impl AppState {
@@ -138,9 +133,7 @@ impl AppState {
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
             wallet_open: RwLock::new(false),
             wallet_name: RwLock::new(None),
-            wallet: wallet_bridge::new_handle(),
             engine: tokio::sync::Mutex::new(engine_session::EngineSession::new()),
-            engine_backend: RwLock::new(engine_session::engine_backend_default_from_env()),
         }
     }
 
@@ -154,19 +147,26 @@ impl AppState {
     }
 
     /// Base URL without the `/json_rpc` suffix, for plain HTTP endpoints
-    /// like `/mining_status`, `/start_mining`, `/stop_mining`.
+    /// like `/mining_status`, `/start_mining`, `/stop_mining`, and as the
+    /// Engine daemon-client base.
+    ///
+    /// Trailing slashes are stripped *before* the `/json_rpc` suffix so a
+    /// configured URL like `http://host:port/json_rpc/` collapses to
+    /// `http://host:port` rather than leaving a stray `json_rpc` behind.
     pub async fn base_url(&self) -> String {
         let url = self.daemon_url.read().await.clone();
-        url.trim_end_matches("/json_rpc").to_string()
+        strip_json_rpc(&url).to_owned()
     }
+}
 
-    /// Daemon address for wallet2 init (host:port without http:// or /json_rpc).
-    pub async fn daemon_address(&self) -> String {
-        let url = self.daemon_url.read().await.clone();
-        url.trim_end_matches("/json_rpc")
-            .trim_end_matches('/')
-            .trim_start_matches("http://")
-            .trim_start_matches("https://")
-            .to_string()
-    }
+/// Strip a trailing `/json_rpc` (with any surrounding slashes) from a daemon
+/// URL, leaving the plain HTTP base. Slashes are trimmed on both sides of the
+/// suffix so `http://host/json_rpc`, `http://host/json_rpc/`, and
+/// `http://host/` all collapse to `http://host`.
+fn strip_json_rpc(url: &str) -> &str {
+    let trimmed = url.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/json_rpc")
+        .unwrap_or(trimmed)
+        .trim_end_matches('/')
 }

@@ -12,6 +12,7 @@
 //! Wallet files use the Engine envelope pair:
 //! `{name}.wallet` + `{name}.wallet.keys` under the configured wallet dir.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -26,9 +27,9 @@ use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES}
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    Capability, Credentials, DaemonClient, Engine, EngineCreateParams, FeePriority, FirstStakeError,
-    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, TxRecipient,
-    TxRequest,
+    Capability, Credentials, DaemonClient, Engine, EngineCreateParams, FeePriority,
+    FirstStakeError, FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions,
+    SoloSigner, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::{SafetyOverrides, WalletFile};
@@ -75,10 +76,6 @@ impl EngineSession {
 
     pub fn is_open(&self) -> bool {
         self.engine.is_some()
-    }
-
-    pub fn open_name(&self) -> Option<&str> {
-        self.name.as_deref()
     }
 
     fn remember_open(
@@ -154,10 +151,9 @@ impl EngineSession {
             prefs: WalletPrefs::default(),
         };
 
-        let engine = tokio::task::block_in_place(|| {
-            Engine::<SoloSigner>::create(create_params, daemon)
-        })
-        .map_err(map_open_err)?;
+        let engine =
+            tokio::task::block_in_place(|| Engine::<SoloSigner>::create(create_params, daemon))
+                .map_err(map_open_err)?;
         drop(master_seed);
 
         let address = engine
@@ -184,6 +180,7 @@ impl EngineSession {
     }
 
     /// Restore an Engine wallet from a BIP-39 mnemonic (mainnet/stagenet).
+    #[allow(clippy::too_many_arguments)]
     pub async fn restore_from_bip39(
         &mut self,
         wallet_dir: &Path,
@@ -200,9 +197,7 @@ impl EngineSession {
         }
         let engine_net = map_network(network);
         if matches!(engine_net, Network::Testnet) {
-            return Err(
-                "BIP-39 restore is for mainnet/stagenet; testnet uses raw seeds".into(),
-            );
+            return Err("BIP-39 restore is for mainnet/stagenet; testnet uses raw seeds".into());
         }
 
         let base = engine_wallet_base(wallet_dir, name);
@@ -213,9 +208,8 @@ impl EngineSession {
             .map_err(|e| format!("Failed to create wallet directory: {e}"))?;
 
         let derivation = network_to_derivation(engine_net);
-        let (master_seed, _blob) =
-            generate_account_from_bip39(mnemonic, passphrase, derivation)
-                .map_err(|e| format!("BIP-39 restore failed: {e}"))?;
+        let (master_seed, _blob) = generate_account_from_bip39(mnemonic, passphrase, derivation)
+            .map_err(|e| format!("BIP-39 restore failed: {e}"))?;
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let daemon = make_daemon(daemon_http_base).await?;
@@ -240,10 +234,9 @@ impl EngineSession {
             prefs: WalletPrefs::default(),
         };
 
-        let engine = tokio::task::block_in_place(|| {
-            Engine::<SoloSigner>::create(create_params, daemon)
-        })
-        .map_err(map_open_err)?;
+        let engine =
+            tokio::task::block_in_place(|| Engine::<SoloSigner>::create(create_params, daemon))
+                .map_err(map_open_err)?;
         drop(master_seed);
 
         let address = engine
@@ -318,9 +311,8 @@ impl EngineSession {
         if let Some(handle) = self.pscan.take() {
             handle.shutdown().await;
         }
-        let lock = Arc::try_unwrap(shared).map_err(|_| {
-            "cannot close: wallet engine still in use by another task".to_string()
-        })?;
+        let lock = Arc::try_unwrap(shared)
+            .map_err(|_| "cannot close: wallet engine still in use by another task".to_string())?;
         let engine = lock.into_inner();
         tokio::task::block_in_place(|| engine.persist_for_close()).map_err(map_open_err)?;
         drop(engine);
@@ -349,7 +341,10 @@ impl EngineSession {
     /// Mirrors `shekyl-wallet-rpc` `stake { password }`: verify password →
     /// optional intent reopen → `Engine::first_stake`. No broadcast on this
     /// path (`state: pending_dispatch`).
-    pub async fn activate_staker(&mut self, password: &str) -> Result<ActivateStakerOutcome, String> {
+    pub async fn activate_staker(
+        &mut self,
+        password: &str,
+    ) -> Result<ActivateStakerOutcome, String> {
         let shared = self
             .engine
             .clone()
@@ -393,8 +388,15 @@ impl EngineSession {
 
         let shared = if needs_intent_open {
             drop(shared);
-            self.reopen_with_first_stake_intent(&base, network, &daemon_base, &name, password_z, slot)
-                .await?
+            self.reopen_with_first_stake_intent(
+                &base,
+                network,
+                &daemon_base,
+                &name,
+                password_z,
+                slot,
+            )
+            .await?
         } else {
             drop(password_z);
             shared
@@ -598,7 +600,11 @@ impl EngineSession {
     /// `FeePriority::Standard`. On CT-5d `ContentChanged`, resubmits once
     /// with the advanced `content_gen` (user already confirmed the send
     /// intent at the UI layer for this one-shot path).
-    pub async fn transfer(&self, address: &str, amount_atomic: u64) -> Result<TransferOutcome, String> {
+    pub async fn transfer(
+        &self,
+        address: &str,
+        amount_atomic: u64,
+    ) -> Result<TransferOutcome, String> {
         let shared = self
             .engine
             .clone()
@@ -677,7 +683,24 @@ impl EngineSession {
         Ok(fee)
     }
 
-    /// Project ledger receive-side outputs into a simple transfer list.
+    /// Project the receive-side ledger into a transaction list.
+    ///
+    /// The engine ledger is an **output set**: each [`TransferDetails`] is one
+    /// output this wallet received, tagged with the hash of the transaction
+    /// that created it. It carries no spend-side journal — once a spend
+    /// confirms, the spending txid is dropped (only `spent` / `spent_height`
+    /// survive), and the recipient output and fee were never ours to observe.
+    /// A faithful send/fee history therefore cannot be reconstructed at this
+    /// layer; that waits on engine-side transaction journaling
+    /// (`docs/FOLLOWUPS.md`).
+    ///
+    /// So we surface exactly what the ledger knows: **incoming** receipts, one
+    /// row per receiving transaction (outputs that share a `tx_hash` are
+    /// summed). Spent outputs are *not* re-projected as outgoing debits —
+    /// doing so fabricated a full-amount "-received" row for every output that
+    /// was later consumed as an input (honesty mode). `fee` is 0 because a
+    /// receiver pays no fee, and `timestamp` is 0 because the output-level
+    /// ledger records block height, not wall-clock time.
     pub async fn list_transfers(&self) -> Result<Vec<TransferRow>, String> {
         let shared = self
             .engine
@@ -686,28 +709,48 @@ impl EngineSession {
         let g = shared.read().await;
         let ledger = g.ledger();
         let tip = ledger.ledger.height();
-        let mut rows = Vec::new();
+
+        // Fold received outputs into one row per creating transaction,
+        // preserving first-seen order for a stable pre-sort baseline.
+        let mut order: Vec<String> = Vec::new();
+        let mut by_tx: HashMap<String, TransferRow> = HashMap::new();
         for td in ledger.ledger.transfers() {
             let hash = td.tx_hash.to_string();
             let amount = td.amount().to_raw();
-            let confirmed = td.block_height > 0 && tip.saturating_sub(td.block_height) >= 1;
-            rows.push(TransferRow {
-                hash,
-                amount,
-                fee: 0,
-                height: td.block_height,
-                timestamp: 0,
-                direction: if td.spent {
-                    "spent".into()
-                } else {
-                    "in".into()
+            if let Some(row) = by_tx.get_mut(&hash) {
+                row.amount = row
+                    .amount
+                    .checked_add(amount)
+                    .ok_or_else(|| "transaction receipt total overflowed u64".to_string())?;
+                continue;
+            }
+            // A receipt is confirmed once its block is at or below the synced
+            // tip; block_height 0 marks a still-unconfirmed (mempool) output.
+            let confirmed = td.block_height > 0 && tip >= td.block_height;
+            order.push(hash.clone());
+            by_tx.insert(
+                hash.clone(),
+                TransferRow {
+                    hash,
+                    amount,
+                    fee: 0,
+                    height: td.block_height,
+                    timestamp: 0,
+                    direction: "in".into(),
+                    confirmed,
+                    pqc_protected: true,
                 },
-                confirmed,
-                pqc_protected: true,
-            });
+            );
         }
-        // Newest first when heights differ.
-        rows.sort_by(|a, b| b.height.cmp(&a.height));
+
+        let mut rows: Vec<TransferRow> =
+            order.into_iter().filter_map(|h| by_tx.remove(&h)).collect();
+        // Newest first: unconfirmed/mempool receipts (height 0) at the top,
+        // then confirmed receipts by descending block height.
+        rows.sort_by(|a, b| {
+            let key = |h: u64| if h == 0 { u64::MAX } else { h };
+            key(b.height).cmp(&key(a.height))
+        });
         Ok(rows)
     }
 
@@ -841,8 +884,14 @@ fn generate_seed_material(
 }
 
 async fn make_daemon(daemon_http_base: &str) -> Result<DaemonClient, String> {
-    let url = daemon_http_base
-        .trim_end_matches("/json_rpc")
+    // Trim trailing slashes *before* the `/json_rpc` suffix so a base like
+    // `http://host:port/json_rpc/` collapses to `http://host:port` rather
+    // than leaving a stray `json_rpc` segment (the caller already passes a
+    // stripped base, but stay defensive at the daemon-client seam).
+    let trimmed = daemon_http_base.trim_end_matches('/');
+    let url = trimmed
+        .strip_suffix("/json_rpc")
+        .unwrap_or(trimmed)
         .trim_end_matches('/')
         .to_owned();
     let rpc = SimpleRequestRpc::new(url)
@@ -889,9 +938,7 @@ fn map_first_stake_err(e: FirstStakeError) -> String {
         FirstStakeError::BondInFlight => {
             "a signed bond post is already awaiting dispatch (stake in flight)".into()
         }
-        FirstStakeError::AlreadyStaked => {
-            "this wallet is already an active staker".into()
-        }
+        FirstStakeError::AlreadyStaked => "this wallet is already an active staker".into(),
         FirstStakeError::Funding(detail) => {
             format!(
                 "not ready to stake ({detail}); fund the persona (stake_in) and sync, then retry"
@@ -913,22 +960,6 @@ fn map_first_stake_err(e: FirstStakeError) -> String {
     }
 }
 
-/// Whether the process should prefer the Engine backend.
-///
-/// Enabled when `SHEKYL_ENGINE_BACKEND=1` (or `true` / `yes`), or when
-/// the env var is unset and the compile-time default is used.
-/// Default: **true** (Rust-forward mainline). Set `SHEKYL_ENGINE_BACKEND=0`
-/// to force the transitional Wallet2 path.
-pub fn engine_backend_default_from_env() -> bool {
-    match std::env::var("SHEKYL_ENGINE_BACKEND") {
-        Ok(v) => {
-            let v = v.trim().to_ascii_lowercase();
-            !(v == "0" || v == "false" || v == "no" || v == "off")
-        }
-        Err(_) => true,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -937,11 +968,5 @@ mod tests {
     fn engine_wallet_base_appends_wallet_suffix() {
         let p = engine_wallet_base(Path::new("/tmp/wallets"), "Alice");
         assert_eq!(p, PathBuf::from("/tmp/wallets/Alice.wallet"));
-    }
-
-    #[test]
-    fn env_default_parses() {
-        // Just ensure the function does not panic without the env set.
-        let _ = engine_backend_default_from_env();
     }
 }
