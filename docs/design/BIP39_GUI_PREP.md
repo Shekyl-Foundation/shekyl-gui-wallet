@@ -4,8 +4,9 @@
 
 Create/restore on the pure-Rust Engine backend uses BIP-39 via
 `shekyl-crypto-pq` (`generate_account_from_bip39` / `mnemonic_from_entropy`)
-— **not** new `wallet2_ffi_*` symbols. Wallet2 remains only when
-`SHEKYL_ENGINE_BACKEND=0`.
+— **not** `wallet2_ffi_*` symbols. The Engine is the sole wallet backend; the
+transitional Wallet2 path and the `SHEKYL_ENGINE_BACKEND` flag have been
+removed.
 
 **Authority:**
 

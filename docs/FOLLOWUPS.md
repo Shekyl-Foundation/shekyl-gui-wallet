@@ -24,7 +24,7 @@ is gone; network stats remain. Real staking needs the Engine path.
 | PR | Work | Core gate | Status |
 |----|------|-----------|--------|
 | GUI-PR0 | Honesty-mode staking | — | **done** |
-| GUI-PR1 | Engine session (create/open/close/refresh/balance) | Engine lifecycle on dev | **done** (default on; `SHEKYL_ENGINE_BACKEND=0` → Wallet2) |
+| GUI-PR1 | Engine session (create/open/close/refresh/balance) | Engine lifecycle on dev | **done** (Engine is the sole backend; Wallet2 path removed) |
 | GUI-PR2 | Engine transfer (build+submit) + fee estimate + ledger history | same | **done** |
 | GUI-PR3 | `activate_staker` / `stake { password }` + status + error map | PR #336 landed | **done** |
 | GUI-PR4 | `stake_in` funding UX | public/RPC `stake_in` (core PR-P3+) | next |
@@ -35,10 +35,12 @@ is gone; network stats remain. Real staking needs the Engine path.
 not-ready (expected until PR4). No UI for multi-slot W2 resume detail.
 Next: GUI-PR4 `stake_in` funding.
 
-**Delete when done:** claim-era leftovers (`StakeTierCard` if unused,
-`get_tier_yields` if daemon tiers vanish, scanner stake stubs once
-archival queries exist or are confirmed obsolete); Wallet2 deps after
-transfer parity.
+**Deleted:** the Wallet2 backend, `wallet_bridge`, the `shekyl-ffi` /
+`shekyl-engine-rpc` deps and the C++ static linkage, the
+`SHEKYL_ENGINE_BACKEND` flag, and claim-era `stake` / `claim_rewards` /
+`validate_tier`. **Still to delete when done:** `StakeTierCard` if unused,
+`get_tier_yields` if daemon tiers vanish, and the scanner-command honest-error
+stubs once Engine-native archival queries exist.
 
 ---
 

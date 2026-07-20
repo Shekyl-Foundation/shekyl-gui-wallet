@@ -130,6 +130,10 @@ export default function Staking() {
           </p>
         )}
 
+        {walletOpen && !status && (
+          <p className="text-xs text-purple-300">Checking staker status…</p>
+        )}
+
         {walletOpen && status?.staking_enabled && (
           <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
             <p className="font-semibold text-emerald-200">Staker active</p>

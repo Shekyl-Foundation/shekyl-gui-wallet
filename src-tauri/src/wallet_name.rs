@@ -28,12 +28,12 @@
 
 //! Wallet filename and directory utilities.
 //!
-//! The GUI accepts human-friendly wallet names ("My Wallet") and saves them
-//! as underscored, filesystem-friendly files ("My_Wallet.keys"). The
-//! `wallet2_ffi` layer no longer joins directory + filename (see
-//! `shekyl-core` CHANGELOG: "wallet2_ffi no longer carries wallet-directory
-//! state"); this module owns that job so the separator is always correct
-//! for the host platform via `PathBuf::join`.
+//! The GUI accepts human-friendly wallet names ("My Wallet") and normalizes
+//! them, via [`sanitize`], into underscored, filesystem-friendly stems
+//! ("My_Wallet") that the Engine turns into its `{name}.wallet` /
+//! `{name}.wallet.keys` envelope. This module also owns [`ensure_dir_exists`],
+//! which guarantees the configured wallet directory is present (mkdir -p
+//! semantics) before any create/open flow runs.
 
 use std::path::Path;
 
