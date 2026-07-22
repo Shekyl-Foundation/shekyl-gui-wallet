@@ -836,23 +836,39 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum DrainBalance {
-    Ready { spendable: u64 },
-    Syncing { detail: String },
+    /// Anchored aggregate spendable `P`, atomic units. Display-only: the figure
+    /// is rendered, never fed to transaction arithmetic (a real drain computes
+    /// its amounts in core Rust `u64`), and the SKL formatter is coarser than
+    /// the JS `number` ULP across the whole supply range, so the `u64` > 2^53
+    /// serialization gap is not observable in the rendered value. This mirrors
+    /// the sibling `Balance` fields, which are `number` for the same reason. If
+    /// this figure ever seeds a tx amount, the whole balance pipeline migrates
+    /// to string+BigInt (FOLLOWUPS: "Atomic amounts serialized as JS number").
+    Ready {
+        spendable: u64,
+    },
+    Syncing {
+        detail: String,
+    },
 }
 
-/// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B). Staker-only figure: a
-/// closed or non-staker wallet reports an honest `Ready { spendable: 0 }` (the
-/// core accessor returns `Ok(0)` with no P-scan seal, and the Staking page only
-/// renders this figure for an active staker anyway). Transient anchor lag
+/// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B). Staker-only figure.
+///
+/// A closed / not-yet-open wallet is a *non-value*, not a zero: it returns
+/// `Err("No wallet is open")` so the frontend `.catch` renders "—". This keeps
+/// the rule-82 contract (never a fabricated zero) even in this defensive branch,
+/// which the Staking page's `staking_enabled` gate normally prevents from ever
+/// firing. An *open* wallet with no P-scan seal (non-staker / unscanned) is an
+/// honest `Ready { spendable: 0 }` from the core accessor. Transient anchor lag
 /// surfaces as `Syncing`; a non-transient read fault propagates as `Err(String)`.
 #[tauri::command]
 pub async fn get_drain_balance(state: State<'_, AppState>) -> Result<DrainBalance, String> {
     if !*state.wallet_open.read().await {
-        return Ok(DrainBalance::Ready { spendable: 0 });
+        return Err("No wallet is open".into());
     }
     let eng = state.engine.lock().await;
     if !eng.is_open() {
-        return Ok(DrainBalance::Ready { spendable: 0 });
+        return Err("No wallet is open".into());
     }
     match eng.drain_balance().await? {
         engine_session::DrainBalanceRead::Ready { spendable } => {
