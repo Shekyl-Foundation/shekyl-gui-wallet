@@ -39,6 +39,14 @@
 
 ### Changed
 
+- **CI now runs the backend unit tests.** The `ci.yml` step that previously
+  only compiled the Rust tests (`cargo check --tests`, executing nothing) now
+  runs them (`cargo test`) — all backend unit tests execute on every push/PR.
+  Sidecar-dependent integration tests are marked `#[ignore]` (none exist yet)
+  and run only in the release build (`release.yml`) after the real `shekyld`
+  sidecar is compiled, via `cargo test --release -- --ignored`. Convention
+  documented in `CONTRIBUTING.md`.
+
 - **Engine is the sole wallet backend.** The transitional Wallet2 /
   `shekyl-engine-rpc` path and the `SHEKYL_ENGINE_BACKEND` flag are removed;
   `wallet_bridge` and the `get_engine_backend` / `set_engine_backend` commands

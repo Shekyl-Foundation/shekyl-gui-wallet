@@ -205,6 +205,21 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu')
         run: npx tauri build
 
+      # Backend integration tests that need a live `shekyld` sidecar are
+      # marked `#[ignore]`, so the fast CI job (ci.yml) skips them. They run
+      # here on the release build, where the real sidecar was compiled from
+      # shekyl-core and placed above and the frontend dist already exists
+      # (from the tauri build), so the Tauri build script resolves.
+      # `-- --ignored` runs exactly that sidecar-dependent set; the unit
+      # tests already ran on CI. Linux-only: daemon-interaction logic is
+      # platform-agnostic, so one canonical run suffices. (No such test
+      # exists yet — this is the standing runner, so an `#[ignore]` test
+      # lands already wired to execute rather than silently running nowhere.)
+      - name: Backend integration tests (sidecar, Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        working-directory: src-tauri
+        run: cargo test --release -- --ignored
+
       - name: Upload Linux .deb to release
         if: startsWith(matrix.platform, 'ubuntu')
         env:

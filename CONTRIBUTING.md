@@ -58,6 +58,17 @@ See `docs/GUI_SECURITY.md` for the full validation table.
 **Canary leak tests** (Gate 6): validate.rs includes tests that plant known
 canary patterns in secret-like inputs and assert error messages don't leak them.
 
+**Unit vs. sidecar-integration tests**: the backend unit tests run on every
+push/PR (`ci.yml` → `cargo test`) and must not need a running daemon. A test
+that requires a live `shekyld` sidecar (spawning it, hitting its RPC) is an
+_integration_ test: mark it `#[ignore = "requires live shekyld sidecar"]`.
+`cargo test` skips `#[ignore]` by default, so CI stays fast and daemon-free;
+the release build (`release.yml`) compiles the real sidecar and runs exactly
+those tests via `cargo test --release -- --ignored`. Run them locally with a
+sidecar present the same way. Keep pure logic in unit tests wherever possible —
+reserve `#[ignore]` for the cases that genuinely cannot be exercised without a
+daemon.
+
 ### Security
 
 See `docs/GUI_SECURITY.md` for the threat model, CSP policy, and hardening

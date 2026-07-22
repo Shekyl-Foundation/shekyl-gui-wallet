@@ -87,6 +87,12 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
 
-      - name: Rust test compilation check
+      # Runs the backend unit tests for real (previously this only ran
+      # `cargo check --tests`, which compiled the test code but executed
+      # nothing). `cargo test` skips `#[ignore]`-marked tests by default:
+      # tests that need a live `shekyld` sidecar are marked `#[ignore]` and
+      # run only in the release build (see the "Backend integration tests"
+      # step in release.yml), so this CI job stays fast and daemon-free.
+      - name: Rust unit tests
         working-directory: src-tauri
-        run: cargo check --tests
+        run: cargo test
