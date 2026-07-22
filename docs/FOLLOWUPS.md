@@ -288,3 +288,40 @@ across multiple `shekyl-core` PRs and a multi-quarter timeline.
 **Reversion criteria.** Track via the per-PR followups above; this
 entry is the umbrella deletion target for the C++ `wallet2`
 dependency once all per-PR migrations are complete.
+
+---
+
+## Atomic amounts serialized as JS `number` — target: V3.2
+
+Every balance the Tauri layer hands the frontend is a Rust `u64` of
+atomic units serialized to a JS `number`: `Balance.{total,unlocked,
+staked}` (`get_balance`), and `DrainBalance.spendable`
+(`get_drain_balance`, DS-PR-3 PR-B). JS `number` is IEEE-754 double —
+exact only to 2^53 (≈ 9.007e15 atomic ≈ 9.0M SKL at 1e9 atomic/SKL).
+Above that, the low-order atomic digits round in the JSON bridge.
+
+**Why it's deferred, not fixed in DS-PR-3 PR-B.** The exposure is
+*display-only* — these figures are rendered, never round-tripped into
+transaction arithmetic (a drain/transfer computes its amounts in core
+Rust `u64`; the GUI's `Send` path parses user input with `BigInt`
+independently). And the SKL formatters (`formatSkl` 6-dp, `formatSklCompact`
+K/M) are coarser than the `number` ULP across the entire supply range
+(max supply 4.29e9 SKL → ULP at that magnitude ≈ the 6-dp display
+granularity), so the rounding is not observable in any rendered value.
+Patching one field to string+BigInt would need a divergent BigInt
+formatter and leave `Balance` inconsistent beside it — tech-debt-shaped,
+not tech-debt-removing (rules 15/16).
+
+**The fix (systemic).** Migrate the balance-read pipeline wholesale:
+serialize atomic amounts as decimal strings, type them `string` in
+`daemon.ts`, parse with `BigInt`, and add a BigInt-native SKL formatter
+that `Balance` and `DrainBalance` share. One PR, one consistent surface.
+
+**Reversion criteria (bring forward from V3.2).** Any one of:
+
+1. A drainable/balance figure begins seeding a transaction amount (e.g.
+   a "drain max" button that prefills the send field from `spendable`) —
+   at that point precision becomes arithmetic-load-bearing, not display.
+2. A realistic single-wallet balance is expected to exceed ~9M SKL.
+3. The daemon RPC contract migrates its own amount fields to strings and
+   the GUI should follow in lockstep.
