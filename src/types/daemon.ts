@@ -47,6 +47,20 @@ export interface Balance {
   staked: number;
 }
 
+/**
+ * Drainable-P read result (DS-PR-3 PR-B; `get_drain_balance`).
+ *
+ * Discriminated union mirroring the core two-armed split: `"ready"` carries the
+ * anchored aggregate spendable scalar (atomic units); `"syncing"` is the
+ * transient anchor arm — render a placeholder, never a zero. A non-transient
+ * fault is not a variant here — the command rejects, and the caller's `.catch`
+ * renders "—" (never a fabricated zero). "syncing" is shown only for the
+ * transient arm, never conflated with a fault.
+ */
+export type DrainBalance =
+  | { status: "ready"; spendable: number }
+  | { status: "syncing"; detail: string };
+
 export interface TierYield {
   tier: number;
   lock_blocks: number;

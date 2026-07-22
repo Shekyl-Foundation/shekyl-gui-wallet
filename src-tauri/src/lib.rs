@@ -93,6 +93,7 @@ pub fn run() {
             commands::activate_staker,
             // Wallet data
             commands::get_balance,
+            commands::get_drain_balance,
             commands::get_address,
             commands::transfer,
             commands::estimate_fee,

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DaemonProvider } from "../../context/DaemonContext";
@@ -101,5 +101,58 @@ describe("Staking (archival activation)", () => {
       await screen.findByPlaceholderText("Wallet password"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Activate staker/i })).toBeInTheDocument();
+  });
+});
+
+// DS-PR-3 PR-B: drainable-P read on the active-staker panel. The load-bearing
+// contract (rule 82; DS-PR-3 locked decision) is that a balance read never
+// renders a fabricated zero — the transient "syncing" arm and a non-transient
+// fault both render a non-value ("Syncing…" / "—"), distinct from a real 0.
+describe("Staking drainable-P (DS-PR-3 PR-B)", () => {
+  function mockStakerWithDrain(drain: unknown | (() => Promise<never>)) {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "list_shard_preview_fixtures" || cmd === "list_shards") {
+        return [];
+      }
+      if (cmd === "get_staker_status") {
+        return {
+          staking_enabled: true,
+          has_stake_engine: true,
+          bonded_slot_count: 1,
+          has_pscan: true,
+        };
+      }
+      if (cmd === "get_drain_balance") {
+        return typeof drain === "function"
+          ? (drain as () => Promise<never>)()
+          : drain;
+      }
+      return null;
+    });
+  }
+
+  it("renders the anchored drainable figure for an active staker", async () => {
+    mockStakerWithDrain({ status: "ready", spendable: 1_500_000_000 });
+    renderStaking({ phase: "ready", walletName: "alice" });
+    const line = await screen.findByText(/Drainable \(P\)/);
+    await waitFor(() => expect(line.textContent).toContain("1.500000 SKL"));
+  });
+
+  it("shows 'Syncing…' (no value) while the reference is unanchorable", async () => {
+    mockStakerWithDrain({ status: "syncing", detail: "still ingesting blocks" });
+    renderStaking({ phase: "ready", walletName: "alice" });
+    expect(await screen.findByText("Syncing…")).toBeInTheDocument();
+    // No SKL value rendered ⇒ syncing is never conflated with a real balance.
+    const line = screen.getByText(/Drainable \(P\)/);
+    expect(line.textContent).not.toContain("SKL");
+  });
+
+  it("renders '—' (never a fabricated zero) when the read faults", async () => {
+    mockStakerWithDrain(() => Promise.reject("read fault"));
+    renderStaking({ phase: "ready", walletName: "alice" });
+    const line = await screen.findByText(/Drainable \(P\)/);
+    await waitFor(() => expect(line.textContent).toContain("—"));
+    // A fault renders a dash, not a value ⇒ no fabricated zero.
+    expect(line.textContent).not.toContain("SKL");
   });
 });

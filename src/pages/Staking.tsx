@@ -12,6 +12,7 @@ import {
 import { useDaemon } from "../context/useDaemon";
 import { useWallet } from "../context/useWallet";
 import { formatSklCompact, formatPercent } from "../lib/format";
+import type { DrainBalance } from "../types/daemon";
 import EmissionGauge from "../components/EmissionGauge";
 import ShardIdentityPreview from "../components/staking/ShardIdentityPreview";
 
@@ -41,6 +42,7 @@ export default function Staking() {
   const walletOpen = phase === "ready";
 
   const [status, setStatus] = useState<StakerStatusInfo | null>(null);
+  const [drain, setDrain] = useState<DrainBalance | null>(null);
   const [password, setPassword] = useState("");
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,21 @@ export default function Staking() {
   useEffect(() => {
     refreshStatus();
   }, [refreshStatus, health]);
+
+  // Drainable (P) is a staker-only figure; poll it alongside status, but only
+  // once the wallet is an active staker (a non-staker's core read is a plain
+  // Ok(0) — no point showing it outside the active panel). A fault or a closed
+  // wallet resets to null → the panel renders "—", never a fabricated zero; the
+  // transient "syncing" arm is the only non-value render (DS-PR-3, rule 82).
+  useEffect(() => {
+    if (!walletOpen || !status?.staking_enabled) {
+      setDrain(null);
+      return;
+    }
+    invoke<DrainBalance>("get_drain_balance")
+      .then(setDrain)
+      .catch(() => setDrain(null));
+  }, [walletOpen, status?.staking_enabled, health]);
 
   const stakeRatioPct = health ? (health.stake_ratio / 1_000_000) * 100 : 0;
   const emSharePct = health
@@ -141,6 +158,22 @@ export default function Staking() {
               Bonded slots: {status.bonded_slot_count}
               {status.has_stake_engine ? " · stake engine running" : ""}
               {status.has_pscan ? " · persona scan running" : ""}
+            </p>
+            <p className="mt-1 text-emerald-100/80">
+              Drainable (P):{" "}
+              {drain === null ? (
+                // loading or a non-transient fault (the fetch .catch resets to
+                // null) → a dash placeholder, never a fabricated zero.
+                <span className="text-emerald-100/60">—</span>
+              ) : drain.status === "syncing" ? (
+                // transient anchor lag → "syncing", the only non-value render;
+                // `detail` is the operator-facing reason (tooltip).
+                <span className="text-emerald-100/60" title={drain.detail}>
+                  Syncing…
+                </span>
+              ) : (
+                <span>{formatSklCompact(drain.spendable)} SKL</span>
+              )}
             </p>
             <p className="mt-1 text-emerald-100/70">
               Bond posts may still be pending scheduled broadcast
