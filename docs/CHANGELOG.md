@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Drainable (P) balance on the Staking page (DS-PR-3 PR-B;
+  `ARCHIVAL_DRAIN_SEND_FD2.md` §1).** The active-staker panel now shows the
+  aggregate spendable `P` figure a drain could send, read from the core
+  `Engine::drain_balance_aggregate` accessor (DS-PR-3 PR-A) — anchored to the
+  same send-path reference a real drain proves against, not raw tip. Tauri
+  command `get_drain_balance` returns a two-shape result that keeps the core
+  distinction alive across the boundary (rule 82): a transient anchor-lag renders
+  **"Syncing…"** (never a zero), and a non-transient read fault renders **"—"**
+  (never a fabricated zero) — only a genuine `ready` result shows an SKL value.
+  Aggregate-only by construction: no reward decomposition crosses the surface
+  (F-D1 trust boundary). Requires the DS-PR-3 PR-A engine-core accessor.
+
 - **Staker activation (GUI-PR3).** Staking page can activate an archival
   staker on the Engine backend: password re-auth → optional first-stake
   intent reopen → `Engine::first_stake`. Bond post is sealed as

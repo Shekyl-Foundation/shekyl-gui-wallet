@@ -823,6 +823,47 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
     })
 }
 
+/// Drainable-`P` read result (DS-PR-3 PR-B; `ARCHIVAL_DRAIN_SEND_FD2.md` §1).
+///
+/// Internally tagged so the frontend matches on `status`: `"ready"` carries the
+/// anchored aggregate spendable scalar (atomic units); `"syncing"` signals the
+/// transient anchor arm — the UI renders a placeholder, never a zero. A
+/// non-transient read fault is *not* a variant here — it is the command's
+/// `Err(String)` arm, which the frontend catches and renders as "—", never a
+/// fabricated zero. This two-shape boundary is the DS-PR-3 locked decision
+/// (rule 82): "syncing" (transient, expected) is never conflated with a real
+/// fault.
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum DrainBalance {
+    Ready { spendable: u64 },
+    Syncing { detail: String },
+}
+
+/// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B). Staker-only figure: a
+/// closed or non-staker wallet reports an honest `Ready { spendable: 0 }` (the
+/// core accessor returns `Ok(0)` with no P-scan seal, and the Staking page only
+/// renders this figure for an active staker anyway). Transient anchor lag
+/// surfaces as `Syncing`; a non-transient read fault propagates as `Err(String)`.
+#[tauri::command]
+pub async fn get_drain_balance(state: State<'_, AppState>) -> Result<DrainBalance, String> {
+    if !*state.wallet_open.read().await {
+        return Ok(DrainBalance::Ready { spendable: 0 });
+    }
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Ok(DrainBalance::Ready { spendable: 0 });
+    }
+    match eng.drain_balance().await? {
+        engine_session::DrainBalanceRead::Ready { spendable } => {
+            Ok(DrainBalance::Ready { spendable })
+        }
+        engine_session::DrainBalanceRead::Syncing { detail } => {
+            Ok(DrainBalance::Syncing { detail })
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn get_address(
     state: State<'_, AppState>,

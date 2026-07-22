@@ -27,9 +27,9 @@ use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES}
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    Capability, Credentials, DaemonClient, Engine, EngineCreateParams, FeePriority,
-    FirstStakeError, FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions,
-    SoloSigner, TxRecipient, TxRequest,
+    Capability, Credentials, DaemonClient, DrainBalanceReadError, Engine, EngineCreateParams,
+    FeePriority, FirstStakeError, FirstStakeOutcome, Network, OpenedEngine, PScanHandle,
+    RefreshOptions, SoloSigner, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::{SafetyOverrides, WalletFile};
@@ -594,6 +594,35 @@ impl EngineSession {
         ))
     }
 
+    /// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B; `ARCHIVAL_DRAIN_SEND_FD2.md`
+    /// §1 layer 1). Mirrors [`Self::refresh`]'s arc-clone shape: clone the engine
+    /// arc and drive the self-arc accessor `Engine::drain_balance_aggregate`,
+    /// which anchors the same send-path reference a real drain proves against.
+    ///
+    /// Preserves the core two-armed [`DrainBalanceReadError`] split across the
+    /// command boundary (the DS-PR-3 locked decision, rule 82): the genuinely
+    /// transient `Unanchorable` arm becomes [`DrainBalanceRead::Syncing`] (the UI
+    /// renders "syncing", never a zero), while a non-transient `State` fault stays
+    /// an `Err(String)` the frontend catches and renders as "—", never a
+    /// fabricated zero. A non-staker / unscanned wallet is an honest
+    /// [`DrainBalanceRead::Ready`] of `0` (the core accessor short-circuits to
+    /// `Ok(0)` before anchoring).
+    pub async fn drain_balance(&self) -> Result<DrainBalanceRead, String> {
+        let shared = self
+            .engine
+            .clone()
+            .ok_or_else(|| "No wallet is open".to_string())?;
+        match Engine::drain_balance_aggregate(shared).await {
+            Ok(spendable) => Ok(DrainBalanceRead::Ready {
+                spendable: spendable.to_raw(),
+            }),
+            Err(DrainBalanceReadError::Unanchorable { detail }) => Ok(DrainBalanceRead::Syncing {
+                detail: detail.to_string(),
+            }),
+            Err(DrainBalanceReadError::State { detail }) => Err(format!("drain balance: {detail}")),
+        }
+    }
+
     /// One-shot send: build pending tx + submit (GUI transfer command).
     ///
     /// Mirrors wallet-rpc `build_pending_tx` → `submit_pending_tx` with
@@ -812,6 +841,24 @@ impl From<FirstStakeOutcome> for ActivateStakerOutcome {
             state: "pending_dispatch",
         }
     }
+}
+
+/// Outcome of a drainable-`P` read (DS-PR-3 PR-B).
+///
+/// Two-armed, mirroring the core `DrainBalanceReadError` split so the
+/// distinction survives to the UI: `Ready` carries the anchored aggregate
+/// spendable scalar (atomic units); `Syncing` signals the transient anchor arm
+/// (the reference is not yet available — render a placeholder, never a zero). A
+/// non-transient fault is *not* an arm here — it stays an `Err(String)` on the
+/// read method, so a bad read never masquerades as a value. No `Clone`: no
+/// caller needs a second copy (rule 21).
+#[derive(Debug)]
+pub enum DrainBalanceRead {
+    /// Anchored aggregate spendable `P` scalar, atomic units.
+    Ready { spendable: u64 },
+    /// The send-path reference is not yet anchorable (transient; render
+    /// "syncing"). `detail` is static operator text — no amount, no gindex.
+    Syncing { detail: String },
 }
 
 impl Default for EngineSession {
