@@ -69,14 +69,25 @@ export default function Staking() {
   // Ok(0) — no point showing it outside the active panel). A fault or a closed
   // wallet resets to null → the panel renders "—", never a fabricated zero; the
   // transient "syncing" arm is the only non-value render (DS-PR-3, rule 82).
+  // The `cancelled` guard (matching Shards.tsx) drops a late-resolving read if
+  // the wallet closes / staking is disabled / the component unmounts first, so
+  // a stale in-flight value can never re-populate `drain` after the reset.
   useEffect(() => {
     if (!walletOpen || !status?.staking_enabled) {
       setDrain(null);
       return;
     }
+    let cancelled = false;
     invoke<DrainBalance>("get_drain_balance")
-      .then(setDrain)
-      .catch(() => setDrain(null));
+      .then((d) => {
+        if (!cancelled) setDrain(d);
+      })
+      .catch(() => {
+        if (!cancelled) setDrain(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [walletOpen, status?.staking_enabled, health]);
 
   const stakeRatioPct = health ? (health.stake_ratio / 1_000_000) * 100 : 0;
