@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { ShieldCheck, ShieldAlert } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
 

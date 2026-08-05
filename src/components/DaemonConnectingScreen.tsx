@@ -1,5 +1,5 @@
 import { Loader2, ShieldCheck, Settings, Lock } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { useDaemon } from "../context/useDaemon";
 import { useWallet } from "../context/useWallet";
 

@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route } from "react-router";
 import { WalletProvider } from "./context/WalletContext";
 import { DaemonProvider } from "./context/DaemonContext";
 import { useWallet } from "./context/useWallet";

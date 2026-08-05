@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { Send, Download, Coins, ArrowLeftRight, ShieldCheck } from "lucide-react";
 import BalanceCard from "../components/BalanceCard";
 import ChainHealthPanel from "../components/ChainHealthPanel";
