@@ -34,7 +34,7 @@ use shekyl_engine_core::{
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::{SafetyOverrides, WalletFile};
 use shekyl_engine_prefs::WalletPrefs;
-use shekyl_rpc_transport::SimpleRequestRpc;
+use shekyl_rpc_transport::HttpRpc;
 use shekyl_scanner::LedgerBlockExt;
 use shekyl_units::AtomicUnits;
 use tokio::sync::RwLock;
@@ -647,7 +647,12 @@ impl EngineSession {
             priority: FeePriority::Standard,
         };
 
-        let mut engine = shared.write().await;
+        // Phase 4b: build/submit/discard take `&self` (interior mutability +
+        // engine-owned permits). Hold a *read* guard — same as wallet-rpc —
+        // so P-scan and other SharedEngine readers are not stalled across
+        // FCMP++ assembly and the daemon submit RTT. Serialization of the
+        // send path itself lives in LocalPendingTx, not this lock.
+        let engine = shared.read().await;
         let pending = engine
             .build_pending_tx_async(&request)
             .await
@@ -657,8 +662,11 @@ impl EngineSession {
         let id = pending.id;
         let mut seen_gen = pending.content_gen;
 
+        // SubmitOutcome is identity-bearing (Accepted / AlreadyInPool /
+        // AlreadyInChain); one-shot GUI needs only the txid. Verdict UX is a
+        // separate follow-up; refresh remains settlement authority.
         let tx_hash = match engine.submit_pending_tx_async(id, seen_gen).await {
-            Ok(h) => h,
+            Ok(outcome) => outcome.hash(),
             Err(SubmitError::ContentChanged {
                 content_gen,
                 reservation_id,
@@ -673,6 +681,7 @@ impl EngineSession {
                         let _ = engine.discard_pending_tx(reservation_id);
                         format!("submit transfer (after re-anchor): {e}")
                     })?
+                    .hash()
             }
             Err(e) => {
                 let _ = engine.discard_pending_tx(id);
@@ -702,7 +711,9 @@ impl EngineSession {
             priority: FeePriority::Standard,
         };
 
-        let mut engine = shared.write().await;
+        // Read guard: fee estimate is build+discard under the same Phase 4b
+        // shared-borrow contract as transfer (see above).
+        let engine = shared.read().await;
         let pending = engine
             .build_pending_tx_async(&request)
             .await
@@ -941,7 +952,7 @@ async fn make_daemon(daemon_http_base: &str) -> Result<DaemonClient, String> {
         .unwrap_or(trimmed)
         .trim_end_matches('/')
         .to_owned();
-    let rpc = SimpleRequestRpc::new(url)
+    let rpc = HttpRpc::new(url)
         .await
         .map_err(|e| format!("daemon unreachable: {e}"))?;
     Ok(DaemonClient::new(rpc))
