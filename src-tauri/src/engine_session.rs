@@ -647,10 +647,12 @@ impl EngineSession {
             priority: FeePriority::Standard,
         };
 
-        // Build / submit / discard all take `&self` since the Phase 4b
-        // send-lifecycle relaxation (interior mutability + engine-owned
-        // permits); the guard needs no `mut`.
-        let engine = shared.write().await;
+        // Phase 4b: build/submit/discard take `&self` (interior mutability +
+        // engine-owned permits). Hold a *read* guard — same as wallet-rpc —
+        // so P-scan and other SharedEngine readers are not stalled across
+        // FCMP++ assembly and the daemon submit RTT. Serialization of the
+        // send path itself lives in LocalPendingTx, not this lock.
+        let engine = shared.read().await;
         let pending = engine
             .build_pending_tx_async(&request)
             .await
@@ -660,12 +662,9 @@ impl EngineSession {
         let id = pending.id;
         let mut seen_gen = pending.content_gen;
 
-        // Engine submit now returns the identity-bearing `SubmitOutcome`
-        // (Accepted / AlreadyInPool / AlreadyInChain { height }); the GUI's
-        // one-shot flow needs only the txid — all three are success with the
-        // same lock lifecycle, and refresh remains the settlement authority.
-        // Surfacing the already-in-pool / already-in-chain distinction in the
-        // transfer UI is a separate UX decision.
+        // SubmitOutcome is identity-bearing (Accepted / AlreadyInPool /
+        // AlreadyInChain); one-shot GUI needs only the txid. Verdict UX is a
+        // separate follow-up; refresh remains settlement authority.
         let tx_hash = match engine.submit_pending_tx_async(id, seen_gen).await {
             Ok(outcome) => outcome.hash(),
             Err(SubmitError::ContentChanged {
@@ -712,7 +711,9 @@ impl EngineSession {
             priority: FeePriority::Standard,
         };
 
-        let engine = shared.write().await;
+        // Read guard: fee estimate is build+discard under the same Phase 4b
+        // shared-borrow contract as transfer (see above).
+        let engine = shared.read().await;
         let pending = engine
             .build_pending_tx_async(&request)
             .await
