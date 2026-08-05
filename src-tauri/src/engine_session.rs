@@ -34,7 +34,7 @@ use shekyl_engine_core::{
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::{SafetyOverrides, WalletFile};
 use shekyl_engine_prefs::WalletPrefs;
-use shekyl_rpc_transport::SimpleRequestRpc;
+use shekyl_rpc_transport::HttpRpc;
 use shekyl_scanner::LedgerBlockExt;
 use shekyl_units::AtomicUnits;
 use tokio::sync::RwLock;
@@ -951,7 +951,7 @@ async fn make_daemon(daemon_http_base: &str) -> Result<DaemonClient, String> {
         .unwrap_or(trimmed)
         .trim_end_matches('/')
         .to_owned();
-    let rpc = SimpleRequestRpc::new(url)
+    let rpc = HttpRpc::new(url)
         .await
         .map_err(|e| format!("daemon unreachable: {e}"))?;
     Ok(DaemonClient::new(rpc))
