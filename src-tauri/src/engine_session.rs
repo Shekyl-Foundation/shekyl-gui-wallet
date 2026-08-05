@@ -647,7 +647,10 @@ impl EngineSession {
             priority: FeePriority::Standard,
         };
 
-        let mut engine = shared.write().await;
+        // Build / submit / discard all take `&self` since the Phase 4b
+        // send-lifecycle relaxation (interior mutability + engine-owned
+        // permits); the guard needs no `mut`.
+        let engine = shared.write().await;
         let pending = engine
             .build_pending_tx_async(&request)
             .await
@@ -657,8 +660,14 @@ impl EngineSession {
         let id = pending.id;
         let mut seen_gen = pending.content_gen;
 
+        // Engine submit now returns the identity-bearing `SubmitOutcome`
+        // (Accepted / AlreadyInPool / AlreadyInChain { height }); the GUI's
+        // one-shot flow needs only the txid — all three are success with the
+        // same lock lifecycle, and refresh remains the settlement authority.
+        // Surfacing the already-in-pool / already-in-chain distinction in the
+        // transfer UI is a separate UX decision.
         let tx_hash = match engine.submit_pending_tx_async(id, seen_gen).await {
-            Ok(h) => h,
+            Ok(outcome) => outcome.hash(),
             Err(SubmitError::ContentChanged {
                 content_gen,
                 reservation_id,
@@ -673,6 +682,7 @@ impl EngineSession {
                         let _ = engine.discard_pending_tx(reservation_id);
                         format!("submit transfer (after re-anchor): {e}")
                     })?
+                    .hash()
             }
             Err(e) => {
                 let _ = engine.discard_pending_tx(id);
@@ -702,7 +712,7 @@ impl EngineSession {
             priority: FeePriority::Standard,
         };
 
-        let mut engine = shared.write().await;
+        let engine = shared.write().await;
         let pending = engine
             .build_pending_tx_async(&request)
             .await
