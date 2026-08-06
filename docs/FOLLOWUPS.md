@@ -65,9 +65,15 @@ window.
 
 ### GUI wallet gaps
 
-- The `multisig` feature on `shekyl-engine-rpc` is not enabled in
+- ~~The `multisig` feature on `shekyl-engine-rpc` is not enabled in
   `src-tauri/Cargo.toml`, so the Rust FROST multisig handlers are not
-  compiled into the wallet binary.
+  compiled into the wallet binary.~~ **Moot** — the dep was dropped at
+  GUI-PR1 and the crate is now deleted from `shekyl-core`. Its `multisig`
+  feature also named no code inside it (it only forwarded to
+  `shekyl-engine-core` / `shekyl-fcmp`), so enabling it would never have
+  compiled any handler. Restated: the GUI has **no** FROST multisig path
+  today; wiring one means going through `shekyl-multisig` /
+  `shekyl-engine-core`, not through a Cargo feature flag.
 - `export_group_descriptor` produces mostly-empty data because
   `participant_pubkeys` and `address_fingerprint` come from JSON fields
   the backend doesn't return.
@@ -207,11 +213,15 @@ Forward-tracking shekyl-core's pending wallet-engine migration.
 `docs/design/STAGE_1_PR_4_REFRESH_ENGINE.md` (and its preflight notes)
 define a pure-Rust refresh engine that replaces the C++
 `wallet2::refresh` loop with an isolated process driving
-`LedgerIndexes::process_scanned_outputs` and reorg handling. The GUI
+`LedgerIndexes::process_scanned_outputs` and reorg handling. ~~The GUI
 currently runs an in-process local sync loop in `wallet_bridge.rs`
 (landed in alpha.5); when the engine lands in core and reaches feature
 parity with the C++ `wallet2` FFI, the GUI's local loop is replaced
-by a thin `RefreshHandle` client.
+by a thin `RefreshHandle` client.~~ **Done** — the engine landed and
+GUI-PR1 moved the GUI onto it: refresh is `Engine::start_refresh` driven
+from `engine_session.rs`, the GUI-owned sync loop and `wallet_bridge.rs`
+are deleted, and scan state lives inside the Engine rather than in a
+GUI-held mutex.
 
 **No GUI implementation work today.** `STAGE_1_PR_4` is design-only;
 adopting it now would build against an unmerged API. Tracked so the
@@ -273,21 +283,26 @@ matches the C++ implementation across the RandomX test vector suite.
 
 ---
 
-## Track `WALLET_REWRITE_PLAN.md` — target: post-V3.x
+## ~~Track `WALLET_REWRITE_PLAN.md` — target: post-V3.x~~ — **CLOSED**
 
-Placeholder for the eventual deletion of `shekyl-engine-rpc`'s
-`wallet2` FFI dependency in favor of the pure-Rust `Engine` (the
-combination of `STAGE_1_PR_3` Key Engine, `STAGE_1_PR_4` Refresh
-Engine, `STAGE_1_PR_5` Pending Tx Engine, and follow-ups). When the
-rewrite reaches feature parity, the GUI drops `shekyl-ffi` /
-`shekyl-engine-rpc`'s C++ surface and links the Rust engine directly.
+This was the umbrella deletion target for the GUI's C++ `wallet2`
+dependency: "when the rewrite reaches feature parity, the GUI drops
+`shekyl-ffi` / `shekyl-engine-rpc`'s C++ surface and links the Rust engine
+directly."
 
-**No GUI implementation work today.** The wallet rewrite is staged
-across multiple `shekyl-core` PRs and a multi-quarter timeline.
+**Done, in two steps.** GUI-PR1 replaced `wallet_bridge.rs` with
+`engine_session.rs` embedding `shekyl-engine-core::Engine` in-process,
+dropping the `shekyl-ffi` / `shekyl-engine-rpc` deps and the C++ static
+linkage. `shekyl-core` then deleted the `shekyl-engine-rpc` crate outright
+(roadmap B1), so there is no longer a C++ wallet surface for this repo to
+depend on even in principle. Nothing in the GUI process links C++ wallet
+code.
 
-**Reversion criteria.** Track via the per-PR followups above; this
-entry is the umbrella deletion target for the C++ `wallet2`
-dependency once all per-PR migrations are complete.
+**Residual, tracked elsewhere:** feature parity is not complete — the
+capabilities that only ever existed on the old path (import-from-keys, PQC
+multisig, scanner freeze/thaw) return honest "not available on the Engine
+backend" errors and are carried by the per-PR followups above, not by this
+entry. The *dependency* question this entry existed to answer is settled.
 
 ---
 

@@ -10,12 +10,12 @@ This document describes the security architecture of the Shekyl GUI wallet (Taur
 │                      │
 │   Tauri IPC bridge   │  ← validate.rs: all inputs validated
 ├──────────────────────┤
-│   wallet_bridge.rs   │  ← Rust: type-safe, no unsafe
+│   engine_session.rs  │  ← Rust: type-safe, no unsafe
 │   commands.rs        │
 ├──────────────────────┤
-│ shekyl-engine-rpc    │  ← C++ wallet2 FFI (prepare/finalize)
+│ shekyl-engine-core   │  ← Rust Engine (lifecycle/build/submit)
 │ shekyl-scanner       │  ← Rust scanner (scan/balance/state)
-│ shekyl-tx-builder    │  ← Rust signing (native-sign)
+│ shekyl-tx-builder    │  ← Rust signing (FCMP++ / PQC)
 └──────────────────────┘
 ```
 
@@ -121,7 +121,7 @@ These are tracked for implementation in future releases:
 
 ## Scanner State Persistence
 
-The scanner state is currently in-memory only. No partial state is persisted to disk between sessions. On wallet reopen, the scanner re-scans from the wallet's last-known height. There is no `on_flush` checkpoint hook today; the in-process sync loop in `wallet_bridge.rs` keeps `(LedgerBlock, LedgerIndexes)` purely in memory pending serde support for the pair (`shekyl-engine-state` does not yet expose persistence-safe serialization). This means:
+The scanner state is currently in-memory only. No partial state is persisted to disk between sessions. On wallet reopen, the scanner re-scans from the wallet's last-known height. There is no `on_flush` checkpoint hook today; scan state is held by the in-process `Engine` (`engine_session.rs`, driven by `Engine::start_refresh`) pending serde support for the `(LedgerBlock, LedgerIndexes)` pair (`shekyl-engine-state` does not yet expose persistence-safe serialization). This means:
 
 - A crash mid-scan loses in-memory outputs discovered since the last open
 - Recovery is automatic: the scanner detects missed blocks on next open and re-scans

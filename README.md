@@ -49,10 +49,11 @@ TLS:       rustls (no OpenSSL dependency)
 
 The Rust backend connects to a `shekyld` daemon via JSON-RPC for chain health,
 staking, and economic data, and via plain HTTP endpoints for mining control.
-Wallet-side operations (create, transfer, stake, claim, import) are handled by
-the `shekyl-engine-rpc` crate which wraps the wallet2 C++ core through a safe
-FFI boundary. Progress events (FCMP++ proof generation, PQC signing, broadcast)
-flow from C++ through an `mpsc` channel to the Tauri event system.
+Wallet-side operations (create, transfer, stake, claim) are handled in-process
+by `shekyl-engine-core::Engine`, embedded directly via `engine_session.rs` —
+pure Rust, no C++ wallet2 and no separate wallet process. Progress events
+(FCMP++ proof generation, PQC signing, broadcast) flow through an `mpsc`
+channel to the Tauri event system.
 
 ## Prerequisites
 
@@ -193,7 +194,7 @@ shekyl-gui-wallet/
       lib.rs                # Tauri app builder, state management, command registration
       commands.rs           # Daemon + mining + wallet + staking + security commands
       daemon_rpc.rs         # JSON-RPC + HTTP client for shekyld (chain, mining, curve tree)
-      wallet_bridge.rs      # wallet2 FFI bridge, progress event pipeline, staking
+      engine_session.rs     # In-process Engine session: lifecycle, refresh, P-scan, staking
       state.rs              # App state (daemon URL, network, HTTP client)
       main.rs               # Entry point
     tauri.conf.json         # App metadata, window config, bundle settings
