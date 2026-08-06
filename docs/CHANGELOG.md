@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The wallet-startup failure message no longer tells users to install
+  something that does not exist.** On an `init_wallet_rpc` failure the UI said
+  "Make sure shekyl-engine-rpc is installed and accessible" — naming a crate
+  that has been deleted from `shekyl-core`, and implying a separate installable
+  wallet service. There is none: the wallet runs in-process as
+  `shekyl-engine-core::Engine`, and that command's only failure mode is
+  preparing the wallet directory (permissions, or a path that exists as a
+  file). The message now says the wallet is part of the app and points at the
+  actionable remedy — choose a different wallet folder in Settings (rule 82).
+  The specific cause continues to be surfaced verbatim from the backend, which
+  already returns path-free, cause-specific strings.
+
+### Changed
+
+- **Documentation retired alongside the `shekyl-engine-rpc` deletion in
+  `shekyl-core`.** The architecture docs still described `wallet_bridge.rs` and
+  a C++ `wallet2` FFI backend as *current*, two migrations after both were
+  deleted (GUI-PR1 moved the wallet onto the in-process Engine; `shekyl-core`
+  then deleted the crate). Corrected to the real shape — `engine_session.rs`
+  embedding `shekyl-engine-core::Engine`, refresh via `Engine::start_refresh`,
+  scan state owned by the Engine rather than a GUI-held mutex — across
+  `README.md`, `CONTRIBUTING.md`, `docs/WALLET_STARTUP.md` (architecture,
+  open/close flow, concurrency model), `docs/GUI_SECURITY.md`, and
+  `src-tauri/binaries/README.md`. Two `FOLLOWUPS.md` entries are closed as done
+  (the `WALLET_REWRITE_PLAN.md` umbrella C++-dependency deletion target, and the
+  `STAGE_1_PR_4` "GUI's local sync loop is replaced" item) and the multisig
+  Cargo-feature gap is restated, since that feature named no code even when the
+  dep existed. `BIP39_GUI_PREP.md`'s integration checklist is marked superseded:
+  it routed through `wallet2_ffi` symbols that `shekyl-core` declined to add.
+  `.gitignore` drops the `shekyl-engine-rpc-*` sidecar pattern for a binary that
+  can no longer exist. CHANGELOG history is left as written.
+
 ### Added
 
 - **Drainable (P) balance on the Staking page (DS-PR-3 PR-B;

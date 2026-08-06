@@ -32,7 +32,16 @@ removed.
 - No removal of `language` / `seed_language` from Rust Tauri types
 - No functional mainnet create or BIP-39 restore
 
-## Integration PR checklist (after core)
+## Integration PR checklist (after core) — **SUPERSEDED, kept for lineage**
+
+> This checklist was written for an integration through the C++ `wallet2_ffi`
+> surface via `wallet_bridge.rs`. That route was never taken: GUI-PR1
+> integrated BIP-39 through the pure-Rust Engine instead (see the Status
+> banner above), `wallet_bridge.rs` is deleted, `shekyl-core` rejected adding
+> a BIP-39-aware C++ FFI entry, and the `shekyl-engine-rpc` crate this
+> checklist depended on has since been deleted outright. None of the
+> `wallet2_ffi_*` / `shekyl-engine-rpc` items below can be satisfied or are
+> wanted. Read this section as history.
 
 ### Core readiness (verify before integration PR)
 
@@ -40,6 +49,7 @@ removed.
 - [ ] BIP-39 restore FFI exists (provisional name `wallet2_ffi_restore_from_bip39`);
       `wallet2_ffi_restore_deterministic_wallet` deleted
 - [ ] `shekyl-engine-rpc` exposes matching `Wallet2` methods
+      *(crate deleted — see the section banner)*
 - [ ] Mainnet: create → `query_key("mnemonic")` returns 24 words; restore round-trip same address
 - [ ] `shekyl-core` `CHANGELOG.md` updated
 

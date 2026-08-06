@@ -79,7 +79,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setError(
           `Could not start wallet service: ${String(e)}. ` +
-            "Make sure shekyl-engine-rpc is installed and accessible.",
+            "The wallet runs inside this app — nothing separate to install. " +
+            "This step only prepares the wallet folder, so choose a different " +
+            "folder in Settings if the current one can't be used.",
         );
         setPhase("no_wallet");
         return;

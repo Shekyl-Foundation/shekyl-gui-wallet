@@ -6,7 +6,8 @@ The GUI wallet is a Tauri 2 application:
 
 - **Frontend**: React + TypeScript + Tailwind CSS (in `src/`)
 - **Backend**: Rust Tauri commands (in `src-tauri/src/`)
-- **Core**: C++ `wallet2` FFI via `shekyl-engine-rpc` + Rust `shekyl-scanner`
+- **Core**: pure-Rust `shekyl-engine-core::Engine`, embedded in-process
+  (`src-tauri/src/engine_session.rs`) + Rust `shekyl-scanner`
 
 ## Development Setup
 
