@@ -107,6 +107,8 @@ pub struct TxInfo {
     pub height: u64,
     pub timestamp: u64,
     pub direction: String,
+    /// `confirmed` | `pending` | `failed` | `dropped` (send-journal arms).
+    pub status: String,
     pub confirmed: bool,
     pub pqc_protected: bool,
 }
@@ -923,6 +925,7 @@ pub async fn transfer(
         height: 0,
         timestamp: 0,
         direction: "out".into(),
+        status: "pending".into(),
         confirmed: false,
         pqc_protected: true,
     })
@@ -967,6 +970,7 @@ pub async fn get_transactions(
             height: r.height,
             timestamp: r.timestamp,
             direction: r.direction,
+            status: r.status,
             confirmed: r.confirmed,
             pqc_protected: r.pqc_protected,
         })

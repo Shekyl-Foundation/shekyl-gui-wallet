@@ -35,6 +35,7 @@ shekyl-rpc-transport = { path = "../../shekyl-core/rust/shekyl-rpc-transport" }
 shekyl-engine-core = { path = "../../shekyl-core/rust/shekyl-engine-core" }
 shekyl-engine-file = { path = "../../shekyl-core/rust/shekyl-engine-file" }
 shekyl-engine-prefs = { path = "../../shekyl-core/rust/shekyl-engine-prefs" }
+shekyl-engine-state = { path = "../../shekyl-core/rust/shekyl-engine-state" }
 shekyl-wire = { path = "../../shekyl-core/rust/shekyl-wire" }
 shekyl-crypto-pq = { path = "../../shekyl-core/rust/shekyl-crypto-pq" }
 shekyl-address = { path = "../../shekyl-core/rust/shekyl-address" }

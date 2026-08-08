@@ -5831,6 +5831,7 @@ dependencies = [
  "shekyl-engine-core",
  "shekyl-engine-file",
  "shekyl-engine-prefs",
+ "shekyl-engine-state",
  "shekyl-rpc-client",
  "shekyl-rpc-transport",
  "shekyl-scanner",

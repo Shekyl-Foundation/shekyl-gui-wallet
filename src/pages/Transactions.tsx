@@ -9,12 +9,55 @@ interface TxInfo {
   height: number;
   timestamp: number;
   direction: string;
+  /** confirmed | pending | failed | dropped */
+  status: string;
   confirmed: boolean;
   pqc_protected: boolean;
 }
 
 function atomicToSkl(atomic: number): string {
   return (atomic / 1e9).toFixed(4);
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "confirmed":
+      return "Confirmed";
+    case "pending":
+      return "Pending";
+    case "failed":
+      return "Failed";
+    case "dropped":
+      return "Dropped";
+    default:
+      return status;
+  }
+}
+
+function statusClass(status: string): string {
+  switch (status) {
+    case "confirmed":
+      return "text-purple-400";
+    case "pending":
+      return "text-amber-400";
+    case "failed":
+      return "text-red-400";
+    case "dropped":
+      return "text-orange-400";
+    default:
+      return "text-purple-400";
+  }
+}
+
+function statusTitle(status: string): string | undefined {
+  switch (status) {
+    case "failed":
+      return "The network refused this send. It was never mined — you can try again.";
+    case "dropped":
+      return "The wallet stopped waiting for this send. Your funds are spendable again.";
+    default:
+      return undefined;
+  }
 }
 
 export default function Transactions() {
@@ -41,7 +84,7 @@ export default function Transactions() {
         <div className="space-y-2">
           {txs.map((tx) => (
             <div
-              key={tx.hash}
+              key={`${tx.direction}-${tx.hash}`}
               className="card flex items-center gap-4 py-3"
             >
               <div
@@ -65,7 +108,7 @@ export default function Transactions() {
                   {tx.pqc_protected && (
                     <span
                       className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-300"
-                      title="Output protected by FCMP++ membership proof with post-quantum signatures"
+                      title="Protected by post-quantum signatures"
                     >
                       <ShieldCheck className="h-2.5 w-2.5" />
                       PQC
@@ -73,12 +116,18 @@ export default function Transactions() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-purple-400">
-                  {tx.height > 0 && <span>Block {tx.height.toLocaleString()}</span>}
+                  {tx.height > 0 && (
+                    <span>Block {tx.height.toLocaleString()}</span>
+                  )}
                   {tx.timestamp > 0 && (
-                    <span>{new Date(tx.timestamp * 1000).toLocaleDateString()}</span>
+                    <span>
+                      {new Date(tx.timestamp * 1000).toLocaleDateString()}
+                    </span>
                   )}
                   {tx.fee > 0 && tx.direction === "out" && (
-                    <span className="text-purple-500">Fee: {atomicToSkl(tx.fee)}</span>
+                    <span className="text-purple-500">
+                      Fee: {atomicToSkl(tx.fee)}
+                    </span>
                   )}
                 </div>
               </div>
@@ -91,11 +140,12 @@ export default function Transactions() {
                   {tx.direction === "in" ? "+" : "-"}
                   {atomicToSkl(tx.amount)} SKL
                 </p>
-                {tx.confirmed ? (
-                  <span className="text-[10px] text-purple-400">Confirmed</span>
-                ) : (
-                  <span className="text-[10px] text-amber-400">Pending</span>
-                )}
+                <span
+                  className={`text-[10px] ${statusClass(tx.status)}`}
+                  title={statusTitle(tx.status)}
+                >
+                  {statusLabel(tx.status)}
+                </span>
               </div>
             </div>
           ))}
