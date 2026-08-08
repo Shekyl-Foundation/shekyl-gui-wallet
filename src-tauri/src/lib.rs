@@ -37,6 +37,7 @@ mod engine_session;
 mod gui_config;
 mod shard_visual;
 mod state;
+mod transfer_history;
 mod validate;
 mod wallet_name;
 

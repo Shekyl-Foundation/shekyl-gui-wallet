@@ -42,6 +42,7 @@ use crate::daemon_rpc;
 use crate::engine_session;
 use crate::gui_config;
 use crate::state::{self, AppState, NetworkType};
+use crate::transfer_history::{TransferDirection, TransferRow, TransferStatus};
 use crate::validate;
 use crate::wallet_name;
 
@@ -99,16 +100,39 @@ pub struct Balance {
     pub staked: u64,
 }
 
+/// Transaction list / send result row for the frontend.
+///
+/// Mirrors [`TransferRow`] on the wire. Settlement is expressed only via
+/// [`TransferStatus`] — there is no parallel `confirmed` bool.
 #[derive(Debug, Serialize)]
 pub struct TxInfo {
+    /// Stable list key (`hash:index` for receives, bare hash for sends).
+    pub id: String,
     pub hash: String,
     pub amount: u64,
     pub fee: u64,
-    pub height: u64,
+    /// Inclusion height, or `null` when the tx is not on chain.
+    pub height: Option<u64>,
     pub timestamp: u64,
-    pub direction: String,
-    pub confirmed: bool,
+    pub direction: TransferDirection,
+    pub status: TransferStatus,
     pub pqc_protected: bool,
+}
+
+impl From<TransferRow> for TxInfo {
+    fn from(r: TransferRow) -> Self {
+        Self {
+            id: r.id,
+            hash: r.hash,
+            amount: r.amount,
+            fee: r.fee,
+            height: r.height,
+            timestamp: r.timestamp,
+            direction: r.direction,
+            status: r.status,
+            pqc_protected: r.pqc_protected,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -917,13 +941,14 @@ pub async fn transfer(
     }
     let outcome = eng.transfer(&address, amount).await?;
     Ok(TxInfo {
+        id: outcome.tx_hash.clone(),
         hash: outcome.tx_hash,
         amount: outcome.amount,
         fee: outcome.fee,
-        height: 0,
+        height: None,
         timestamp: 0,
-        direction: "out".into(),
-        confirmed: false,
+        direction: TransferDirection::Out,
+        status: TransferStatus::Pending,
         pqc_protected: true,
     })
 }
@@ -958,19 +983,7 @@ pub async fn get_transactions(
         return Ok(vec![]);
     }
     let rows = eng.list_transfers().await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| TxInfo {
-            hash: r.hash,
-            amount: r.amount,
-            fee: r.fee,
-            height: r.height,
-            timestamp: r.timestamp,
-            direction: r.direction,
-            confirmed: r.confirmed,
-            pqc_protected: r.pqc_protected,
-        })
-        .collect())
+    Ok(rows.into_iter().map(TxInfo::from).collect())
 }
 
 /// Claim-era personal stake listing is retired (GUI-PR0 honesty mode).

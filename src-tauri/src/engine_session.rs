@@ -12,7 +12,6 @@
 //! Wallet files use the Engine envelope pair:
 //! `{name}.wallet` + `{name}.wallet.keys` under the configured wallet dir.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -42,6 +41,7 @@ use tracing::warn;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::state::NetworkType;
+use crate::transfer_history::{self, IncomingFact, TransferRow};
 
 /// Shared Engine handle (same shape as wallet-rpc `SharedEngine`).
 pub type SharedEngine = Arc<RwLock<Engine<SoloSigner>>>;
@@ -723,24 +723,9 @@ impl EngineSession {
         Ok(fee)
     }
 
-    /// Project the receive-side ledger into a transaction list.
+    /// Project receive ledger + send journal into a transaction list.
     ///
-    /// The engine ledger is an **output set**: each [`TransferDetails`] is one
-    /// output this wallet received, tagged with the hash of the transaction
-    /// that created it. It carries no spend-side journal — once a spend
-    /// confirms, the spending txid is dropped (only `spent` / `spent_height`
-    /// survive), and the recipient output and fee were never ours to observe.
-    /// A faithful send/fee history therefore cannot be reconstructed at this
-    /// layer; that waits on engine-side transaction journaling
-    /// (`docs/FOLLOWUPS.md`).
-    ///
-    /// So we surface exactly what the ledger knows: **incoming** receipts, one
-    /// row per receiving transaction (outputs that share a `tx_hash` are
-    /// summed). Spent outputs are *not* re-projected as outgoing debits —
-    /// doing so fabricated a full-amount "-received" row for every output that
-    /// was later consumed as an input (honesty mode). `fee` is 0 because a
-    /// receiver pays no fee, and `timestamp` is 0 because the output-level
-    /// ledger records block height, not wall-clock time.
+    /// See [`transfer_history`] for the PR-SJ-2 projection rules.
     pub async fn list_transfers(&self) -> Result<Vec<TransferRow>, String> {
         let shared = self
             .engine
@@ -748,50 +733,8 @@ impl EngineSession {
             .ok_or_else(|| "No wallet is open".to_string())?;
         let g = shared.read().await;
         let ledger = g.ledger();
-        let tip = ledger.ledger.height();
-
-        // Fold received outputs into one row per creating transaction,
-        // preserving first-seen order for a stable pre-sort baseline.
-        let mut order: Vec<String> = Vec::new();
-        let mut by_tx: HashMap<String, TransferRow> = HashMap::new();
-        for td in ledger.ledger.transfers() {
-            let hash = td.tx_hash.to_string();
-            let amount = td.amount().to_raw();
-            if let Some(row) = by_tx.get_mut(&hash) {
-                row.amount = row
-                    .amount
-                    .checked_add(amount)
-                    .ok_or_else(|| "transaction receipt total overflowed u64".to_string())?;
-                continue;
-            }
-            // A receipt is confirmed once its block is at or below the synced
-            // tip; block_height 0 marks a still-unconfirmed (mempool) output.
-            let confirmed = td.block_height > 0 && tip >= td.block_height;
-            order.push(hash.clone());
-            by_tx.insert(
-                hash.clone(),
-                TransferRow {
-                    hash,
-                    amount,
-                    fee: 0,
-                    height: td.block_height,
-                    timestamp: 0,
-                    direction: "in".into(),
-                    confirmed,
-                    pqc_protected: true,
-                },
-            );
-        }
-
-        let mut rows: Vec<TransferRow> =
-            order.into_iter().filter_map(|h| by_tx.remove(&h)).collect();
-        // Newest first: unconfirmed/mempool receipts (height 0) at the top,
-        // then confirmed receipts by descending block height.
-        rows.sort_by(|a, b| {
-            let key = |h: u64| if h == 0 { u64::MAX } else { h };
-            key(b.height).cmp(&key(a.height))
-        });
-        Ok(rows)
+        let incoming = ledger.ledger.transfers().iter().map(IncomingFact::from);
+        transfer_history::merge_transfer_history(incoming, &ledger.send_journal.rows)
     }
 
     /// Seed available only immediately after create (if BIP-39 path).
@@ -811,18 +754,6 @@ pub struct TransferOutcome {
     pub tx_hash: String,
     pub amount: u64,
     pub fee: u64,
-}
-
-/// Ledger row projected for the transactions list.
-pub struct TransferRow {
-    pub hash: String,
-    pub amount: u64,
-    pub fee: u64,
-    pub height: u64,
-    pub timestamp: u64,
-    pub direction: String,
-    pub confirmed: bool,
-    pub pqc_protected: bool,
 }
 
 /// Archival staker status (GUI-PR3).
