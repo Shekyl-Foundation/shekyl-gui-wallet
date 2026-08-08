@@ -324,13 +324,14 @@ Each entry shows:
 - The amount and direction (incoming or outgoing).
 - The fee on outgoing sends.
 - The block height it was confirmed in (omitted until the send is on chain).
-- Whether it is confirmed, still pending, failed (refused by the network and
-  never mined), or dropped (the wallet stopped waiting and your funds are
-  spendable again).
+- Whether it is confirmed, still pending, spent (a receive you later spent),
+  failed (refused by the network and never mined), or dropped (the wallet
+  stopped waiting and your funds are spendable again).
 
 Outgoing history comes from the wallet's own send journal — records written
 when you dispatch a payment — so failed and dropped sends stay visible
-instead of disappearing from the list.
+instead of disappearing from the list. Change returned to you on a send
+appears as a separate incoming row.
 
 ---
 

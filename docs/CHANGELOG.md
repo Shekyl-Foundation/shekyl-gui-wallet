@@ -5,18 +5,18 @@
 ### Added
 
 - **Sent transactions appear in Transactions history (PR-SJ-2 GUI
-  enablement).** `list_transfers` merges the Engine send journal with
+  enablement).** `transfer_history` merges the Engine send journal with
   receive-ledger rows so outgoing payments show with realized fee and a
   distinct status per lifecycle arm — **Pending**, **Confirmed**,
   **Failed** (daemon refused; never mined), **Dropped** (wallet stopped
-  waiting; funds spendable again). Failed/dropped never render as
-  confirmed or pending (rule 82). Inclusion height is omitted until the
-  send is on chain. Closes the GUI half of the send-journal W-D surface
-  landed in `shekyl-core` PR-SJ-1/#414 + PR-SJ-2/#420. The Transactions
-  page polls every 15s (and on window focus) so pending → confirmed /
-  failed / dropped updates without remount, surfaces load failures with
-  a retry action instead of an empty list (rule 82), and unit-tests the
-  status arms.
+  waiting; funds spendable again), plus receive-side **Spent**. Arms never
+  collapse (rule 82). Projection mirrors wallet-rpc PR-SJ-2 (one row per
+  receive output, same order key, typed status; newest-first for the UI;
+  inclusion height absent until on chain). Closes the GUI half of the
+  send-journal W-D surface landed in `shekyl-core` PR-SJ-1/#414 +
+  PR-SJ-2/#420. The Transactions page polls every 15s (and on window focus)
+  so status advances without remount, surfaces load failures with a retry
+  action instead of an empty list (rule 82), and unit-tests the arms.
 
 - **Drainable (P) balance on the Staking page (DS-PR-3 PR-B;
   `ARCHIVAL_DRAIN_SEND_FD2.md` §1).** The active-staker panel now shows the
@@ -104,10 +104,10 @@
   `validate_tier`) is deleted.
 
 - **Transaction history projects send-journal outgoing rows** (see Added
-  above). Receive-side rows remain grouped by creating txid; spent outputs
-  are still not re-projected as fabricated outgoing debits. Confirmation now
-  counts a receipt mined at the synced tip as confirmed, and unsettled
-  (mempool / never-mined) rows sort to the top.
+  above). Receive-side rows are one output each (change included as
+  incoming); spent outputs are labeled Spent, not re-projected as fabricated
+  outgoing debits. Never-mined / unsettled rows sort to the top of the
+  newest-first list.
 
 - **Staking honesty mode (GUI-PR0).** Claim-era tier lock / claim-rewards UX is
   removed from the Staking page. The page now explains archival staking

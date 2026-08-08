@@ -1,17 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ArrowUpRight, ArrowDownLeft, ShieldCheck } from "lucide-react";
+import {
+  statusClass,
+  statusLabel,
+  statusTitle,
+  type TxDirection,
+  type TxStatus,
+} from "../lib/transactionStatus";
 
 interface TxInfo {
+  id: string;
   hash: string;
   amount: number;
   fee: number;
-  height: number;
+  /** Inclusion height, or null when not on chain. */
+  height: number | null;
   timestamp: number;
-  direction: string;
-  /** confirmed | pending | failed | dropped */
-  status: string;
-  confirmed: boolean;
+  direction: TxDirection;
+  status: TxStatus;
   pqc_protected: boolean;
 }
 
@@ -20,47 +27,6 @@ const REFRESH_MS = 15_000;
 
 function atomicToSkl(atomic: number): string {
   return (atomic / 1e9).toFixed(4);
-}
-
-export function statusLabel(status: string): string {
-  switch (status) {
-    case "confirmed":
-      return "Confirmed";
-    case "pending":
-      return "Pending";
-    case "failed":
-      return "Failed";
-    case "dropped":
-      return "Dropped";
-    default:
-      return status;
-  }
-}
-
-function statusClass(status: string): string {
-  switch (status) {
-    case "confirmed":
-      return "text-purple-400";
-    case "pending":
-      return "text-amber-400";
-    case "failed":
-      return "text-red-400";
-    case "dropped":
-      return "text-orange-400";
-    default:
-      return "text-purple-400";
-  }
-}
-
-export function statusTitle(status: string): string | undefined {
-  switch (status) {
-    case "failed":
-      return "The network refused this send. It was never mined — you can try again.";
-    case "dropped":
-      return "The wallet stopped waiting for this send. Your funds are spendable again.";
-    default:
-      return undefined;
-  }
 }
 
 function loadErrorMessage(err: unknown): string {
@@ -73,19 +39,26 @@ export default function Transactions() {
   const [txs, setTxs] = useState<TxInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  /** Monotonic generation so overlapping loads discard stale results. */
+  const loadGen = useRef(0);
 
   const load = useCallback(async () => {
+    const gen = ++loadGen.current;
     try {
       const rows = await invoke<TxInfo[]>("get_transactions", {
         offset: 0,
         limit: 50,
       });
+      if (gen !== loadGen.current) return;
       setTxs(rows);
       setError(null);
     } catch (err) {
+      if (gen !== loadGen.current) return;
       setError(loadErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (gen === loadGen.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -99,6 +72,9 @@ export default function Transactions() {
     };
     window.addEventListener("focus", onFocus);
     return () => {
+      // Invalidate in-flight applies on unmount so setState is never called
+      // after the component is gone (and so a late response cannot win).
+      loadGen.current += 1;
       window.clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
@@ -113,13 +89,16 @@ export default function Transactions() {
           <p className="text-sm text-red-300">{error}</p>
           <button
             type="button"
-            className="mt-3 text-xs font-medium text-purple-200 underline underline-offset-2 hover:text-white"
+            className="mt-3 text-xs font-medium text-purple-200 underline underline-offset-2 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={loading}
             onClick={() => {
+              // Keep the error card visible with "Retrying…" feedback; loadGen
+              // makes double-clicks discard the older in-flight result.
               setLoading(true);
               void load();
             }}
           >
-            Try again
+            {loading ? "Retrying…" : "Try again"}
           </button>
         </div>
       )}
@@ -138,10 +117,7 @@ export default function Transactions() {
       ) : (
         <div className="space-y-2">
           {txs.map((tx) => (
-            <div
-              key={`${tx.direction}-${tx.hash}`}
-              className="card flex items-center gap-4 py-3"
-            >
+            <div key={tx.id} className="card flex items-center gap-4 py-3">
               <div
                 className={`flex h-8 w-8 items-center justify-center rounded-full ${
                   tx.direction === "in"
@@ -171,7 +147,7 @@ export default function Transactions() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-purple-400">
-                  {tx.height > 0 && (
+                  {tx.height != null && tx.height > 0 && (
                     <span>Block {tx.height.toLocaleString()}</span>
                   )}
                   {tx.timestamp > 0 && (

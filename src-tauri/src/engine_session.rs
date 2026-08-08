@@ -12,7 +12,6 @@
 //! Wallet files use the Engine envelope pair:
 //! `{name}.wallet` + `{name}.wallet.keys` under the configured wallet dir.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -34,7 +33,6 @@ use shekyl_engine_core::{
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::{SafetyOverrides, WalletFile};
 use shekyl_engine_prefs::WalletPrefs;
-use shekyl_engine_state::{SendRecord, SendState};
 use shekyl_rpc_transport::HttpRpc;
 use shekyl_scanner::LedgerBlockExt;
 use shekyl_units::AtomicUnits;
@@ -43,6 +41,7 @@ use tracing::warn;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::state::NetworkType;
+use crate::transfer_history::{self, IncomingFact, TransferRow};
 
 /// Shared Engine handle (same shape as wallet-rpc `SharedEngine`).
 pub type SharedEngine = Arc<RwLock<Engine<SoloSigner>>>;
@@ -726,14 +725,7 @@ impl EngineSession {
 
     /// Project receive ledger + send journal into a transaction list.
     ///
-    /// Mirrors wallet-rpc `get_transfers` (PR-SJ-2): **incoming** rows fold
-    /// scan-ledger outputs by creating txid; **outgoing** rows project
-    /// `send_journal` records with distinct status per lifecycle arm
-    /// (pending / confirmed / failed / dropped — rule 82, never collapse).
-    ///
-    /// Inclusion height is `0` when the send was never mined (dispatched,
-    /// failed, or dropped) — projecting `dispatched_at_height` would put a
-    /// plausible block number beside a payment that does not exist on chain.
+    /// See [`transfer_history`] for the PR-SJ-2 projection rules.
     pub async fn list_transfers(&self) -> Result<Vec<TransferRow>, String> {
         let shared = self
             .engine
@@ -741,8 +733,8 @@ impl EngineSession {
             .ok_or_else(|| "No wallet is open".to_string())?;
         let g = shared.read().await;
         let ledger = g.ledger();
-        let tip = ledger.ledger.height();
-        merge_transfer_history(ledger.ledger.transfers(), &ledger.send_journal.rows, tip)
+        let incoming = ledger.ledger.transfers().iter().map(IncomingFact::from);
+        transfer_history::merge_transfer_history(incoming, &ledger.send_journal.rows)
     }
 
     /// Seed available only immediately after create (if BIP-39 path).
@@ -762,123 +754,6 @@ pub struct TransferOutcome {
     pub tx_hash: String,
     pub amount: u64,
     pub fee: u64,
-}
-
-/// Ledger / journal row projected for the transactions list.
-pub struct TransferRow {
-    pub hash: String,
-    pub amount: u64,
-    pub fee: u64,
-    /// Inclusion height, or `0` when the tx is not on chain.
-    pub height: u64,
-    pub timestamp: u64,
-    /// `"in"` (scan ledger) or `"out"` (send journal).
-    pub direction: String,
-    /// Lifecycle status: `confirmed` | `pending` | `failed` | `dropped`.
-    ///
-    /// Every arm is a distinct user-facing situation (rule 82); failed and
-    /// dropped must never render as confirmed or pending.
-    pub status: String,
-    /// `true` iff [`Self::status`] is `"confirmed"` — kept for callers that
-    /// only need the binary settlement bit.
-    pub confirmed: bool,
-    pub pqc_protected: bool,
-}
-
-/// Merge scan-ledger receipts and send-journal sends into one newest-first list.
-///
-/// Pure so unit tests can exercise the projection without an open Engine.
-fn merge_transfer_history(
-    transfers: &[shekyl_engine_state::TransferDetails],
-    journal_rows: &std::collections::BTreeMap<[u8; 32], SendRecord>,
-    tip: u64,
-) -> Result<Vec<TransferRow>, String> {
-    let mut rows: Vec<TransferRow> = Vec::new();
-
-    // Incoming: fold received outputs into one row per creating transaction.
-    let mut order: Vec<String> = Vec::new();
-    let mut by_tx: HashMap<String, TransferRow> = HashMap::new();
-    for td in transfers {
-        let hash = td.tx_hash.to_string();
-        let amount = td.amount().to_raw();
-        if let Some(row) = by_tx.get_mut(&hash) {
-            row.amount = row
-                .amount
-                .checked_add(amount)
-                .ok_or_else(|| "transaction receipt total overflowed u64".to_string())?;
-            continue;
-        }
-        let confirmed = td.block_height > 0 && tip >= td.block_height;
-        let status = if confirmed {
-            "confirmed".to_owned()
-        } else {
-            "pending".to_owned()
-        };
-        order.push(hash.clone());
-        by_tx.insert(
-            hash.clone(),
-            TransferRow {
-                hash,
-                amount,
-                fee: 0,
-                height: td.block_height,
-                timestamp: 0,
-                direction: "in".into(),
-                status: status.clone(),
-                confirmed,
-                pqc_protected: true,
-            },
-        );
-    }
-    rows.extend(order.into_iter().filter_map(|h| by_tx.remove(&h)));
-
-    // Outgoing: one row per send-journal record (PR-SJ-2 parity).
-    for (txid, record) in journal_rows {
-        rows.push(project_outgoing_row(txid, record)?);
-    }
-
-    // Newest first: never-mined / mempool (height 0) at the top, then
-    // descending inclusion height. Within a height, incoming before outgoing
-    // (wallet-rpc order), then hash for stability.
-    rows.sort_by(|a, b| {
-        let key = |h: u64| if h == 0 { u64::MAX } else { h };
-        key(b.height)
-            .cmp(&key(a.height))
-            .then_with(|| {
-                let a_out = a.direction == "out";
-                let b_out = b.direction == "out";
-                a_out.cmp(&b_out)
-            })
-            .then_with(|| a.hash.cmp(&b.hash))
-    });
-    Ok(rows)
-}
-
-/// Project one send-journal record as an outgoing [`TransferRow`].
-fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<TransferRow, String> {
-    let sent = record.sent_amount().ok_or_else(|| {
-        format!(
-            "send journal row {} has recipient amounts that do not sum",
-            hex::encode(txid)
-        )
-    })?;
-    let (status, height, confirmed) = match record.state {
-        SendState::Dispatched => ("pending", 0, false),
-        SendState::Confirmed { height } => ("confirmed", height, true),
-        SendState::TerminalRejected => ("failed", 0, false),
-        SendState::PresumedDead => ("dropped", 0, false),
-    };
-    Ok(TransferRow {
-        hash: hex::encode(txid),
-        amount: sent,
-        fee: record.fee,
-        height,
-        timestamp: 0,
-        direction: "out".into(),
-        status: status.into(),
-        confirmed,
-        pqc_protected: true,
-    })
 }
 
 /// Archival staker status (GUI-PR3).
@@ -1077,93 +952,10 @@ fn map_first_stake_err(e: FirstStakeError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shekyl_engine_state::SendRecipient;
-    use std::collections::BTreeMap;
-
-    fn sample_record(state: SendState, fee: u64, amounts: &[u64]) -> SendRecord {
-        SendRecord {
-            dispatched_at_height: 10,
-            fee,
-            recipients: amounts
-                .iter()
-                .map(|&amount| SendRecipient {
-                    address: "SkTestAddr".into(),
-                    amount,
-                })
-                .collect(),
-            change_amount: 0,
-            inputs: vec![],
-            lock_baseline: None,
-            state,
-        }
-    }
 
     #[test]
     fn engine_wallet_base_appends_wallet_suffix() {
         let p = engine_wallet_base(Path::new("/tmp/wallets"), "Alice");
         assert_eq!(p, PathBuf::from("/tmp/wallets/Alice.wallet"));
-    }
-
-    #[test]
-    fn outgoing_dispatched_is_pending_with_no_height() {
-        let txid = [0xabu8; 32];
-        let row = project_outgoing_row(&txid, &sample_record(SendState::Dispatched, 100, &[1_000]))
-            .expect("project");
-        assert_eq!(row.direction, "out");
-        assert_eq!(row.status, "pending");
-        assert!(!row.confirmed);
-        assert_eq!(row.height, 0);
-        assert_eq!(row.amount, 1_000);
-        assert_eq!(row.fee, 100);
-        assert_eq!(row.hash, hex::encode(txid));
-    }
-
-    #[test]
-    fn outgoing_confirmed_carries_inclusion_height() {
-        let row = project_outgoing_row(
-            &[1u8; 32],
-            &sample_record(SendState::Confirmed { height: 42 }, 7, &[500, 250]),
-        )
-        .expect("project");
-        assert_eq!(row.status, "confirmed");
-        assert!(row.confirmed);
-        assert_eq!(row.height, 42);
-        assert_eq!(row.amount, 750);
-    }
-
-    #[test]
-    fn outgoing_failed_and_dropped_never_look_pending_or_confirmed() {
-        let failed = project_outgoing_row(
-            &[2u8; 32],
-            &sample_record(SendState::TerminalRejected, 1, &[9]),
-        )
-        .expect("failed");
-        assert_eq!(failed.status, "failed");
-        assert!(!failed.confirmed);
-        assert_eq!(failed.height, 0);
-
-        let dropped =
-            project_outgoing_row(&[3u8; 32], &sample_record(SendState::PresumedDead, 1, &[9]))
-                .expect("dropped");
-        assert_eq!(dropped.status, "dropped");
-        assert!(!dropped.confirmed);
-        assert_eq!(dropped.height, 0);
-    }
-
-    #[test]
-    fn merge_puts_unsettled_sends_above_mined_rows() {
-        let mut journal = BTreeMap::new();
-        journal.insert([0x11; 32], sample_record(SendState::Dispatched, 1, &[100]));
-        journal.insert(
-            [0x22; 32],
-            sample_record(SendState::Confirmed { height: 5 }, 1, &[200]),
-        );
-
-        let rows = merge_transfer_history(&[], &journal, 10).expect("merge");
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].status, "pending");
-        assert_eq!(rows[0].height, 0);
-        assert_eq!(rows[1].status, "confirmed");
-        assert_eq!(rows[1].height, 5);
     }
 }

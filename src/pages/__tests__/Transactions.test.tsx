@@ -2,7 +2,12 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import Transactions, { statusLabel, statusTitle } from "../Transactions";
+import {
+  statusLabel,
+  statusTitle,
+  type TxStatus,
+} from "../../lib/transactionStatus";
+import Transactions from "../Transactions";
 
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
@@ -14,35 +19,39 @@ afterEach(() => {
 
 function sampleTx(
   overrides: Partial<{
+    id: string;
     hash: string;
     amount: number;
     fee: number;
-    height: number;
-    direction: string;
-    status: string;
-    confirmed: boolean;
+    height: number | null;
+    direction: "in" | "out";
+    status: TxStatus;
   }> = {},
 ) {
+  const hash =
+    overrides.hash ??
+    "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
   return {
-    hash: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+    id: overrides.id ?? hash,
+    hash,
     amount: 1_000_000_000,
     fee: 10_000,
-    height: 0,
+    height: null as number | null,
     timestamp: 0,
-    direction: "out",
-    status: "pending",
-    confirmed: false,
+    direction: "out" as const,
+    status: "pending" as TxStatus,
     pqc_protected: true,
     ...overrides,
   };
 }
 
 describe("status helpers", () => {
-  it("labels every send-journal arm distinctly", () => {
+  it("labels every lifecycle arm distinctly", () => {
     expect(statusLabel("confirmed")).toBe("Confirmed");
     expect(statusLabel("pending")).toBe("Pending");
     expect(statusLabel("failed")).toBe("Failed");
     expect(statusLabel("dropped")).toBe("Dropped");
+    expect(statusLabel("spent")).toBe("Spent");
   });
 
   it("gives failed and dropped actionable titles (rule 82)", () => {
@@ -50,30 +59,37 @@ describe("status helpers", () => {
     expect(statusTitle("dropped")).toMatch(/spendable again/i);
     expect(statusTitle("pending")).toBeUndefined();
     expect(statusTitle("confirmed")).toBeUndefined();
+    expect(statusTitle("spent")).toBeUndefined();
   });
 });
 
 describe("Transactions", () => {
   it("renders outgoing pending and failed/dropped without collapsing status", async () => {
     vi.mocked(invoke).mockResolvedValue([
-      sampleTx({ status: "pending", confirmed: false, height: 0 }),
+      sampleTx({ status: "pending", height: null }),
       sampleTx({
         hash: "11".repeat(32),
         status: "failed",
-        confirmed: false,
-        height: 0,
+        height: null,
       }),
       sampleTx({
         hash: "22".repeat(32),
         status: "dropped",
-        confirmed: false,
-        height: 0,
+        height: null,
       }),
       sampleTx({
+        id: `${"33".repeat(32)}:0`,
         hash: "33".repeat(32),
         status: "confirmed",
-        confirmed: true,
         height: 42,
+        direction: "in",
+        fee: 0,
+      }),
+      sampleTx({
+        id: `${"44".repeat(32)}:0`,
+        hash: "44".repeat(32),
+        status: "spent",
+        height: 40,
         direction: "in",
         fee: 0,
       }),
@@ -87,6 +103,7 @@ describe("Transactions", () => {
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("Dropped")).toBeInTheDocument();
     expect(screen.getByText("Confirmed")).toBeInTheDocument();
+    expect(screen.getByText("Spent")).toBeInTheDocument();
     expect(screen.getByText("Block 42")).toBeInTheDocument();
     expect(screen.getByTitle(/never mined/i)).toBeInTheDocument();
     expect(screen.getByTitle(/spendable again/i)).toBeInTheDocument();
@@ -113,13 +130,46 @@ describe("Transactions", () => {
     expect(screen.queryByText("wallet not open")).not.toBeInTheDocument();
   });
 
+  it("discards a slower older response so status is not overwritten", async () => {
+    let resolveSlow: (value: unknown) => void = () => {};
+    const slow = new Promise((resolve) => {
+      resolveSlow = resolve;
+    });
+
+    vi.mocked(invoke)
+      .mockImplementationOnce(() => slow as Promise<unknown>)
+      .mockResolvedValueOnce([
+        sampleTx({ status: "confirmed", height: 9 }),
+      ]);
+
+    render(<Transactions />);
+
+    // Second load (focus or a second schedule) must be able to complete first.
+    // Drive it by calling focus after the first invoke is pending.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Confirmed")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Block 9")).toBeInTheDocument();
+
+    // Stale first response resolves later with pending — must not clobber.
+    await act(async () => {
+      resolveSlow([sampleTx({ status: "pending", height: null })]);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Confirmed")).toBeInTheDocument();
+    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+  });
+
   it("polls get_transactions so status can advance without remount", async () => {
     vi.useFakeTimers();
     vi.mocked(invoke)
       .mockResolvedValueOnce([sampleTx({ status: "pending" })])
-      .mockResolvedValueOnce([
-        sampleTx({ status: "confirmed", confirmed: true, height: 9 }),
-      ]);
+      .mockResolvedValueOnce([sampleTx({ status: "confirmed", height: 9 })]);
 
     render(<Transactions />);
 
