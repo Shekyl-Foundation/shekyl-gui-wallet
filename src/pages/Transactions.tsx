@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ArrowUpRight, ArrowDownLeft, ShieldCheck } from "lucide-react";
 
@@ -15,11 +15,14 @@ interface TxInfo {
   pqc_protected: boolean;
 }
 
+/** Poll so pending → confirmed (and failed/dropped) updates without remount. */
+const REFRESH_MS = 15_000;
+
 function atomicToSkl(atomic: number): string {
   return (atomic / 1e9).toFixed(4);
 }
 
-function statusLabel(status: string): string {
+export function statusLabel(status: string): string {
   switch (status) {
     case "confirmed":
       return "Confirmed";
@@ -49,7 +52,7 @@ function statusClass(status: string): string {
   }
 }
 
-function statusTitle(status: string): string | undefined {
+export function statusTitle(status: string): string | undefined {
   switch (status) {
     case "failed":
       return "The network refused this send. It was never mined — you can try again.";
@@ -60,20 +63,72 @@ function statusTitle(status: string): string | undefined {
   }
 }
 
+function loadErrorMessage(err: unknown): string {
+  if (typeof err === "string" && err.trim()) return err;
+  if (err instanceof Error && err.message.trim()) return err.message;
+  return "Could not load transactions. Try again, or reopen the wallet if this keeps happening.";
+}
+
 export default function Transactions() {
   const [txs, setTxs] = useState<TxInfo[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const rows = await invoke<TxInfo[]>("get_transactions", {
+        offset: 0,
+        limit: 50,
+      });
+      setTxs(rows);
+      setError(null);
+    } catch (err) {
+      setError(loadErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    invoke<TxInfo[]>("get_transactions", { offset: 0, limit: 50 })
-      .then(setTxs)
-      .catch(() => {});
-  }, []);
+    void load();
+    const id = window.setInterval(() => {
+      void load();
+    }, REFRESH_MS);
+    const onFocus = () => {
+      void load();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [load]);
 
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-bold text-white">Transactions</h1>
 
-      {txs.length === 0 ? (
+      {error && (
+        <div className="card border border-red-500/30 bg-red-500/10 py-4 text-center">
+          <p className="text-sm text-red-300">{error}</p>
+          <button
+            type="button"
+            className="mt-3 text-xs font-medium text-purple-200 underline underline-offset-2 hover:text-white"
+            onClick={() => {
+              setLoading(true);
+              void load();
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {!error && loading && txs.length === 0 ? (
+        <div className="card py-12 text-center">
+          <p className="text-purple-300">Loading transactions…</p>
+        </div>
+      ) : !error && txs.length === 0 ? (
         <div className="card py-12 text-center">
           <p className="text-purple-300">No transactions yet</p>
           <p className="mt-1 text-xs text-purple-400">

@@ -12,7 +12,11 @@
   waiting; funds spendable again). Failed/dropped never render as
   confirmed or pending (rule 82). Inclusion height is omitted until the
   send is on chain. Closes the GUI half of the send-journal W-D surface
-  landed in `shekyl-core` PR-SJ-1/#414 + PR-SJ-2/#420.
+  landed in `shekyl-core` PR-SJ-1/#414 + PR-SJ-2/#420. The Transactions
+  page polls every 15s (and on window focus) so pending → confirmed /
+  failed / dropped updates without remount, surfaces load failures with
+  a retry action instead of an empty list (rule 82), and unit-tests the
+  status arms.
 
 - **Drainable (P) balance on the Staking page (DS-PR-3 PR-B;
   `ARCHIVAL_DRAIN_SEND_FD2.md` §1).** The active-staker panel now shows the
