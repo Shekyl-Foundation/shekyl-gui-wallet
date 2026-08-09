@@ -63,21 +63,38 @@ but the branch is unrebasable; every layer it touches was replaced.
 The archive tag is the design reference (UI layout, status semantics,
 and its 5 Staking tests).
 
-**No GUI implementation work today.** The Engine exposes no per-stake
-read (only `first_stake`, staker-status bits, and
-`drain_balance_aggregate`) and no unstake mutation.
+**Substrate correction (2026-08-09, same-day core audit).** The
+Engine-native per-stake read **already exists** on core dev:
+`Engine::staking_read_view()` (WI-RPC-1, `engine/staking_read.rs`)
+returns `StakedBalance` (confirmed/pending bond principal,
+rewards-received-unspent) plus per-output `StakedOutput` rows
+(gindex, amount, p_slot, unlock_height, confirmed) and
+`pscan_synced_height` — the same surface wallet-RPC's
+`get_staked_balance` / `get_staked_outputs` / `staking_info` project
+and the CLI consumes. Note its semantics are the archival-bond
+model's, not the archived spike's claim-era ones: there is no
+maturity countdown or yield projection (accrued-but-unclaimed
+rewards are a named separate design item in core's FOLLOWUPS), and
+pending-unbond state is durable in `PScanState` rather than
+advisory. The core-side sibling branch (`feat/scanner-stake-views`,
+archived as `archive/feat/scanner-stake-views-2026-08-09` in
+shekyl-core) is superseded by this landed surface.
 
-**Reversion criteria.** Reimplement when **both**:
+**Splits into two work items:**
 
-1. `shekyl-core` lands an Engine-native per-stake read (a
-   `StakeView`-equivalent carrying maturity, accrued reward, and
-   pending-unstake state).
-2. An unstake/unbond mutation is exposed to embedders (core PR-P4 per
-   the sequence table above).
+1. **Staked-outputs read UI — unblocked now.** A "Your Stakes" /
+   staked-balance panel on the Staking page projecting
+   `staking_read_view()` through `engine_session.rs`, replacing the
+   scanner-command honest-error stubs. Can land any time; natural
+   fit alongside GUI-PR4 funding UX.
+2. **Unstake/unbond action — still gated.** No unbond mutation is
+   exposed on the Engine (`pub fn` audit 2026-08-09). Reimplement
+   when core PR-P4 (unbond) exposes one to embedders, per the
+   sequence table above.
 
-Re-evaluation shape: a fresh GUI PR in the GUI-PR6+ slot, designed
-against the landed Engine API and using the archive tag as the UX
-reference — not a revival of the archived commit.
+Re-evaluation shape: fresh GUI PRs in the GUI-PR4+/PR6+ slots,
+designed against the landed Engine API and using the archive tag as
+the UX reference — not a revival of the archived commit.
 
 ---
 
