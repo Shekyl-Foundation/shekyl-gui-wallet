@@ -44,6 +44,43 @@ stubs once Engine-native archival queries exist.
 
 ---
 
+## Per-stake views + unstake UI — target: GUI-PR6 window
+
+The June 2026 design spike `feat/staking-views-ux` (archived as
+`archive/feat/staking-views-ux-2026-08-09`, branch deleted) built a
+per-stake "Your Stakes" list: maturity countdown (blocks + approx
+duration), claimable-now reward, projected yield to maturity,
+"Unlocked" / "Unstaking…" badges, and a per-stake Unstake action. It
+was implemented on `shekyl_scanner::StakeView` /
+`LedgerBlockExt::stake_views` (core branch `feat/scanner-stake-views`,
+never landed) and the Wallet2 `wallet_bridge` path (retired at
+GUI-PR1), with unstake riding the C++ wallet2 `json_rpc` path (also
+retired).
+
+Audited 2026-08-09: no equivalent has landed on dev — today's Staking
+page has activation, staker status, and the drainable-P figure only —
+but the branch is unrebasable; every layer it touches was replaced.
+The archive tag is the design reference (UI layout, status semantics,
+and its 5 Staking tests).
+
+**No GUI implementation work today.** The Engine exposes no per-stake
+read (only `first_stake`, staker-status bits, and
+`drain_balance_aggregate`) and no unstake mutation.
+
+**Reversion criteria.** Reimplement when **both**:
+
+1. `shekyl-core` lands an Engine-native per-stake read (a
+   `StakeView`-equivalent carrying maturity, accrued reward, and
+   pending-unstake state).
+2. An unstake/unbond mutation is exposed to embedders (core PR-P4 per
+   the sequence table above).
+
+Re-evaluation shape: a fresh GUI PR in the GUI-PR6+ slot, designed
+against the landed Engine API and using the archive tag as the UX
+reference — not a revival of the archived commit.
+
+---
+
 ## Multisig integration — target: alpha.3
 
 Pre-release audit (2026-04-15) found the multisig UI is scaffolding that
