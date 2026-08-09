@@ -39,8 +39,10 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::daemon_rpc;
+use crate::drain_balance::DrainBalance;
 use crate::engine_session;
 use crate::gui_config;
+use crate::staking_view::StakingView;
 use crate::state::{self, AppState, NetworkType};
 use crate::transfer_history::{TransferDirection, TransferRow, TransferStatus};
 use crate::validate;
@@ -201,21 +203,6 @@ pub struct SecurityStatus {
     pub max_inputs: u8,
     pub estimated_proof_size_kb: f32,
     pub paths_precomputed: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct StakedOutputInfo {
-    pub amount: u64,
-    pub tier: u8,
-    pub lock_height: u64,
-    pub unlock_height: u64,
-    pub claimable: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WalletStakingInfo {
-    pub total_staked: u64,
-    pub staked_outputs: Vec<StakedOutputInfo>,
 }
 
 // ─── Daemon-connected commands ───────────────────────────────────────────────
@@ -836,9 +823,9 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
             staked: 0,
         });
     }
-    // `staked` is reported as 0: the Engine does not yet compute a personal
-    // archival-stake total (Stage 3). It is a genuine "not yet available",
-    // not a real zero — the BalanceCard tooltip says so.
+    // `staked` is reported as 0 by design: personal archival stake is shown
+    // only on the Staking page (WI-RPC-1 three-leg view), not as a single
+    // dashboard total. See `EngineSession::balance` dual-truth note.
     let (total, unlocked, staked) = eng.balance().await?;
     Ok(Balance {
         total,
@@ -847,44 +834,14 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
     })
 }
 
-/// Drainable-`P` read result (DS-PR-3 PR-B; `ARCHIVAL_DRAIN_SEND_FD2.md` §1).
-///
-/// Internally tagged so the frontend matches on `status`: `"ready"` carries the
-/// anchored aggregate spendable scalar (atomic units); `"syncing"` signals the
-/// transient anchor arm — the UI renders a placeholder, never a zero. A
-/// non-transient read fault is *not* a variant here — it is the command's
-/// `Err(String)` arm, which the frontend catches and renders as "—", never a
-/// fabricated zero. This two-shape boundary is the DS-PR-3 locked decision
-/// (rule 82): "syncing" (transient, expected) is never conflated with a real
-/// fault.
-#[derive(Debug, Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum DrainBalance {
-    /// Anchored aggregate spendable `P`, atomic units. Display-only: the figure
-    /// is rendered, never fed to transaction arithmetic (a real drain computes
-    /// its amounts in core Rust `u64`), and the SKL formatter is coarser than
-    /// the JS `number` ULP across the whole supply range, so the `u64` > 2^53
-    /// serialization gap is not observable in the rendered value. This mirrors
-    /// the sibling `Balance` fields, which are `number` for the same reason. If
-    /// this figure ever seeds a tx amount, the whole balance pipeline migrates
-    /// to string+BigInt (FOLLOWUPS: "Atomic amounts serialized as JS number").
-    Ready {
-        spendable: u64,
-    },
-    Syncing {
-        detail: String,
-    },
-}
-
 /// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B). Staker-only figure.
 ///
-/// A closed / not-yet-open wallet is a *non-value*, not a zero: it returns
-/// `Err("No wallet is open")` so the frontend `.catch` renders "—". This keeps
-/// the rule-82 contract (never a fabricated zero) even in this defensive branch,
-/// which the Staking page's `staking_enabled` gate normally prevents from ever
-/// firing. An *open* wallet with no P-scan seal (non-staker / unscanned) is an
-/// honest `Ready { spendable: 0 }` from the core accessor. Transient anchor lag
-/// surfaces as `Syncing`; a non-transient read fault propagates as `Err(String)`.
+/// Returns the single wire DTO from [`crate::drain_balance`] — no second
+/// identity map. A closed / not-yet-open wallet is a *non-value*, not a zero:
+/// it returns `Err("No wallet is open")` so the frontend `.catch` renders
+/// "—". An *open* wallet with no P-scan seal is an honest
+/// `Ready { spendable: 0 }`. Transient anchor lag surfaces as `Syncing`; a
+/// non-transient read fault propagates as `Err(String)`.
 #[tauri::command]
 pub async fn get_drain_balance(state: State<'_, AppState>) -> Result<DrainBalance, String> {
     if !*state.wallet_open.read().await {
@@ -894,14 +851,27 @@ pub async fn get_drain_balance(state: State<'_, AppState>) -> Result<DrainBalanc
     if !eng.is_open() {
         return Err("No wallet is open".into());
     }
-    match eng.drain_balance().await? {
-        engine_session::DrainBalanceRead::Ready { spendable } => {
-            Ok(DrainBalance::Ready { spendable })
-        }
-        engine_session::DrainBalanceRead::Syncing { detail } => {
-            Ok(DrainBalance::Syncing { detail })
-        }
+    eng.drain_balance().await
+}
+
+/// Authoritative staking read (Engine `staking_read_view`, WI-RPC-1).
+///
+/// Returns the single wire DTO from [`crate::staking_view`] — no second
+/// identity map. Fail-closed like `get_drain_balance`: a closed wallet and a
+/// corrupt / version-mismatched seal are both `Err(String)` — the frontend
+/// `.catch` renders a non-value, never "nothing staked" over a bad read
+/// (rule 82). An open non-staker wallet is an honest all-zero / empty view
+/// from the core.
+#[tauri::command]
+pub async fn get_staking_view(state: State<'_, AppState>) -> Result<StakingView, String> {
+    if !*state.wallet_open.read().await {
+        return Err("No wallet is open".into());
     }
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err("No wallet is open".into());
+    }
+    eng.staking_view().await
 }
 
 #[tauri::command]
@@ -984,19 +954,6 @@ pub async fn get_transactions(
     }
     let rows = eng.list_transfers().await?;
     Ok(rows.into_iter().map(TxInfo::from).collect())
-}
-
-/// Claim-era personal stake listing is retired (GUI-PR0 honesty mode).
-/// Returns an empty list rather than inventing tier/lock rows that the
-/// protocol no longer uses. Archival status queries land with Engine
-/// activation (GUI-PR3+).
-#[tauri::command]
-pub async fn get_staking_info(state: State<'_, AppState>) -> Result<WalletStakingInfo, String> {
-    let _ = state;
-    Ok(WalletStakingInfo {
-        total_staked: 0,
-        staked_outputs: vec![],
-    })
 }
 
 #[tauri::command]
@@ -1160,7 +1117,9 @@ pub async fn export_signature_response_file(response: String, path: String) -> R
 // The Engine owns its own ledger/balance (see `get_balance`), so these
 // commands return an honest refusal until an Engine-native equivalent is
 // exposed. `scanner_freeze` / `scanner_thaw` still validate their key image so
-// the UI surfaces malformed input the same way.
+// the UI surfaces malformed input the same way. (The staked-output query
+// stubs are gone: `get_staking_view` is their Engine-native replacement,
+// GUI-PR3b.)
 
 #[tauri::command]
 pub async fn get_scanner_balance(_state: State<'_, AppState>) -> Result<serde_json::Value, String> {
@@ -1169,27 +1128,6 @@ pub async fn get_scanner_balance(_state: State<'_, AppState>) -> Result<serde_js
 
 #[tauri::command]
 pub async fn get_scanner_height(_state: State<'_, AppState>) -> Result<u64, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn get_scanner_staked_outputs(
-    _state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn get_scanner_claimable_stakes(
-    _state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn get_scanner_unstakeable_outputs(
-    _state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
     Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 

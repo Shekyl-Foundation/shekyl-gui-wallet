@@ -33,9 +33,11 @@ use tauri::Manager;
 mod commands;
 mod daemon_manager;
 mod daemon_rpc;
+mod drain_balance;
 mod engine_session;
 mod gui_config;
 mod shard_visual;
+mod staking_view;
 mod state;
 mod transfer_history;
 mod validate;
@@ -95,11 +97,11 @@ pub fn run() {
             // Wallet data
             commands::get_balance,
             commands::get_drain_balance,
+            commands::get_staking_view,
             commands::get_address,
             commands::transfer,
             commands::estimate_fee,
             commands::get_transactions,
-            commands::get_staking_info,
             // Shard identity preview (pre-archival beta)
             shard_visual::list_shard_preview_fixtures,
             shard_visual::render_shard_preview,
@@ -118,9 +120,6 @@ pub fn run() {
             // Scanner
             commands::get_scanner_balance,
             commands::get_scanner_height,
-            commands::get_scanner_staked_outputs,
-            commands::get_scanner_claimable_stakes,
-            commands::get_scanner_unstakeable_outputs,
             commands::scanner_freeze,
             commands::scanner_thaw,
             // Daemon lifecycle

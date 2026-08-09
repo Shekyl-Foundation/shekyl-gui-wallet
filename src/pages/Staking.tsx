@@ -15,6 +15,7 @@ import { formatSklCompact, formatPercent } from "../lib/format";
 import type { DrainBalance } from "../types/daemon";
 import EmissionGauge from "../components/EmissionGauge";
 import ShardIdentityPreview from "../components/staking/ShardIdentityPreview";
+import YourStakePanel from "../components/staking/YourStakePanel";
 
 interface StakerStatusInfo {
   staking_enabled: boolean;
@@ -31,10 +32,12 @@ interface ActivateStakerResult {
 }
 
 /**
- * Staking page — archival participation (GUI-PR0 honesty + GUI-PR3 activation).
+ * Staking page — archival participation (GUI-PR0 honesty + GUI-PR3
+ * activation + GUI-PR3b staked-balance/outputs read panel).
  *
- * Activate becomes a staker via Engine first_stake (password re-auth).
- * Funding (stake_in) and drain land in later PRs.
+ * Page owns activation and network stats; personal stake read lives in
+ * [`YourStakePanel`] (fetch + fail-closed render). Funding (stake_in) and
+ * unbond land in later PRs.
  */
 export default function Staking() {
   const { health } = useDaemon();
@@ -121,6 +124,8 @@ export default function Staking() {
     }
   };
 
+  const stakerActive = Boolean(walletOpen && status?.staking_enabled);
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <h1 className="text-xl font-bold text-white">Staking</h1>
@@ -162,7 +167,7 @@ export default function Staking() {
           <p className="text-xs text-purple-300">Checking staker status…</p>
         )}
 
-        {walletOpen && status?.staking_enabled && (
+        {stakerActive && status && (
           <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
             <p className="font-semibold text-emerald-200">Staker active</p>
             <p className="mt-1 text-emerald-100/80">
@@ -240,6 +245,8 @@ export default function Staking() {
           </>
         )}
       </div>
+
+      {stakerActive && <YourStakePanel refreshKey={health} />}
 
       <ShardIdentityPreview />
 

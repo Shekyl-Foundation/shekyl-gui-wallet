@@ -34,12 +34,14 @@ use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::{SafetyOverrides, WalletFile};
 use shekyl_engine_prefs::WalletPrefs;
 use shekyl_rpc_transport::HttpRpc;
-use shekyl_scanner::LedgerBlockExt;
+use shekyl_scanner::WalletLedgerExt;
 use shekyl_units::AtomicUnits;
 use tokio::sync::RwLock;
 use tracing::warn;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::drain_balance::DrainBalance;
+use crate::staking_view::StakingView;
 use crate::state::NetworkType;
 use crate::transfer_history::{self, IncomingFact, TransferRow};
 
@@ -577,20 +579,31 @@ impl EngineSession {
             .map_err(|e| format!("encode address: {e}"))
     }
 
-    /// Balance as total / unlocked / staked (staked always 0 until Stage 3).
+    /// Balance as total / unlocked / staked.
+    ///
+    /// PR-SJ-1b: [`WalletLedgerExt::balance`] is the only balance API — it
+    /// composes the scan-derived ledger with the journal-derived F14 spend
+    /// locks, so an in-flight send is counted in `total` but never `unlocked`.
+    ///
+    /// **Dual truth (intentional):** the third tuple element (`staked`) is
+    /// always `0` here. Personal archival stake is *not* folded into
+    /// dashboard balance — it lives only on the Staking page via
+    /// [`Self::staking_view`] / WI-RPC-1 (three distinct legs: confirmed
+    /// principal, pending principal, unspent rewards). Do not invent a
+    /// single summed "staked" figure for this field; when a dashboard total
+    /// is product-ready it must be an explicit, reviewed mapping — not a
+    /// silent alias of one of the three legs.
     pub async fn balance(&self) -> Result<(u64, u64, u64), String> {
         let shared = self
             .engine
             .as_ref()
             .ok_or_else(|| "No wallet is open".to_string())?;
         let g = shared.read().await;
-        let ledger = g.ledger();
-        let height = ledger.ledger.height();
-        let summary = ledger.ledger.balance(height);
+        let summary = g.ledger().balance();
         Ok((
             summary.total.to_raw(),
             summary.unlocked.to_raw(),
-            0, // staked — Stage 3
+            0, // personal stake: see dual-truth note above
         ))
     }
 
@@ -599,28 +612,53 @@ impl EngineSession {
     /// arc and drive the self-arc accessor `Engine::drain_balance_aggregate`,
     /// which anchors the same send-path reference a real drain proves against.
     ///
-    /// Preserves the core two-armed [`DrainBalanceReadError`] split across the
-    /// command boundary (the DS-PR-3 locked decision, rule 82): the genuinely
-    /// transient `Unanchorable` arm becomes [`DrainBalanceRead::Syncing`] (the UI
-    /// renders "syncing", never a zero), while a non-transient `State` fault stays
-    /// an `Err(String)` the frontend catches and renders as "—", never a
-    /// fabricated zero. A non-staker / unscanned wallet is an honest
-    /// [`DrainBalanceRead::Ready`] of `0` (the core accessor short-circuits to
-    /// `Ok(0)` before anchoring).
-    pub async fn drain_balance(&self) -> Result<DrainBalanceRead, String> {
+    /// Preserves the core two-armed [`DrainBalanceReadError`] split on the
+    /// shared wire type [`DrainBalance`] (rule 82): transient `Unanchorable`
+    /// → `Syncing` (UI "syncing", never a zero); non-transient `State` →
+    /// `Err(String)` (UI "—", never a fabricated zero). A non-staker /
+    /// unscanned wallet is an honest `Ready { spendable: 0 }`.
+    pub async fn drain_balance(&self) -> Result<DrainBalance, String> {
         let shared = self
             .engine
             .clone()
             .ok_or_else(|| "No wallet is open".to_string())?;
         match Engine::drain_balance_aggregate(shared).await {
-            Ok(spendable) => Ok(DrainBalanceRead::Ready {
+            Ok(spendable) => Ok(DrainBalance::Ready {
                 spendable: spendable.to_raw(),
             }),
-            Err(DrainBalanceReadError::Unanchorable { detail }) => Ok(DrainBalanceRead::Syncing {
+            Err(DrainBalanceReadError::Unanchorable { detail }) => Ok(DrainBalance::Syncing {
                 detail: detail.to_string(),
             }),
             Err(DrainBalanceReadError::State { detail }) => Err(format!("drain balance: {detail}")),
         }
+    }
+
+    /// WI-RPC-1 staking read: staked-balance breakdown + unspent staked
+    /// outputs, projected from [`Engine::staking_read_view`] — the one
+    /// authoritative aggregation over the sealed pscan / pending-post
+    /// records (never the `bonded_slots` hint).
+    ///
+    /// Mirrors `shekyl-wallet-rpc`'s `read_view_under_guard`: hold the engine
+    /// read guard, run the sealed-file opens through
+    /// [`tokio::task::block_in_place`] (envelope KDF + AEAD + postcard decode
+    /// are synchronous work the tokio worker must not absorb), and **fail
+    /// closed** — a corrupt or version-mismatched seal is an `Err(String)`,
+    /// never an empty view, so a staker is never shown "nothing staked" over
+    /// a bad seal. The deadlock caveat on the core method (no live
+    /// `LedgerReadGuard` across the call) is satisfied here: only the outer
+    /// tokio engine lock is held.
+    ///
+    /// Projection to the wire DTO lives in [`crate::staking_view`] — this
+    /// method is open-guard + core call only.
+    pub async fn staking_view(&self) -> Result<StakingView, String> {
+        let shared = self
+            .engine
+            .as_ref()
+            .ok_or_else(|| "No wallet is open".to_string())?;
+        let g = shared.read().await;
+        let view = tokio::task::block_in_place(|| g.staking_read_view())
+            .map_err(|e| format!("staking view: {e}"))?;
+        Ok(StakingView::from(view))
     }
 
     /// One-shot send: build pending tx + submit (GUI transfer command).
@@ -733,7 +771,15 @@ impl EngineSession {
             .ok_or_else(|| "No wallet is open".to_string())?;
         let g = shared.read().await;
         let ledger = g.ledger();
-        let incoming = ledger.ledger.transfers().iter().map(IncomingFact::from);
+        // PR-SJ-1b: the F14 awaiting-confirmation state is journal-derived on
+        // demand (the persisted TransferDetails field was retired); derive the
+        // lock map once and thread it through the incoming projection.
+        let locks = ledger.spend_locks();
+        let incoming = ledger
+            .ledger
+            .transfers()
+            .iter()
+            .map(|td| IncomingFact::from_details(td, &locks));
         transfer_history::merge_transfer_history(incoming, &ledger.send_journal.rows)
     }
 
@@ -783,24 +829,6 @@ impl From<FirstStakeOutcome> for ActivateStakerOutcome {
             state: "pending_dispatch",
         }
     }
-}
-
-/// Outcome of a drainable-`P` read (DS-PR-3 PR-B).
-///
-/// Two-armed, mirroring the core `DrainBalanceReadError` split so the
-/// distinction survives to the UI: `Ready` carries the anchored aggregate
-/// spendable scalar (atomic units); `Syncing` signals the transient anchor arm
-/// (the reference is not yet available — render a placeholder, never a zero). A
-/// non-transient fault is *not* an arm here — it stays an `Err(String)` on the
-/// read method, so a bad read never masquerades as a value. No `Clone`: no
-/// caller needs a second copy (rule 21).
-#[derive(Debug)]
-pub enum DrainBalanceRead {
-    /// Anchored aggregate spendable `P` scalar, atomic units.
-    Ready { spendable: u64 },
-    /// The send-path reference is not yet anchorable (transient; render
-    /// "syncing"). `detail` is static operator text — no amount, no gindex.
-    Syncing { detail: String },
 }
 
 impl Default for EngineSession {

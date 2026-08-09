@@ -112,17 +112,34 @@ export interface CurveTreeInfo {
   height: number;
 }
 
-export interface StakedOutput {
+/**
+ * One unspent staked (P-owned) funding output (`get_staking_view`).
+ * Amounts are atomic units, display-only (see `DrainBalance` note).
+ */
+export interface StakedOutputView {
+  gindex: number;
   amount: number;
-  tier: number;
-  lock_height: number;
+  p_slot: number;
   unlock_height: number;
-  claimable: boolean;
+  confirmed: boolean;
 }
 
-export interface WalletStakingInfo {
-  total_staked: number;
-  staked_outputs: StakedOutput[];
+/**
+ * WI-RPC-1 staking read view (`get_staking_view`; GUI-PR3b).
+ *
+ * The three balance legs are distinct on purpose — confirmed bond principal,
+ * pending (in-flight post) principal, and received-unspent rewards are never
+ * summed into one figure. A read fault is not a variant here: the command
+ * rejects and the caller renders a non-value, never "nothing staked" over a
+ * bad read (rule 82).
+ */
+export interface StakingView {
+  staking_enabled: boolean;
+  bonded_principal_confirmed: number;
+  bonded_principal_pending: number;
+  rewards_received_unspent: number;
+  staked_outputs: StakedOutputView[];
+  pscan_synced_height: number | null;
 }
 
 export interface WalletProgress {

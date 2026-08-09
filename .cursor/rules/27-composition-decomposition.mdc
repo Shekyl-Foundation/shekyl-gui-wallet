@@ -1,0 +1,153 @@
+---
+description: Greenfield composition and decomposition discipline for the desktop wallet. Thin shells, one wire DTO, panels own fetch, file-size ratchet.
+alwaysApply: true
+---
+
+# Composition and decomposition (GUI wallet)
+
+This is a **greenfield** Engine-native wallet. Prefer structure that still looks
+inevitable after the next three features land. Accretion into god-files and
+identity DTO hops is the failure mode — shekyl-core already learned this on
+`Engine` (`ENGINE_COMPOSITION_DECOMPOSITION.md` + the engine decomposition
+ratchet). Apply the same discipline here at wallet scale.
+
+Enforcement: `scripts/ci/check_file_size_ratchet.sh` +
+`scripts/ci/file_size_ratchet.conf` (bidirectional ceilings, same family as
+core's `check_engine_decomposition.sh`).
+
+## Target shape
+
+```text
+┌────────────────────────────────────────────────────────────┐
+│  Tauri commands  (thin adaptors: open-check + session call)│
+└────────────────────────────┬───────────────────────────────┘
+                             │
+┌────────────────────────────▼───────────────────────────────┐
+│  EngineSession  (lifecycle shell + capability calls)       │
+│  create / open / close / refresh / one-liner workflow      │
+│  delegates. Does NOT own wire projections.                 │
+└───────────────┬─────────────────────┬──────────────────────┘
+                │                     │
+     ┌──────────▼──────────┐   ┌──────▼──────────────────────┐
+     │  Projection modules │   │  shekyl-engine-core         │
+     │  transfer_history   │   │  (authoritative domain)     │
+     │  staking_view       │   └─────────────────────────────┘
+     │  drain_balance      │
+     │  one Serialize DTO  │
+     │  + From + unit tests│
+     └──────────┬──────────┘
+                │ Tauri JSON
+┌───────────────▼────────────────────────────────────────────┐
+│  React pages  compose panels; panels own fetch + load state│
+│  pages/Staking.tsx → components/staking/YourStakePanel.tsx │
+└────────────────────────────────────────────────────────────┘
+```
+
+## Rules
+
+### 1. Thin shells, not god-objects
+
+- **`EngineSession`** is lifecycle + open-guard + core call. Multi-step wire
+  projection, DTO `From` impls, and their unit tests **do not** live here —
+  they live in a dedicated module (see `transfer_history`, `staking_view`,
+  `drain_balance`).
+- **`commands.rs`** is a thin adaptor: wallet-open checks, then
+  `eng.method().await`. Prefer returning the projection module's type
+  directly. When a feature group grows (shards already do this via
+  `shard_visual`), put the command next to its types in a feature module
+  and register it from `lib.rs`.
+- **React pages** compose sections. Feature fetch + fail-closed render
+  belongs in `components/<domain>/` panels, not an ever-growing page file.
+
+### 2. One wire DTO — no identity hops
+
+For each Tauri surface, there is **one** serializable Rust type:
+
+```text
+core type  →  (one) projection module DTO  →  JSON  →  TS type
+```
+
+Do **not** add a second nearly-identical struct in `commands.rs` that only
+renames fields or copies them. If session and command need the same shape,
+they share the projection type (`Serialize` on the module that owns it).
+
+Justified second shapes are rare (e.g. a real semantic remap). Field-for-field
+copy is not a remap — delete it.
+
+### 3. Load state is one discriminant
+
+Frontend async reads use a single state model:
+
+```ts
+type Load<T> =
+  | { kind: "loading" }
+  | { kind: "ready"; value: T }
+  | { kind: "fault" };
+```
+
+Two booleans (`value` + `failed`) that must stay exclusive by convention are
+a design smell — encode exclusivity in the type.
+
+Fail-closed (rule 82) still applies: faults are never rendered as empty or
+zero values when zero would lie.
+
+### 4. File-size discipline (1k line ceiling)
+
+- **Do not** push a production file from under 1000 lines to over 1000 without
+  extracting first. Prefer helpers, subcomponents, projection modules, or
+  feature command modules.
+- New files must stay ≤ `NEW_FILE_CAP` (1000) unless they get a **reviewed**
+  `FILE` baseline in `scripts/ci/file_size_ratchet.conf` with an
+  explicit-decision note in the PR.
+- Baselined oversize files can **only shrink**. Dropping more than `BAND`
+  lines without lowering the ceiling fails CI (lock the win in). Raising a
+  ceiling is a deliberate, reviewable conf diff — never silent growth.
+- Test harness growth is not the monolith concern: `__tests__/` and
+  `*.test.*` are excluded from the ratchet.
+
+### 5. Split by workflow / surface, not by noun soup
+
+When extracting, cut along **what the user or protocol is doing**:
+
+| Surface | Home |
+|---------|------|
+| Transfer history projection | `transfer_history` |
+| Staking read (WI-RPC-1) | `staking_view` + `components/staking/` |
+| Drainable-P read | `drain_balance` |
+| Shard preview / list | `shard_visual` + `components/staking/` |
+| Wallet open/create/close | `engine_session` (true shell duty) |
+
+Do not park new feature logic inside an unrelated busy file because it was
+convenient to reach `AppState` there.
+
+### 6. Dual sources of truth stay explicit
+
+If two UI surfaces show related numbers (e.g. dashboard `Balance.staked` vs
+Staking page three-leg view), document the dual truth at the session method
+and in user-facing docs. Do **not** invent a silent summed alias that
+collapses distinct protocol legs (rule 82).
+
+## When you touch a large file
+
+1. Leave it smaller or clearly no larger than you found it for the concern
+   you own.
+2. If your change would cross 1000 lines, extract **before** or **in** the
+   same PR — not as a vague FOLLOWUPS wish.
+3. If you shrink a baselined file by more than `BAND` lines, lower its
+   `FILE` ceiling in the same PR.
+
+## Anti-patterns
+
+- Second `*Info` / `*Read` struct that only unwraps or renames the first
+- Growing `engine_session.rs` or `commands.rs` with feature-specific
+  projection logic and tests
+- Page components that inline a full feature panel + its fetch effects
+- `useState` pairs that encode a state machine without a discriminant
+- Raising a ratchet ceiling by deleting nearby comments to "make room"
+- "We'll split it in the next PR" without a baseline note (rule 22 spirit)
+
+## Reference
+
+- shekyl-core: `docs/design/ENGINE_COMPOSITION_DECOMPOSITION.md`
+- shekyl-core: `scripts/ci/check_engine_decomposition.sh`
+- This repo: `scripts/ci/check_file_size_ratchet.sh`

@@ -24,7 +24,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use serde::Serialize;
-use shekyl_engine_state::{SendRecord, SendState, TransferDetails};
+use shekyl_engine_state::{InFlightSpendLocks, SendRecord, SendState, TransferDetails};
 
 /// Lifecycle status on a projected history row (rule 82 — never collapse arms).
 ///
@@ -37,6 +37,11 @@ pub enum TransferStatus {
     Pending,
     Failed,
     Dropped,
+    /// User-abandoned send (`abandon_tx`, PR-SJ-3; outgoing only). Distinct
+    /// from [`Self::Dropped`]: the release came from user intent, not
+    /// confirmed-absent evidence, and a late confirmation still flips the
+    /// row to [`Self::Confirmed`] loudly rather than staying wrong.
+    Abandoned,
     /// Receive-side output already spent on chain (incoming only).
     Spent,
 }
@@ -78,15 +83,21 @@ pub struct IncomingFact {
     pub awaiting_confirmation: bool,
 }
 
-impl From<&TransferDetails> for IncomingFact {
-    fn from(td: &TransferDetails) -> Self {
+impl IncomingFact {
+    /// Extract the projection facts from a ledger row.
+    ///
+    /// PR-SJ-1b retired the persisted `awaiting_confirmation` field: the
+    /// F14 lock is journal-derived on demand, so the caller derives
+    /// `spend_locks` once (under its ledger guard) and threads it here —
+    /// same shape as wallet-rpc's `transfer_state(td, spend_locks)`.
+    pub fn from_details(td: &TransferDetails, spend_locks: &InFlightSpendLocks) -> Self {
         Self {
             tx_hash: td.tx_hash.to_bytes(),
             output_index: td.internal_output_index,
             amount: td.amount().to_raw(),
             block_height: td.block_height,
             spent: td.spent,
-            awaiting_confirmation: td.awaiting_confirmation.is_some(),
+            awaiting_confirmation: spend_locks.contains(td.global_output_index),
         }
     }
 }
@@ -169,6 +180,7 @@ fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<Transfer
         SendState::Confirmed { height } => (TransferStatus::Confirmed, Some(height)),
         SendState::TerminalRejected => (TransferStatus::Failed, None),
         SendState::PresumedDead => (TransferStatus::Dropped, None),
+        SendState::Abandoned => (TransferStatus::Abandoned, None),
     };
     let hash = hex::encode(txid);
     Ok(TransferRow {
@@ -191,7 +203,10 @@ fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<Transfer
 fn outgoing_block_height(record: &SendRecord) -> Option<u64> {
     match record.state {
         SendState::Confirmed { height } => Some(height),
-        SendState::Dispatched | SendState::TerminalRejected | SendState::PresumedDead => None,
+        SendState::Dispatched
+        | SendState::TerminalRejected
+        | SendState::PresumedDead
+        | SendState::Abandoned => None,
     }
 }
 
@@ -306,6 +321,16 @@ mod tests {
                 .expect("dropped");
         assert_eq!(dropped.status, TransferStatus::Dropped);
         assert_eq!(dropped.height, None);
+    }
+
+    /// PR-SJ-3: a user-abandoned send keeps its own arm — it must not read
+    /// as dropped (evidence-based) or pending, and it carries no height.
+    #[test]
+    fn outgoing_abandoned_keeps_its_own_arm() {
+        let row = project_outgoing_row(&[4u8; 32], &sample_record(SendState::Abandoned, 1, &[9]))
+            .expect("abandoned");
+        assert_eq!(row.status, TransferStatus::Abandoned);
+        assert_eq!(row.height, None);
     }
 
     #[test]

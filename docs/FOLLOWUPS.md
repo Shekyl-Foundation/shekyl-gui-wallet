@@ -27,6 +27,7 @@ is gone; network stats remain. Real staking needs the Engine path.
 | GUI-PR1 | Engine session (create/open/close/refresh/balance) | Engine lifecycle on dev | **done** (Engine is the sole backend; Wallet2 path removed) |
 | GUI-PR2 | Engine transfer (build+submit) + fee estimate + ledger history | same | **done** |
 | GUI-PR3 | `activate_staker` / `stake { password }` + status + error map | PR #336 landed | **done** |
+| GUI-PR3b | Staked-balance/outputs read panel (`staking_read_view`) | WI-RPC-1 on core dev | **done** |
 | GUI-PR4 | `stake_in` funding UX | public/RPC `stake_in` (core PR-P3+) | next |
 | GUI-PR5 | Multisig address-fingerprint cutover | group_id deleted in core | pending |
 | GUI-PR6+ | unbond / drain / live shards | PR-P4/P5/P6 + emission | pending |
@@ -37,14 +38,19 @@ Next: GUI-PR4 `stake_in` funding.
 
 **Deleted:** the Wallet2 backend, `wallet_bridge`, the `shekyl-ffi` /
 `shekyl-engine-rpc` deps and the C++ static linkage, the
-`SHEKYL_ENGINE_BACKEND` flag, and claim-era `stake` / `claim_rewards` /
-`validate_tier`. **Still to delete when done:** `StakeTierCard` if unused,
-`get_tier_yields` if daemon tiers vanish, and the scanner-command honest-error
-stubs once Engine-native archival queries exist.
+`SHEKYL_ENGINE_BACKEND` flag, claim-era `stake` / `claim_rewards` /
+`validate_tier`, and (GUI-PR3b) the claim-era `get_staking_info`
+placeholder plus the three staked-output scanner stubs
+(`get_scanner_staked_outputs` / `get_scanner_claimable_stakes` /
+`get_scanner_unstakeable_outputs`) — `get_staking_view` is their
+Engine-native replacement. **Still to delete when done:** `StakeTierCard`
+if unused, `get_tier_yields` if daemon tiers vanish, and the remaining
+scanner stubs (`get_scanner_balance` / `get_scanner_height` /
+`scanner_freeze` / `scanner_thaw`) once Engine-native equivalents exist.
 
 ---
 
-## Per-stake views + unstake UI — target: GUI-PR6 window
+## Per-stake views + unstake UI — item 1 landed (GUI-PR3b); item 2 target: GUI-PR6 window
 
 The June 2026 design spike `feat/staking-views-ux` (archived as
 `archive/feat/staking-views-ux-2026-08-09`, branch deleted) built a
@@ -82,11 +88,13 @@ shekyl-core) is superseded by this landed surface.
 
 **Splits into two work items:**
 
-1. **Staked-outputs read UI — unblocked now.** A "Your Stakes" /
-   staked-balance panel on the Staking page projecting
-   `staking_read_view()` through `engine_session.rs`, replacing the
-   scanner-command honest-error stubs. Can land any time; natural
-   fit alongside GUI-PR4 funding UX.
+1. **Staked-outputs read UI — LANDED (GUI-PR3b).**
+   UPDATE 2026-08-09: the "Your stake" panel on the Staking page
+   projects `Engine::staking_read_view()` through
+   `engine_session.rs` / `get_staking_view`, with the three balance
+   legs kept distinct and fail-closed read faults (rule 82). The
+   staked-output scanner stubs and the claim-era `get_staking_info`
+   placeholder were deleted in the same PR.
 2. **Unstake/unbond action — still gated.** No unbond mutation is
    exposed on the Engine (`pub fn` audit 2026-08-09). Reimplement
    when core PR-P4 (unbond) exposes one to embedders, per the
@@ -364,8 +372,10 @@ entry. The *dependency* question this entry existed to answer is settled.
 
 Every balance the Tauri layer hands the frontend is a Rust `u64` of
 atomic units serialized to a JS `number`: `Balance.{total,unlocked,
-staked}` (`get_balance`), and `DrainBalance.spendable`
-(`get_drain_balance`, DS-PR-3 PR-B). JS `number` is IEEE-754 double —
+staked}` (`get_balance`), `DrainBalance.spendable`
+(`get_drain_balance`, DS-PR-3 PR-B), and the `StakingView` legs +
+`StakedOutputView.amount` (`get_staking_view`, GUI-PR3b — same
+display-only disposition). JS `number` is IEEE-754 double —
 exact only to 2^53 (≈ 9.007e15 atomic ≈ 9.0M SKL at 1e9 atomic/SKL).
 Above that, the low-order atomic digits round in the JSON bridge.
 
