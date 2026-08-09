@@ -415,12 +415,21 @@ archival actions are still pending:
 - You can read **network-wide** stats (stake ratio, emission share, pool
   balances) when a daemon is connected.
 - You can **activate** as an archival staker on the Engine backend.
+- Once active, the **Your stake** panel shows your staked balance —
+  bonded collateral (confirmed and pending shown separately), rewards
+  received and still unspent — plus each staked output with its slot,
+  amount, and unlock height, and how far the persona scan has synced.
 - You **cannot** yet fund your persona, unbond, or drain rewards — those land
   in follow-up releases. The retired lock-tier / claim-rewards model is gone.
 
 The dashboard **Staked** balance field stays at zero because the Engine does
 not yet compute a personal archival-stake total — that is "not yet
 available", not a silent failure to load stakes.
+
+If the Your stake panel says **"Staking state could not be read"**, that is
+a read fault (for example a corrupted staking file), not an empty stake —
+the wallet never shows "nothing staked" over a failed read. It retries on
+the next refresh.
 
 ### How staking will work (roadmap)
 

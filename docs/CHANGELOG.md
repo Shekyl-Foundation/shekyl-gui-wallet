@@ -4,6 +4,33 @@
 
 ### Added
 
+- **"Your stake" panel on the Staking page (GUI-PR3b).** Active stakers now
+  see their staked balance and outputs, projected from the core
+  `Engine::staking_read_view` (WI-RPC-1) — the one authoritative aggregation
+  over the sealed persona-scan / pending-post records. The three balance legs
+  render as distinct figures, never summed (rule 82): **Bonded (confirmed)**,
+  **Bonded (pending)** (sealed posts not yet on chain), and **Rewards
+  (unspent)**. Each unspent staked output lists its slot, amount, and unlock
+  height, with the persona-scan sync frontier below. Tauri command
+  `get_staking_view` fails closed like the core read: a corrupt or
+  version-mismatched staking seal is an explicit fault message, never an
+  empty "nothing staked" panel. Deleted with it: the claim-era
+  `get_staking_info` placeholder (fabricated empty list) and the three
+  staked-output scanner stubs (`get_scanner_staked_outputs` /
+  `get_scanner_claimable_stakes` / `get_scanner_unstakeable_outputs`) —
+  `get_staking_view` is their Engine-native replacement.
+
+### Changed
+
+- **Adapted to shekyl-core send-journal/ledger drift (PR-SJ-1b, PR-SJ-3).**
+  Balance now reads through core `WalletLedgerExt::balance` (journal-composed:
+  an in-flight send counts in total, never unlocked); incoming-row pending
+  status derives from the journal's in-flight spend locks (the persisted
+  ledger field was retired upstream); and the Transactions list gains a
+  distinct **Abandoned** status for sends the user told the wallet to stop
+  tracking (never collapsed into Dropped; a late confirmation still flips it
+  to Confirmed).
+
 - **Sent transactions appear in Transactions history (PR-SJ-2 GUI
   enablement).** `transfer_history` merges the Engine send journal with
   receive-ledger rows so outgoing payments show with realized fee and a
