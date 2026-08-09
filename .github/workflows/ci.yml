@@ -62,6 +62,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Structural anti-drift (composition discipline): production modules
+      # stay under NEW_FILE_CAP unless baselined; baselined ceilings can only
+      # shrink. Same family as shekyl-core's engine decomposition ratchet.
+      # Policy: .cursor/rules/27-composition-decomposition.mdc
+      - name: File-size decomposition ratchet
+        run: scripts/ci/check_file_size_ratchet.sh
+
       - name: ESLint
         run: npm run lint
 

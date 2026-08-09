@@ -22,6 +22,14 @@
 
 ### Changed
 
+- **Composition discipline for staking/drain projections.** Wire DTOs live in
+  dedicated modules (`staking_view`, `drain_balance`) with a single
+  serializable type per surface — no identity hop through `commands.rs`.
+  The "Your stake" UI is `components/staking/YourStakePanel` with one load
+  discriminant (not dual booleans). File-size CI ratchet
+  (`scripts/ci/check_file_size_ratchet.sh`) and rule
+  `27-composition-decomposition.mdc` lock the greenfield module ceiling.
+
 - **Adapted to shekyl-core send-journal/ledger drift (PR-SJ-1b, PR-SJ-3).**
   Balance now reads through core `WalletLedgerExt::balance` (journal-composed:
   an in-flight send counts in total, never unlocked); incoming-row pending

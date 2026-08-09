@@ -12,9 +12,10 @@ import {
 import { useDaemon } from "../context/useDaemon";
 import { useWallet } from "../context/useWallet";
 import { formatSklCompact, formatPercent } from "../lib/format";
-import type { DrainBalance, StakingView } from "../types/daemon";
+import type { DrainBalance } from "../types/daemon";
 import EmissionGauge from "../components/EmissionGauge";
 import ShardIdentityPreview from "../components/staking/ShardIdentityPreview";
+import YourStakePanel from "../components/staking/YourStakePanel";
 
 interface StakerStatusInfo {
   staking_enabled: boolean;
@@ -34,9 +35,9 @@ interface ActivateStakerResult {
  * Staking page — archival participation (GUI-PR0 honesty + GUI-PR3
  * activation + GUI-PR3b staked-balance/outputs read panel).
  *
- * Activate becomes a staker via Engine first_stake (password re-auth). The
- * "Your stake" panel projects Engine::staking_read_view (WI-RPC-1). Funding
- * (stake_in) and unbond land in later PRs.
+ * Page owns activation and network stats; personal stake read lives in
+ * [`YourStakePanel`] (fetch + fail-closed render). Funding (stake_in) and
+ * unbond land in later PRs.
  */
 export default function Staking() {
   const { health } = useDaemon();
@@ -45,8 +46,6 @@ export default function Staking() {
 
   const [status, setStatus] = useState<StakerStatusInfo | null>(null);
   const [drain, setDrain] = useState<DrainBalance | null>(null);
-  const [stakeView, setStakeView] = useState<StakingView | null>(null);
-  const [stakeViewFailed, setStakeViewFailed] = useState(false);
   const [password, setPassword] = useState("");
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,37 +93,6 @@ export default function Staking() {
     };
   }, [walletOpen, status?.staking_enabled, health]);
 
-  // WI-RPC-1 staking read view (GUI-PR3b): staked-balance breakdown +
-  // unspent staked outputs, staker-gated like the drain read above. The core
-  // read fails closed (a bad seal is a rejection, never an empty view), and
-  // this effect preserves that at the UI: a fault sets `stakeViewFailed`
-  // (rendered as "unavailable"), never an empty/zero panel (rule 82). The
-  // `cancelled` guard drops a late-resolving read after close/unmount.
-  useEffect(() => {
-    if (!walletOpen || !status?.staking_enabled) {
-      setStakeView(null);
-      setStakeViewFailed(false);
-      return;
-    }
-    let cancelled = false;
-    invoke<StakingView>("get_staking_view")
-      .then((v) => {
-        if (!cancelled) {
-          setStakeView(v);
-          setStakeViewFailed(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStakeView(null);
-          setStakeViewFailed(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [walletOpen, status?.staking_enabled, health]);
-
   const stakeRatioPct = health ? (health.stake_ratio / 1_000_000) * 100 : 0;
   const emSharePct = health
     ? (health.staker_emission_share_effective / 1_000_000) * 100
@@ -155,6 +123,8 @@ export default function Staking() {
       setActivating(false);
     }
   };
+
+  const stakerActive = Boolean(walletOpen && status?.staking_enabled);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -197,7 +167,7 @@ export default function Staking() {
           <p className="text-xs text-purple-300">Checking staker status…</p>
         )}
 
-        {walletOpen && status?.staking_enabled && (
+        {stakerActive && status && (
           <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
             <p className="font-semibold text-emerald-200">Staker active</p>
             <p className="mt-1 text-emerald-100/80">
@@ -276,107 +246,8 @@ export default function Staking() {
         )}
       </div>
 
-      {/* Your stake (GUI-PR3b — Engine staking_read_view projection) */}
-      {walletOpen && status?.staking_enabled && (
-        <div className="card space-y-4">
-          <div className="flex items-center gap-2">
-            <Lock className="h-4 w-4 text-gold-400" />
-            <h2 className="text-sm font-semibold text-purple-200">
-              Your stake
-            </h2>
-          </div>
-
-          {stakeViewFailed && (
-            <p className="text-xs text-red-300">
-              Staking state could not be read. This is a read fault, not an
-              empty stake — retrying on the next refresh.
-            </p>
-          )}
-
-          {!stakeViewFailed && !stakeView && (
-            <p className="text-xs text-purple-300">Reading staking state…</p>
-          )}
-
-          {stakeView && (
-            <>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-sm font-bold text-white">
-                    {formatSklCompact(stakeView.bonded_principal_confirmed)}
-                  </span>
-                  <span
-                    className="text-center text-[10px] text-purple-300"
-                    title="Bond principal locked under confirmed live bonds."
-                  >
-                    Bonded (confirmed)
-                  </span>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-sm font-bold text-white">
-                    {formatSklCompact(stakeView.bonded_principal_pending)}
-                  </span>
-                  <span
-                    className="text-center text-[10px] text-purple-300"
-                    title="Bond principal committed by sealed posts not yet confirmed on chain."
-                  >
-                    Bonded (pending)
-                  </span>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-sm font-bold text-white">
-                    {formatSklCompact(stakeView.rewards_received_unspent)}
-                  </span>
-                  <span
-                    className="text-center text-[10px] text-purple-300"
-                    title="Emission rewards received to your staker persona and still unspent."
-                  >
-                    Rewards (unspent)
-                  </span>
-                </div>
-              </div>
-
-              {stakeView.staked_outputs.length === 0 ? (
-                <p className="text-xs text-purple-300">
-                  No staked outputs yet. Rewards and persona funding will
-                  appear here once observed on chain.
-                </p>
-              ) : (
-                <div>
-                  <p className="mb-2 text-xs font-semibold text-purple-200">
-                    Staked outputs ({stakeView.staked_outputs.length})
-                  </p>
-                  <ul className="space-y-1">
-                    {stakeView.staked_outputs.map((o) => (
-                      <li
-                        key={o.gindex}
-                        className="flex items-center justify-between rounded-lg bg-purple-900/40 px-3 py-2 text-xs"
-                      >
-                        <span className="text-purple-200">
-                          Slot {o.p_slot}
-                        </span>
-                        <span className="font-semibold text-white">
-                          {formatSklCompact(o.amount)} SKL
-                        </span>
-                        <span
-                          className="text-purple-300"
-                          title="Block height at which this output becomes spendable."
-                        >
-                          unlocks at {o.unlock_height.toLocaleString()}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <p className="text-[10px] text-purple-300/80">
-                {stakeView.pscan_synced_height === null
-                  ? "Persona scan has not sealed a frontier yet."
-                  : `Persona scan synced to block ${stakeView.pscan_synced_height.toLocaleString()}.`}
-              </p>
-            </>
-          )}
-        </div>
+      {stakerActive && (
+        <YourStakePanel enabled={stakerActive} refreshKey={health} />
       )}
 
       <ShardIdentityPreview />

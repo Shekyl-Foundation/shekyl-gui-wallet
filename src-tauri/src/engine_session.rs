@@ -28,7 +28,7 @@ use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
     Capability, Credentials, DaemonClient, DrainBalanceReadError, Engine, EngineCreateParams,
     FeePriority, FirstStakeError, FirstStakeOutcome, Network, OpenedEngine, PScanHandle,
-    RefreshOptions, SoloSigner, StakedOutput, StakingReadView, TxRecipient, TxRequest,
+    RefreshOptions, SoloSigner, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::{SafetyOverrides, WalletFile};
@@ -40,6 +40,8 @@ use tokio::sync::RwLock;
 use tracing::warn;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::drain_balance::DrainBalance;
+use crate::staking_view::StakingView;
 use crate::state::NetworkType;
 use crate::transfer_history::{self, IncomingFact, TransferRow};
 
@@ -577,11 +579,20 @@ impl EngineSession {
             .map_err(|e| format!("encode address: {e}"))
     }
 
-    /// Balance as total / unlocked / staked (staked always 0 until Stage 3).
+    /// Balance as total / unlocked / staked.
     ///
     /// PR-SJ-1b: [`WalletLedgerExt::balance`] is the only balance API — it
     /// composes the scan-derived ledger with the journal-derived F14 spend
     /// locks, so an in-flight send is counted in `total` but never `unlocked`.
+    ///
+    /// **Dual truth (intentional):** the third tuple element (`staked`) is
+    /// always `0` here. Personal archival stake is *not* folded into
+    /// dashboard balance — it lives only on the Staking page via
+    /// [`Self::staking_view`] / WI-RPC-1 (three distinct legs: confirmed
+    /// principal, pending principal, unspent rewards). Do not invent a
+    /// single summed "staked" figure for this field; when a dashboard total
+    /// is product-ready it must be an explicit, reviewed mapping — not a
+    /// silent alias of one of the three legs.
     pub async fn balance(&self) -> Result<(u64, u64, u64), String> {
         let shared = self
             .engine
@@ -592,7 +603,7 @@ impl EngineSession {
         Ok((
             summary.total.to_raw(),
             summary.unlocked.to_raw(),
-            0, // staked — Stage 3
+            0, // personal stake: see dual-truth note above
         ))
     }
 
@@ -601,24 +612,21 @@ impl EngineSession {
     /// arc and drive the self-arc accessor `Engine::drain_balance_aggregate`,
     /// which anchors the same send-path reference a real drain proves against.
     ///
-    /// Preserves the core two-armed [`DrainBalanceReadError`] split across the
-    /// command boundary (the DS-PR-3 locked decision, rule 82): the genuinely
-    /// transient `Unanchorable` arm becomes [`DrainBalanceRead::Syncing`] (the UI
-    /// renders "syncing", never a zero), while a non-transient `State` fault stays
-    /// an `Err(String)` the frontend catches and renders as "—", never a
-    /// fabricated zero. A non-staker / unscanned wallet is an honest
-    /// [`DrainBalanceRead::Ready`] of `0` (the core accessor short-circuits to
-    /// `Ok(0)` before anchoring).
-    pub async fn drain_balance(&self) -> Result<DrainBalanceRead, String> {
+    /// Preserves the core two-armed [`DrainBalanceReadError`] split on the
+    /// shared wire type [`DrainBalance`] (rule 82): transient `Unanchorable`
+    /// → `Syncing` (UI "syncing", never a zero); non-transient `State` →
+    /// `Err(String)` (UI "—", never a fabricated zero). A non-staker /
+    /// unscanned wallet is an honest `Ready { spendable: 0 }`.
+    pub async fn drain_balance(&self) -> Result<DrainBalance, String> {
         let shared = self
             .engine
             .clone()
             .ok_or_else(|| "No wallet is open".to_string())?;
         match Engine::drain_balance_aggregate(shared).await {
-            Ok(spendable) => Ok(DrainBalanceRead::Ready {
+            Ok(spendable) => Ok(DrainBalance::Ready {
                 spendable: spendable.to_raw(),
             }),
-            Err(DrainBalanceReadError::Unanchorable { detail }) => Ok(DrainBalanceRead::Syncing {
+            Err(DrainBalanceReadError::Unanchorable { detail }) => Ok(DrainBalance::Syncing {
                 detail: detail.to_string(),
             }),
             Err(DrainBalanceReadError::State { detail }) => Err(format!("drain balance: {detail}")),
@@ -639,7 +647,10 @@ impl EngineSession {
     /// a bad seal. The deadlock caveat on the core method (no live
     /// `LedgerReadGuard` across the call) is satisfied here: only the outer
     /// tokio engine lock is held.
-    pub async fn staking_view(&self) -> Result<StakingViewRead, String> {
+    ///
+    /// Projection to the wire DTO lives in [`crate::staking_view`] — this
+    /// method is open-guard + core call only.
+    pub async fn staking_view(&self) -> Result<StakingView, String> {
         let shared = self
             .engine
             .as_ref()
@@ -647,7 +658,7 @@ impl EngineSession {
         let g = shared.read().await;
         let view = tokio::task::block_in_place(|| g.staking_read_view())
             .map_err(|e| format!("staking view: {e}"))?;
-        Ok(StakingViewRead::from(view))
+        Ok(StakingView::from(view))
     }
 
     /// One-shot send: build pending tx + submit (GUI transfer command).
@@ -820,88 +831,6 @@ impl From<FirstStakeOutcome> for ActivateStakerOutcome {
     }
 }
 
-/// Outcome of a drainable-`P` read (DS-PR-3 PR-B).
-///
-/// Two-armed, mirroring the core `DrainBalanceReadError` split so the
-/// distinction survives to the UI: `Ready` carries the anchored aggregate
-/// spendable scalar (atomic units); `Syncing` signals the transient anchor arm
-/// (the reference is not yet available — render a placeholder, never a zero). A
-/// non-transient fault is *not* an arm here — it stays an `Err(String)` on the
-/// read method, so a bad read never masquerades as a value. No `Clone`: no
-/// caller needs a second copy (rule 21).
-#[derive(Debug)]
-pub enum DrainBalanceRead {
-    /// Anchored aggregate spendable `P` scalar, atomic units.
-    Ready { spendable: u64 },
-    /// The send-path reference is not yet anchorable (transient; render
-    /// "syncing"). `detail` is static operator text — no amount, no gindex.
-    Syncing { detail: String },
-}
-
-/// Projection of the core [`StakingReadView`] with newtypes unwrapped to raw
-/// integers for the command boundary (WI-RPC-1; GUI-PR3b).
-///
-/// The three balance legs are deliberately carried separately — conflating
-/// confirmed principal, pending principal, and received rewards into one
-/// number is the projection layer's choice to make explicitly, and the GUI
-/// renders them as distinct lines. Amounts are atomic-unit `u64`s,
-/// display-only at the frontend (same disposition as `Balance` /
-/// `DrainBalanceRead`; FOLLOWUPS "Atomic amounts serialized as JS number").
-/// No `Clone`: no caller needs a second copy (rule 21).
-#[derive(Debug)]
-pub struct StakingViewRead {
-    pub staking_enabled: bool,
-    /// Bond principal locked under confirmed live bonds (atomic units).
-    pub bonded_principal_confirmed: u64,
-    /// Bond principal committed by in-flight (sealed, unconfirmed) posts.
-    pub bonded_principal_pending: u64,
-    /// Emission-reward money received and still unspent in `P`-owned outputs.
-    pub rewards_received_unspent: u64,
-    /// Unspent `P`-owned funding outputs, in scan order.
-    pub outputs: Vec<StakedOutputRead>,
-    /// P-scan sealed frontier height (`None`: never scanned as `P`).
-    pub pscan_synced_height: Option<u64>,
-}
-
-/// One unspent staked output (projection of the core [`StakedOutput`]).
-#[derive(Debug, PartialEq, Eq)]
-pub struct StakedOutputRead {
-    pub gindex: u64,
-    /// Recovered cleartext amount, atomic units.
-    pub amount: u64,
-    /// Owning persona's slot ordinal.
-    pub p_slot: u32,
-    /// Height at which the output becomes spendable.
-    pub unlock_height: u64,
-    /// Finality-confirmed (always `true` at V3.0; part of the wire shape).
-    pub confirmed: bool,
-}
-
-impl From<StakingReadView> for StakingViewRead {
-    fn from(view: StakingReadView) -> Self {
-        Self {
-            staking_enabled: view.staking_enabled,
-            bonded_principal_confirmed: view.balance.bonded_principal_confirmed.to_raw(),
-            bonded_principal_pending: view.balance.bonded_principal_pending.to_raw(),
-            rewards_received_unspent: view.balance.rewards_received_unspent.to_raw(),
-            outputs: view.outputs.iter().map(StakedOutputRead::from).collect(),
-            pscan_synced_height: view.pscan_synced_height.map(|h| h.to_raw()),
-        }
-    }
-}
-
-impl From<&StakedOutput> for StakedOutputRead {
-    fn from(o: &StakedOutput) -> Self {
-        Self {
-            gindex: o.gindex.to_raw(),
-            amount: o.amount.to_raw(),
-            p_slot: o.p_slot.to_raw(),
-            unlock_height: o.unlock_height.to_raw(),
-            confirmed: o.confirmed,
-        }
-    }
-}
-
 impl Default for EngineSession {
     fn default() -> Self {
         Self::new()
@@ -1052,72 +981,9 @@ fn map_first_stake_err(e: FirstStakeError) -> String {
 mod tests {
     use super::*;
 
-    use shekyl_engine_core::StakedBalance;
-    use shekyl_types::{BlockHeight, GlobalOutputIndex, PSlot};
-
     #[test]
     fn engine_wallet_base_appends_wallet_suffix() {
         let p = engine_wallet_base(Path::new("/tmp/wallets"), "Alice");
         assert_eq!(p, PathBuf::from("/tmp/wallets/Alice.wallet"));
-    }
-
-    fn core_output(gindex: u64, amount: u64, slot: u32, unlock: u64) -> StakedOutput {
-        StakedOutput {
-            gindex: GlobalOutputIndex::from_raw(gindex),
-            amount: AtomicUnits::from_raw(amount),
-            p_slot: PSlot::from_raw(slot),
-            unlock_height: BlockHeight::from_raw(unlock),
-            confirmed: true,
-        }
-    }
-
-    /// The three balance legs stay distinct across the projection — a swap
-    /// (or a conflating sum) would misreport confirmed principal as pending
-    /// or rewards, which the WI-RPC-1 shape exists to prevent.
-    #[test]
-    fn staking_view_keeps_balance_legs_distinct() {
-        let view = StakingReadView {
-            staking_enabled: true,
-            balance: StakedBalance {
-                bonded_principal_confirmed: AtomicUnits::from_raw(1_000),
-                bonded_principal_pending: AtomicUnits::from_raw(2_000),
-                rewards_received_unspent: AtomicUnits::from_raw(3_000),
-            },
-            outputs: Vec::new(),
-            pscan_synced_height: None,
-        };
-        let read = StakingViewRead::from(view);
-        assert!(read.staking_enabled);
-        assert_eq!(read.bonded_principal_confirmed, 1_000);
-        assert_eq!(read.bonded_principal_pending, 2_000);
-        assert_eq!(read.rewards_received_unspent, 3_000);
-        assert!(read.outputs.is_empty());
-        assert_eq!(read.pscan_synced_height, None);
-    }
-
-    #[test]
-    fn staking_view_projects_outputs_and_frontier() {
-        let view = StakingReadView {
-            staking_enabled: true,
-            balance: StakedBalance {
-                bonded_principal_confirmed: AtomicUnits::ZERO,
-                bonded_principal_pending: AtomicUnits::ZERO,
-                rewards_received_unspent: AtomicUnits::ZERO,
-            },
-            outputs: vec![core_output(42, 5_000_000_000, 3, 12_345)],
-            pscan_synced_height: Some(BlockHeight::from_raw(99_000)),
-        };
-        let read = StakingViewRead::from(view);
-        assert_eq!(
-            read.outputs,
-            vec![StakedOutputRead {
-                gindex: 42,
-                amount: 5_000_000_000,
-                p_slot: 3,
-                unlock_height: 12_345,
-                confirmed: true,
-            }]
-        );
-        assert_eq!(read.pscan_synced_height, Some(99_000));
     }
 }

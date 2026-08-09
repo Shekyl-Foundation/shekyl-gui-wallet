@@ -127,6 +127,18 @@ describe("Staking drainable-P (DS-PR-3 PR-B)", () => {
           ? (drain as () => Promise<never>)()
           : drain;
       }
+      // Honest empty stake view so YourStakePanel does not fault while these
+      // cases exercise drain only.
+      if (cmd === "get_staking_view") {
+        return {
+          staking_enabled: true,
+          bonded_principal_confirmed: 0,
+          bonded_principal_pending: 0,
+          rewards_received_unspent: 0,
+          staked_outputs: [],
+          pscan_synced_height: null,
+        };
+      }
       return null;
     });
   }
@@ -209,7 +221,10 @@ describe("Staking view panel (GUI-PR3b)", () => {
 
     expect(await screen.findByText("Your stake")).toBeInTheDocument();
     // Three legs, three distinct figures — never a single summed number.
-    expect(screen.getByText("Bonded (confirmed)")).toBeInTheDocument();
+    // Await the first leg so the async invoke settle is not a race.
+    expect(
+      await screen.findByText("Bonded (confirmed)"),
+    ).toBeInTheDocument();
     expect(screen.getByText("1.000000")).toBeInTheDocument();
     expect(screen.getByText("Bonded (pending)")).toBeInTheDocument();
     expect(screen.getByText("2.000000")).toBeInTheDocument();

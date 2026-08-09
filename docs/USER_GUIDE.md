@@ -422,9 +422,11 @@ archival actions are still pending:
 - You **cannot** yet fund your persona, unbond, or drain rewards — those land
   in follow-up releases. The retired lock-tier / claim-rewards model is gone.
 
-The dashboard **Staked** balance field stays at zero because the Engine does
-not yet compute a personal archival-stake total — that is "not yet
-available", not a silent failure to load stakes.
+The dashboard **Staked** balance field stays at zero on purpose: personal
+archival stake is shown only on the Staking page (**Your stake**), as three
+distinct figures (bonded confirmed, bonded pending, rewards unspent). The
+dashboard does not invent a single summed "staked" total from those legs —
+that is dual-source honesty, not a silent failure to load stakes.
 
 If the Your stake panel says **"Staking state could not be read"**, that is
 a read fault (for example a corrupted staking file), not an empty stake —

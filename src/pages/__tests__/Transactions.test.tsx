@@ -51,12 +51,14 @@ describe("status helpers", () => {
     expect(statusLabel("pending")).toBe("Pending");
     expect(statusLabel("failed")).toBe("Failed");
     expect(statusLabel("dropped")).toBe("Dropped");
+    expect(statusLabel("abandoned")).toBe("Abandoned");
     expect(statusLabel("spent")).toBe("Spent");
   });
 
-  it("gives failed and dropped actionable titles (rule 82)", () => {
+  it("gives failed, dropped, and abandoned actionable titles (rule 82)", () => {
     expect(statusTitle("failed")).toMatch(/never mined/i);
     expect(statusTitle("dropped")).toMatch(/spendable again/i);
+    expect(statusTitle("abandoned")).toMatch(/stop tracking/i);
     expect(statusTitle("pending")).toBeUndefined();
     expect(statusTitle("confirmed")).toBeUndefined();
     expect(statusTitle("spent")).toBeUndefined();
