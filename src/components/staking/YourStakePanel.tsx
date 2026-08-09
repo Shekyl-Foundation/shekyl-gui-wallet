@@ -17,9 +17,11 @@ type StakeViewLoad =
   | { kind: "fault" };
 
 export interface YourStakePanelProps {
-  /** Wallet open and staker active — parent gates mount; this re-checks fetch. */
-  enabled: boolean;
-  /** Bumps when chain/daemon health refreshes so the panel re-polls. */
+  /**
+   * Bumps when chain/daemon health refreshes so the panel re-polls.
+   * Mount is gated by the parent (`stakerActive`) — this component assumes
+   * it is only rendered for an open active staker.
+   */
   refreshKey?: unknown;
 }
 
@@ -27,38 +29,45 @@ export interface YourStakePanelProps {
  * "Your stake" panel: bonded principal legs, unspent rewards, staked outputs,
  * and persona-scan frontier. Owns its own fetch; the Staking page only decides
  * whether to mount it.
+ *
+ * Fetch shape matches Shards.tsx: the effect only schedules the external
+ * invoke; setState runs in the promise callbacks (not synchronously in the
+ * effect body — `react-hooks/set-state-in-effect`). Initial `loading` is the
+ * useState default; re-polls keep the previous ready view until the new
+ * result lands (or a fault replaces it, fail-closed).
  */
-export default function YourStakePanel({
-  enabled,
-  refreshKey,
-}: YourStakePanelProps) {
+export default function YourStakePanel({ refreshKey }: YourStakePanelProps) {
   const [load, setLoad] = useState<StakeViewLoad>({ kind: "loading" });
 
   useEffect(() => {
-    if (!enabled) {
-      setLoad({ kind: "loading" });
-      return;
-    }
     let cancelled = false;
-    setLoad({ kind: "loading" });
     invoke<StakingView>("get_staking_view")
       .then((view) => {
         if (cancelled) return;
         // A nullish fulfill is not a valid WI-RPC-1 view (wire is always an
         // object). Treat as fault so we never render legs off a non-value.
         if (view == null) {
+          console.error(
+            "get_staking_view: null/undefined response (not a valid wire view)",
+          );
           setLoad({ kind: "fault" });
           return;
         }
         setLoad({ kind: "ready", view });
       })
-      .catch(() => {
-        if (!cancelled) setLoad({ kind: "fault" });
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // Operator diagnostics: seal/version/open faults arrive as strings
+        // from the Tauri boundary; keep them in the webview console so a
+        // support session can see *why* the panel is fail-closed without
+        // putting protocol detail into the user-facing copy (rule 81/82).
+        console.error("get_staking_view failed:", err);
+        setLoad({ kind: "fault" });
       });
     return () => {
       cancelled = true;
     };
-  }, [enabled, refreshKey]);
+  }, [refreshKey]);
 
   return (
     <div className="card space-y-4">
@@ -78,9 +87,7 @@ export default function YourStakePanel({
         <p className="text-xs text-purple-300">Reading staking state…</p>
       )}
 
-      {load.kind === "ready" && (
-        <StakeViewBody view={load.view} />
-      )}
+      {load.kind === "ready" && <StakeViewBody view={load.view} />}
     </div>
   );
 }

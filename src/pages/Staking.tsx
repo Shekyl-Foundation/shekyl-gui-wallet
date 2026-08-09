@@ -246,9 +246,7 @@ export default function Staking() {
         )}
       </div>
 
-      {stakerActive && (
-        <YourStakePanel enabled={stakerActive} refreshKey={health} />
-      )}
+      {stakerActive && <YourStakePanel refreshKey={health} />}
 
       <ShardIdentityPreview />
 
