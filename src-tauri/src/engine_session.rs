@@ -34,7 +34,7 @@ use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::{SafetyOverrides, WalletFile};
 use shekyl_engine_prefs::WalletPrefs;
 use shekyl_rpc_transport::HttpRpc;
-use shekyl_scanner::LedgerBlockExt;
+use shekyl_scanner::WalletLedgerExt;
 use shekyl_units::AtomicUnits;
 use tokio::sync::RwLock;
 use tracing::warn;
@@ -578,15 +578,17 @@ impl EngineSession {
     }
 
     /// Balance as total / unlocked / staked (staked always 0 until Stage 3).
+    ///
+    /// PR-SJ-1b: [`WalletLedgerExt::balance`] is the only balance API — it
+    /// composes the scan-derived ledger with the journal-derived F14 spend
+    /// locks, so an in-flight send is counted in `total` but never `unlocked`.
     pub async fn balance(&self) -> Result<(u64, u64, u64), String> {
         let shared = self
             .engine
             .as_ref()
             .ok_or_else(|| "No wallet is open".to_string())?;
         let g = shared.read().await;
-        let ledger = g.ledger();
-        let height = ledger.ledger.height();
-        let summary = ledger.ledger.balance(height);
+        let summary = g.ledger().balance();
         Ok((
             summary.total.to_raw(),
             summary.unlocked.to_raw(),
@@ -733,7 +735,15 @@ impl EngineSession {
             .ok_or_else(|| "No wallet is open".to_string())?;
         let g = shared.read().await;
         let ledger = g.ledger();
-        let incoming = ledger.ledger.transfers().iter().map(IncomingFact::from);
+        // PR-SJ-1b: the F14 awaiting-confirmation state is journal-derived on
+        // demand (the persisted TransferDetails field was retired); derive the
+        // lock map once and thread it through the incoming projection.
+        let locks = ledger.spend_locks();
+        let incoming = ledger
+            .ledger
+            .transfers()
+            .iter()
+            .map(|td| IncomingFact::from_details(td, &locks));
         transfer_history::merge_transfer_history(incoming, &ledger.send_journal.rows)
     }
 
