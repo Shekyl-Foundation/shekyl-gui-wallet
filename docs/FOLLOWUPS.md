@@ -410,22 +410,20 @@ that `Balance` and `DrainBalance` share. One PR, one consistent surface.
 ## npm / toolchain holds from the 2026-08-09 refresh — target: V3.1 / next Node bump
 
 Taken in the `chore/npm-deps-refresh` window: lucide-react 1.x, TypeScript
-6.0.3, ESLint 10, `@types/node` 26, plugin-opener 2.5.4. Three holds with
-named reopen criteria:
+6.0.3, ESLint 10, `@types/node` 26, jsdom 30, plugin-opener 2.5.4. Holds
+with named reopen criteria:
 
 1. **TypeScript 7.** `@latest` reports `7.0.2`, but `typescript-eslint@8`
    peers `typescript: '>=4.8.4 <6.1.0'`. Jumping to 7 breaks the lint
    pipeline. **Reopen when** typescript-eslint publishes a peer that
    admits TypeScript ≥7 (or a v9 that does), then bump TS + eslint
    together.
-2. **jsdom 30 — landed with the Node 24.19 floor.** Requires Node
-   `^22.22.2 || ^24.15.0 || ≥26.0.0`. Satisfied by `.nvmrc` 24.19.0 /
-   CI `lts/*`; package.json now pins `^30.0.1`.
-3. **React Compiler lint rules** (`react-hooks/set-state-in-effect`,
+2. **React Compiler lint rules** (`react-hooks/set-state-in-effect`,
    `react-hooks/purity`). Folded into `recommended` in
    `eslint-plugin-react-hooks` ≥7.1; currently `off` in
-   `eslint.config.js` because they fire on intentional Tauri IPC poll /
-   seed-challenge / `Date.now` patterns (~10 sites). **Reopen as** a
-   dedicated cleanup PR that either rewrites those sites (e.g.
-   `useSyncExternalStore` / event-driven refresh) or documents
-   per-site exceptions — not as a silent re-enable on a dep bump.
+   `eslint.config.js` because they still fire on ~10 intentional Tauri
+   IPC poll / seed-challenge / `Date.now` sites after GUI-PR3b's
+   YourStakePanel fix. **Reopen as** a dedicated cleanup PR that either
+   rewrites those sites (e.g. `useSyncExternalStore` / event-driven
+   refresh) or documents per-site exceptions — not as a silent
+   re-enable on a dep bump.
