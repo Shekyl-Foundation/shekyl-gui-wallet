@@ -60,7 +60,8 @@ channel to the Tauri event system.
 ### All platforms
 
 - [Rust](https://rustup.rs/) >= 1.77
-- [Node.js](https://nodejs.org/) >= 20
+- [Node.js](https://nodejs.org/) 24 LTS (see `.nvmrc`; CI uses the same pin
+  for audit and `lts/*` for lint/test/release)
 - npm >= 10
 
 ### Linux (Debian / Ubuntu)
