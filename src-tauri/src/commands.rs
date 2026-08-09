@@ -203,21 +203,6 @@ pub struct SecurityStatus {
     pub paths_precomputed: bool,
 }
 
-#[derive(Debug, Serialize)]
-pub struct StakedOutputInfo {
-    pub amount: u64,
-    pub tier: u8,
-    pub lock_height: u64,
-    pub unlock_height: u64,
-    pub claimable: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WalletStakingInfo {
-    pub total_staked: u64,
-    pub staked_outputs: Vec<StakedOutputInfo>,
-}
-
 // ─── Daemon-connected commands ───────────────────────────────────────────────
 
 #[tauri::command]
@@ -904,6 +889,69 @@ pub async fn get_drain_balance(state: State<'_, AppState>) -> Result<DrainBalanc
     }
 }
 
+/// WI-RPC-1 staking read view (GUI-PR3b; `get_staking_view`).
+///
+/// The three balance legs are distinct on purpose — confirmed bond principal,
+/// pending (in-flight post) principal, and received-unspent rewards are never
+/// conflated into one figure; the UI renders them as separate lines. Amounts
+/// are atomic-unit `u64`s, display-only (same disposition as `Balance` and
+/// `DrainBalance`; FOLLOWUPS "Atomic amounts serialized as JS number").
+#[derive(Debug, Serialize)]
+pub struct StakingViewInfo {
+    pub staking_enabled: bool,
+    pub bonded_principal_confirmed: u64,
+    pub bonded_principal_pending: u64,
+    pub rewards_received_unspent: u64,
+    pub staked_outputs: Vec<StakedOutputInfo>,
+    pub pscan_synced_height: Option<u64>,
+}
+
+/// One unspent staked (`P`-owned) funding output.
+#[derive(Debug, Serialize)]
+pub struct StakedOutputInfo {
+    pub gindex: u64,
+    pub amount: u64,
+    pub p_slot: u32,
+    pub unlock_height: u64,
+    pub confirmed: bool,
+}
+
+/// Authoritative staking read (Engine `staking_read_view`, WI-RPC-1).
+///
+/// Fail-closed like `get_drain_balance`: a closed wallet and a corrupt /
+/// version-mismatched seal are both `Err(String)` — the frontend `.catch`
+/// renders a non-value, never "nothing staked" over a bad read (rule 82). An
+/// open non-staker wallet is an honest all-zero / empty view from the core.
+#[tauri::command]
+pub async fn get_staking_view(state: State<'_, AppState>) -> Result<StakingViewInfo, String> {
+    if !*state.wallet_open.read().await {
+        return Err("No wallet is open".into());
+    }
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err("No wallet is open".into());
+    }
+    let v = eng.staking_view().await?;
+    Ok(StakingViewInfo {
+        staking_enabled: v.staking_enabled,
+        bonded_principal_confirmed: v.bonded_principal_confirmed,
+        bonded_principal_pending: v.bonded_principal_pending,
+        rewards_received_unspent: v.rewards_received_unspent,
+        staked_outputs: v
+            .outputs
+            .iter()
+            .map(|o| StakedOutputInfo {
+                gindex: o.gindex,
+                amount: o.amount,
+                p_slot: o.p_slot,
+                unlock_height: o.unlock_height,
+                confirmed: o.confirmed,
+            })
+            .collect(),
+        pscan_synced_height: v.pscan_synced_height,
+    })
+}
+
 #[tauri::command]
 pub async fn get_address(
     state: State<'_, AppState>,
@@ -984,19 +1032,6 @@ pub async fn get_transactions(
     }
     let rows = eng.list_transfers().await?;
     Ok(rows.into_iter().map(TxInfo::from).collect())
-}
-
-/// Claim-era personal stake listing is retired (GUI-PR0 honesty mode).
-/// Returns an empty list rather than inventing tier/lock rows that the
-/// protocol no longer uses. Archival status queries land with Engine
-/// activation (GUI-PR3+).
-#[tauri::command]
-pub async fn get_staking_info(state: State<'_, AppState>) -> Result<WalletStakingInfo, String> {
-    let _ = state;
-    Ok(WalletStakingInfo {
-        total_staked: 0,
-        staked_outputs: vec![],
-    })
 }
 
 #[tauri::command]
@@ -1160,7 +1195,9 @@ pub async fn export_signature_response_file(response: String, path: String) -> R
 // The Engine owns its own ledger/balance (see `get_balance`), so these
 // commands return an honest refusal until an Engine-native equivalent is
 // exposed. `scanner_freeze` / `scanner_thaw` still validate their key image so
-// the UI surfaces malformed input the same way.
+// the UI surfaces malformed input the same way. (The staked-output query
+// stubs are gone: `get_staking_view` is their Engine-native replacement,
+// GUI-PR3b.)
 
 #[tauri::command]
 pub async fn get_scanner_balance(_state: State<'_, AppState>) -> Result<serde_json::Value, String> {
@@ -1169,27 +1206,6 @@ pub async fn get_scanner_balance(_state: State<'_, AppState>) -> Result<serde_js
 
 #[tauri::command]
 pub async fn get_scanner_height(_state: State<'_, AppState>) -> Result<u64, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn get_scanner_staked_outputs(
-    _state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn get_scanner_claimable_stakes(
-    _state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn get_scanner_unstakeable_outputs(
-    _state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
     Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 

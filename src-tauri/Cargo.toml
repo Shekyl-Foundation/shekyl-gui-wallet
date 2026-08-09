@@ -52,3 +52,6 @@ libc = "0.2"
 
 [dev-dependencies]
 proptest = "1"
+# Test-only: constructing core StakingReadView / StakedOutput fixtures needs
+# the shekyl-types newtypes (already transitive via shekyl-engine-core).
+shekyl-types = { path = "../../shekyl-core/rust/shekyl-types" }

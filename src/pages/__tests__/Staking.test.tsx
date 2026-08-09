@@ -156,3 +156,103 @@ describe("Staking drainable-P (DS-PR-3 PR-B)", () => {
     expect(line.textContent).not.toContain("SKL");
   });
 });
+
+// GUI-PR3b: the "Your stake" panel projects Engine::staking_read_view
+// (WI-RPC-1). Contracts under test: the three balance legs render as
+// distinct figures (never summed), and a read fault renders as an explicit
+// fault message — never an empty/zero panel over a bad seal (rule 82,
+// mirroring the core's fail-closed StakingReadError).
+describe("Staking view panel (GUI-PR3b)", () => {
+  function mockStakerWithView(view: unknown | (() => Promise<never>)) {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "list_shard_preview_fixtures" || cmd === "list_shards") {
+        return [];
+      }
+      if (cmd === "get_staker_status") {
+        return {
+          staking_enabled: true,
+          has_stake_engine: true,
+          bonded_slot_count: 1,
+          has_pscan: true,
+        };
+      }
+      if (cmd === "get_drain_balance") {
+        return { status: "ready", spendable: 0 };
+      }
+      if (cmd === "get_staking_view") {
+        return typeof view === "function"
+          ? (view as () => Promise<never>)()
+          : view;
+      }
+      return null;
+    });
+  }
+
+  it("renders the three balance legs distinctly and the output rows", async () => {
+    mockStakerWithView({
+      staking_enabled: true,
+      bonded_principal_confirmed: 1_000_000_000,
+      bonded_principal_pending: 2_000_000_000,
+      rewards_received_unspent: 3_000_000_000,
+      staked_outputs: [
+        {
+          gindex: 42,
+          amount: 4_000_000_000,
+          p_slot: 3,
+          unlock_height: 12345,
+          confirmed: true,
+        },
+      ],
+      pscan_synced_height: 99000,
+    });
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(await screen.findByText("Your stake")).toBeInTheDocument();
+    // Three legs, three distinct figures — never a single summed number.
+    expect(screen.getByText("Bonded (confirmed)")).toBeInTheDocument();
+    expect(screen.getByText("1.000000")).toBeInTheDocument();
+    expect(screen.getByText("Bonded (pending)")).toBeInTheDocument();
+    expect(screen.getByText("2.000000")).toBeInTheDocument();
+    expect(screen.getByText("Rewards (unspent)")).toBeInTheDocument();
+    expect(screen.getByText("3.000000")).toBeInTheDocument();
+    // Output row: slot, amount, unlock height.
+    expect(screen.getByText("Staked outputs (1)")).toBeInTheDocument();
+    expect(screen.getByText("Slot 3")).toBeInTheDocument();
+    expect(screen.getByText("4.000000 SKL")).toBeInTheDocument();
+    expect(screen.getByText(/unlocks at 12,345/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Persona scan synced to block 99,000/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an honest empty state when a staker has no staked outputs", async () => {
+    mockStakerWithView({
+      staking_enabled: true,
+      bonded_principal_confirmed: 1_000_000_000,
+      bonded_principal_pending: 0,
+      rewards_received_unspent: 0,
+      staked_outputs: [],
+      pscan_synced_height: null,
+    });
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(
+      await screen.findByText(/No staked outputs yet/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Persona scan has not sealed a frontier yet/),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a fault message (never an empty/zero panel) when the read faults", async () => {
+    mockStakerWithView(() => Promise.reject("seal failed to open"));
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(
+      await screen.findByText(/Staking state could not be read/),
+    ).toBeInTheDocument();
+    // Fail-closed: no balance legs and no fabricated empty-output state.
+    expect(screen.queryByText("Bonded (confirmed)")).not.toBeInTheDocument();
+    expect(screen.queryByText(/No staked outputs yet/)).not.toBeInTheDocument();
+  });
+});
