@@ -51,10 +51,20 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # Tauri resolves `externalBin` before compiling anything and fails if
+      # the sidecar path is absent, so even a job that never runs the daemon
+      # needs a file at its name. Empty is enough: nothing executes it.
       - name: Create sidecar placeholder for Tauri build script
         run: |
+          set -euo pipefail
+          # Tauri names the sidecar by target triple (see
+          # src-tauri/binaries/README.md). Read it from the toolchain rather
+          # than hard-coding one, so the step is correct on whatever runner
+          # this job lands on.
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          [ -n "$triple" ] || { echo "no 'host:' line in 'rustc -vV'" >&2; exit 1; }
           mkdir -p src-tauri/binaries
-          touch src-tauri/binaries/shekyld-x86_64-unknown-linux-gnu
+          touch "src-tauri/binaries/shekyld-$triple"
 
       - name: Initialize CodeQL for Rust
         uses: github/codeql-action/init@v4
