@@ -17,11 +17,21 @@ needs nothing from the wallet.
 
 Two things would change that, and they are separable:
 
-1. **A proxy setting.** `shekyl-rpc-transport` already carries a SOCKS5h
-   connector (the CLI's `--proxy` uses it) and the constructor to reach
-   it — `HttpRpc::with_proxy(url, proxy)` beside the `HttpRpc::new(url)`
-   used today — so this is a settings field and a constructor choice,
-   not a transport to write.
+1. **A proxy setting — across *both* daemon transports.** This wallet
+   dials the daemon two ways on the same configured URL: `HttpRpc`
+   (`shekyl-rpc-transport`) for the Engine and scanner, and a plain
+   `reqwest::Client` held in `AppState` for everything the UI polls —
+   chain health, wallet status, staking info, curve-tree info, mining
+   (`daemon_rpc::*`, ~12 call sites in `commands.rs`). Proxying only the
+   first is worse than not starting: the wallet would scan through the
+   proxy while every status panel reported the daemon disconnected.
+   `shekyl-rpc-transport` already carries the SOCKS5h connector and the
+   constructor for its half (`HttpRpc::with_proxy(url, proxy)` beside
+   today's `HttpRpc::new(url)`); the `reqwest` half has no `socks`
+   feature enabled and would need one, or — better, and the reason this
+   is not a one-line item — the two transports collapse onto the one that
+   already knows how to do this. Consolidation is the shape to aim at;
+   a proxy field bolted onto a split transport is the shape to avoid.
 2. **The §1 operator statement at the point of configuration.** The CLI
    and `shekyl-wallet-rpc` say what a non-loopback daemon's operator
    learns by serving (shekyl-core RT-W7,

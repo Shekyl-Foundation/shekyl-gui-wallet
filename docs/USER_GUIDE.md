@@ -706,13 +706,34 @@ An open wallet on an unlocked computer is an open wallet.
   a step that can help.
 - **To use a node on another machine, bring its RPC port to this one.**
   Forward the remote daemon's loopback port to your desktop over a
-  channel you already trust — for example
-  `ssh -L 11029:127.0.0.1:11029 you@your-node` — and leave the daemon URL
-  pointing at `127.0.0.1`. The daemon still binds only its own loopback;
-  the tunnel crosses the network, not the daemon. This wallet dials the
-  daemon directly and has no Tor or SOCKS transport, so a `.onion` daemon
-  address cannot be used here; the `shekyl-cli` wallet has `--proxy` for
-  that.
+  channel you already trust, **before starting the wallet**:
+
+  ```bash
+  ssh -L 11029:127.0.0.1:11029 you@your-node
+  ```
+
+  Then start the wallet and leave the daemon URL on `127.0.0.1`. The
+  wallet checks that port as it launches: if a daemon already answers
+  there it uses that one and does not start a daemon of its own, which is
+  what you want — the remote node is the node. The daemon at the far end
+  still binds only its own loopback; the tunnel crosses the network, not
+  the daemon.
+
+  **If the wallet is already running**, it has started its own daemon on
+  that port, and the forward above will refuse to open (`bind: Address
+  already in use`). Either quit the wallet and start over, or forward to a
+  free port instead and point **Settings** at it:
+
+  ```bash
+  ssh -L 21029:127.0.0.1:11029 you@your-node
+  ```
+
+  with the daemon URL set to `http://127.0.0.1:21029/json_rpc`. Note the
+  wallet will still run its own local daemon alongside in that case.
+
+  This wallet dials the daemon directly and has no Tor or SOCKS transport,
+  so a `.onion` daemon address cannot be used here; the `shekyl-cli`
+  wallet has `--proxy` for that.
 - Make sure the wallet and daemon are on the same network (both mainnet,
   both testnet, etc.).
 
