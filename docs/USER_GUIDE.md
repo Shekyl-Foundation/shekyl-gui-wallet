@@ -699,9 +699,41 @@ An open wallet on an unlocked computer is an open wallet.
 - Make sure `shekyld` is running. The wallet cannot function without it.
 - Check that the daemon URL in **Settings** matches the daemon's actual
   address and port (default: `http://127.0.0.1:11029` for mainnet).
-- If the daemon is on a different machine, ensure the firewall allows
-  connections on the RPC port and that the daemon was started with
-  `--rpc-bind-ip 0.0.0.0 --confirm-external-bind`.
+- **The daemon serves RPC to its own machine only.** `shekyld` binds
+  loopback: a wildcard (`0.0.0.0`) or network address is refused at
+  start, and `--confirm-external-bind` no longer exists. Nothing is
+  listening on the network, so opening the RPC port on a firewall is not
+  a step that can help.
+- **To use a node on another machine, bring its RPC port to this one.**
+  Forward the remote daemon's loopback port to your desktop over a
+  channel you already trust, **before starting the wallet**:
+
+  ```bash
+  ssh -L 11029:127.0.0.1:11029 you@your-node
+  ```
+
+  Then start the wallet and leave the daemon URL on `127.0.0.1`. The
+  wallet checks that port as it launches: if a daemon already answers
+  there it uses that one and does not start a daemon of its own, which is
+  what you want — the remote node is the node. The daemon at the far end
+  still binds only its own loopback; the tunnel crosses the network, not
+  the daemon.
+
+  **If the wallet is already running**, it has started its own daemon on
+  that port, and the forward above will refuse to open (`bind: Address
+  already in use`). Either quit the wallet and start over, or forward to a
+  free port instead and point **Settings** at it:
+
+  ```bash
+  ssh -L 21029:127.0.0.1:11029 you@your-node
+  ```
+
+  with the daemon URL set to `http://127.0.0.1:21029/json_rpc`. Note the
+  wallet will still run its own local daemon alongside in that case.
+
+  This wallet dials the daemon directly and has no Tor or SOCKS transport,
+  so a `.onion` daemon address cannot be used here; the `shekyl-cli`
+  wallet has `--proxy` for that.
 - Make sure the wallet and daemon are on the same network (both mainnet,
   both testnet, etc.).
 

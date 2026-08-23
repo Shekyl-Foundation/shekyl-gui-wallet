@@ -37,6 +37,12 @@ pub struct StakingView {
     pub staked_outputs: Vec<StakedOutputView>,
     /// P-scan sealed frontier height (`None`: never scanned as `P`).
     pub pscan_synced_height: Option<u64>,
+    /// The bond watch adopted a staked slot **this session**, and that slot
+    /// cannot become operational until the wallet is reopened: staking
+    /// operations against it fail until then. Carried to the frontend
+    /// rather than dropped here, because a wallet that shows staker-hood it
+    /// cannot act on is the failure this flag exists to prevent (rule 82).
+    pub recovery_pending_reopen: bool,
 }
 
 /// One unspent staked (`P`-owned) funding output on the wire.
@@ -62,6 +68,7 @@ impl From<StakingReadView> for StakingView {
             rewards_received_unspent: view.balance.rewards_received_unspent.to_raw(),
             staked_outputs: view.outputs.iter().map(StakedOutputView::from).collect(),
             pscan_synced_height: view.pscan_synced_height.map(|h| h.to_raw()),
+            recovery_pending_reopen: view.recovery_pending_reopen,
         }
     }
 }
@@ -110,6 +117,7 @@ mod tests {
             },
             outputs: Vec::new(),
             pscan_synced_height: None,
+            recovery_pending_reopen: false,
         };
         let read = StakingView::from(view);
         assert!(read.staking_enabled);
@@ -131,6 +139,7 @@ mod tests {
             },
             outputs: vec![core_output(42, 5_000_000_000, 3, 12_345)],
             pscan_synced_height: Some(BlockHeight::from_raw(99_000)),
+            recovery_pending_reopen: false,
         };
         let read = StakingView::from(view);
         assert_eq!(
@@ -144,5 +153,27 @@ mod tests {
             }]
         );
         assert_eq!(read.pscan_synced_height, Some(99_000));
+        assert!(!read.recovery_pending_reopen);
+    }
+
+    /// A slot the bond watch adopted this session cannot be acted on until
+    /// the wallet is reopened, and the projection is what carries that to
+    /// the panel that has to say so. The edit that turns this red is
+    /// dropping the field from `From<StakingReadView>` — which is how the
+    /// wallet would come to show staker-hood it cannot act on (rule 82).
+    #[test]
+    fn recovery_pending_reopen_reaches_the_wire() {
+        let view = StakingReadView {
+            staking_enabled: true,
+            balance: StakedBalance {
+                bonded_principal_confirmed: AtomicUnits::ZERO,
+                bonded_principal_pending: AtomicUnits::ZERO,
+                rewards_received_unspent: AtomicUnits::ZERO,
+            },
+            outputs: Vec::new(),
+            pscan_synced_height: None,
+            recovery_pending_reopen: true,
+        };
+        assert!(StakingView::from(view).recovery_pending_reopen);
     }
 }

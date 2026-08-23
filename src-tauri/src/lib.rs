@@ -31,9 +31,11 @@ use std::sync::Arc;
 use tauri::Manager;
 
 mod commands;
+mod daemon_connection;
 mod daemon_manager;
 mod daemon_rpc;
 mod drain_balance;
+mod engine_errors;
 mod engine_session;
 mod gui_config;
 mod shard_visual;
@@ -67,9 +69,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Daemon / chain
             commands::get_wallet_status,
-            commands::get_chain_health,
+            daemon_connection::get_chain_health,
             commands::get_tier_yields,
-            commands::set_daemon_connection,
+            daemon_connection::set_daemon_connection,
+            daemon_connection::daemon_connection_disclosures,
             commands::get_pqc_status,
             commands::get_security_status,
             commands::get_curve_tree_info,

@@ -137,6 +137,7 @@ describe("Staking drainable-P (DS-PR-3 PR-B)", () => {
           rewards_received_unspent: 0,
           staked_outputs: [],
           pscan_synced_height: null,
+          recovery_pending_reopen: false,
         };
       }
       return null;
@@ -216,6 +217,7 @@ describe("Staking view panel (GUI-PR3b)", () => {
         },
       ],
       pscan_synced_height: 99000,
+      recovery_pending_reopen: false,
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 
@@ -240,6 +242,45 @@ describe("Staking view panel (GUI-PR3b)", () => {
     ).toBeInTheDocument();
   });
 
+  /**
+   * A slot adopted mid-session cannot be acted on until the wallet is
+   * reopened. The panel has to say so: a wallet that shows staker-hood it
+   * cannot use is the failure the flag exists to prevent (rule 82). The
+   * edit that turns this red is dropping the notice from `YourStakePanel`.
+   */
+  it("says a recovered stake needs a reopen before it can be used", async () => {
+    mockStakerWithView({
+      staking_enabled: true,
+      bonded_principal_confirmed: 1_000_000_000,
+      bonded_principal_pending: 0,
+      rewards_received_unspent: 0,
+      staked_outputs: [],
+      pscan_synced_height: 99000,
+      recovery_pending_reopen: true,
+    });
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(
+      await screen.findByText(/Close\s+and reopen the wallet to finish/),
+    ).toBeInTheDocument();
+  });
+
+  it("does not mention a reopen when nothing was recovered", async () => {
+    mockStakerWithView({
+      staking_enabled: true,
+      bonded_principal_confirmed: 1_000_000_000,
+      bonded_principal_pending: 0,
+      rewards_received_unspent: 0,
+      staked_outputs: [],
+      pscan_synced_height: 99000,
+      recovery_pending_reopen: false,
+    });
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(await screen.findByText("Your stake")).toBeInTheDocument();
+    expect(screen.queryByText(/reopen the wallet to finish/)).toBeNull();
+  });
+
   it("shows an honest empty state when a staker has no staked outputs", async () => {
     mockStakerWithView({
       staking_enabled: true,
@@ -248,6 +289,7 @@ describe("Staking view panel (GUI-PR3b)", () => {
       rewards_received_unspent: 0,
       staked_outputs: [],
       pscan_synced_height: null,
+      recovery_pending_reopen: false,
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 

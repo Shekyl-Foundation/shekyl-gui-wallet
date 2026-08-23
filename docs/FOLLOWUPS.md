@@ -6,6 +6,45 @@ Items without a target version get one within 30 days or get closed as
 
 ---
 
+## Daemon transport has no proxy — target: with the desktop's remote-node story
+
+The daemon client dials directly: `reqwest` is built without the `socks`
+feature (`src-tauri/Cargo.toml`) and `engine_session.rs` constructs
+`HttpRpc::new(url)` with no proxy, so a `.onion` or otherwise
+proxy-reachable daemon address cannot be entered in **Settings**. The
+troubleshooting guide therefore points at a local port forward, which
+needs nothing from the wallet.
+
+What would change it, and why it is not the one-line item it looks like:
+
+**A proxy setting — across *both* daemon transports.** This wallet
+   dials the daemon two ways on the same configured URL: `HttpRpc`
+   (`shekyl-rpc-transport`) for the Engine and scanner, and a plain
+   `reqwest::Client` held in `AppState` for everything the UI polls —
+   chain health, wallet status, staking info, curve-tree info, mining
+   (`daemon_rpc::*`, ~12 call sites in `commands.rs`). Proxying only the
+   first is worse than not starting: the wallet would scan through the
+   proxy while every status panel reported the daemon disconnected.
+   `shekyl-rpc-transport` already carries the SOCKS5h connector and the
+   constructor for its half (`HttpRpc::with_proxy(url, proxy)` beside
+   today's `HttpRpc::new(url)`); the `reqwest` half has no `socks`
+   feature enabled and would need one, or — better, and the reason this
+   is not a one-line item — the two transports collapse onto the one that
+already knows how to do this. Consolidation is the shape to aim at; a
+proxy field bolted onto a split transport is the shape to avoid.
+
+The §1 operator statement that belongs beside such a setting is **done**
+(this PR): a daemon URL that is not loopback draws it in the Settings
+panel and on load, so whatever a proxy later makes reachable is already
+disclosed for what it costs.
+
+**Trigger:** the first request for a remote daemon in the desktop
+wallet. Note the
+desktop scope is principal-focused, not an archival operator node, so a
+built-in onion listener is *not* what this asks for.
+
+---
+
 ## Archival staking + Engine backend — target: post-PR0 sequence
 
 GUI-PR0 (this window) only makes staking **honest**: claim-era tier/claim UX

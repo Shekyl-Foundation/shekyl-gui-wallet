@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::engine_errors::{map_first_stake_err, map_open_err};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use shekyl_crypto_pq::account::{
@@ -27,11 +28,11 @@ use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
     Capability, Credentials, DaemonClient, DrainBalanceReadError, Engine, EngineCreateParams,
-    FeePriority, FirstStakeError, FirstStakeOutcome, Network, OpenedEngine, PScanHandle,
-    RefreshOptions, SoloSigner, TxRecipient, TxRequest,
+    FeePriority, FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner,
+    StakePosture, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
-use shekyl_engine_file::{SafetyOverrides, WalletFile};
+use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
 use shekyl_rpc_transport::HttpRpc;
 use shekyl_scanner::WalletLedgerExt;
@@ -404,7 +405,13 @@ impl EngineSession {
             shared
         };
 
-        let outcome = Engine::first_stake(shared, slot)
+        // Market: ordinary archival staking inside the reward market. The
+        // desktop wallet is principal-focused, and the other posture
+        // (`FoundationCompleteTree`) is a permanent, non-earning,
+        // unbounded-storage obligation that engine-core documents as never
+        // a default and never reachable without a caller naming it — there
+        // is no acknowledgment path here for a caller to name it through.
+        let outcome = Engine::first_stake(shared, slot, StakePosture::Market)
             .await
             .map_err(map_first_stake_err)?;
 
@@ -421,14 +428,29 @@ impl EngineSession {
         password: Zeroizing<Vec<u8>>,
         slot: u32,
     ) -> Result<SharedEngine, String> {
-        // Verify-then-close: wrong password refuses with wallet still open.
-        tokio::task::block_in_place(|| WalletFile::verify_password(base, password.as_slice()))
-            .map_err(|e| match e {
+        // Verify-then-close: a wrong password refuses with the wallet still
+        // open, so a typo can never log the operator out. The check reads a
+        // snapshot of the sealed bytes from the handle that is already open
+        // — no second file read, no lock to take — and the read guard is
+        // released before the verify, because verifying runs the full
+        // Argon2id KDF and `Arc::try_unwrap` below needs sole ownership.
+        // Same shape as `shekyl-wallet-rpc`'s first-stake choreography.
+        let envelope = {
+            let shared = self
+                .engine
+                .as_ref()
+                .ok_or_else(|| "No wallet is open".to_string())?;
+            let engine = shared.read().await;
+            engine.file().sealed_keys_envelope()
+        };
+        tokio::task::block_in_place(|| envelope.verify_password(password.as_slice())).map_err(
+            |e| match e {
                 shekyl_engine_file::WalletFileError::Envelope(_) => {
                     "incorrect password".to_string()
                 }
                 other => format!("password verification failed: {other}"),
-            })?;
+            },
+        )?;
 
         let daemon = make_daemon(daemon_http_base).await?;
 
@@ -942,37 +964,6 @@ async fn restart_pscan(shared: &SharedEngine) -> Option<PScanHandle> {
         Err(e) => {
             warn!(error = %e, "failed to re-arm P-scan while restoring open wallet");
             None
-        }
-    }
-}
-
-fn map_open_err(e: shekyl_engine_core::OpenError) -> String {
-    format!("wallet error: {e}")
-}
-
-fn map_first_stake_err(e: FirstStakeError) -> String {
-    match e {
-        FirstStakeError::BondInFlight => {
-            "a signed bond post is already awaiting dispatch (stake in flight)".into()
-        }
-        FirstStakeError::AlreadyStaked => "this wallet is already an active staker".into(),
-        FirstStakeError::Funding(detail) => {
-            format!(
-                "not ready to stake ({detail}); fund the persona (stake_in) and sync, then retry"
-            )
-        }
-        FirstStakeError::FeeEstimate(_) => {
-            "fee estimation failed; check the daemon connection and retry".into()
-        }
-        FirstStakeError::NoStakeEngine => {
-            "stake engine not ready after intent open; retry activation".into()
-        }
-        FirstStakeError::WrongSlot { .. } => format!("stake: {e}"),
-        FirstStakeError::State(d) => {
-            format!("stake preflight failed ({d}); nothing durable was written")
-        }
-        FirstStakeError::Persist(d) | FirstStakeError::Engine(d) => {
-            format!("stake failed mid-flow ({d}); call activate again to resume")
         }
     }
 }

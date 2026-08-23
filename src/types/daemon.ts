@@ -140,6 +140,12 @@ export interface StakingView {
   rewards_received_unspent: number;
   staked_outputs: StakedOutputView[];
   pscan_synced_height: number | null;
+  /**
+   * A staked slot was adopted this session and cannot be acted on until the
+   * wallet is reopened. Shown, never hidden: a wallet that displays
+   * staker-hood it cannot use is the failure this flag exists to prevent.
+   */
+  recovery_pending_reopen: boolean;
 }
 
 export interface WalletProgress {

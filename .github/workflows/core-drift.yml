@@ -1,0 +1,123 @@
+# Does this wallet still build against shekyl-core?
+#
+# The Tauri crate path-depends on `../shekyl-core/rust/*`, so every core API
+# change is a change to this repository's build — but core's CI does not
+# build this wallet, and `ci.yml` only runs when *this* repo has a pull
+# request. Between the two, core changes land and sit here undiscovered:
+# on 2026-08-23 four separate ones had accumulated (a deleted
+# `WalletFile::verify_password`, a `StakePosture` parameter, three new
+# `FirstStakeError` variants, a new `StakingReadView` field), and the wallet
+# had not compiled against core dev for some time.
+#
+# This job asks the question on a schedule, so drift surfaces within a day
+# whether or not anyone opens a pull request here, and on demand for any
+# core ref. `workflow_call` is the important entry point: it lets
+# shekyl-core run this against a *branch*, turning "we broke the GUI" from a
+# discovery into a failing check on the pull request that would do it.
+name: Core drift
+
+on:
+  schedule:
+    # Daily, offset off the hour so it does not queue behind the fleet.
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: "shekyl-core ref to build against"
+        type: string
+        default: dev
+  workflow_call:
+    inputs:
+      core_repository:
+        description: "owner/repo holding shekyl-core"
+        type: string
+        default: Shekyl-Foundation/shekyl-core
+      core_ref:
+        description: "shekyl-core ref to build against (a branch, tag, or SHA)"
+        type: string
+        default: dev
+      wallet_ref:
+        description: "ref of this wallet to build (defaults to dev)"
+        type: string
+        default: dev
+
+concurrency:
+  group: core-drift-${{ inputs.core_ref || 'dev' }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-against-core:
+    name: Wallet builds against shekyl-core
+    runs-on: ubuntu-latest
+    steps:
+      # Explicit repository and path. Called across repositories, the
+      # `github` context is the *caller's*, so a bare checkout here would
+      # fetch shekyl-core into the workspace and there would be no wallet to
+      # build. Naming both sides makes the layout the same however this
+      # workflow is entered:
+      #
+      #   $GITHUB_WORKSPACE/gui/          this wallet (src-tauri inside)
+      #   $GITHUB_WORKSPACE/shekyl-core/  the core under test
+      #
+      # which is what `../../shekyl-core/rust/*` in src-tauri/Cargo.toml
+      # resolves to.
+      - name: Checkout the wallet
+        uses: actions/checkout@v5
+        with:
+          repository: Shekyl-Foundation/shekyl-gui-wallet
+          ref: ${{ inputs.wallet_ref || github.ref_name }}
+          path: gui
+
+      - name: Checkout shekyl-core
+        env:
+          CORE_REPOSITORY: ${{ inputs.core_repository || 'Shekyl-Foundation/shekyl-core' }}
+          CORE_REF: ${{ inputs.core_ref || 'dev' }}
+        run: |
+          set -euo pipefail
+          echo "Building against ${CORE_REPOSITORY}@${CORE_REF}"
+          # Fetch the ref rather than `clone --branch`, which takes only a
+          # branch or tag name — the input accepts a commit SHA too, and
+          # naming a SHA is how you find which commit broke the wallet.
+          mkdir shekyl-core
+          git -C shekyl-core init --quiet
+          git -C shekyl-core remote add origin "https://github.com/${CORE_REPOSITORY}.git"
+          git -C shekyl-core fetch --depth 1 --quiet origin "$CORE_REF"
+          git -C shekyl-core checkout --quiet FETCH_HEAD
+          git -C shekyl-core submodule update --init --recursive --depth 1 --quiet
+          echo "CORE_SHA=$(git -C shekyl-core rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./gui/src-tauri -> target
+
+      # `--all-targets`, deliberately: the break that started this job was in
+      # test code (a `StakingReadView` initialiser), which `ci.yml`'s
+      # `cargo clippy` — no `--all-targets` — compiles right past.
+      - name: cargo check against core
+        working-directory: ./gui/src-tauri
+        run: cargo check --all-targets
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### Core drift"
+            echo
+            echo "- core: \`${{ inputs.core_repository || 'Shekyl-Foundation/shekyl-core' }}@${{ inputs.core_ref || 'dev' }}\` (\`${CORE_SHA:-unknown}\`)"
+            echo "- result: **${{ job.status }}**"
+            echo
+            echo "A failure here means a shekyl-core change and this wallet disagree."
+            echo "Fix it in the pull request that caused it, not later."
+          } >> "$GITHUB_STEP_SUMMARY"
