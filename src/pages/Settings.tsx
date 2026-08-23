@@ -54,6 +54,11 @@ export default function Settings() {
       const current = await invoke<DaemonConnection>(
         "daemon_connection_disclosures",
       );
+      // The URL as well as its warnings: the field is what "Save &
+      // Reconnect" writes back, so showing the default beside a warning
+      // about the configured daemon would quietly revert the operator's
+      // choice the next time they pressed it.
+      setDaemonUrl(current.url);
       setDaemonWarnings(current.warnings);
     } catch {
       // command not available yet

@@ -63,6 +63,30 @@ describe("Settings — daemon disclosure", () => {
     ).toBeInTheDocument();
   });
 
+  /**
+   * The field is what "Save & Reconnect" writes back, so it has to show the
+   * URL actually in effect. Showing the default beside a warning about the
+   * configured daemon would revert the operator's choice the next time they
+   * pressed the button. The edit that turns this red is dropping
+   * `setDaemonUrl(current.url)` from the load path.
+   */
+  it("loads the daemon URL in effect, not the default", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "daemon_connection_disclosures") {
+        return {
+          url: "http://node.example.com:11029/json_rpc",
+          warnings: [OPERATOR_WARNING],
+        };
+      }
+      return null;
+    });
+    renderSettings();
+    const field = await screen.findByDisplayValue(
+      "http://node.example.com:11029/json_rpc",
+    );
+    expect(field).toBeInTheDocument();
+  });
+
   /** The point of configuration: it is said as the URL is saved. */
   it("shows the operator statement when a non-loopback URL is saved", async () => {
     mockDaemon([], [OPERATOR_WARNING]);

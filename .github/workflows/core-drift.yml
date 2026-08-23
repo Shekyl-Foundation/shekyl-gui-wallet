@@ -36,6 +36,10 @@ on:
         description: "shekyl-core ref to build against (a branch, tag, or SHA)"
         type: string
         default: dev
+      wallet_ref:
+        description: "ref of this wallet to build (defaults to dev)"
+        type: string
+        default: dev
 
 concurrency:
   group: core-drift-${{ inputs.core_ref || 'dev' }}
@@ -49,7 +53,23 @@ jobs:
     name: Wallet builds against shekyl-core
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      # Explicit repository and path. Called across repositories, the
+      # `github` context is the *caller's*, so a bare checkout here would
+      # fetch shekyl-core into the workspace and there would be no wallet to
+      # build. Naming both sides makes the layout the same however this
+      # workflow is entered:
+      #
+      #   $GITHUB_WORKSPACE/gui/          this wallet (src-tauri inside)
+      #   $GITHUB_WORKSPACE/shekyl-core/  the core under test
+      #
+      # which is what `../../shekyl-core/rust/*` in src-tauri/Cargo.toml
+      # resolves to.
+      - name: Checkout the wallet
+        uses: actions/checkout@v5
+        with:
+          repository: Shekyl-Foundation/shekyl-gui-wallet
+          ref: ${{ inputs.wallet_ref || github.ref_name }}
+          path: gui
 
       - name: Checkout shekyl-core
         env:
@@ -58,9 +78,16 @@ jobs:
         run: |
           set -euo pipefail
           echo "Building against ${CORE_REPOSITORY}@${CORE_REF}"
-          git clone --depth 1 --branch "$CORE_REF" --recurse-submodules --shallow-submodules \
-            "https://github.com/${CORE_REPOSITORY}.git" ../shekyl-core
-          echo "CORE_SHA=$(git -C ../shekyl-core rev-parse HEAD)" >> "$GITHUB_ENV"
+          # Fetch the ref rather than `clone --branch`, which takes only a
+          # branch or tag name — the input accepts a commit SHA too, and
+          # naming a SHA is how you find which commit broke the wallet.
+          mkdir shekyl-core
+          git -C shekyl-core init --quiet
+          git -C shekyl-core remote add origin "https://github.com/${CORE_REPOSITORY}.git"
+          git -C shekyl-core fetch --depth 1 --quiet origin "$CORE_REF"
+          git -C shekyl-core checkout --quiet FETCH_HEAD
+          git -C shekyl-core submodule update --init --recursive --depth 1 --quiet
+          echo "CORE_SHA=$(git -C shekyl-core rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Install Linux system dependencies
         run: |
@@ -73,13 +100,13 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: ./gui/src-tauri -> target
 
       # `--all-targets`, deliberately: the break that started this job was in
       # test code (a `StakingReadView` initialiser), which `ci.yml`'s
       # `cargo clippy` — no `--all-targets` — compiles right past.
       - name: cargo check against core
-        working-directory: ./src-tauri
+        working-directory: ./gui/src-tauri
         run: cargo check --all-targets
 
       - name: Report

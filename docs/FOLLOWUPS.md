@@ -15,9 +15,9 @@ proxy-reachable daemon address cannot be entered in **Settings**. The
 troubleshooting guide therefore points at a local port forward, which
 needs nothing from the wallet.
 
-Two things would change that, and they are separable:
+What would change it, and why it is not the one-line item it looks like:
 
-1. **A proxy setting — across *both* daemon transports.** This wallet
+**A proxy setting — across *both* daemon transports.** This wallet
    dials the daemon two ways on the same configured URL: `HttpRpc`
    (`shekyl-rpc-transport`) for the Engine and scanner, and a plain
    `reqwest::Client` held in `AppState` for everything the UI polls —
@@ -30,19 +30,16 @@ Two things would change that, and they are separable:
    today's `HttpRpc::new(url)`); the `reqwest` half has no `socks`
    feature enabled and would need one, or — better, and the reason this
    is not a one-line item — the two transports collapse onto the one that
-   already knows how to do this. Consolidation is the shape to aim at;
-   a proxy field bolted onto a split transport is the shape to avoid.
-2. **The §1 operator statement at the point of configuration.** The CLI
-   and `shekyl-wallet-rpc` say what a non-loopback daemon's operator
-   learns by serving (shekyl-core RT-W7,
-   `shekyl_rpc_transport::network_posture::operator_warning`); this
-   wallet configures the same address and says nothing. That call is one
-   line — the panel needs a place to show it. Worth landing **before** a
-   proxy field, not after: a proxy makes remote daemons easy to reach
-   without making them any more the operator's own.
+already knows how to do this. Consolidation is the shape to aim at; a
+proxy field bolted onto a split transport is the shape to avoid.
 
-**Trigger:** either the first request for a remote daemon in the desktop
-wallet, or the next Settings-panel change (item 2 alone). Note the
+The §1 operator statement that belongs beside such a setting is **done**
+(this PR): a daemon URL that is not loopback draws it in the Settings
+panel and on load, so whatever a proxy later makes reachable is already
+disclosed for what it costs.
+
+**Trigger:** the first request for a remote daemon in the desktop
+wallet. Note the
 desktop scope is principal-focused, not an archival operator node, so a
 built-in onion listener is *not* what this asks for.
 
