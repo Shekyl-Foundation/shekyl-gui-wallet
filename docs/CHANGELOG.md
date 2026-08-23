@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **npm dependency refresh.** Took current majors/minors that the toolchain
+  already supports: `lucide-react` 0.577 → 1.31 (all in-use icons still
+  export), TypeScript ~5.9 → ~6.0.3 (within `typescript-eslint` peer
+  `<6.1.0`), ESLint 9 → 10 + `@eslint/js` 10 + `eslint-plugin-react-hooks`
+  7.1.1, `@types/node` 24 → 26, `jsdom` 29 → 30, `@tauri-apps/plugin-opener`
+  pin to `^2.5.4`. `vitest.config.ts` now imports `./vite.config.ts` with an
+  extension (Vite's upcoming native config loader). **Node pin:**
+  `.nvmrc` 22.22.0 → **24.19.0** (current LTS) so `audit.yml`
+  (`node-version-file`) matches what `ci.yml` / `release.yml` get from
+  `lts/*`; audit action bumped to `setup-node@v5` + npm cache. Held back:
+  TypeScript 7 (typescript-eslint peer still `<6.1.0`).
+  React Compiler lint rules newly folded into hooks `recommended`
+  (`set-state-in-effect`, `purity`) stay off — they fire on intentional
+  Tauri IPC poll patterns; enabling them is a separate cleanup.
+
 ### Added
 
 - **"Your stake" panel on the Staking page (GUI-PR3b).** Active stakers now

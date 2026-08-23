@@ -404,3 +404,26 @@ that `Balance` and `DrainBalance` share. One PR, one consistent surface.
 2. A realistic single-wallet balance is expected to exceed ~9M SKL.
 3. The daemon RPC contract migrates its own amount fields to strings and
    the GUI should follow in lockstep.
+
+---
+
+## npm / toolchain holds from the 2026-08-09 refresh — target: V3.1 / next Node bump
+
+Taken in the `chore/npm-deps-refresh` window: lucide-react 1.x, TypeScript
+6.0.3, ESLint 10, `@types/node` 26, jsdom 30, plugin-opener 2.5.4. Holds
+with named reopen criteria:
+
+1. **TypeScript 7.** `@latest` reports `7.0.2`, but `typescript-eslint@8`
+   peers `typescript: '>=4.8.4 <6.1.0'`. Jumping to 7 breaks the lint
+   pipeline. **Reopen when** typescript-eslint publishes a peer that
+   admits TypeScript ≥7 (or a v9 that does), then bump TS + eslint
+   together.
+2. **React Compiler lint rules** (`react-hooks/set-state-in-effect`,
+   `react-hooks/purity`). Folded into `recommended` in
+   `eslint-plugin-react-hooks` ≥7.1; currently `off` in
+   `eslint.config.js` because they still fire on ~10 intentional Tauri
+   IPC poll / seed-challenge / `Date.now` sites after GUI-PR3b's
+   YourStakePanel fix. **Reopen as** a dedicated cleanup PR that either
+   rewrites those sites (e.g. `useSyncExternalStore` / event-driven
+   refresh) or documents per-site exceptions — not as a silent
+   re-enable on a dep bump.
