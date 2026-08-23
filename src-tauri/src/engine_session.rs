@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::engine_errors::{map_first_stake_err, map_open_err};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use shekyl_crypto_pq::account::{
@@ -27,8 +28,8 @@ use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
     Capability, Credentials, DaemonClient, DrainBalanceReadError, Engine, EngineCreateParams,
-    FeePriority, FirstStakeError, FirstStakeOutcome, Network, OpenedEngine, PScanHandle,
-    RefreshOptions, SoloSigner, StakePosture, TxRecipient, TxRequest,
+    FeePriority, FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner,
+    StakePosture, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
@@ -963,59 +964,6 @@ async fn restart_pscan(shared: &SharedEngine) -> Option<PScanHandle> {
         Err(e) => {
             warn!(error = %e, "failed to re-arm P-scan while restoring open wallet");
             None
-        }
-    }
-}
-
-fn map_open_err(e: shekyl_engine_core::OpenError) -> String {
-    format!("wallet error: {e}")
-}
-
-fn map_first_stake_err(e: FirstStakeError) -> String {
-    match e {
-        FirstStakeError::BondInFlight => {
-            "a signed bond post is already awaiting dispatch (stake in flight)".into()
-        }
-        FirstStakeError::AlreadyStaked => "this wallet is already an active staker".into(),
-        FirstStakeError::Funding(detail) => {
-            format!(
-                "not ready to stake ({detail}); fund the persona (stake_in) and sync, then retry"
-            )
-        }
-        FirstStakeError::FeeEstimate(_) => {
-            "fee estimation failed; check the daemon connection and retry".into()
-        }
-        FirstStakeError::NoStakeEngine => {
-            "stake engine not ready after intent open; retry activation".into()
-        }
-        FirstStakeError::WrongSlot { .. } => format!("stake: {e}"),
-        FirstStakeError::State(d) => {
-            format!("stake preflight failed ({d}); nothing durable was written")
-        }
-        FirstStakeError::Persist(d) | FirstStakeError::Engine(d) => {
-            format!("stake failed mid-flow ({d}); call activate again to resume")
-        }
-        FirstStakeError::NoShardsAvailable => {
-            // Market staking bonds over an assigned subset of the corpus and
-            // the assignment mechanism is its own design round, so this is a
-            // typed refusal, not a failure: nothing was written, nothing was
-            // swept, and the wallet is exactly as it was.
-            "archival staking is not open yet: market staking bonds over a shard \
-             assigned automatically, and shard assignment is still being built. \
-             Nothing was written and your funds were not touched"
-                .into()
-        }
-        FirstStakeError::RecoveredPendingReopen => {
-            "staking recovered an earlier attempt in this session; close and reopen \
-             the wallet to finish, then check your staking status"
-                .into()
-        }
-        FirstStakeError::FeeUnreasonable(v) => {
-            format!(
-                "the daemon quoted a bond fee outside the accepted range ({v}); \
-                 nothing was written. Check that the daemon is one of yours and \
-                 fully synced, then retry"
-            )
         }
     }
 }
