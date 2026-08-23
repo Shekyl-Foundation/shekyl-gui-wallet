@@ -6,6 +6,38 @@ Items without a target version get one within 30 days or get closed as
 
 ---
 
+## Daemon transport has no proxy — target: with the desktop's remote-node story
+
+The daemon client dials directly: `reqwest` is built without the `socks`
+feature (`src-tauri/Cargo.toml`) and `engine_session.rs` constructs
+`HttpRpc::new(url)` with no proxy, so a `.onion` or otherwise
+proxy-reachable daemon address cannot be entered in **Settings**. The
+troubleshooting guide therefore points at a local port forward, which
+needs nothing from the wallet.
+
+Two things would change that, and they are separable:
+
+1. **A proxy setting.** `shekyl-rpc-transport` already carries a SOCKS5h
+   connector (the CLI's `--proxy` uses it) and the constructor to reach
+   it — `HttpRpc::with_proxy(url, proxy)` beside the `HttpRpc::new(url)`
+   used today — so this is a settings field and a constructor choice,
+   not a transport to write.
+2. **The §1 operator statement at the point of configuration.** The CLI
+   and `shekyl-wallet-rpc` say what a non-loopback daemon's operator
+   learns by serving (shekyl-core RT-W7,
+   `shekyl_rpc_transport::network_posture::operator_warning`); this
+   wallet configures the same address and says nothing. That call is one
+   line — the panel needs a place to show it. Worth landing **before** a
+   proxy field, not after: a proxy makes remote daemons easy to reach
+   without making them any more the operator's own.
+
+**Trigger:** either the first request for a remote daemon in the desktop
+wallet, or the next Settings-panel change (item 2 alone). Note the
+desktop scope is principal-focused, not an archival operator node, so a
+built-in onion listener is *not* what this asks for.
+
+---
+
 ## Archival staking + Engine backend — target: post-PR0 sequence
 
 GUI-PR0 (this window) only makes staking **honest**: claim-era tier/claim UX

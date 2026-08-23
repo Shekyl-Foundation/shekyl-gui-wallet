@@ -699,13 +699,20 @@ An open wallet on an unlocked computer is an open wallet.
 - Make sure `shekyld` is running. The wallet cannot function without it.
 - Check that the daemon URL in **Settings** matches the daemon's actual
   address and port (default: `http://127.0.0.1:11029` for mainnet).
-- If the daemon is on a different machine: `shekyld` serves RPC on
-  loopback only — a wildcard (`0.0.0.0`) or network bind is refused at
-  start, and `--confirm-external-bind` no longer exists. Reach a node of
-  yours on another machine through its onion service (shekyl-core
-  `docs/DAEMON_RPC_RUST.md`); the authenticated clear-network leg is
-  `docs/design/RPC_TRANSPORT_POSTURE.md` RT-4. Opening the RPC port on a
-  firewall is not a step — there is nothing listening on the network.
+- **The daemon serves RPC to its own machine only.** `shekyld` binds
+  loopback: a wildcard (`0.0.0.0`) or network address is refused at
+  start, and `--confirm-external-bind` no longer exists. Nothing is
+  listening on the network, so opening the RPC port on a firewall is not
+  a step that can help.
+- **To use a node on another machine, bring its RPC port to this one.**
+  Forward the remote daemon's loopback port to your desktop over a
+  channel you already trust — for example
+  `ssh -L 11029:127.0.0.1:11029 you@your-node` — and leave the daemon URL
+  pointing at `127.0.0.1`. The daemon still binds only its own loopback;
+  the tunnel crosses the network, not the daemon. This wallet dials the
+  daemon directly and has no Tor or SOCKS transport, so a `.onion` daemon
+  address cannot be used here; the `shekyl-cli` wallet has `--proxy` for
+  that.
 - Make sure the wallet and daemon are on the same network (both mainnet,
   both testnet, etc.).
 
