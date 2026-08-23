@@ -70,6 +70,7 @@ pub fn run() {
             commands::get_chain_health,
             commands::get_tier_yields,
             commands::set_daemon_connection,
+            commands::daemon_connection_disclosures,
             commands::get_pqc_status,
             commands::get_security_status,
             commands::get_curve_tree_info,

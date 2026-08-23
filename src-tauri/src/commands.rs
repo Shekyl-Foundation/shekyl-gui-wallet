@@ -320,22 +320,73 @@ pub async fn get_tier_yields(state: State<'_, AppState>) -> Result<Vec<TierYield
         .collect())
 }
 
+/// What setting a daemon URL exposes, returned to the panel that set it.
+///
+/// `warnings` is empty for a daemon on this machine, which is the default
+/// and the supported configuration. A daemon that is not loopback carries
+/// the §1 operator statement of shekyl-core's `RPC_TRANSPORT_POSTURE.md`:
+/// whoever runs that daemon sees which blocks this wallet asks for and what
+/// it broadcasts. The wallet does not refuse it — the operator may well own
+/// the far end — it says what is true, where the address was typed
+/// (RT-W7: discouragement where it is consumed).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DaemonConnection {
+    /// The URL now in effect.
+    pub url: String,
+    /// Disclosures for that URL; never an assurance, only ever warnings.
+    pub warnings: Vec<String>,
+}
+
+/// The disclosures for a daemon URL the wallet is about to use.
+///
+/// This wallet dials the daemon directly and has no proxy, so the
+/// network-path half of the disclosure is judged with no proxy configured
+/// and `AlwaysRemote` is the honest resolution: there is no proxy for a
+/// hostname to leak *past*, and claiming a local-resolver leak would assert
+/// a lookup no configured transport performs.
+fn daemon_disclosures(url: &str) -> Vec<String> {
+    shekyl_rpc_transport::network_posture::daemon_disclosures(
+        "daemon URL",
+        url,
+        None,
+        shekyl_rpc_transport::network_posture::ProxyResolution::AlwaysRemote,
+    )
+    .into_iter()
+    .collect()
+}
+
 #[tauri::command]
 pub async fn set_daemon_connection(
     state: State<'_, AppState>,
     network: String,
     url: Option<String>,
-) -> Result<bool, String> {
+) -> Result<DaemonConnection, String> {
     let net: NetworkType = serde_json::from_value(serde_json::Value::String(network))
         .map_err(|_| "Invalid network: must be mainnet, testnet, or stagenet")?;
 
     let new_url =
         url.unwrap_or_else(|| format!("http://127.0.0.1:{}/json_rpc", net.default_rpc_port()));
 
-    *state.daemon_url.write().await = new_url;
+    let warnings = daemon_disclosures(&new_url);
+    *state.daemon_url.write().await = new_url.clone();
     *state.network.write().await = net;
 
-    Ok(true)
+    Ok(DaemonConnection {
+        url: new_url,
+        warnings,
+    })
+}
+
+/// The disclosures for the daemon URL already in effect, so a wallet that
+/// starts with a non-loopback daemon says so too — not only the session in
+/// which it was typed.
+#[tauri::command]
+pub async fn daemon_connection_disclosures(
+    state: State<'_, AppState>,
+) -> Result<DaemonConnection, String> {
+    let url = state.url().await;
+    let warnings = daemon_disclosures(&url);
+    Ok(DaemonConnection { url, warnings })
 }
 
 #[tauri::command]

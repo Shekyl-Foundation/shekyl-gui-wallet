@@ -28,10 +28,10 @@ use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
     Capability, Credentials, DaemonClient, DrainBalanceReadError, Engine, EngineCreateParams,
     FeePriority, FirstStakeError, FirstStakeOutcome, Network, OpenedEngine, PScanHandle,
-    RefreshOptions, SoloSigner, TxRecipient, TxRequest,
+    RefreshOptions, SoloSigner, StakePosture, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
-use shekyl_engine_file::{SafetyOverrides, WalletFile};
+use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
 use shekyl_rpc_transport::HttpRpc;
 use shekyl_scanner::WalletLedgerExt;
@@ -404,7 +404,13 @@ impl EngineSession {
             shared
         };
 
-        let outcome = Engine::first_stake(shared, slot)
+        // Market: ordinary archival staking inside the reward market. The
+        // desktop wallet is principal-focused, and the other posture
+        // (`FoundationCompleteTree`) is a permanent, non-earning,
+        // unbounded-storage obligation that engine-core documents as never
+        // a default and never reachable without a caller naming it — there
+        // is no acknowledgment path here for a caller to name it through.
+        let outcome = Engine::first_stake(shared, slot, StakePosture::Market)
             .await
             .map_err(map_first_stake_err)?;
 
@@ -421,14 +427,29 @@ impl EngineSession {
         password: Zeroizing<Vec<u8>>,
         slot: u32,
     ) -> Result<SharedEngine, String> {
-        // Verify-then-close: wrong password refuses with wallet still open.
-        tokio::task::block_in_place(|| WalletFile::verify_password(base, password.as_slice()))
-            .map_err(|e| match e {
+        // Verify-then-close: a wrong password refuses with the wallet still
+        // open, so a typo can never log the operator out. The check reads a
+        // snapshot of the sealed bytes from the handle that is already open
+        // — no second file read, no lock to take — and the read guard is
+        // released before the verify, because verifying runs the full
+        // Argon2id KDF and `Arc::try_unwrap` below needs sole ownership.
+        // Same shape as `shekyl-wallet-rpc`'s first-stake choreography.
+        let envelope = {
+            let shared = self
+                .engine
+                .as_ref()
+                .ok_or_else(|| "No wallet is open".to_string())?;
+            let engine = shared.read().await;
+            engine.file().sealed_keys_envelope()
+        };
+        tokio::task::block_in_place(|| envelope.verify_password(password.as_slice())).map_err(
+            |e| match e {
                 shekyl_engine_file::WalletFileError::Envelope(_) => {
                     "incorrect password".to_string()
                 }
                 other => format!("password verification failed: {other}"),
-            })?;
+            },
+        )?;
 
         let daemon = make_daemon(daemon_http_base).await?;
 
@@ -973,6 +994,28 @@ fn map_first_stake_err(e: FirstStakeError) -> String {
         }
         FirstStakeError::Persist(d) | FirstStakeError::Engine(d) => {
             format!("stake failed mid-flow ({d}); call activate again to resume")
+        }
+        FirstStakeError::NoShardsAvailable => {
+            // Market staking bonds over an assigned subset of the corpus and
+            // the assignment mechanism is its own design round, so this is a
+            // typed refusal, not a failure: nothing was written, nothing was
+            // swept, and the wallet is exactly as it was.
+            "archival staking is not open yet: market staking bonds over a shard \
+             assigned automatically, and shard assignment is still being built. \
+             Nothing was written and your funds were not touched"
+                .into()
+        }
+        FirstStakeError::RecoveredPendingReopen => {
+            "staking recovered an earlier attempt in this session; close and reopen \
+             the wallet to finish, then check your staking status"
+                .into()
+        }
+        FirstStakeError::FeeUnreasonable(v) => {
+            format!(
+                "the daemon quoted a bond fee outside the accepted range ({v}); \
+                 nothing was written. Check that the daemon is one of yours and \
+                 fully synced, then retry"
+            )
         }
     }
 }

@@ -2390,6 +2390,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex-literal"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e712f64ec3850b98572bffac52e2c6f282b29fe6c5fa6d42334b30be438d95c1"
+
+[[package]]
 name = "hkdf"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5488,6 +5494,7 @@ dependencies = [
  "redb",
  "serde_json",
  "shekyl-consensus",
+ "shekyl-curve-io",
  "shekyl-fcmp",
 ]
 
@@ -5524,6 +5531,7 @@ dependencies = [
  "kameo",
  "multiexp",
  "rand_core 0.6.4",
+ "rustix",
  "serde_json",
  "shekyl-address",
  "shekyl-archival-bond-builder",
@@ -5541,16 +5549,20 @@ dependencies = [
  "shekyl-engine-prefs",
  "shekyl-engine-state",
  "shekyl-fcmp-proofs",
+ "shekyl-operator-alarm",
+ "shekyl-p-host",
  "shekyl-p-transport",
  "shekyl-proofs",
  "shekyl-rpc-client",
  "shekyl-rpc-transport",
  "shekyl-scanner",
  "shekyl-standoff",
+ "shekyl-tor",
  "shekyl-tx-builder",
  "shekyl-tx-weight",
  "shekyl-types",
  "shekyl-units",
+ "shekyl-win-sec",
  "shekyl-wire",
  "thiserror 2.0.18",
  "tokio",
@@ -5618,7 +5630,6 @@ dependencies = [
 name = "shekyl-fcmp"
 version = "3.1.0"
 dependencies = [
- "blake2",
  "ciphersuite",
  "curve25519-dalek",
  "dalek-ff-group 0.5.0",
@@ -5659,12 +5670,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-operator-alarm"
+version = "3.1.0"
+dependencies = [
+ "shekyl-p-host",
+ "shekyl-tor",
+ "tokio",
+]
+
+[[package]]
+name = "shekyl-p-host"
+version = "3.1.0"
+dependencies = [
+ "shekyl-curve-tree",
+ "shekyl-p-serve",
+ "shekyl-tor",
+ "tokio",
+]
+
+[[package]]
+name = "shekyl-p-serve"
+version = "3.1.0"
+dependencies = [
+ "shekyl-curve-tree",
+ "tokio",
+]
+
+[[package]]
 name = "shekyl-p-transport"
 version = "3.1.0"
 dependencies = [
  "sha3",
  "shekyl-types",
  "ureq",
+]
+
+[[package]]
+name = "shekyl-portable-storage"
+version = "3.1.0"
+dependencies = [
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -5690,6 +5735,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shekyl-curve-io",
+ "shekyl-portable-storage",
  "shekyl-rpc-types",
  "std-shims",
  "thiserror 2.0.18",
@@ -5736,6 +5782,7 @@ dependencies = [
  "shekyl-curve-primitives",
  "shekyl-engine-state",
  "shekyl-rpc-client",
+ "shekyl-tx-weight",
  "shekyl-types",
  "shekyl-units",
  "shekyl-wire",
@@ -5771,6 +5818,23 @@ dependencies = [
 [[package]]
 name = "shekyl-standoff"
 version = "3.1.0"
+
+[[package]]
+name = "shekyl-tor"
+version = "3.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "futures-core",
+ "getrandom 0.2.17",
+ "hex-literal",
+ "hmac",
+ "kameo",
+ "libc",
+ "sha2",
+ "sha3",
+ "tokio",
+ "zeroize",
+]
 
 [[package]]
 name = "shekyl-tx-builder"
@@ -5864,6 +5928,14 @@ dependencies = [
  "tokio-util",
  "tracing",
  "zeroize",
+]
+
+[[package]]
+name = "shekyl-win-sec"
+version = "3.1.0"
+dependencies = [
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

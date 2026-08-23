@@ -145,6 +145,17 @@ function StakeViewBody({ view }: { view: StakingView }) {
         </div>
       )}
 
+      {view.recovery_pending_reopen && (
+        <p
+          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200"
+          role="status"
+        >
+          Staking recovered an earlier attempt when this wallet opened. Close
+          and reopen the wallet to finish — staking actions will not work
+          until you do.
+        </p>
+      )}
+
       <p className="text-[10px] text-purple-300/80">
         {view.pscan_synced_height === null
           ? "Persona scan has not sealed a frontier yet."
