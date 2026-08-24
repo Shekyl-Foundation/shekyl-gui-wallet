@@ -102,6 +102,39 @@ jobs:
         with:
           workspaces: ./gui/src-tauri -> target
 
+      # The Tauri build script resolves `externalBin` before compiling
+      # anything, and fails the build if the sidecar path is absent — so a
+      # check that never runs the daemon still needs a file at its name.
+      # Empty is enough: nothing executes it here, and a real `shekyld`
+      # would only make the job slower and its result dependent on a build
+      # we are not testing.
+      #
+      # `ci.yml` and `codeql.yml` carry this `run:` block verbatim — three
+      # copies of a snippet that derives its own value, so they cannot
+      # disagree about a constant. Lift it into a composite action when a
+      # fourth copy appears or it needs to branch (a Windows check job would
+      # need the `.exe` suffix); today a local `uses:` would have to be
+      # spelled differently here anyway, since this workflow checks the
+      # wallet out under `gui/` rather than at the workspace root.
+      - name: Create sidecar placeholder for Tauri build script
+        working-directory: gui
+        run: |
+          set -euo pipefail
+          # Tauri names the sidecar by target triple (see
+          # src-tauri/binaries/README.md). Read it from the toolchain rather
+          # than hard-coding one, so the step is correct on whatever runner
+          # this job lands on.
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          [ -n "$triple" ] || { echo "no 'host:' line in 'rustc -vV'" >&2; exit 1; }
+          mkdir -p src-tauri/binaries
+          touch "src-tauri/binaries/shekyld-$triple"
+
+      # No `npm ci` / `npm run build`: the frontend bundle is a bundle-time
+      # resource, and `cargo check` completes without `dist/` (verified).
+      # This job asks one question — does the wallet still compile against
+      # this core — and every step that does not serve it is time paid on
+      # every core pull request.
+      #
       # `--all-targets`, deliberately: the break that started this job was in
       # test code (a `StakingReadView` initialiser), which `ci.yml`'s
       # `cargo clippy` — no `--all-targets` — compiles right past.
