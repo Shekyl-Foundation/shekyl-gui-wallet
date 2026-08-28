@@ -1,8 +1,10 @@
 # Follow-ups
 
-Items that don't fit the current release scope. Each has a target version.
-Items without a target version get one within 30 days or get closed as
-"won't fix." See `shekyl-core/docs/15-deletion-and-debt.mdc` for policy.
+Items that don't fit the current release scope. Each has a `Target:` of
+**pre-genesis**, **post-genesis**, or **V4**. Items without one get one
+within 30 days or get closed as "won't fix." Policy:
+`.cursor/rules/15-deletion-and-debt.mdc` in this repo (mirrors
+shekyl-core).
 
 ---
 
@@ -407,7 +409,7 @@ entry. The *dependency* question this entry existed to answer is settled.
 
 ---
 
-## Atomic amounts serialized as JS `number` — target: V3.2
+## Atomic amounts serialized as JS `number` — target: post-genesis
 
 Every balance the Tauri layer hands the frontend is a Rust `u64` of
 atomic units serialized to a JS `number`: `Balance.{total,unlocked,
@@ -417,6 +419,15 @@ staked}` (`get_balance`), `DrainBalance.spendable`
 display-only disposition). JS `number` is IEEE-754 double —
 exact only to 2^53 (≈ 9.007e15 atomic ≈ 9.0M SKL at 1e9 atomic/SKL).
 Above that, the low-order atomic digits round in the JSON bridge.
+
+**Named blocker:** precision is display-only today (Rust `u64` does the
+arithmetic; formatters are coarser than ULP across the supply range).
+Not a genesis consensus item.
+
+**The fix (systemic).** Migrate the balance-read pipeline wholesale:
+serialize atomic amounts as decimal strings, type them `string` in
+`daemon.ts`, parse with `BigInt`, and add a BigInt-native SKL formatter
+that `Balance` and `DrainBalance` share. One PR, one consistent surface.
 
 **Why it's deferred, not fixed in DS-PR-3 PR-B.** The exposure is
 *display-only* — these figures are rendered, never round-tripped into
@@ -430,12 +441,7 @@ Patching one field to string+BigInt would need a divergent BigInt
 formatter and leave `Balance` inconsistent beside it — tech-debt-shaped,
 not tech-debt-removing (rules 15/16).
 
-**The fix (systemic).** Migrate the balance-read pipeline wholesale:
-serialize atomic amounts as decimal strings, type them `string` in
-`daemon.ts`, parse with `BigInt`, and add a BigInt-native SKL formatter
-that `Balance` and `DrainBalance` share. One PR, one consistent surface.
-
-**Reversion criteria (bring forward from V3.2).** Any one of:
+**Reversion criteria (bring forward from post-genesis).** Any one of:
 
 1. A drainable/balance figure begins seeding a transaction amount (e.g.
    a "drain max" button that prefills the send field from `spendable`) —
