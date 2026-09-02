@@ -29,7 +29,7 @@ use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
     Capability, Credentials, DaemonClient, DrainBalanceReadError, Engine, EngineCreateParams,
     FeePriority, FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner,
-    StakePosture, TxRecipient, TxRequest,
+    StakeFacade, StakePosture, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
@@ -342,7 +342,7 @@ impl EngineSession {
     /// Become a staker: credentialed first-stake activation (GUI-PR3).
     ///
     /// Mirrors `shekyl-wallet-rpc` `stake { password }`: verify password →
-    /// optional intent reopen → `Engine::first_stake`. No broadcast on this
+    /// optional intent reopen → [`StakeFacade::first_stake`]. No broadcast on this
     /// path (`state: pending_dispatch`).
     pub async fn activate_staker(
         &mut self,
@@ -411,7 +411,7 @@ impl EngineSession {
         // unbounded-storage obligation that engine-core documents as never
         // a default and never reachable without a caller naming it — there
         // is no acknowledgment path here for a caller to name it through.
-        let outcome = Engine::first_stake(shared, slot, StakePosture::Market)
+        let outcome = StakeFacade::first_stake(shared, slot, StakePosture::Market)
             .await
             .map_err(map_first_stake_err)?;
 
@@ -631,7 +631,7 @@ impl EngineSession {
 
     /// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B; `ARCHIVAL_DRAIN_SEND_FD2.md`
     /// §1 layer 1). Mirrors [`Self::refresh`]'s arc-clone shape: clone the engine
-    /// arc and drive the self-arc accessor `Engine::drain_balance_aggregate`,
+    /// arc and drive the self-arc accessor [`StakeFacade::drain_balance_aggregate`],
     /// which anchors the same send-path reference a real drain proves against.
     ///
     /// Preserves the core two-armed [`DrainBalanceReadError`] split on the
@@ -644,7 +644,7 @@ impl EngineSession {
             .engine
             .clone()
             .ok_or_else(|| "No wallet is open".to_string())?;
-        match Engine::drain_balance_aggregate(shared).await {
+        match StakeFacade::drain_balance_aggregate(shared).await {
             Ok(spendable) => Ok(DrainBalance::Ready {
                 spendable: spendable.to_raw(),
             }),
@@ -656,7 +656,7 @@ impl EngineSession {
     }
 
     /// WI-RPC-1 staking read: staked-balance breakdown + unspent staked
-    /// outputs, projected from [`Engine::staking_read_view`] — the one
+    /// outputs, projected from [`StakeFacade::staking_read_view`] — the one
     /// authoritative aggregation over the sealed pscan / pending-post
     /// records (never the `bonded_slots` hint).
     ///
@@ -678,7 +678,7 @@ impl EngineSession {
             .as_ref()
             .ok_or_else(|| "No wallet is open".to_string())?;
         let g = shared.read().await;
-        let view = tokio::task::block_in_place(|| g.staking_read_view())
+        let view = tokio::task::block_in_place(|| g.stake().staking_read_view())
             .map_err(|e| format!("staking view: {e}"))?;
         Ok(StakingView::from(view))
     }
@@ -943,7 +943,7 @@ async fn wrap_and_start_pscan(
     engine: Engine<SoloSigner>,
 ) -> Result<(SharedEngine, Option<PScanHandle>), String> {
     let shared: SharedEngine = Arc::new(RwLock::new(engine));
-    match Engine::start_pscan_if_staker(shared.clone()).await {
+    match StakeFacade::start_pscan_if_staker(shared.clone()).await {
         Ok(handle) => Ok((shared, handle)),
         Err(e) => {
             warn!(
@@ -959,7 +959,7 @@ async fn wrap_and_start_pscan(
 
 /// Re-arm P-scan on restore paths; degrade to None rather than failing open.
 async fn restart_pscan(shared: &SharedEngine) -> Option<PScanHandle> {
-    match Engine::start_pscan_if_staker(shared.clone()).await {
+    match StakeFacade::start_pscan_if_staker(shared.clone()).await {
         Ok(handle) => handle,
         Err(e) => {
             warn!(error = %e, "failed to re-arm P-scan while restoring open wallet");

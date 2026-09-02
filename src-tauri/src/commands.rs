@@ -756,7 +756,7 @@ pub async fn get_drain_balance(state: State<'_, AppState>) -> Result<DrainBalanc
     eng.drain_balance().await
 }
 
-/// Authoritative staking read (Engine `staking_read_view`, WI-RPC-1).
+/// Authoritative staking read (`StakeFacade::staking_read_view`, WI-RPC-1).
 ///
 /// Returns the single wire DTO from [`crate::staking_view`] — no second
 /// identity map. Fail-closed like `get_drain_balance`: a closed wallet and a

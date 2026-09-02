@@ -136,6 +136,8 @@ shekyl-core) is superseded by this landed surface.
    legs kept distinct and fail-closed read faults (rule 82). The
    staked-output scanner stubs and the claim-era `get_staking_info`
    placeholder were deleted in the same PR.
+   UPDATE 2026-09-02: the session call is `engine.stake().staking_read_view()`
+   (wallet-rpc product door); the Engine inherent still owns the body.
 2. **Unstake/unbond action — still gated.** No unbond mutation is
    exposed on the Engine (`pub fn` audit 2026-08-09). Reimplement
    when core PR-P4 (unbond) exposes one to embedders, per the
