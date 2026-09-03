@@ -29,6 +29,24 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
                 "not ready to stake ({detail}); fund the persona (stake_in) and sync, then retry"
             )
         }
+        FirstStakeError::FundingFragmented { max } => {
+            // The one first-stake refusal that a retry cannot clear.
+            // Neither standing funding remedy applies: the balance is
+            // intact, so there is nothing to repair, and another transfer
+            // in adds one more piece to the set that is already over the
+            // limit. No consolidation path exists for a pool this
+            // fragmented (core's bond assembly says so at the refusal), so
+            // the text says that plainly instead of offering a retry that
+            // would spend a fee to rediscover this same message (rule 82).
+            format!(
+                "your staking balance arrived in more separate transfers (more than \
+                 {max}) than a single stake can gather at once; nothing was written \
+                 and your funds were not touched. Moving more money into staking will \
+                 not clear this — it adds another piece — and the wallet cannot yet \
+                 combine them for you. When you next fund staking from a fresh \
+                 balance, keep it to at most {max} transfers"
+            )
+        }
         FirstStakeError::FeeEstimate(_) => {
             "fee estimation failed; check the daemon connection and retry".into()
         }
@@ -64,5 +82,43 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
                  fully synced, then retry"
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The fragmented-funding refusal must not borrow the `Funding` arm's
+    /// remedy, and must not end in a retry. Both arms are W1-clean funding
+    /// refusals, which is exactly why the wrong one is tempting — but here
+    /// the funding is intact and adding to it enlarges the set that caused
+    /// the refusal, and no consolidation path exists yet, so every retry
+    /// spends a fee to arrive back at this message (rule 82's misdiagnosis
+    /// guard). Red if the arm is collapsed into the `Funding` text, and red
+    /// if a retry imperative is ever appended to it.
+    #[test]
+    fn fragmented_funding_offers_neither_more_funding_nor_a_retry() {
+        let msg = map_first_stake_err(FirstStakeError::FundingFragmented { max: 7 });
+        assert!(
+            msg.contains("at most 7"),
+            "the headroom renders, as the guidance the person can act on: {msg}"
+        );
+        assert!(
+            !msg.contains("fund the persona"),
+            "adding funding enlarges the eligible set; that remedy is a misdiagnosis: {msg}"
+        );
+        for retry in ["retry", "try again", "stake again"] {
+            assert!(
+                !msg.contains(retry),
+                "no retry clears this state — {retry:?} would cost a fee to rediscover \
+                 the same refusal: {msg}"
+            );
+        }
+        assert_ne!(
+            msg,
+            map_first_stake_err(FirstStakeError::Funding("not enough".into())),
+            "the two funding refusals are distinct states and read differently"
+        );
     }
 }
