@@ -145,7 +145,14 @@ export default function ShardIdentityPreview() {
 
           {preview?.recipe && (
             <div className="rounded-lg border border-purple-600/30 bg-purple-900/20 p-3 text-[11px] text-purple-200">
-              <p className="font-semibold text-purple-100">Recipe (candidate.v1)</p>
+              <p className="font-semibold text-purple-100">
+                Recipe (candidate.v1)
+                {preview.recipe.canonical === false && (
+                  <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 font-semibold text-amber-300">
+                    NON-CANONICAL — viewer-chosen, not chain state
+                  </span>
+                )}
+              </p>
               <p className="mt-1 text-purple-300">
                 FG: {preview.recipe.fg_tile} + {preview.recipe.fg_phyllotaxis} @{" "}
                 {preview.recipe.fg_opacity.toFixed(2)}

@@ -81,7 +81,7 @@ pub fn list_shard_preview_fixtures() -> Vec<ShardPreviewFixtureInfo> {
         .map(|f| ShardPreviewFixtureInfo {
             id: f.id.clone(),
             label: f.label.clone(),
-            dominant_regime: f.aggregate.dominant_regime.clone(),
+            dominant_regime: f.dominant_regime.clone(),
             shard_hash: hex::encode(f.aggregate.shard_hash),
         })
         .collect()

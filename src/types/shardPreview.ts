@@ -18,6 +18,14 @@ export interface CandidateRecipe {
   bg_crystalline_palette: string;
   final_mode: string;
   final_opacity: number;
+  /** Version of the rendering spec that produced this recipe. */
+  spec_version: string;
+  /**
+   * False when any input was viewer-chosen (hash override, tweaks) rather
+   * than the shard's own chain state; the UI must surface that visibly
+   * (ruling A, shekyl-core docs/V3_SHARD_VISUALIZATION.md).
+   */
+  canonical: boolean;
 }
 
 export interface RenderShardPreviewRequest {
