@@ -100,17 +100,26 @@ mod tests {
     #[test]
     fn fragmented_funding_offers_neither_more_funding_nor_a_retry() {
         let msg = map_first_stake_err(FirstStakeError::FundingFragmented { max: 7 });
+        // Copy guard, so it reads the copy the way a person does: the
+        // message is several sentences, and a retry appended as a new one
+        // would arrive capitalised.
+        let copy = msg.to_lowercase();
         assert!(
-            msg.contains("at most 7"),
+            copy.contains("at most 7"),
             "the headroom renders, as the guidance the person can act on: {msg}"
         );
         assert!(
-            !msg.contains("fund the persona"),
+            !copy.contains("fund the persona"),
             "adding funding enlarges the eligible set; that remedy is a misdiagnosis: {msg}"
         );
-        for retry in ["retry", "try again", "stake again"] {
+        // Two stems, not a phrase list: every retry imperative this
+        // projection speaks is built from one of them ("then retry", "and
+        // retry", "retry activation", "call activate again to resume"),
+        // whereas "try again"/"stake again" enumerate two of the verbs that
+        // can precede "again" and miss the rest.
+        for retry in ["retry", "again"] {
             assert!(
-                !msg.contains(retry),
+                !copy.contains(retry),
                 "no retry clears this state — {retry:?} would cost a fee to rediscover \
                  the same refusal: {msg}"
             );
