@@ -42,7 +42,8 @@ use shekyl_shard_source::{FixtureShardSource, ShardRenderHandle, ShardSource, Sh
 use shekyl_shard_visual::fixtures;
 use shekyl_shard_visual::{
     parameters_from_aggregate, parameters_with_hash_override, recipe_from_params,
-    render_candidate_png, CandidateRecipe, ShardAggregate, VisualError,
+    render_candidate_png_from_params, CandidateRecipe, ShardAggregate, VisualError,
+    RENDER_REVISION,
 };
 use tauri::{AppHandle, Manager};
 
@@ -216,11 +217,15 @@ fn render_png(
     hash_override: Option<[u8; 32]>,
     size: u32,
 ) -> Result<Vec<u8>, VisualError> {
-    let mut agg = aggregate.clone();
-    if let Some(hash) = hash_override {
-        agg.shard_hash = hash;
-    }
-    render_candidate_png(&agg, size)
+    // The override goes through the crate's own constructor so the PNG's
+    // provenance chunks and the recipe agree (canonical=false); swapping
+    // the hash on a cloned aggregate rendered the override as canonical.
+    let params = if let Some(hash) = hash_override {
+        parameters_with_hash_override(aggregate, hash)
+    } else {
+        parameters_from_aggregate(aggregate)
+    };
+    render_candidate_png_from_params(&params, size)
 }
 
 fn parse_hash_override(raw: Option<&str>) -> Result<Option<[u8; 32]>, String> {
@@ -245,7 +250,10 @@ fn cache_digest(
 ) -> String {
     let hash = hash_override.unwrap_or(base_hash);
     let mut hasher = Sha256::new();
+    // RENDER_REVISION invalidates cached PNGs when the crate's pixel
+    // derivation changes under the same spec version (shekyl-core #617).
     hasher.update(b"shard-visual-v1");
+    hasher.update(RENDER_REVISION.to_le_bytes());
     hasher.update(hash);
     hasher.update(id.as_bytes());
     hasher.update(size.to_le_bytes());
