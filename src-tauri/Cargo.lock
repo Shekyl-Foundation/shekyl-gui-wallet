@@ -5904,6 +5904,7 @@ dependencies = [
  "hex",
  "image",
  "imageproc",
+ "png 0.18.1",
  "serde",
  "sha2",
  "sha3",
