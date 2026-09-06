@@ -242,6 +242,20 @@ fn parse_hash_override(raw: Option<&str>) -> Result<Option<[u8; 32]>, String> {
     })?))
 }
 
+/// LOAD-BEARING, NOT AN OPTIMIZATION — do not remove this cache.
+///
+/// Measured on the rule-76 floor device (Raspberry Pi 4, shekyl-core
+/// `docs/benchmarks/shard_visual_budget_matrix_pi4_20260906T090000Z.txt`), a
+/// single candidate.v1 render costs a median of **69–164 ms at 128px** and
+/// **155–385 ms at 256px**. The 2026-09-06 amendment to *Performance targets*
+/// (shekyl-core `docs/V3_SHARD_VISUALIZATION.md`) states the consequence
+/// explicitly: the thumbnail and portfolio tiers stay interactive **only**
+/// because this cache makes the cost once per shard per `RENDER_REVISION`
+/// rather than once per view. Rendering per view on the floor device is a
+/// visibly slow portfolio, which is the failure the spec's UX rules forbid.
+///
+/// The comment lives here, at the site, and not only in the design doc,
+/// because a design doc does not defend a line of code from a cleanup PR.
 fn cache_digest(
     id: &str,
     base_hash: [u8; 32],
