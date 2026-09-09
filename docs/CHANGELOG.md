@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **Daemon identity check (VC-4).** Opening, creating, restoring, or
+  re-opening a wallet now uses `DaemonClient::verifying` — the same
+  constructor wallet-RPC uses — so the daemon must prove it is this
+  network, this RPC contract, this rule set, and this genesis before any
+  Engine request. A mismatch on the post-open refresh refuses the open
+  rather than logging a warning and leaving the wallet pointed at a
+  foreign node. A daemon that is merely unreachable still lets the file
+  open (offline). There is no fakechain / regtest opt-in.
+
 - **npm dependency refresh.** Took current majors/minors that the toolchain
   already supports: `lucide-react` 0.577 → 1.31 (all in-use icons still
   export), TypeScript ~5.9 → ~6.0.3 (within `typescript-eslint` peer

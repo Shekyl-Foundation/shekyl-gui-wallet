@@ -21,6 +21,16 @@ This document describes the security architecture of the Shekyl GUI wallet (Taur
 
 The React webview communicates with the Rust backend exclusively through Tauri's IPC mechanism. No network access is permitted from the webview.
 
+## Daemon identity
+
+The Engine's daemon client is constructed with
+`DaemonClient::verifying` (`engine_session.rs` `make_daemon`), matching
+`shekyl-wallet-rpc`. Before the first Engine RPC the daemon must prove
+the four-axis identity tuple on `get_version` (RPC contract, consensus
+constants digest, network, genesis). A mismatch refuses; it is not a
+warning. Status-panel polls that still go through `daemon_rpc.rs` do
+not run this check — they are a separate HTTP client.
+
 ## Content Security Policy
 
 The CSP is set in `tauri.conf.json`:
