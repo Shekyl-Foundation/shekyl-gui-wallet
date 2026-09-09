@@ -24,12 +24,12 @@ The React webview communicates with the Rust backend exclusively through Tauri's
 ## Daemon identity
 
 The Engine's daemon client is constructed with
-`DaemonClient::verifying` (`engine_session.rs` `make_daemon`), matching
-`shekyl-wallet-rpc`. Before the first Engine RPC the daemon must prove
-the four-axis identity tuple on `get_version` (RPC contract, consensus
-constants digest, network, genesis). A mismatch refuses; it is not a
-warning. Status-panel polls that still go through `daemon_rpc.rs` do
-not run this check — they are a separate HTTP client.
+`DaemonClient::verifying` (`engine_daemon.rs` `make_daemon`), matching
+`shekyl-wallet-rpc`. Create, restore, and open run a one-shot refresh
+after attach so a mismatch closes the session and returns the VC-4
+sentence instead of leaving the wallet pointed at a foreign node.
+Status-panel polls that still go through `daemon_rpc.rs` do not run
+this check — they are a separate HTTP client.
 
 ## Content Security Policy
 

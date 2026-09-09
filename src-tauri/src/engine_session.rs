@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::engine_daemon::make_daemon;
 use crate::engine_errors::{
     is_identity_refusal, map_first_stake_err, map_open_err, map_refresh_err,
 };
@@ -29,14 +30,13 @@ use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES}
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    Capability, Credentials, DaemonClient, DaemonExpectation, DrainBalanceReadError, Engine,
-    EngineCreateParams, FakechainPolicy, FeePriority, FirstStakeOutcome, Network, OpenedEngine,
-    PScanHandle, RefreshOptions, SoloSigner, StakeFacade, StakePosture, TxRecipient, TxRequest,
+    Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams, FeePriority,
+    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, StakeFacade,
+    StakePosture, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
-use shekyl_rpc_transport::HttpRpc;
 use shekyl_scanner::WalletLedgerExt;
 use shekyl_units::AtomicUnits;
 use tokio::sync::RwLock;
@@ -168,6 +168,7 @@ impl EngineSession {
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
+        self.catch_up_after_open().await?;
 
         let seed = match backup {
             SeedBackup::Mnemonic(m) => {
@@ -252,6 +253,7 @@ impl EngineSession {
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.create_mnemonic = None;
+        self.catch_up_after_open().await?;
 
         Ok(address)
     }
@@ -593,7 +595,7 @@ impl EngineSession {
         Ok(())
     }
 
-    pub async fn catch_up_after_open(&mut self) -> Result<(), String> {
+    async fn catch_up_after_open(&mut self) -> Result<(), String> {
         match self.refresh().await {
             Err(e) if is_identity_refusal(&e) => {
                 let _ = self.close().await;
@@ -937,26 +939,6 @@ fn generate_seed_material(
             Ok((master, SeedFormat::Raw32, SeedBackup::RawHex(seed_hex)))
         }
     }
-}
-
-async fn make_daemon(daemon_http_base: &str, network: Network) -> Result<DaemonClient, String> {
-    let trimmed = daemon_http_base.trim_end_matches('/');
-    let url = trimmed
-        .strip_suffix("/json_rpc")
-        .unwrap_or(trimmed)
-        .trim_end_matches('/')
-        .to_owned();
-    let rpc = HttpRpc::new(url)
-        .await
-        .map_err(|e| format!("daemon unreachable: {e}"))?;
-    // VC-4: same verifying constructor as wallet-RPC; fakechain is Refuse (VC-R3).
-    Ok(DaemonClient::verifying(
-        rpc,
-        DaemonExpectation {
-            network,
-            fakechain: FakechainPolicy::Refuse,
-        },
-    ))
 }
 
 async fn wrap_and_start_pscan(
