@@ -25,11 +25,13 @@ The React webview communicates with the Rust backend exclusively through Tauri's
 
 The Engine's daemon client is constructed with
 `DaemonClient::verifying` (`engine_daemon.rs` `make_daemon`), matching
-`shekyl-wallet-rpc`. Create, restore, and open run a one-shot refresh
-after attach so a mismatch closes the session and returns the VC-4
-sentence instead of leaving the wallet pointed at a foreign node.
-Status-panel polls that still go through `daemon_rpc.rs` do not run
-this check — they are a separate HTTP client.
+`shekyl-wallet-rpc`. `make_daemon` runs the four-axis handshake before
+it returns, so create/restore refuse a foreign node **before**
+`Engine::create` writes a file (the recovery phrase is create-once and
+cannot be recovered by `get_seed`). Open still fail-closes the session
+if a later Engine RPC sees a mismatch. Status-panel polls that still
+go through `daemon_rpc.rs` do not run this check — they are a separate
+HTTP client.
 
 ## Content Security Policy
 

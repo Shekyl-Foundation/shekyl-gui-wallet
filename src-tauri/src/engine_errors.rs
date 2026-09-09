@@ -39,7 +39,7 @@ pub(crate) fn is_identity_refusal(err: &str) -> bool {
 /// `IoError::Daemon` stringifies as `daemon RPC failure: invalid node (MSG)`
 /// and `RefreshError::Io` prefixes that. Other `InvalidNode` uses
 /// ("invalid block", hex parse) never carry an identity-axis marker.
-fn identity_refusal_message(err: &str) -> Option<String> {
+pub(crate) fn identity_refusal_message(err: &str) -> Option<String> {
     const PREFIX: &str = "invalid node (";
     let body = if let Some(start) = err.find(PREFIX) {
         let rest = &err[start + PREFIX.len()..];
@@ -202,6 +202,20 @@ mod tests {
              version cannot be named here; align the two builds. (evidence: \
              missing field))";
         assert!(is_identity_refusal(unreadable));
+
+        // RpcError::InvalidNode Display — the wrap `make_daemon`'s
+        // handshake probe sees before any refresh prefix is applied.
+        let rpc_wrap = "invalid node (network mismatch: this wallet is a mainnet wallet, \
+             the daemon runs testnet. This is the case cross-cutting lock 5 names \
+             — a wallet pointed at a daemon on another network — so it refuses \
+             rather than scanning it.)";
+        assert!(is_identity_refusal(rpc_wrap));
+        assert!(
+            identity_refusal_message(rpc_wrap)
+                .as_deref()
+                .is_some_and(|s| s.starts_with("network mismatch:")),
+            "the probe wrap is stripped so create/restore see the axis first"
+        );
 
         let other_invalid_node =
             "refresh: daemon/scan IO failure: daemon RPC failure: invalid node (invalid block)";

@@ -8,11 +8,11 @@
   re-opening a wallet now uses `DaemonClient::verifying` — the same
   constructor wallet-RPC uses — so the daemon must prove it is this
   network, this RPC contract, this rule set, and this genesis before any
-  Engine request. Create, restore, and open all run that check before
-  the session stays open: a mismatch closes the session and returns the
-  VC-4 sentence rather than logging a warning and leaving the wallet
-  pointed at a foreign node. A daemon that is merely unreachable still
-  lets an existing file open (offline). There is no fakechain / regtest
+  Engine request. Create and restore run that handshake **before**
+  `Engine::create` writes the file, so a mismatch never leaves a wallet
+  on disk without its one-shot recovery phrase. Open still fail-closes
+  the session after attach. A daemon that is merely unreachable still lets
+  an existing file open (offline). There is no fakechain / regtest
   opt-in.
 
 - **npm dependency refresh.** Took current majors/minors that the toolchain
