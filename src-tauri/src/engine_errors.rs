@@ -12,10 +12,56 @@
 //! nothing was written, because an error a user cannot act on is a failure
 //! of the wallet, not of the user (rule 82).
 
-use shekyl_engine_core::FirstStakeError;
+use shekyl_engine_core::{FirstStakeError, RefreshError};
 
 pub(crate) fn map_open_err(e: shekyl_engine_core::OpenError) -> String {
     format!("wallet error: {e}")
+}
+
+/// Refresh failures as operator text.
+///
+/// A VC-4 identity refusal is already written for the person at the wallet
+/// (`wallet_identity_message`); wrapping it in `refresh: daemon RPC failure:
+/// invalid node (…)` would hide the axis and the remedy (rule 82). Other
+/// refresh faults keep the `refresh:` prefix so they stay a sync problem.
+pub(crate) fn map_refresh_err(e: RefreshError) -> String {
+    let rendered = e.to_string();
+    identity_refusal_message(&rendered).unwrap_or_else(|| format!("refresh: {e}"))
+}
+
+/// True when `err` is a VC-4 identity refusal, wrapped or already unwrapped.
+pub(crate) fn is_identity_refusal(err: &str) -> bool {
+    identity_refusal_message(err).is_some()
+}
+
+/// Pull the VC-4 operator sentence out of an `RpcError::InvalidNode` wrap.
+///
+/// `IoError::Daemon` stringifies as `daemon RPC failure: invalid node (MSG)`
+/// and `RefreshError::Io` prefixes that. Other `InvalidNode` uses
+/// ("invalid block", hex parse) never carry an identity-axis marker.
+pub(crate) fn identity_refusal_message(err: &str) -> Option<String> {
+    const PREFIX: &str = "invalid node (";
+    let body = if let Some(start) = err.find(PREFIX) {
+        let rest = &err[start + PREFIX.len()..];
+        let end = rest.rfind(')')?;
+        rest[..end].to_string()
+    } else {
+        err.to_string()
+    };
+    if is_identity_axis_sentence(&body) {
+        Some(body)
+    } else {
+        None
+    }
+}
+
+fn is_identity_axis_sentence(msg: &str) -> bool {
+    msg.contains("RPC contract mismatch:")
+        || msg.contains("consensus constants mismatch:")
+        || msg.contains("genesis block mismatch:")
+        || msg.contains("does not match the RPC contract")
+        // VC-4 network axis, not `OpenError::NetworkMismatch` ("wallet file is").
+        || (msg.contains("network mismatch:") && msg.contains("the daemon runs"))
 }
 
 pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
@@ -129,5 +175,64 @@ mod tests {
             map_first_stake_err(FirstStakeError::Funding("not enough".into())),
             "the two funding refusals are distinct states and read differently"
         );
+    }
+
+    /// VC-4 identity refusals must be recognised through the refresh wrap
+    /// (`daemon/scan IO failure: daemon RPC failure: invalid node (…)`),
+    /// and must not match other `InvalidNode` uses or the file-level
+    /// `OpenError::NetworkMismatch` sentence (same "network mismatch:" stem,
+    /// different subject).
+    #[test]
+    fn identity_refusal_is_recognised_through_the_refresh_wrap() {
+        let network = "refresh: daemon/scan IO failure: daemon RPC failure: invalid node \
+             (network mismatch: this wallet is a mainnet wallet, the daemon runs \
+             testnet. This is the case cross-cutting lock 5 names — a wallet \
+             pointed at a daemon on another network — so it refuses rather than \
+             scanning it.)";
+        assert!(is_identity_refusal(network));
+        assert!(
+            map_refresh_err_from_display(network).starts_with("network mismatch:"),
+            "the wrap is stripped so the person sees the axis first"
+        );
+
+        let unreadable = "daemon/scan IO failure: daemon RPC failure: invalid node \
+             (this daemon's `get_version` does not match the RPC contract this \
+             wallet was built against, so the two are on different RPC versions. \
+             This wallet is 3.29. The reply could not be read, so the daemon's \
+             version cannot be named here; align the two builds. (evidence: \
+             missing field))";
+        assert!(is_identity_refusal(unreadable));
+
+        // RpcError::InvalidNode Display — the wrap `make_daemon`'s
+        // handshake probe sees before any refresh prefix is applied.
+        let rpc_wrap = "invalid node (network mismatch: this wallet is a mainnet wallet, \
+             the daemon runs testnet. This is the case cross-cutting lock 5 names \
+             — a wallet pointed at a daemon on another network — so it refuses \
+             rather than scanning it.)";
+        assert!(is_identity_refusal(rpc_wrap));
+        assert!(
+            identity_refusal_message(rpc_wrap)
+                .as_deref()
+                .is_some_and(|s| s.starts_with("network mismatch:")),
+            "the probe wrap is stripped so create/restore see the axis first"
+        );
+
+        let other_invalid_node =
+            "refresh: daemon/scan IO failure: daemon RPC failure: invalid node (invalid block)";
+        assert!(
+            !is_identity_refusal(other_invalid_node),
+            "protocol InvalidNode is not an identity refusal: {other_invalid_node}"
+        );
+
+        let file_network = "wallet error: network mismatch: wallet file is mainnet, \
+             daemon/caller expected testnet";
+        assert!(
+            !is_identity_refusal(file_network),
+            "the envelope network check is a different refusal: {file_network}"
+        );
+    }
+
+    fn map_refresh_err_from_display(rendered: &str) -> String {
+        identity_refusal_message(rendered).unwrap_or_else(|| rendered.to_string())
     }
 }

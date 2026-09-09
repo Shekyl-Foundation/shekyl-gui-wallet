@@ -16,7 +16,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::engine_errors::{map_first_stake_err, map_open_err};
+use crate::engine_daemon::make_daemon;
+use crate::engine_errors::{
+    is_identity_refusal, map_first_stake_err, map_open_err, map_refresh_err,
+};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use shekyl_crypto_pq::account::{
@@ -27,14 +30,13 @@ use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES}
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    Capability, Credentials, DaemonClient, DrainBalanceReadError, Engine, EngineCreateParams,
-    FeePriority, FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner,
-    StakeFacade, StakePosture, TxRecipient, TxRequest,
+    Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams, FeePriority,
+    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, StakeFacade,
+    StakePosture, TxRecipient, TxRequest,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
-use shekyl_rpc_transport::HttpRpc;
 use shekyl_scanner::WalletLedgerExt;
 use shekyl_units::AtomicUnits;
 use tokio::sync::RwLock;
@@ -130,7 +132,7 @@ impl EngineSession {
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let engine_net = map_network(network);
-        let daemon = make_daemon(daemon_http_base).await?;
+        let daemon = make_daemon(daemon_http_base, engine_net).await?;
 
         let (master_seed, seed_format, backup) = generate_seed_material(engine_net)?;
         let creation_timestamp = SystemTime::now()
@@ -166,6 +168,7 @@ impl EngineSession {
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
+        self.catch_up_after_open().await?;
 
         let seed = match backup {
             SeedBackup::Mnemonic(m) => {
@@ -215,7 +218,7 @@ impl EngineSession {
             .map_err(|e| format!("BIP-39 restore failed: {e}"))?;
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
-        let daemon = make_daemon(daemon_http_base).await?;
+        let daemon = make_daemon(daemon_http_base, engine_net).await?;
         let creation_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -250,6 +253,7 @@ impl EngineSession {
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.create_mnemonic = None;
+        self.catch_up_after_open().await?;
 
         Ok(address)
     }
@@ -274,7 +278,7 @@ impl EngineSession {
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let engine_net = map_network(network);
-        let daemon = make_daemon(daemon_http_base).await?;
+        let daemon = make_daemon(daemon_http_base, engine_net).await?;
         let creds = Credentials::password_only(password.as_slice());
 
         let opened = tokio::task::block_in_place(|| {
@@ -302,6 +306,7 @@ impl EngineSession {
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.create_mnemonic = None;
 
+        self.catch_up_after_open().await?;
         Ok(address)
     }
 
@@ -452,7 +457,7 @@ impl EngineSession {
             },
         )?;
 
-        let daemon = make_daemon(daemon_http_base).await?;
+        let daemon = make_daemon(daemon_http_base, network).await?;
 
         // Close current session (persist + scan shutdown).
         let shared = self
@@ -500,7 +505,7 @@ impl EngineSession {
                 // Best-effort plain reopen so the user is not logged out.
                 let restore = async {
                     let pw = Zeroizing::new(password.as_slice().to_vec());
-                    let daemon = make_daemon(daemon_http_base).await?;
+                    let daemon = make_daemon(daemon_http_base, network).await?;
                     let creds = Credentials::password_only(pw.as_slice());
                     let opened = tokio::task::block_in_place(|| {
                         Engine::<SoloSigner>::open_full(
@@ -585,9 +590,23 @@ impl EngineSession {
             .ok_or_else(|| "No wallet is open".to_string())?;
         let handle = Engine::start_refresh(shared, RefreshOptions::default())
             .await
-            .map_err(|e| format!("refresh: {e}"))?;
-        handle.join().await.map_err(|e| format!("refresh: {e}"))?;
+            .map_err(map_refresh_err)?;
+        handle.join().await.map_err(map_refresh_err)?;
         Ok(())
+    }
+
+    async fn catch_up_after_open(&mut self) -> Result<(), String> {
+        match self.refresh().await {
+            Err(e) if is_identity_refusal(&e) => {
+                let _ = self.close().await;
+                Err(e)
+            }
+            Err(e) => {
+                warn!(error = %e, "engine refresh after open failed");
+                Ok(())
+            }
+            Ok(()) => Ok(()),
+        }
     }
 
     pub async fn primary_address(&self) -> Result<String, String> {
@@ -920,23 +939,6 @@ fn generate_seed_material(
             Ok((master, SeedFormat::Raw32, SeedBackup::RawHex(seed_hex)))
         }
     }
-}
-
-async fn make_daemon(daemon_http_base: &str) -> Result<DaemonClient, String> {
-    // Trim trailing slashes *before* the `/json_rpc` suffix so a base like
-    // `http://host:port/json_rpc/` collapses to `http://host:port` rather
-    // than leaving a stray `json_rpc` segment (the caller already passes a
-    // stripped base, but stay defensive at the daemon-client seam).
-    let trimmed = daemon_http_base.trim_end_matches('/');
-    let url = trimmed
-        .strip_suffix("/json_rpc")
-        .unwrap_or(trimmed)
-        .trim_end_matches('/')
-        .to_owned();
-    let rpc = HttpRpc::new(url)
-        .await
-        .map_err(|e| format!("daemon unreachable: {e}"))?;
-    Ok(DaemonClient::new(rpc))
 }
 
 async fn wrap_and_start_pscan(
