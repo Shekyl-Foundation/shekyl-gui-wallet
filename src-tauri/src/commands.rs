@@ -585,10 +585,6 @@ pub async fn open_wallet(
     let address = eng
         .open(&wallet_dir, &sanitized, &password, network, &daemon)
         .await?;
-    // Best-effort tip catch-up (non-fatal).
-    if let Err(e) = eng.refresh().await {
-        tracing::warn!(error = %e, "engine refresh after open failed");
-    }
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
     Ok(WalletInfo {

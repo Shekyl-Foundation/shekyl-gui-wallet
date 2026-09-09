@@ -35,6 +35,7 @@ mod daemon_connection;
 mod daemon_manager;
 mod daemon_rpc;
 mod drain_balance;
+mod engine_daemon;
 mod engine_errors;
 mod engine_session;
 mod gui_config;
