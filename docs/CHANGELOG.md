@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Branch topology matches shekyl-core.** `main` advances only by merge
+  commit from `dev`. The April 2026 duplicate-history split is closed:
+  `main` merges `dev` taking dev's tree; `main`'s unique SHAs remain as
+  first-parent history (append-only). Subsequent release tags sit on the
+  dev→main merge commit. `v3.1.0-alpha.8` stays on dev `7d209ad`
+  (already signed and pushed).
+
 ## [3.1.0-alpha.8] - 2026-09-10
 
 > Pairs with shekyl-core `v3.1.0-alpha.8`
