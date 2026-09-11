@@ -11,6 +11,9 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Matching-tag pin. Bump this when pairing the next GUI tag with a new
+  # shekyl-core tag. CI (`ci.yml`, `codeql.yml`) stays on core `dev`.
+  SHEKYL_CORE_REF: v3.1.0-alpha.8
 
 jobs:
   create-release:
@@ -60,11 +63,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # shekyl-core is cloned only to build the `shekyld` daemon sidecar; the
-      # wallet itself is pure-Rust (the C++ wallet2 FFI was removed), so no
-      # `wallet` library or `SHEKYL_BUILD_DIR` linkage is needed.
-      - name: Checkout Shekyl core (daemon sidecar source)
-        run: git clone --depth 1 --branch dev --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
+      # shekyl-core is cloned to (1) build the `shekyld` sidecar and (2)
+      # satisfy the Tauri crate's path-deps on `../../shekyl-core/rust/*`.
+      # Pin is the matching shekyl-core tag, not `dev`: replaying this
+      # wallet tag must rebuild the same daemon and the same Engine crates.
+      - name: Checkout Shekyl core (daemon sidecar + Engine crates)
+        run: git clone --depth 1 --branch "${SHEKYL_CORE_REF}" --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
 
       # ── Linux: use contrib/depends for all third-party libs ──
 

@@ -23,11 +23,16 @@ The GUI wallet is a Tauri 2 application:
   direct commits.
 - **`dev`** is the integration branch. All feature work branches off `dev` and
   merges back to `dev`. Version bumps, tags, and CHANGELOG entries happen here.
-- **CI dependency**: `main` CI pins to a core release tag (e.g.
-  `core-v3.1.0`). `dev` CI tracks `--branch dev` of shekyl-core.
-- **Release flow**: When `dev` is release-ready, tag the commit (e.g.
-  `v0.4.0-beta.2`), fast-forward `main` to that tag, then add the CI-pin
-  commit on `main`.
+- **CI dependency**: `dev` CI (`ci.yml`, `codeql.yml`) tracks
+  shekyl-core branch `dev`. Release builds (`release.yml`) clone the
+  matching shekyl-core tag (`SHEKYL_CORE_REF` in that workflow,
+  currently `v3.1.0-alpha.8`).
+- **Release flow**: When `dev` is release-ready, bump the version, cut
+  the changelog, pin `SHEKYL_CORE_REF` if the paired core tag moved, and
+  tag the `dev` commit (e.g. `v3.1.0-alpha.8`). `main` is not a clean
+  promote of `dev` today (divergent history); do not fast-forward or
+  merge `dev` into `main` as part of an alpha tag until that is
+  reconciled separately.
 - **Never commit infrastructure directly to `main`**. This caused a
   divergence in April 2026 where `main` was ahead of `dev` with infra
   commits that `dev` did not have. All infra lands on `dev` first.

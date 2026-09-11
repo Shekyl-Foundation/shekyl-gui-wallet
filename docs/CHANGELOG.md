@@ -2,7 +2,28 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.8] - 2026-09-10
+
+> Pairs with shekyl-core `v3.1.0-alpha.8`
+> (`d8f0f24b03b3a0cb1bf846e7228da20eb2dd6480`). Distinct from the April
+> 2026 MSVC-cycle heading of the same version string, retained below as
+> history.
+>
+> The bundled `shekyld` is built from that tag (matching-tag pin in
+> `release.yml`). It speaks the pre-Noise Levin p2p cut: handshake,
+> compact-block relay, and IBD work between homogeneous alpha.8 nodes.
+> Do not mix with Monero or pre-B5/I1 Shekyl peers; drop any old
+> `p2pstate.bin`. NoiseNN is the next core cut (alpha.9), not this one.
+>
+> `ci.yml` / `codeql.yml` still track shekyl-core `dev`.
+
 ### Changed
+
+- **Release workflow pins shekyl-core by matching tag.**
+  `.github/workflows/release.yml` clones `v3.1.0-alpha.8` instead of
+  `dev`, so replaying this wallet tag rebuilds the same daemon sidecar
+  and the same Engine path-deps. Closes the FOLLOWUPS pin item (reversion
+  criterion 2: core published a matching `v3.1.0-alpha.N` tag).
 
 - **Daemon identity check (VC-4).** Opening, creating, restoring, or
   re-opening a wallet now uses `DaemonClient::verifying` — the same
