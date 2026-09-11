@@ -74,7 +74,7 @@ pub fn validate_hex(hex_str: &str, expected_bytes: usize, field_name: &str) -> R
 ///
 /// Callers must wrap raw user input as:
 ///
-/// ```ignore
+/// ```text
 /// let sanitized = wallet_name::sanitize(&raw);
 /// validate::validate_wallet_name(&sanitized)?;
 /// ```

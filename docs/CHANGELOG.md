@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Linux release rustdoc `--ignored` trap.** After the daemon and Tauri
+  bundles succeeded, `cargo test --release -- --ignored` still compiled
+  rustdoc examples marked ` ```ignore ` (`validate_wallet_name`'s
+  call-site sketch). The fence is now `text`; the release step is
+  `--lib --bins --tests -- --ignored` so it only runs ignored unit /
+  integration tests.
+
 - **Linux release rustup race.** `release.yml` ran `make depends -j`
   before installing Rust, so parallel CMake cargo processes raced to
   fetch 1.94.0 into `~/.rustup/downloads/` and died (`could not rename

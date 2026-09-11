@@ -82,7 +82,9 @@ that requires a live `shekyld` sidecar (spawning it, hitting its RPC) is an
 _integration_ test: mark it `#[ignore = "requires live shekyld sidecar"]`.
 `cargo test` skips `#[ignore]` by default, so CI stays fast and daemon-free;
 the release build (`release.yml`) compiles the real sidecar and runs exactly
-those tests via `cargo test --release -- --ignored`. Run them locally with a
+those tests via `cargo test --release --lib --bins --tests -- --ignored`
+(not a bare `-- --ignored`: that flag also compiles rustdoc `ignore`
+examples). Run them locally with a
 sidecar present the same way. Keep pure logic in unit tests wherever possible —
 reserve `#[ignore]` for the cases that genuinely cannot be exercised without a
 daemon.
