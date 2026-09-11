@@ -74,6 +74,25 @@ jobs:
         shell: bash
         run: git clone --depth 1 --branch "${{ env.SHEKYL_CORE_REF }}" --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
 
+      # Install the pinned toolchain *before* any cmake -j / make depends.
+      # shekyl-core's rust/rust-toolchain.toml is channel-only for this
+      # reason: parallel Cargo invocations race rustup's
+      # ~/.rustup/downloads/ ("could not rename ...partial") if 1.94.0 is
+      # not already present. Core CI installs it up front; this job must
+      # too. `@stable` is the wrong channel — src-tauri/rust-toolchain.toml
+      # and core both pin 1.94.0. Components match the GUI toml so the
+      # later Tauri cargo does not auto-install rustfmt/clippy.
+      - name: Install Rust 1.94.0
+        uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          components: rustfmt, clippy
+          targets: ${{ startsWith(matrix.platform, 'macos') && matrix.tauri_target || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
       # ── Linux: use contrib/depends for all third-party libs ──
 
       - name: Install Linux build tools and Tauri system deps
@@ -141,23 +160,14 @@ jobs:
           cp ../shekyl-core/build/bin/shekyld \
              src-tauri/binaries/shekyld-aarch64-apple-darwin
 
-      # ── Common: Node, Rust, frontend ──
+      # ── Common: Node, frontend ──
+      # Rust is installed before the daemon cmake / make depends (above).
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: lts/*
           cache: npm
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ startsWith(matrix.platform, 'macos') && matrix.tauri_target || '' }}
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: ./src-tauri -> target
 
       # ── Windows: vcpkg + MSVC ──
 

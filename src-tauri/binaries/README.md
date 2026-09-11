@@ -33,6 +33,12 @@ against, so a replay of this wallet tag rebuilds the same daemon and the
 same Engine crates. Bump `SHEKYL_CORE_REF` when pairing the next GUI tag.
 `ci.yml` / `codeql.yml` still track shekyl-core `dev`.
 
+Rust **1.94.0** is installed on the runner *before* `make depends` /
+daemon cmake. shekyl-core's `rust/rust-toolchain.toml` is channel-only
+so parallel cargo does not race rustup's download dir; the workflow must
+have that toolchain already present (same as core CI). Do not move the
+Rust step back below the sidecar build.
+
 `tauri.conf.json` declares `"externalBin": ["binaries/shekyld"]`, so
 Tauri automatically selects the matching triple at build time and bundles
 it into the installer.

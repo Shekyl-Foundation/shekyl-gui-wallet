@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Linux release rustup race.** `release.yml` ran `make depends -j`
+  before installing Rust, so parallel CMake cargo processes raced to
+  fetch 1.94.0 into `~/.rustup/downloads/` and died (`could not rename
+  ...partial`). The job now installs `dtolnay/rust-toolchain@1.94.0`
+  (matching `src-tauri/rust-toolchain.toml` and shekyl-core) before any
+  daemon cmake / `make depends`. Same order as core CI.
+
 - **Windows release clone of shekyl-core.** `release.yml` pinned core with
   `"${SHEKYL_CORE_REF}"`, which PowerShell does not expand. The Windows
   job cloned `--branch ""` and died (`fatal: Remote branch  not found`).
