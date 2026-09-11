@@ -28,14 +28,14 @@
 
 //! Wallet filename and directory utilities.
 //!
-//! The GUI accepts human-friendly wallet names ("My Wallet") and saves them
-//! as underscored, filesystem-friendly files ("My_Wallet.keys"). The
-//! `wallet2_ffi` layer no longer joins directory + filename (see
-//! `shekyl-core` CHANGELOG: "wallet2_ffi no longer carries wallet-directory
-//! state"); this module owns that job so the separator is always correct
-//! for the host platform via `PathBuf::join`.
+//! The GUI accepts human-friendly wallet names ("My Wallet") and normalizes
+//! them, via [`sanitize`], into underscored, filesystem-friendly stems
+//! ("My_Wallet") that the Engine turns into its `{name}.wallet` /
+//! `{name}.wallet.keys` envelope. This module also owns [`ensure_dir_exists`],
+//! which guarantees the configured wallet directory is present (mkdir -p
+//! semantics) before any create/open flow runs.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Filename policy: which characters are kept verbatim by [`sanitize`].
 ///
@@ -94,13 +94,6 @@ pub fn sanitize(input: &str) -> String {
     }
     out.trim_matches(|c: char| c == '_' || c == '.' || c.is_whitespace())
         .to_string()
-}
-
-/// Join a wallet directory and a name into a full path using the host
-/// separator. The caller is responsible for pre-sanitizing the name
-/// via [`sanitize`].
-pub fn build_wallet_path(dir: &Path, name: &str) -> PathBuf {
-    dir.join(name)
 }
 
 /// Ensure the wallet directory exists, creating it (and any missing
@@ -339,19 +332,6 @@ mod tests {
                 prop_assert_eq!(once, twice);
             }
         }
-    }
-
-    // ── build_wallet_path ──────────────────────────────────────────────────
-
-    #[test]
-    fn build_wallet_path_joins_with_host_separator() {
-        let dir = PathBuf::from("/tmp/shekyl/wallets");
-        let p = build_wallet_path(&dir, "My_Wallet");
-        // On POSIX this is "/tmp/shekyl/wallets/My_Wallet";
-        // on Windows "\" is the separator. Either way the path ends with
-        // the name as a single component.
-        assert_eq!(p.file_name().unwrap(), "My_Wallet");
-        assert_eq!(p.parent().unwrap(), dir);
     }
 
     // ── ensure_dir_exists ──────────────────────────────────────────────────

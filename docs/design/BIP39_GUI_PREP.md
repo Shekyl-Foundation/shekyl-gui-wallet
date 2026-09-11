@@ -1,11 +1,18 @@
 # BIP-39 GUI prep — shekyl-gui-wallet
 
-**Status:** Prep landed (GUI-only). Integration blocked on shekyl-core FFI.
+**Status:** Prep landed; **Engine path integration landed in GUI-PR1**.
+
+Create/restore on the pure-Rust Engine backend uses BIP-39 via
+`shekyl-crypto-pq` (`generate_account_from_bip39` / `mnemonic_from_entropy`)
+— **not** `wallet2_ffi_*` symbols. The Engine is the sole wallet backend; the
+transitional Wallet2 path and the `SHEKYL_ENGINE_BACKEND` flag have been
+removed.
 
 **Authority:**
 
 - `shekyl-core/docs/design/ELECTRUM_WORDS_REMOVAL.md` §3.2.1
-- `shekyl-core/docs/FOLLOWUPS.md` — `wallet2_ffi_create_wallet` mainnet-broken cleanup
+- `shekyl-core` `shekyl-wallet-rpc` lifecycle (same BIP-39 create path)
+- GUI plan: Rust-forward / FFI collapse
 
 ## What this prep PR delivers
 
@@ -25,7 +32,16 @@
 - No removal of `language` / `seed_language` from Rust Tauri types
 - No functional mainnet create or BIP-39 restore
 
-## Integration PR checklist (after core)
+## Integration PR checklist (after core) — **SUPERSEDED, kept for lineage**
+
+> This checklist was written for an integration through the C++ `wallet2_ffi`
+> surface via `wallet_bridge.rs`. That route was never taken: GUI-PR1
+> integrated BIP-39 through the pure-Rust Engine instead (see the Status
+> banner above), `wallet_bridge.rs` is deleted, `shekyl-core` rejected adding
+> a BIP-39-aware C++ FFI entry, and the `shekyl-engine-rpc` crate this
+> checklist depended on has since been deleted outright. None of the
+> `wallet2_ffi_*` / `shekyl-engine-rpc` items below can be satisfied or are
+> wanted. Read this section as history.
 
 ### Core readiness (verify before integration PR)
 
@@ -33,6 +49,7 @@
 - [ ] BIP-39 restore FFI exists (provisional name `wallet2_ffi_restore_from_bip39`);
       `wallet2_ffi_restore_deterministic_wallet` deleted
 - [ ] `shekyl-engine-rpc` exposes matching `Wallet2` methods
+      *(crate deleted — see the section banner)*
 - [ ] Mainnet: create → `query_key("mnemonic")` returns 24 words; restore round-trip same address
 - [ ] `shekyl-core` `CHANGELOG.md` updated
 

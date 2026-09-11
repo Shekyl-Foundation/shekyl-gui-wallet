@@ -14,18 +14,18 @@ providing full-UTXO-set anonymity via curve trees.
 ## Architecture Overview
 
 The GUI wallet is a single Tauri process. Wallet operations are performed
-in-process through `wallet_bridge.rs`, which combines two components:
+in-process through `engine_session.rs`, which combines two components:
 
-1. **`shekyl-engine-rpc` (Rust crate)** -- an FFI wrapper around C++ `wallet2`.
-   Today this provides wallet creation, opening, key management, and the
-   construction half of transactions. Despite the crate name, it is currently
-   linked directly into the GUI process; it does not run as a separate RPC
-   server.
+1. **`shekyl-engine-core` (Rust crate)** -- the pure-Rust `Engine`, embedded
+   directly. It provides wallet creation, opening, key management, and
+   transaction construction. There is no C++ `wallet2` and no separate wallet
+   process. (This replaced the transitional `wallet_bridge.rs` / `Wallet2` FFI
+   path at GUI-PR1; the `shekyl-engine-rpc` crate that path went through has
+   since been deleted from `shekyl-core` outright.)
 2. **`shekyl-scanner` (Rust crate)** -- pure-Rust output scanning and balance
    tracking. Runs in a background tokio task that polls the daemon over HTTP
    and updates a `(LedgerBlock, LedgerIndexes)` pair as new blocks arrive.
-   This pair matches `shekyl-engine-rpc::ScannerState::LiveLedger` in
-   `shekyl-core`; `LedgerBlock` holds the wallet's view of confirmed outputs
+   `LedgerBlock` holds the wallet's view of confirmed outputs
    and per-output state, and `LedgerIndexes` holds the spend/freeze indexes.
    Block ingestion goes through
    `LedgerIndexes::process_scanned_outputs(&mut ledger_block, height,
@@ -46,10 +46,10 @@ in-process through `wallet_bridge.rs`, which combines two components:
 │  │  commands.rs                   │  │
 │  └────────────┬───────────────────┘  │
 │  ┌────────────▼───────────────────┐  │
-│  │  wallet_bridge.rs              │  │
+│  │  engine_session.rs             │  │
 │  │  ┌──────────────┐ ┌──────────┐ │  │
-│  │  │ Wallet2 FFI  │ │ scanner  │ │  │
-│  │  │ (C++ wallet2)│ │ (Rust)   │ │  │
+│  │  │ Engine       │ │ scanner  │ │  │
+│  │  │ (pure Rust)  │ │ (Rust)   │ │  │
 │  │  └──────────────┘ └──────────┘ │  │
 │  └────────────────────────────────┘  │
 └──────────────────────────────────────┘
@@ -57,11 +57,14 @@ in-process through `wallet_bridge.rs`, which combines two components:
 
 ### A note on direction
 
-The C++ FFI bridge is **transitional**. The long-term direction is a pure-Rust
-path through `shekyl-engine-rpc` (which will eventually replace `wallet2`
-entirely), with FFI retained only in the few places where C++ provides
-specific, hardened, audited value. The "RPC" in the crate name reflects that
-end state, not the current in-process linkage.
+The pure-Rust path is **the current path, not a target**. The transitional
+C++ `wallet2` FFI bridge is gone: `wallet_bridge.rs` was deleted at GUI-PR1,
+the `shekyl-ffi` / `shekyl-engine-rpc` deps and the C++ static linkage went
+with it, and `shekyl-engine-rpc` itself has since been deleted from
+`shekyl-core`. Nothing in this process links C++ wallet code. Features that
+were only ever backed by the old path (import-from-keys, PQC multisig,
+scanner freeze/thaw) return honest "not available on the Engine backend"
+errors until they are ported.
 
 ---
 
@@ -173,39 +176,32 @@ in-process FFI initialization.
 
 When a wallet is opened (`open_wallet`):
 
-1. `wallet2` (C++) opens the `.keys` file and unlocks it with the supplied
-   password.
-2. The bridge extracts scanner keys (view key pair, spend public key) from
-   the C++ wallet via FFI.
-3. A background tokio task is spawned that runs an in-process sync loop
-   in `wallet_bridge.rs`. The loop polls the daemon via the `Rpc` trait
-   (`get_height`, `get_scannable_block_by_number`), runs each block
-   through `shekyl_scanner::Scanner::scan`, and feeds the recovered
-   outputs into
-   `Arc<TokioMutex<(LedgerBlock, LedgerIndexes)>>` via
-   `LedgerIndexes::process_scanned_outputs`. Spends are detected with
-   `LedgerIndexes::detect_spends`; parent-hash mismatches trigger a
-   fork walk and `LedgerIndexes::handle_reorg`. Each ingested block
-   emits a `scanner-progress` Tauri event.
-4. A `CancellationToken` is stored so the sync loop can be stopped on close
-   or shutdown.
+1. `Engine::open` (pure Rust) opens the `{name}.wallet` / `{name}.wallet.keys`
+   envelope pair and unlocks it with the supplied password.
+2. The Engine owns the scanner keys internally — nothing is extracted across
+   an FFI boundary, and no secret crosses into GUI-owned state (rule 36).
+3. If the wallet is a staker, `Engine::start_pscan_if_staker` starts the
+   `P`-scan task. Chain scanning is driven by `Engine::start_refresh`, which
+   polls the daemon, runs blocks through `shekyl_scanner::Scanner::scan`, and
+   applies the results — including spend detection and reorg handling —
+   inside the Engine. The GUI does not own a sync loop.
+4. The returned handles (`PScanHandle`, refresh handle) are held by the
+   session so they can be shut down on close.
 
 When a wallet is closed (`close_wallet`) or the window is destroyed:
 
-1. The cancellation token is fired; the sync loop finishes its current
-   block and exits.
-2. The C++ `wallet2` instance is dropped; secrets are wiped via `Zeroize`.
-3. Scanner state is reset to `(LedgerBlock::empty(), LedgerIndexes::empty())`.
+1. The scan handles are shut down; in-flight work drains.
+2. The `Engine` is dropped; secrets are wiped via `Zeroize`.
+3. Session state is cleared.
 
 ### Concurrency Model
 
-- The C++ FFI handle (`Wallet2`) sits behind a `std::sync::Mutex` for
-  synchronous access from Tauri commands.
-- Scanner state sits behind a `tokio::sync::Mutex` so the background sync
-  loop and Tauri commands can both read it without blocking the async
-  runtime.
-- All blocking C++ FFI calls from async contexts go through
-  `tokio::task::spawn_blocking` to avoid stalling the async executor.
+- The `Engine` is held as a `SharedEngine` (an `Arc`-wrapped handle); Tauri
+  commands clone it rather than holding a lock across await points.
+- Scan-derived state lives inside the Engine, so background scanning and
+  Tauri command reads do not contend on a GUI-owned mutex.
+- There are no blocking FFI calls to shield the async executor from — the
+  wallet path is pure Rust and async end to end.
 
 ---
 

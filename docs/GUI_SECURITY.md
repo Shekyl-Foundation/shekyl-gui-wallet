@@ -10,16 +10,28 @@ This document describes the security architecture of the Shekyl GUI wallet (Taur
 │                      │
 │   Tauri IPC bridge   │  ← validate.rs: all inputs validated
 ├──────────────────────┤
-│   wallet_bridge.rs   │  ← Rust: type-safe, no unsafe
+│   engine_session.rs  │  ← Rust: type-safe, no unsafe
 │   commands.rs        │
 ├──────────────────────┤
-│ shekyl-engine-rpc    │  ← C++ wallet2 FFI (prepare/finalize)
+│ shekyl-engine-core   │  ← Rust Engine (lifecycle/build/submit)
 │ shekyl-scanner       │  ← Rust scanner (scan/balance/state)
-│ shekyl-tx-builder    │  ← Rust signing (native-sign)
+│ shekyl-tx-builder    │  ← Rust signing (FCMP++ / PQC)
 └──────────────────────┘
 ```
 
 The React webview communicates with the Rust backend exclusively through Tauri's IPC mechanism. No network access is permitted from the webview.
+
+## Daemon identity
+
+The Engine's daemon client is constructed with
+`DaemonClient::verifying` (`engine_daemon.rs` `make_daemon`), matching
+`shekyl-wallet-rpc`. `make_daemon` runs the four-axis handshake before
+it returns, so create/restore refuse a foreign node **before**
+`Engine::create` writes a file (the recovery phrase is create-once and
+cannot be recovered by `get_seed`). Open still fail-closes the session
+if a later Engine RPC sees a mismatch. Status-panel polls that still
+go through `daemon_rpc.rs` do not run this check — they are a separate
+HTTP client.
 
 ## Content Security Policy
 
@@ -121,7 +133,7 @@ These are tracked for implementation in future releases:
 
 ## Scanner State Persistence
 
-The scanner state is currently in-memory only. No partial state is persisted to disk between sessions. On wallet reopen, the scanner re-scans from the wallet's last-known height. There is no `on_flush` checkpoint hook today; the in-process sync loop in `wallet_bridge.rs` keeps `(LedgerBlock, LedgerIndexes)` purely in memory pending serde support for the pair (`shekyl-engine-state` does not yet expose persistence-safe serialization). This means:
+The scanner state is currently in-memory only. No partial state is persisted to disk between sessions. On wallet reopen, the scanner re-scans from the wallet's last-known height. There is no `on_flush` checkpoint hook today; scan state is held by the in-process `Engine` (`engine_session.rs`, driven by `Engine::start_refresh`) pending serde support for the `(LedgerBlock, LedgerIndexes)` pair (`shekyl-engine-state` does not yet expose persistence-safe serialization). This means:
 
 - A crash mid-scan loses in-memory outputs discovered since the last open
 - Recovery is automatic: the scanner detects missed blocks on next open and re-scans

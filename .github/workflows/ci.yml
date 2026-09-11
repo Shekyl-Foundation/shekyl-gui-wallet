@@ -21,7 +21,22 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Checkout Shekyl core (wallet FFI dependency)
-        run: git clone --depth 1 --branch dev --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
+        run: |
+          set -euo pipefail
+          REF="${{ github.head_ref || github.ref_name }}"
+          case "$REF" in
+            main|dev) CORE_BRANCH=dev ;;
+            *)
+              if git ls-remote --heads https://github.com/Shekyl-Foundation/shekyl-core.git "$REF" | grep -q .; then
+                CORE_BRANCH="$REF"
+              else
+                CORE_BRANCH=dev
+              fi
+              ;;
+          esac
+          echo "Checking out shekyl-core branch: $CORE_BRANCH"
+          git clone --depth 1 --branch "$CORE_BRANCH" --recurse-submodules --shallow-submodules \
+            https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
 
       - name: Install Linux system dependencies
         run: |
@@ -47,6 +62,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Structural anti-drift (composition discipline): production modules
+      # stay under NEW_FILE_CAP unless baselined; baselined ceilings can only
+      # shrink. Same family as shekyl-core's engine decomposition ratchet.
+      # Policy: .cursor/rules/27-composition-decomposition.mdc
+      - name: File-size decomposition ratchet
+        run: scripts/ci/check_file_size_ratchet.sh
+
       - name: ESLint
         run: npm run lint
 
@@ -63,15 +85,31 @@ jobs:
         working-directory: src-tauri
         run: cargo fmt --check
 
+      # Tauri resolves `externalBin` before compiling anything and fails if
+      # the sidecar path is absent, so even a job that never runs the daemon
+      # needs a file at its name. Empty is enough: nothing executes it.
       - name: Create sidecar placeholder for Tauri build script
         run: |
+          set -euo pipefail
+          # Tauri names the sidecar by target triple (see
+          # src-tauri/binaries/README.md). Read it from the toolchain rather
+          # than hard-coding one, so the step is correct on whatever runner
+          # this job lands on.
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          [ -n "$triple" ] || { echo "no 'host:' line in 'rustc -vV'" >&2; exit 1; }
           mkdir -p src-tauri/binaries
-          touch src-tauri/binaries/shekyld-x86_64-unknown-linux-gnu
+          touch "src-tauri/binaries/shekyld-$triple"
 
       - name: Clippy
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
 
-      - name: Rust test compilation check
+      # Runs the backend unit tests for real (previously this only ran
+      # `cargo check --tests`, which compiled the test code but executed
+      # nothing). `cargo test` skips `#[ignore]`-marked tests by default:
+      # tests that need a live `shekyld` sidecar are marked `#[ignore]` and
+      # run only in the release build (see the "Backend integration tests"
+      # step in release.yml), so this CI job stays fast and daemon-free.
+      - name: Rust unit tests
         working-directory: src-tauri
-        run: cargo check --tests
+        run: cargo test

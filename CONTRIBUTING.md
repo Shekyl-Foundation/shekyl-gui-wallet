@@ -6,7 +6,8 @@ The GUI wallet is a Tauri 2 application:
 
 - **Frontend**: React + TypeScript + Tailwind CSS (in `src/`)
 - **Backend**: Rust Tauri commands (in `src-tauri/src/`)
-- **Core**: C++ `wallet2` FFI via `shekyl-engine-rpc` + Rust `shekyl-scanner`
+- **Core**: pure-Rust `shekyl-engine-core::Engine`, embedded in-process
+  (`src-tauri/src/engine_session.rs`) + Rust `shekyl-scanner`
 
 ## Development Setup
 
@@ -17,19 +18,36 @@ The GUI wallet is a Tauri 2 application:
 
 ## Branching Model
 
-- **`main`** is the stable branch. It only moves via fast-forward from a tagged
-  `dev` commit, plus an optional CI-pin commit on top. No feature work, no
-  direct commits.
-- **`dev`** is the integration branch. All feature work branches off `dev` and
-  merges back to `dev`. Version bumps, tags, and CHANGELOG entries happen here.
-- **CI dependency**: `main` CI pins to a core release tag (e.g.
-  `core-v3.1.0`). `dev` CI tracks `--branch dev` of shekyl-core.
-- **Release flow**: When `dev` is release-ready, tag the commit (e.g.
-  `v0.4.0-beta.2`), fast-forward `main` to that tag, then add the CI-pin
-  commit on `main`.
-- **Never commit infrastructure directly to `main`**. This caused a
-  divergence in April 2026 where `main` was ahead of `dev` with infra
-  commits that `dev` did not have. All infra lands on `dev` first.
+This repo mirrors shekyl-core: **`main` = stable, `dev` = integration**.
+Policy: `.cursor/rules/06-branching.mdc`.
+
+- **`main`** is stable. It only advances via a **merge commit** from `dev`
+  (`git merge --no-ff dev` / GitHub "Create a merge commit"). No feature
+  work, no direct commits. Fast-forward, squash, and rebase dev→main are
+  forbidden — they elide the release boundary or fail once `main` has any
+  commit not on `dev`.
+- **`dev`** is integration. All work branches off dev and merges back to
+  dev. Version bumps and CHANGELOG cuts happen on dev.
+- **CI**: dev CI (`ci.yml`, `codeql.yml`) tracks shekyl-core `dev`.
+  Release builds (`release.yml`) clone the matching shekyl-core tag
+  (`SHEKYL_CORE_REF`, currently `v3.1.0-alpha.8`).
+- **Release flow** (same shape as shekyl-core):
+  1. dev is verified.
+  2. Open a PR dev → main titled `Release: vX.Y.Z` (audit trail even
+     with one maintainer).
+  3. Merge with **Create a merge commit** (never FF / squash / rebase).
+  4. Signed annotated tag on **that merge commit**.
+  5. Push the tag; `release.yml` builds the installers.
+  6. If dev has not moved, reverse-FF dev to the merge
+     (`git merge --ff-only main` on dev). dev is not rebased onto main.
+- **`v3.1.0-alpha.8` exception:** that tag was signed on dev (`7d209ad`)
+  because `main` still carried the April 2026 duplicate-history split.
+  The dev→main merge that closed the split does **not** move the tag.
+  Subsequent releases tag the merge commit on `main`.
+- **Never commit infrastructure directly to `main`**. The April 2026
+  split (`main` ahead of dev with infra SHAs dev did not share) is
+  closed by the dev→main merge: dev's tree wins; `main`'s unique
+  commits remain as first-parent history (append-only, no force-push).
 
 ## Code Guidelines
 
@@ -57,6 +75,17 @@ See `docs/GUI_SECURITY.md` for the full validation table.
 
 **Canary leak tests** (Gate 6): validate.rs includes tests that plant known
 canary patterns in secret-like inputs and assert error messages don't leak them.
+
+**Unit vs. sidecar-integration tests**: the backend unit tests run on every
+push/PR (`ci.yml` → `cargo test`) and must not need a running daemon. A test
+that requires a live `shekyld` sidecar (spawning it, hitting its RPC) is an
+_integration_ test: mark it `#[ignore = "requires live shekyld sidecar"]`.
+`cargo test` skips `#[ignore]` by default, so CI stays fast and daemon-free;
+the release build (`release.yml`) compiles the real sidecar and runs exactly
+those tests via `cargo test --release -- --ignored`. Run them locally with a
+sidecar present the same way. Keep pure logic in unit tests wherever possible —
+reserve `#[ignore]` for the cases that genuinely cannot be exercised without a
+daemon.
 
 ### Security
 

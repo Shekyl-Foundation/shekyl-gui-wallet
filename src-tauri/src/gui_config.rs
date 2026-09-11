@@ -44,7 +44,13 @@ const CONFIG_FILENAME: &str = "gui-config.json";
 
 /// On-disk shape. New fields must be optional (`#[serde(default)]`)
 /// so older config files load without error after an upgrade.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+///
+/// `Default` is implemented by hand rather than derived: the derived
+/// version would zero-initialise `schema_version` (ignoring the
+/// `#[serde(default = ...)]` attribute, which only applies to
+/// deserialization), so a missing config file would load as
+/// `schema_version: 0` instead of the current [`SCHEMA_VERSION`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuiConfig {
     /// Schema version. Bumped on backwards-incompatible field renames
     /// or removals — additive changes are handled by `serde(default)`.
@@ -57,6 +63,15 @@ pub struct GuiConfig {
     /// pointed at after their target moves.
     #[serde(default)]
     pub wallet_dir_override: Option<PathBuf>,
+}
+
+impl Default for GuiConfig {
+    fn default() -> Self {
+        Self {
+            schema_version: SCHEMA_VERSION,
+            wallet_dir_override: None,
+        }
+    }
 }
 
 fn default_schema_version() -> u32 {

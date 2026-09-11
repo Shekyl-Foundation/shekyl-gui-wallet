@@ -1,68 +1,267 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Coins, Lock, TrendingUp, ShieldCheck, Info, Gift } from "lucide-react";
+import {
+  Coins,
+  Lock,
+  TrendingUp,
+  ShieldCheck,
+  BookOpen,
+  KeyRound,
+  Loader2,
+} from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
-import { formatSkl, formatSklCompact, formatPercent } from "../lib/format";
+import { useWallet } from "../context/useWallet";
+import { formatSklCompact, formatPercent } from "../lib/format";
+import type { DrainBalance } from "../types/daemon";
 import EmissionGauge from "../components/EmissionGauge";
-import StakeTierCard from "../components/StakeTierCard";
-import type { TierYield, WalletStakingInfo, StakedOutput } from "../types/daemon";
+import ShardIdentityPreview from "../components/staking/ShardIdentityPreview";
+import YourStakePanel from "../components/staking/YourStakePanel";
 
+interface StakerStatusInfo {
+  staking_enabled: boolean;
+  has_stake_engine: boolean;
+  bonded_slot_count: number;
+  has_pscan: boolean;
+}
+
+interface ActivateStakerResult {
+  slot: number;
+  swept_inputs: number;
+  resumed: boolean;
+  state: string;
+}
+
+/**
+ * Staking page — archival participation (GUI-PR0 honesty + GUI-PR3
+ * activation + GUI-PR3b staked-balance/outputs read panel).
+ *
+ * Page owns activation and network stats; personal stake read lives in
+ * [`YourStakePanel`] (fetch + fail-closed render). Funding (stake_in) and
+ * unbond land in later PRs.
+ */
 export default function Staking() {
   const { health } = useDaemon();
-  const [tiers, setTiers] = useState<TierYield[]>([]);
-  const [selectedTier, setSelectedTier] = useState<number | null>(null);
-  const [stakeAmount, setStakeAmount] = useState("");
-  const [stakingInfo, setStakingInfo] = useState<WalletStakingInfo | null>(null);
-  const [staking, setStaking] = useState(false);
-  const [claiming, setClaiming] = useState(false);
-  const [stakeError, setStakeError] = useState<string | null>(null);
+  const { phase } = useWallet();
+  const walletOpen = phase === "ready";
 
-  const fetchStakingInfo = useCallback(() => {
-    invoke<WalletStakingInfo>("get_staking_info")
-      .then(setStakingInfo)
-      .catch(() => {});
-  }, []);
+  const [status, setStatus] = useState<StakerStatusInfo | null>(null);
+  const [drain, setDrain] = useState<DrainBalance | null>(null);
+  const [password, setPassword] = useState("");
+  const [activating, setActivating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastOutcome, setLastOutcome] = useState<ActivateStakerResult | null>(
+    null,
+  );
+
+  const refreshStatus = useCallback(() => {
+    if (!walletOpen) {
+      setStatus(null);
+      return;
+    }
+    invoke<StakerStatusInfo>("get_staker_status")
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, [walletOpen]);
 
   useEffect(() => {
-    invoke<TierYield[]>("get_tier_yields").then(setTiers).catch(() => {});
-    fetchStakingInfo();
-  }, [health, fetchStakingInfo]);
+    refreshStatus();
+  }, [refreshStatus, health]);
+
+  // Drainable (P) is a staker-only figure; poll it alongside status, but only
+  // once the wallet is an active staker (a non-staker's core read is a plain
+  // Ok(0) — no point showing it outside the active panel). A fault or a closed
+  // wallet resets to null → the panel renders "—", never a fabricated zero; the
+  // transient "syncing" arm is the only non-value render (DS-PR-3, rule 82).
+  // The `cancelled` guard (matching Shards.tsx) drops a late-resolving read if
+  // the wallet closes / staking is disabled / the component unmounts first, so
+  // a stale in-flight value can never re-populate `drain` after the reset.
+  useEffect(() => {
+    if (!walletOpen || !status?.staking_enabled) {
+      setDrain(null);
+      return;
+    }
+    let cancelled = false;
+    invoke<DrainBalance>("get_drain_balance")
+      .then((d) => {
+        if (!cancelled) setDrain(d);
+      })
+      .catch(() => {
+        if (!cancelled) setDrain(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [walletOpen, status?.staking_enabled, health]);
 
   const stakeRatioPct = health ? (health.stake_ratio / 1_000_000) * 100 : 0;
   const emSharePct = health
     ? (health.staker_emission_share_effective / 1_000_000) * 100
     : 0;
 
+  const canActivate =
+    walletOpen &&
+    status &&
+    !status.staking_enabled &&
+    password.length > 0 &&
+    !activating;
+
+  const onActivate = async () => {
+    if (!canActivate) return;
+    setActivating(true);
+    setError(null);
+    setLastOutcome(null);
+    try {
+      const result = await invoke<ActivateStakerResult>("activate_staker", {
+        password,
+      });
+      setLastOutcome(result);
+      setPassword("");
+      refreshStatus();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  const stakerActive = Boolean(walletOpen && status?.staking_enabled);
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <h1 className="text-xl font-bold text-white">Staking</h1>
 
-      {/* Privacy narrative */}
+      {/* Model narrative */}
       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
           <div>
             <p className="text-sm font-semibold text-emerald-300">
-              Staking as Privacy Participation
+              Archival staking
             </p>
             <p className="mt-1 text-xs leading-relaxed text-emerald-200/80">
-              Staked funds commingle in the accrual pool. Claims draw from
-              pooled rewards, providing plausible deniability on the source of
-              yield. Staking is both yield generation and privacy participation.
+              Staking means becoming an archival participant: your wallet
+              activates a staker persona, posts a bond (broadcast is scheduled,
+              not instant), and later holds shards as useful work. Principal
+              funding and reward recovery ship in follow-up releases.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Network staking gauges */}
+      {/* Activation */}
+      <div className="card space-y-4">
+        <div className="flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-gold-400" />
+          <h2 className="text-sm font-semibold text-purple-200">
+            Become a staker
+          </h2>
+        </div>
+
+        {!walletOpen && (
+          <p className="text-xs text-purple-300">
+            Open an Engine wallet to activate staking.
+          </p>
+        )}
+
+        {walletOpen && !status && (
+          <p className="text-xs text-purple-300">Checking staker status…</p>
+        )}
+
+        {stakerActive && status && (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+            <p className="font-semibold text-emerald-200">Staker active</p>
+            <p className="mt-1 text-emerald-100/80">
+              Bonded slots: {status.bonded_slot_count}
+              {status.has_stake_engine ? " · stake engine running" : ""}
+              {status.has_pscan ? " · persona scan running" : ""}
+            </p>
+            <p className="mt-1 text-emerald-100/80">
+              Drainable (P):{" "}
+              {drain === null ? (
+                // loading or a non-transient fault (the fetch .catch resets to
+                // null) → a dash placeholder, never a fabricated zero.
+                <span className="text-emerald-100/60">—</span>
+              ) : drain.status === "syncing" ? (
+                // transient anchor lag → "syncing", the only non-value render;
+                // `detail` is the operator-facing reason (tooltip).
+                <span className="text-emerald-100/60" title={drain.detail}>
+                  Syncing…
+                </span>
+              ) : (
+                <span>{formatSklCompact(drain.spendable)} SKL</span>
+              )}
+            </p>
+            <p className="mt-1 text-emerald-100/70">
+              Bond posts may still be pending scheduled broadcast
+              (pending_dispatch). Funding the persona and holding shards land
+              in later releases.
+            </p>
+          </div>
+        )}
+
+        {walletOpen && status && !status.staking_enabled && (
+          <>
+            <p className="text-xs text-purple-300">
+              Re-enter your wallet password to activate. This re-materializes
+              keys for the first bond post. Nothing is broadcast on this step —
+              the post is sealed for scheduled dispatch.
+            </p>
+            <input
+              type="password"
+              className="input"
+              placeholder="Wallet password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={activating}
+              autoComplete="current-password"
+            />
+            {error && <p className="text-xs text-red-300">{error}</p>}
+            {lastOutcome && (
+              <p className="text-xs text-emerald-200">
+                Activation sealed: slot {lastOutcome.slot},{" "}
+                {lastOutcome.swept_inputs} funding input(s)
+                {lastOutcome.resumed ? " (resumed)" : ""}, state{" "}
+                <span className="font-mono">{lastOutcome.state}</span>
+              </p>
+            )}
+            <button
+              type="button"
+              className="btn btn-primary w-full"
+              disabled={!canActivate}
+              onClick={() => void onActivate()}
+            >
+              {activating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Activating…
+                </>
+              ) : (
+                <>
+                  <Lock className="h-4 w-4" />
+                  Activate staker
+                </>
+              )}
+            </button>
+          </>
+        )}
+      </div>
+
+      {stakerActive && <YourStakePanel refreshKey={health} />}
+
+      <ShardIdentityPreview />
+
+      {/* Network stats */}
       {health && (
         <div className="card">
           <div className="mb-4 flex items-center gap-2">
             <Coins className="h-4 w-4 text-gold-400" />
             <h2 className="text-sm font-semibold text-purple-200">
-              Network Staking
+              Network stats
             </h2>
           </div>
+          <p className="mb-4 text-xs text-purple-300">
+            Network-wide daemon metrics, not your personal yield.
+          </p>
           <div className="grid grid-cols-4 gap-4">
             <EmissionGauge
               value={stakeRatioPct}
@@ -92,127 +291,29 @@ export default function Staking() {
         </div>
       )}
 
-      {/* Tier selection */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-purple-200">
-            Select Staking Tier
-          </h2>
-          <span
-            className="cursor-help text-purple-400"
-            title="Longer lock periods earn higher yield multipliers. APY estimates are based on current network conditions."
-          >
-            <Info className="h-3.5 w-3.5" />
-          </span>
-        </div>
-        {tiers.map((tier) => (
-          <StakeTierCard
-            key={tier.tier}
-            tier={tier}
-            selected={selectedTier === tier.tier}
-            onSelect={() => setSelectedTier(tier.tier)}
-          />
-        ))}
-        {tiers.length === 0 && (
-          <p className="text-center text-xs text-purple-300">
-            Connect to a daemon to see tier data
-          </p>
-        )}
-      </div>
-
-      {/* Your stakes */}
-      {stakingInfo && stakingInfo.staked_outputs.length > 0 && (
-        <div className="card space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-purple-200">Your Stakes</h2>
-            <span className="text-xs text-purple-300">
-              Total: {formatSkl(stakingInfo.total_staked)} SKL
-            </span>
-          </div>
-          <div className="space-y-2">
-            {stakingInfo.staked_outputs.map((so: StakedOutput, idx: number) => (
-              <div key={idx} className="flex items-center justify-between rounded-lg border border-purple-600/30 bg-purple-800/30 px-3 py-2 text-xs">
-                <div>
-                  <span className="font-semibold text-white">{formatSkl(so.amount)} SKL</span>
-                  <span className="ml-2 text-purple-300">Tier {so.tier}</span>
-                  <span className="ml-2 text-purple-400">
-                    {so.claimable ? "Unlocked" : `Locked until block ${so.unlock_height.toLocaleString()}`}
-                  </span>
-                </div>
-                {so.claimable && (
-                  <button
-                    className="btn btn-primary px-3 py-1 text-xs"
-                    disabled={claiming}
-                    onClick={async () => {
-                      setClaiming(true);
-                      setStakeError(null);
-                      try {
-                        await invoke("claim_rewards");
-                        fetchStakingInfo();
-                      } catch (e) {
-                        setStakeError(String(e));
-                      } finally {
-                        setClaiming(false);
-                      }
-                    }}
-                  >
-                    <Gift className="h-3 w-3" />
-                    {claiming ? "Claiming..." : "Claim"}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+      {!health && (
+        <p className="text-center text-xs text-purple-300">
+          Connect to a daemon to see network staking stats
+        </p>
       )}
 
-      {/* Stake action */}
-      <div className="card space-y-4">
-        <h2 className="text-sm font-semibold text-purple-200">Stake SKL</h2>
-        <input
-          type="number"
-          className="input"
-          placeholder="Amount to stake"
-          min="0"
-          step="0.000001"
-          value={stakeAmount}
-          onChange={(e) => setStakeAmount(e.target.value)}
-          disabled={staking}
-        />
-        {stakeError && (
-          <p className="text-xs text-red-300">{stakeError}</p>
-        )}
-        <button
-          className="btn btn-primary w-full"
-          disabled={selectedTier === null || staking || !stakeAmount}
-          onClick={async () => {
-            if (selectedTier === null) return;
-            setStaking(true);
-            setStakeError(null);
-            try {
-              const [whole = "0", frac = ""] = stakeAmount.split(".");
-              const padded = (frac + "000000000").slice(0, 9);
-              const atomic = BigInt(whole) * BigInt(1_000_000_000) + BigInt(padded);
-              await invoke("stake", {
-                tier: selectedTier,
-                amount: Number(atomic),
-              });
-              setStakeAmount("");
-              fetchStakingInfo();
-            } catch (e) {
-              setStakeError(String(e));
-            } finally {
-              setStaking(false);
-            }
-          }}
-        >
-          <Lock className="h-4 w-4" />
-          {staking
-            ? "Staking..."
-            : selectedTier !== null
-              ? `Stake at Tier ${selectedTier}`
-              : "Select a tier to stake"}
-        </button>
+      <div className="rounded-xl border border-purple-600/30 bg-purple-900/40 p-4">
+        <div className="flex items-start gap-3">
+          <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-purple-300" />
+          <div>
+            <p className="text-sm font-semibold text-purple-100">
+              Operator notes
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-purple-200/80">
+              Do not batch activations on a shared schedule. Collateral release
+              uses a multi-epoch cooldown. Full guidance: shekyl-core{" "}
+              <span className="font-mono text-purple-100">
+                STAKER_OPERATOR_GUIDE.md
+              </span>
+              .
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

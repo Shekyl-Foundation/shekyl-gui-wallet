@@ -34,7 +34,12 @@ export default function BalanceCard() {
           <p className="text-sm font-semibold text-white">{unlocked} SKL</p>
         </div>
         <div>
-          <p className="text-xs text-purple-300">Staked</p>
+          <p
+            className="text-xs text-purple-300"
+            title="The Engine backend is live, but it does not yet compute a personal archival-stake total (Stage 3). This field reads 0 until that lands — it is 'not yet available', not a confirmed zero."
+          >
+            Staked
+          </p>
           <p className="text-sm font-semibold text-white">{staked} SKL</p>
         </div>
       </div>

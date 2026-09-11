@@ -9,8 +9,10 @@ Shekyl Wallet installer via Tauri's `externalBin` feature.
 |-----------|--------------------------|---------------|
 | `shekyld` | Shekyl blockchain daemon | alpha.2       |
 
-`shekyl-engine-rpc` is **not** bundled — the GUI wallet imports it as a
-Rust library dependency, so no separate binary is needed.
+`shekyld` is the only sidecar. The wallet itself is not a bundled binary:
+it runs in-process as `shekyl-engine-core::Engine` (see
+`src-tauri/src/engine_session.rs`), so there is nothing else to ship
+alongside the app.
 
 ## How it works
 
@@ -23,6 +25,13 @@ shekyld-x86_64-unknown-linux-gnu
 shekyld-aarch64-apple-darwin
 shekyld-x86_64-pc-windows-msvc.exe
 ```
+
+**Pin:** `release.yml` clones shekyl-core at the matching tag
+(`SHEKYL_CORE_REF`, currently `v3.1.0-alpha.8`), not `dev`. That checkout
+is also the tree the wallet's `../../shekyl-core/rust/*` path-deps compile
+against, so a replay of this wallet tag rebuilds the same daemon and the
+same Engine crates. Bump `SHEKYL_CORE_REF` when pairing the next GUI tag.
+`ci.yml` / `codeql.yml` still track shekyl-core `dev`.
 
 `tauri.conf.json` declares `"externalBin": ["binaries/shekyld"]`, so
 Tauri automatically selects the matching triple at build time and bundles

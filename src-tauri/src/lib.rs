@@ -26,21 +26,24 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Ensure shekyl-ffi's #[no_mangle] symbols are linked into the cdylib so
-// the C++ wallet libraries (libwallet.a etc.) can resolve them.
-extern crate shekyl_ffi;
-
 use std::sync::Arc;
 
 use tauri::Manager;
 
 mod commands;
+mod daemon_connection;
 mod daemon_manager;
 mod daemon_rpc;
+mod drain_balance;
+mod engine_daemon;
+mod engine_errors;
+mod engine_session;
 mod gui_config;
+mod shard_visual;
+mod staking_view;
 mod state;
+mod transfer_history;
 mod validate;
-mod wallet_bridge;
 mod wallet_name;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -67,9 +70,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Daemon / chain
             commands::get_wallet_status,
-            commands::get_chain_health,
+            daemon_connection::get_chain_health,
             commands::get_tier_yields,
-            commands::set_daemon_connection,
+            daemon_connection::set_daemon_connection,
+            daemon_connection::daemon_connection_disclosures,
             commands::get_pqc_status,
             commands::get_security_status,
             commands::get_curve_tree_info,
@@ -91,15 +95,23 @@ pub fn run() {
             commands::import_wallet_from_seed,
             commands::import_wallet_from_keys,
             commands::get_seed,
+            commands::refresh_wallet,
+            commands::get_staker_status,
+            commands::activate_staker,
             // Wallet data
             commands::get_balance,
+            commands::get_drain_balance,
+            commands::get_staking_view,
             commands::get_address,
             commands::transfer,
             commands::estimate_fee,
             commands::get_transactions,
-            commands::get_staking_info,
-            commands::stake,
-            commands::claim_rewards,
+            // Shard identity preview (pre-archival beta)
+            shard_visual::list_shard_preview_fixtures,
+            shard_visual::render_shard_preview,
+            // Shards page (ShardSource-backed; cutover-stable)
+            shard_visual::list_shards,
+            shard_visual::get_shard_render,
             // PQC Multisig
             commands::create_multisig_group,
             commands::get_multisig_info,
@@ -112,9 +124,6 @@ pub fn run() {
             // Scanner
             commands::get_scanner_balance,
             commands::get_scanner_height,
-            commands::get_scanner_staked_outputs,
-            commands::get_scanner_claimable_stakes,
-            commands::get_scanner_unstakeable_outputs,
             commands::scanner_freeze,
             commands::scanner_thaw,
             // Daemon lifecycle
@@ -126,7 +135,10 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let app_state: tauri::State<'_, state::AppState> = window.state();
-                let _ = wallet_bridge::shutdown(&app_state.wallet);
+                tauri::async_runtime::block_on(async {
+                    let mut eng = app_state.engine.lock().await;
+                    let _ = eng.close().await;
+                });
 
                 let dm: tauri::State<'_, Arc<daemon_manager::DaemonManager>> = window.state();
                 let dm = dm.inner().clone();

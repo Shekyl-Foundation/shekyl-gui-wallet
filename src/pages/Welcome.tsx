@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Plus, Download, ShieldCheck } from "lucide-react";
 import { useWallet } from "../context/useWallet";
 

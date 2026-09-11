@@ -21,7 +21,7 @@ confident about what's happening with your money at every step.
 10. [Sending SKL](#sending-skl)
 11. [Transaction History](#transaction-history)
 12. [Mining: Earning SKL with Your Computer](#mining-earning-skl-with-your-computer)
-13. [Staking: Earning Yield While Strengthening Privacy](#staking-earning-yield-while-strengthening-privacy)
+13. [Staking: Archival Participation](#staking-archival-participation)
 14. [PQC Multisig: Shared Control of Funds](#pqc-multisig-shared-control-of-funds)
 15. [Chain Health: What's Happening on the Network](#chain-health-whats-happening-on-the-network)
 16. [Settings and Network Switching](#settings-and-network-switching)
@@ -322,9 +322,16 @@ Each entry shows:
 
 - The transaction hash (a unique ID).
 - The amount and direction (incoming or outgoing).
-- The block height it was confirmed in.
-- The timestamp.
-- Whether it's fully confirmed.
+- The fee on outgoing sends.
+- The block height it was confirmed in (omitted until the send is on chain).
+- Whether it is confirmed, still pending, spent (a receive you later spent),
+  failed (refused by the network and never mined), or dropped (the wallet
+  stopped waiting and your funds are spendable again).
+
+Outgoing history comes from the wallet's own send journal — records written
+when you dispatch a payment — so failed and dropped sends stay visible
+instead of disappearing from the list. Change returned to you on a send
+appears as a separate incoming row.
 
 ---
 
@@ -392,86 +399,68 @@ work. For normal home use, the default (unrestricted) mode is fine.
 
 ---
 
-## Staking: Earning Yield While Strengthening Privacy
+## Staking: Archival Participation
 
-Staking in Shekyl works differently from most other cryptocurrencies. There's
-no delegation, no validators, and no slashing. Here's how it works:
+Staking in Shekyl is **archival participation**, not a simple lock-and-claim
+yield product and not delegated proof-of-stake. A staker posts collateral,
+holds frozen segments of chain history (**shards**) as useful work, and earns
+archival rewards under protocol rules.
 
-### The basics
+### Status in this wallet build
 
-1. You **lock** some of your SKL for a chosen period of time.
-2. During the lock period, your coins sit in a shared **accrual pool** with
-   everyone else's staked coins.
-3. When the lock expires, you **claim** your original stake plus a share of
-   the emission pool as your reward.
+The Engine wallet backend is live, and staker **activation** now works from
+the Staking page (a password re-auth seals your first bond). The remaining
+archival actions are still pending:
 
-You never hand control of your coins to anyone. They're locked by the protocol
-itself -- even you can't spend them until the lock period ends.
+- You can read **network-wide** stats (stake ratio, emission share, pool
+  balances) when a daemon is connected.
+- You can **activate** as an archival staker on the Engine backend.
+- Once active, the **Your stake** panel shows your staked balance —
+  bonded collateral (confirmed and pending shown separately), rewards
+  received and still unspent — plus each staked output with its slot,
+  amount, and unlock height, and how far the persona scan has synced.
+- You **cannot** yet fund your persona, unbond, or drain rewards — those land
+  in follow-up releases. The retired lock-tier / claim-rewards model is gone.
 
-### Choosing a tier
+The dashboard **Staked** balance field stays at zero on purpose: personal
+archival stake is shown only on the Staking page (**Your stake**), as three
+distinct figures (bonded confirmed, bonded pending, rewards unspent). The
+dashboard does not invent a single summed "staked" total from those legs —
+that is dual-source honesty, not a silent failure to load stakes.
 
-There are three staking tiers:
+If the Your stake panel says **"Staking state could not be read"**, that is
+a read fault (for example a corrupted staking file), not an empty stake —
+the wallet never shows "nothing staked" over a failed read. It retries on
+the next refresh.
 
-| Tier | Lock Period | Yield Multiplier |
-|------|-------------|------------------|
-| Short | ~1,000 blocks (~33 hours) | 1.0x |
-| Medium | ~25,000 blocks (~35 days) | 1.5x |
-| Long | ~150,000 blocks (~208 days) | 2.0x |
+### How staking will work (roadmap)
 
-There is no minimum stake amount. The **yield multiplier** means Long-tier
-stakers get twice the reward share compared to the same amount staked in
-the Short tier. The trade-off is that your coins are locked for longer.
+1. **Activate** — re-enter your password so the wallet can become a staker
+   and prepare the first bond post (broadcast is scheduled, not instant).
+2. **Fund** — send principal to your active archival persona as ordinary
+   private transfers (no protocol minimum; the wallet will prefer structured
+   cover amounts).
+3. **Hold shards** — archive chain segments; that work is what earns rewards.
+4. **Recover** — after cooldowns, unbond collateral and drain rewards back to
+   your principal wallet.
 
-### Unstaking
+Desktop scope targets **principal-side** actions first. Full operator duties
+(onion service, answering challenges) are for node operators; see shekyl-core
+`docs/STAKER_OPERATOR_GUIDE.md`.
 
-When your lock period expires, click **Unstake** on the Staking page. This
-releases your principal back into your spendable balance. If the lock period
-has not yet expired, the Unstake button will be greyed out.
+### Operator footguns (when staking ships)
 
-### Claiming rewards
+- Freeing collateral takes a **multi-epoch release cooldown**. Do not drop a
+  shard expecting to fund a different shard immediately.
+- Do not batch or schedule several activations on a shared clock — that can
+  link funding events together.
+- Let the wallet handle timing delays; do not hand-roll bond-post schedules.
 
-Rewards are separate from your principal. You can claim them **at any time**
-after your stake is created -- even while the lock is still active. Click
-**Claim Rewards** on the Staking page.
+### Network stats on the Staking page
 
-Each claim transaction covers a limited range of blocks. If you have a large
-backlog of unclaimed rewards, you may need to claim multiple times.
-
-**Privacy tip:** Batch your claims rather than claiming every block. Frequent
-small claims create a more fingerprintable on-chain pattern.
-
-### How accrual works
-
-- Your stake earns rewards for blocks in the range from when you staked until
-  the lock expires (`lock_until`).
-- After `lock_until`, your output **stops earning** new rewards. However, any
-  unclaimed backlog from the lock window can still be claimed.
-- A staked output that is never unstaked does not earn indefinitely -- the
-  accrual cap at `lock_until` keeps the commitment symmetric.
-
-### The privacy benefit
-
-This is what makes Shekyl's staking special. When you stake, your coins are
-pooled together with everyone else's. When you claim your rewards, the SKL
-comes from the shared pool. An outside observer can't easily tell which
-specific stake belongs to which person.
-
-The Staking page describes this as **"accrual pool commingling"** -- a fancy
-way of saying your coins mix together with everyone else's, giving you
-**plausible deniability**. Staking isn't just about earning yield; it's
-also participating in the network's privacy.
-
-### Estimated APY
-
-The Staking page shows an estimated annual percentage yield for each tier.
-This number changes based on:
-
-- How much total SKL is staked across the network.
-- The current emission rate (how many new coins are created).
-- Your chosen tier's multiplier.
-
-The APY is an *estimate*, not a guarantee. It fluctuates with network
-conditions.
+When connected, gauges show network stake ratio, staker emission share, total
+staked, and reward-pool balance. These are **chain metrics**, not your
+personal yield and not an APY guarantee.
 
 ---
 
@@ -523,11 +512,12 @@ Each additional signer adds approximately 5.3 KB to the transaction. A
 
 ### Multisig for staking
 
-You can stake from a multisig wallet. This protects long-duration staked
-positions (locked for weeks or months) by requiring multiple approvals for
-both the initial stake and later claims or unstaking.
+When archival staking ships in the wallet, multisig will be the recommended
+way to protect long-lived staker capital (activation, funding, unbond, and
+drain each become multi-party decisions). That path is not wired in this
+build yet.
 
-For the full file-based workflow and RPC method reference, see the
+For the file-based multisig workflow reference, see the
 [CLI User Guide](https://github.com/Shekyl-Foundation/shekyl-core/blob/main/docs/USER_GUIDE.md#pqc-multisig).
 
 ---
@@ -709,9 +699,47 @@ An open wallet on an unlocked computer is an open wallet.
 - Make sure `shekyld` is running. The wallet cannot function without it.
 - Check that the daemon URL in **Settings** matches the daemon's actual
   address and port (default: `http://127.0.0.1:11029` for mainnet).
-- If the daemon is on a different machine, ensure the firewall allows
-  connections on the RPC port and that the daemon was started with
-  `--rpc-bind-ip 0.0.0.0 --confirm-external-bind`.
+- **The wallet and the daemon must be the same network.** A mainnet
+  wallet pointed at a testnet daemon (or the other way around) is
+  refused, with a message that names both sides. Point **Settings** at a
+  daemon on the same network as the wallet, or switch the wallet's
+  network to match.
+
+- **The daemon serves RPC to its own machine only.** `shekyld` binds
+  loopback: a wildcard (`0.0.0.0`) or network address is refused at
+  start, and `--confirm-external-bind` no longer exists. Nothing is
+  listening on the network, so opening the RPC port on a firewall is not
+  a step that can help.
+- **To use a node on another machine, bring its RPC port to this one.**
+  Forward the remote daemon's loopback port to your desktop over a
+  channel you already trust, **before starting the wallet**:
+
+  ```bash
+  ssh -L 11029:127.0.0.1:11029 you@your-node
+  ```
+
+  Then start the wallet and leave the daemon URL on `127.0.0.1`. The
+  wallet checks that port as it launches: if a daemon already answers
+  there it uses that one and does not start a daemon of its own, which is
+  what you want — the remote node is the node. The daemon at the far end
+  still binds only its own loopback; the tunnel crosses the network, not
+  the daemon.
+
+  **If the wallet is already running**, it has started its own daemon on
+  that port, and the forward above will refuse to open (`bind: Address
+  already in use`). Either quit the wallet and start over, or forward to a
+  free port instead and point **Settings** at it:
+
+  ```bash
+  ssh -L 21029:127.0.0.1:11029 you@your-node
+  ```
+
+  with the daemon URL set to `http://127.0.0.1:21029/json_rpc`. Note the
+  wallet will still run its own local daemon alongside in that case.
+
+  This wallet dials the daemon directly and has no Tor or SOCKS transport,
+  so a `.onion` daemon address cannot be used here; the `shekyl-cli`
+  wallet has `--proxy` for that.
 - Make sure the wallet and daemon are on the same network (both mainnet,
   both testnet, etc.).
 
@@ -778,7 +806,7 @@ see the
 | **Release Multiplier** | A dynamic factor that adjusts block emission based on network activity. |
 | **FCMP++ Membership Proof** | A zero-knowledge proof that the spent output exists in the full UTXO set, without revealing which specific output is being spent. Provides much stronger privacy than the ring signatures used by other CryptoNote coins -- the anonymity set is every output on the blockchain. |
 | **Stake Ratio** | The percentage of circulating supply currently locked in staking. |
-| **Staking** | Locking SKL for a period to earn yield. Your coins commingle with others in a shared pool for privacy. |
+| **Staking** | Archival participation: post collateral, hold chain-history shards as useful work, earn archival rewards. Personal actions not yet available in this wallet build. |
 | **Stealth Address** | A one-time address generated for each transaction so only the sender and receiver know the destination. |
 | **Transaction Fee** | A small amount of SKL paid to miners for including your transaction in a block. |
 
@@ -800,9 +828,9 @@ see the
 
 ---
 
-*This guide is for Shekyl Wallet v0.4.x-beta. Wallet creation, opening,
-import, sending, receiving, staking, and claiming all operate through an
-in-process bridge to the wallet engine -- no separate background process is
-involved. FCMP++ proof generation and PQC signing progress are streamed in
-real time. Mining and chain health features work when connected to a running
-`shekyld` daemon.*
+*This guide is for Shekyl Wallet 3.1.x-alpha. Wallet creation, opening,
+import, sending, and receiving run on the in-process Engine backend -- no
+separate wallet-rpc process is required. Staker activation is available on
+the Engine backend; persona funding, unbond, and drain are still pending.
+Mining and chain health features work when connected to a running `shekyld`
+daemon.*

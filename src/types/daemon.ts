@@ -47,6 +47,20 @@ export interface Balance {
   staked: number;
 }
 
+/**
+ * Drainable-P read result (DS-PR-3 PR-B; `get_drain_balance`).
+ *
+ * Discriminated union mirroring the core two-armed split: `"ready"` carries the
+ * anchored aggregate spendable scalar (atomic units); `"syncing"` is the
+ * transient anchor arm — render a placeholder, never a zero. A non-transient
+ * fault is not a variant here — the command rejects, and the caller's `.catch`
+ * renders "—" (never a fabricated zero). "syncing" is shown only for the
+ * transient arm, never conflated with a fault.
+ */
+export type DrainBalance =
+  | { status: "ready"; spendable: number }
+  | { status: "syncing"; detail: string };
+
 export interface TierYield {
   tier: number;
   lock_blocks: number;
@@ -98,17 +112,40 @@ export interface CurveTreeInfo {
   height: number;
 }
 
-export interface StakedOutput {
+/**
+ * One unspent staked (P-owned) funding output (`get_staking_view`).
+ * Amounts are atomic units, display-only (see `DrainBalance` note).
+ */
+export interface StakedOutputView {
+  gindex: number;
   amount: number;
-  tier: number;
-  lock_height: number;
+  p_slot: number;
   unlock_height: number;
-  claimable: boolean;
+  confirmed: boolean;
 }
 
-export interface WalletStakingInfo {
-  total_staked: number;
-  staked_outputs: StakedOutput[];
+/**
+ * WI-RPC-1 staking read view (`get_staking_view`; GUI-PR3b).
+ *
+ * The three balance legs are distinct on purpose — confirmed bond principal,
+ * pending (in-flight post) principal, and received-unspent rewards are never
+ * summed into one figure. A read fault is not a variant here: the command
+ * rejects and the caller renders a non-value, never "nothing staked" over a
+ * bad read (rule 82).
+ */
+export interface StakingView {
+  staking_enabled: boolean;
+  bonded_principal_confirmed: number;
+  bonded_principal_pending: number;
+  rewards_received_unspent: number;
+  staked_outputs: StakedOutputView[];
+  pscan_synced_height: number | null;
+  /**
+   * A staked slot was adopted this session and cannot be acted on until the
+   * wallet is reopened. Shown, never hidden: a wallet that displays
+   * staker-hood it cannot use is the failure this flag exists to prevent.
+   */
+  recovery_pending_reopen: boolean;
 }
 
 export interface WalletProgress {

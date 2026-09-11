@@ -28,18 +28,31 @@
 
 //! Tauri commands for the Shekyl wallet.
 //!
-//! Chain/staking/mining commands call the daemon via JSON-RPC.
-//! Wallet commands call shekyl-engine-rpc via JSON-RPC.
+//! Chain/staking/mining commands call the daemon via JSON-RPC. The wallet
+//! lifecycle runs entirely on the pure-Rust [`crate::engine_session`] backend
+//! — the transitional Wallet2 / `shekyl-engine-rpc` path has been removed.
+//! Features that were only ever backed by that path (import-from-keys, PQC
+//! multisig, scanner freeze/thaw) return honest "not available on the Engine
+//! backend" errors until they are ported.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::daemon_rpc;
+use crate::drain_balance::DrainBalance;
+use crate::engine_session;
 use crate::gui_config;
+use crate::staking_view::StakingView;
 use crate::state::{self, AppState, NetworkType};
+use crate::transfer_history::{TransferDirection, TransferRow, TransferStatus};
 use crate::validate;
-use crate::wallet_bridge;
 use crate::wallet_name;
+
+/// User-facing refusal for wallet features that only ran on the retired
+/// Wallet2 backend and have no Engine implementation yet.
+const ENGINE_BACKEND_UNSUPPORTED: &str = "\
+this feature is not available on the Engine backend yet; it ran only on the \
+retired Wallet2 path and is pending an Engine implementation";
 
 const SCALE: f64 = 1_000_000.0;
 const BLOCKS_PER_YEAR: f64 = 262_800.0; // 2-minute blocks
@@ -89,49 +102,39 @@ pub struct Balance {
     pub staked: u64,
 }
 
+/// Transaction list / send result row for the frontend.
+///
+/// Mirrors [`TransferRow`] on the wire. Settlement is expressed only via
+/// [`TransferStatus`] — there is no parallel `confirmed` bool.
 #[derive(Debug, Serialize)]
 pub struct TxInfo {
+    /// Stable list key (`hash:index` for receives, bare hash for sends).
+    pub id: String,
     pub hash: String,
     pub amount: u64,
     pub fee: u64,
-    pub height: u64,
+    /// Inclusion height, or `null` when the tx is not on chain.
+    pub height: Option<u64>,
     pub timestamp: u64,
-    pub direction: String,
-    pub confirmed: bool,
+    pub direction: TransferDirection,
+    pub status: TransferStatus,
     pub pqc_protected: bool,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ChainHealth {
-    pub height: u64,
-    pub target_height: u64,
-    pub top_block_hash: String,
-    pub difficulty: u64,
-    pub tx_count: u64,
-    pub tx_pool_size: u64,
-    pub database_size: u64,
-    pub version: String,
-    pub synchronized: bool,
-    pub already_generated_coins: String,
-    pub release_multiplier: u64,
-    pub burn_pct: u64,
-    pub stake_ratio: u64,
-    pub total_burned: u64,
-    pub staker_pool_balance: u64,
-    pub staker_emission_share_effective: u64,
-    pub emission_era: String,
-    pub last_block_reward: u64,
-    pub last_block_timestamp: u64,
-    pub last_block_hash: String,
-    pub last_block_size: u64,
-    pub total_staked: u64,
-    pub tier_0_lock_blocks: u64,
-    pub tier_1_lock_blocks: u64,
-    pub tier_2_lock_blocks: u64,
-    pub network: String,
-    pub curve_tree_root: String,
-    pub curve_tree_leaf_count: u64,
-    pub curve_tree_depth: u8,
+impl From<TransferRow> for TxInfo {
+    fn from(r: TransferRow) -> Self {
+        Self {
+            id: r.id,
+            hash: r.hash,
+            amount: r.amount,
+            fee: r.fee,
+            height: r.height,
+            timestamp: r.timestamp,
+            direction: r.direction,
+            status: r.status,
+            pqc_protected: r.pqc_protected,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -169,21 +172,6 @@ pub struct SecurityStatus {
     pub paths_precomputed: bool,
 }
 
-#[derive(Debug, Serialize)]
-pub struct StakedOutputInfo {
-    pub amount: u64,
-    pub tier: u8,
-    pub lock_height: u64,
-    pub unlock_height: u64,
-    pub claimable: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WalletStakingInfo {
-    pub total_staked: u64,
-    pub staked_outputs: Vec<StakedOutputInfo>,
-}
-
 // ─── Daemon-connected commands ───────────────────────────────────────────────
 
 #[tauri::command]
@@ -215,53 +203,6 @@ pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatu
             daemon_height: 0,
         }),
     }
-}
-
-#[tauri::command]
-pub async fn get_chain_health(state: State<'_, AppState>) -> Result<ChainHealth, String> {
-    let url = state.url().await;
-    let network = state.network.read().await;
-
-    let info = daemon_rpc::get_info(&state.http, &url).await?;
-    let block = daemon_rpc::get_last_block_header(&state.http, &url)
-        .await
-        .ok();
-    let staking = daemon_rpc::get_staking_info(&state.http, &url).await.ok();
-    let tree = daemon_rpc::get_curve_tree_info(&state.http, &url)
-        .await
-        .ok();
-
-    Ok(ChainHealth {
-        height: info.height,
-        target_height: info.target_height,
-        top_block_hash: info.top_block_hash,
-        difficulty: info.difficulty,
-        tx_count: info.tx_count,
-        tx_pool_size: info.tx_pool_size,
-        database_size: info.database_size,
-        version: info.version,
-        synchronized: info.synchronized,
-        already_generated_coins: info.already_generated_coins.unwrap_or_default(),
-        release_multiplier: info.release_multiplier,
-        burn_pct: info.burn_pct,
-        stake_ratio: info.stake_ratio,
-        total_burned: info.total_burned,
-        staker_pool_balance: info.staker_pool_balance,
-        staker_emission_share_effective: info.staker_emission_share_effective,
-        emission_era: info.emission_era,
-        last_block_reward: block.as_ref().map_or(0, |b| b.reward),
-        last_block_timestamp: block.as_ref().map_or(0, |b| b.timestamp),
-        last_block_hash: block.as_ref().map_or_else(String::new, |b| b.hash.clone()),
-        last_block_size: block.as_ref().map_or(0, |b| b.block_size),
-        total_staked: staking.as_ref().map_or(0, |s| s.total_staked),
-        tier_0_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_0_lock_blocks),
-        tier_1_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_1_lock_blocks),
-        tier_2_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_2_lock_blocks),
-        network: network.as_str().into(),
-        curve_tree_root: tree.as_ref().map_or_else(String::new, |t| t.root.clone()),
-        curve_tree_leaf_count: tree.as_ref().map_or(0, |t| t.leaf_count),
-        curve_tree_depth: tree.as_ref().map_or(0, |t| t.depth),
-    })
 }
 
 #[tauri::command]
@@ -297,24 +238,6 @@ pub async fn get_tier_yields(state: State<'_, AppState>) -> Result<Vec<TierYield
             }
         })
         .collect())
-}
-
-#[tauri::command]
-pub async fn set_daemon_connection(
-    state: State<'_, AppState>,
-    network: String,
-    url: Option<String>,
-) -> Result<bool, String> {
-    let net: NetworkType = serde_json::from_value(serde_json::Value::String(network))
-        .map_err(|_| "Invalid network: must be mainnet, testnet, or stagenet")?;
-
-    let new_url =
-        url.unwrap_or_else(|| format!("http://127.0.0.1:{}/json_rpc", net.default_rpc_port()));
-
-    *state.daemon_url.write().await = new_url;
-    *state.network.write().await = net;
-
-    Ok(true)
 }
 
 #[tauri::command]
@@ -395,25 +318,24 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
     let mut wallets = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "keys") {
-            let name = path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-            let modified = entry
-                .metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_secs());
+        let fname = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        // Engine wallets are keyed by their `{name}.wallet.keys` envelope.
+        let Some(stem) = fname.strip_suffix(".wallet.keys") else {
+            continue;
+        };
+        let name = stem.to_string();
+        let modified = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs());
 
-            wallets.push(WalletFileInfo {
-                name,
-                path: path.to_string_lossy().to_string(),
-                modified,
-            });
-        }
+        wallets.push(WalletFileInfo {
+            name,
+            path: path.to_string_lossy().to_string(),
+            modified,
+        });
     }
 
     wallets.sort_by(|a, b| b.modified.cmp(&a.modified));
@@ -421,29 +343,13 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
 }
 
 #[tauri::command]
-pub async fn init_wallet_rpc(
-    state: State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<bool, String> {
-    if wallet_bridge::is_initialized(&state.wallet) {
-        return Ok(true);
-    }
-
-    let daemon_addr = state.daemon_address().await;
+pub async fn init_wallet_rpc(state: State<'_, AppState>) -> Result<bool, String> {
+    // The Engine backend connects to the daemon per wallet-open (no global
+    // handle to initialise). This retains its startup contract of guaranteeing
+    // the configured wallet directory exists before any create/open flow runs
+    // (mkdir -p semantics on POSIX and Windows).
     let wallet_dir = state.wallet_dir.read().await.clone();
-    let network = *state.network.read().await;
-    let nettype: u8 = match network {
-        NetworkType::Mainnet => 0,
-        NetworkType::Testnet => 1,
-        NetworkType::Stagenet => 2,
-    };
-
-    // Guarantee the configured wallet directory exists before any
-    // create/open flow runs. mkdir -p semantics on POSIX and Windows.
     wallet_name::ensure_dir_exists(&wallet_dir)?;
-
-    wallet_bridge::init(&state.wallet, nettype, &daemon_addr)?;
-    wallet_bridge::setup_progress_bridge(&state.wallet, app)?;
     Ok(true)
 }
 
@@ -514,11 +420,90 @@ pub async fn get_wallet_dir(state: State<'_, AppState>) -> Result<WalletDirRespo
 
 #[tauri::command]
 pub async fn shutdown_wallet_rpc(state: State<'_, AppState>) -> Result<bool, String> {
-    wallet_bridge::shutdown(&state.wallet)?;
-
+    let close_result = {
+        let mut eng = state.engine.lock().await;
+        eng.close().await
+    };
+    // Clear the open flags even if close errored: the wallet is being torn
+    // down, so the UI must not keep believing one is open — a stale
+    // `wallet_open` would block a clean re-open.
     *state.wallet_open.write().await = false;
     *state.wallet_name.write().await = None;
+    close_result?;
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn refresh_wallet(state: State<'_, AppState>) -> Result<bool, String> {
+    if !*state.wallet_open.read().await {
+        return Err("No wallet is open".into());
+    }
+    let eng = state.engine.lock().await;
+    eng.refresh().await?;
+    Ok(true)
+}
+
+/// Archival staker status (Engine only).
+#[derive(Debug, Serialize)]
+pub struct StakerStatusInfo {
+    pub staking_enabled: bool,
+    pub has_stake_engine: bool,
+    pub bonded_slot_count: u32,
+    pub has_pscan: bool,
+}
+
+/// Result of archival first-stake activation.
+#[derive(Debug, Serialize)]
+pub struct ActivateStakerResult {
+    pub slot: u32,
+    pub swept_inputs: usize,
+    pub resumed: bool,
+    pub state: String,
+}
+
+#[tauri::command]
+pub async fn get_staker_status(state: State<'_, AppState>) -> Result<StakerStatusInfo, String> {
+    if *state.wallet_open.read().await {
+        let eng = state.engine.lock().await;
+        if eng.is_open() {
+            let s = eng.staker_status().await?;
+            return Ok(StakerStatusInfo {
+                staking_enabled: s.staking_enabled,
+                has_stake_engine: s.has_stake_engine,
+                bonded_slot_count: s.bonded_slot_count,
+                has_pscan: s.has_pscan,
+            });
+        }
+    }
+    Ok(StakerStatusInfo {
+        staking_enabled: false,
+        has_stake_engine: false,
+        bonded_slot_count: 0,
+        has_pscan: false,
+    })
+}
+
+/// Become an archival staker (Engine `first_stake` / password re-auth).
+#[tauri::command]
+pub async fn activate_staker(
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<ActivateStakerResult, String> {
+    validate::validate_password(&password)?;
+    if !*state.wallet_open.read().await {
+        return Err("No wallet is open".into());
+    }
+    let mut eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err("no wallet is open on the Engine backend".into());
+    }
+    let outcome = eng.activate_staker(&password).await?;
+    Ok(ActivateStakerResult {
+        slot: outcome.slot,
+        swept_inputs: outcome.swept_inputs,
+        resumed: outcome.resumed,
+        state: outcome.state.to_owned(),
+    })
 }
 
 // ─── Wallet lifecycle commands ───────────────────────────────────────────────
@@ -537,108 +522,94 @@ pub async fn create_wallet(
     validate::validate_wallet_name(&sanitized)?;
     validate::validate_password(&password)?;
 
-    let network = state.network.read().await;
-    let lang = language.unwrap_or_else(|| "English".into());
+    // `language` is a legacy Wallet2 mnemonic-language selector; the Engine
+    // derives the recovery phrase itself (BIP-39 English on mainnet/stagenet,
+    // raw32 hex on testnet), so the argument is accepted for API stability but
+    // no longer drives seed generation.
+    let _ = language;
+    let network = *state.network.read().await;
 
     let wallet_dir = state.wallet_dir.read().await.clone();
     wallet_name::ensure_dir_exists(&wallet_dir)?;
-    let full_path = wallet_name::build_wallet_path(&wallet_dir, &sanitized);
-    validate::validate_wallet_path(&full_path)?;
-    let path_str = full_path.to_string_lossy().to_string();
 
-    wallet_bridge::create_wallet(&state.wallet, &path_str, &password, &lang)?;
-
-    let addr_resp = wallet_bridge::get_address(&state.wallet, 0)?;
-    let seed = wallet_bridge::query_key(&state.wallet, "mnemonic")?;
-
+    let daemon = state.daemon_http_base().await;
+    let mut eng = state.engine.lock().await;
+    let outcome = eng
+        .create(&wallet_dir, &sanitized, &password, network, &daemon)
+        .await?;
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
-
     Ok(CreateWalletResult {
         name: sanitized,
-        address: addr_resp.address,
-        seed,
-        seed_language: lang,
+        address: outcome.address,
+        seed: outcome.seed,
+        seed_language: seed_language_for(network),
         network: network.as_str().into(),
     })
+}
+
+/// The recovery-phrase encoding the Engine uses for a freshly created or
+/// opened wallet on `network`: BIP-39 English everywhere except testnet,
+/// which uses a raw 32-byte hex seed.
+fn seed_language_for(network: NetworkType) -> String {
+    if network == NetworkType::Testnet {
+        "raw32".into()
+    } else {
+        "BIP-39 English".into()
+    }
 }
 
 #[tauri::command]
 pub async fn open_wallet(
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
     filename: String,
     password: String,
 ) -> Result<WalletInfo, String> {
     validate::validate_password(&password)?;
 
-    let network = state.network.read().await;
-    let daemon_addr = state.daemon_address().await;
+    let network = *state.network.read().await;
     let wallet_dir = state.wallet_dir.read().await.clone();
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
-    // Dual-search: users created wallets with spaces in the name before
-    // the sanitize pass existed. Try the sanitized form first (the
-    // forward-looking default); on miss, fall back to the raw input so
-    // legacy files keep opening. The fallback branch has a removal
-    // target — see docs/FOLLOWUPS.md.
     let sanitized = wallet_name::sanitize(&filename);
     validate::validate_wallet_name(&sanitized)?;
 
-    let candidate_sanitized = wallet_name::build_wallet_path(&wallet_dir, &sanitized);
-    let keys_sanitized = candidate_sanitized.with_extension("keys");
+    if !engine_session::engine_wallet_exists(&wallet_dir, &sanitized) {
+        return Err(format!(
+            "no wallet found for '{sanitized}' (expected {sanitized}.wallet.keys)"
+        ));
+    }
 
-    // The raw input may contain spaces — we skip validate_wallet_name on
-    // it (spaces aren't path separators, just whitespace), but still
-    // reject anything with actual path separators or null bytes to
-    // prevent traversal via the legacy path.
-    let raw_has_separator =
-        filename.contains('/') || filename.contains('\\') || filename.contains('\0');
-
-    let (chosen_path, chosen_name) = if keys_sanitized.exists() || !raw_has_separator {
-        // Either the sanitized file exists, or the raw input has no
-        // traversal characters — safe to consider the raw fallback.
-        let candidate_raw = wallet_name::build_wallet_path(&wallet_dir, &filename);
-        let keys_raw = candidate_raw.with_extension("keys");
-
-        if keys_sanitized.exists() {
-            (candidate_sanitized, sanitized.clone())
-        } else if keys_raw.exists() && !raw_has_separator {
-            (candidate_raw, filename.clone())
-        } else {
-            // Neither form exists on disk. The sanitized form is the
-            // canonical one to report back (matches what the UI will
-            // show for a new create).
-            (candidate_sanitized, sanitized.clone())
-        }
-    } else {
-        (candidate_sanitized, sanitized.clone())
-    };
-
-    validate::validate_wallet_path(&chosen_path)?;
-    let path_str = chosen_path.to_string_lossy().to_string();
-
-    wallet_bridge::open_wallet(&state.wallet, &path_str, &password, &daemon_addr, app)?;
-
-    let addr_resp = wallet_bridge::get_address(&state.wallet, 0)?;
-
+    let daemon = state.daemon_http_base().await;
+    let mut eng = state.engine.lock().await;
+    let address = eng
+        .open(&wallet_dir, &sanitized, &password, network, &daemon)
+        .await?;
     *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(chosen_name.clone());
-
+    *state.wallet_name.write().await = Some(sanitized.clone());
     Ok(WalletInfo {
-        name: chosen_name,
-        address: addr_resp.address,
-        seed_language: "English".into(),
+        name: sanitized,
+        address,
+        seed_language: seed_language_for(network),
         network: network.as_str().into(),
     })
 }
 
 #[tauri::command]
 pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
-    wallet_bridge::close_wallet(&state.wallet)?;
-
+    let close_result = {
+        let mut eng = state.engine.lock().await;
+        if eng.is_open() {
+            eng.close().await
+        } else {
+            Ok(())
+        }
+    };
+    // Clear the open flags even if close errored, so the UI reflects the
+    // teardown; the close error is then surfaced rather than swallowed.
     *state.wallet_open.write().await = false;
     *state.wallet_name.write().await = None;
+    close_result?;
     Ok(true)
 }
 
@@ -656,103 +627,85 @@ pub async fn import_wallet_from_seed(
     validate::validate_recovery_phrase(&seed)?;
     validate::validate_password(&password)?;
 
-    let network = state.network.read().await;
-    let lang = language.unwrap_or_else(|| "English".into());
+    // `language` is a legacy Wallet2 mnemonic-language selector; the Engine
+    // restores from the BIP-39 phrase directly, so it is accepted for API
+    // stability but no longer used.
+    let _ = language;
+    let network = *state.network.read().await;
     let height = restore_height.unwrap_or(0);
 
     let wallet_dir = state.wallet_dir.read().await.clone();
     wallet_name::ensure_dir_exists(&wallet_dir)?;
-    let full_path = wallet_name::build_wallet_path(&wallet_dir, &sanitized);
-    validate::validate_wallet_path(&full_path)?;
-    let path_str = full_path.to_string_lossy().to_string();
 
-    let resp = wallet_bridge::restore_deterministic_wallet(
-        &state.wallet,
-        &path_str,
-        &seed,
-        &password,
-        &lang,
-        height,
-        "",
-    )?;
-
+    let daemon = state.daemon_http_base().await;
+    let mut eng = state.engine.lock().await;
+    let address = eng
+        .restore_from_bip39(
+            &wallet_dir,
+            &sanitized,
+            &seed,
+            &password,
+            "",
+            height,
+            network,
+            &daemon,
+        )
+        .await?;
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
-
     Ok(WalletInfo {
         name: sanitized,
-        address: resp.address,
-        seed_language: lang,
+        address,
+        seed_language: seed_language_for(network),
         network: network.as_str().into(),
     })
 }
 
+/// Import from raw view/spend keys.
+///
+/// Retired with the Wallet2 backend: the Engine has no key-import path yet, so
+/// this returns an honest refusal rather than silently doing nothing. Inputs
+/// are still validated so the UI surfaces malformed keys the same way.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn import_wallet_from_keys(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     name: String,
     address: String,
     spendkey: String,
     viewkey: String,
     password: String,
-    language: Option<String>,
-    restore_height: Option<u64>,
+    _language: Option<String>,
+    _restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
-    let sanitized = wallet_name::sanitize(&name);
-    validate::validate_wallet_name(&sanitized)?;
+    validate::validate_wallet_name(&wallet_name::sanitize(&name))?;
     validate::validate_address(&address)?;
     validate::validate_secret_key(&spendkey, "spend key")?;
     validate::validate_secret_key(&viewkey, "view key")?;
     validate::validate_password(&password)?;
-
-    let network = state.network.read().await;
-    let lang = language.unwrap_or_else(|| "English".into());
-    let height = restore_height.unwrap_or(0);
-
-    let wallet_dir = state.wallet_dir.read().await.clone();
-    wallet_name::ensure_dir_exists(&wallet_dir)?;
-    let full_path = wallet_name::build_wallet_path(&wallet_dir, &sanitized);
-    validate::validate_wallet_path(&full_path)?;
-    let path_str = full_path.to_string_lossy().to_string();
-
-    let resp = wallet_bridge::generate_from_keys(
-        &state.wallet,
-        &path_str,
-        &address,
-        &spendkey,
-        &viewkey,
-        &password,
-        &lang,
-        height,
-    )?;
-
-    *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(sanitized.clone());
-
-    Ok(WalletInfo {
-        name: sanitized,
-        address: resp.address,
-        seed_language: lang,
-        network: network.as_str().into(),
-    })
+    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 #[tauri::command]
 pub async fn get_seed(state: State<'_, AppState>) -> Result<String, String> {
-    let is_open = *state.wallet_open.read().await;
-    if !is_open {
+    if !*state.wallet_open.read().await {
         return Err("No wallet is open".into());
     }
-    wallet_bridge::query_key(&state.wallet, "mnemonic")
+    let mut eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err("No wallet is open".into());
+    }
+    if let Some(m) = eng.take_create_mnemonic() {
+        return Ok(m);
+    }
+    Err(engine_session::EngineSession::seed_unavailable_message().into())
 }
 
 // ─── Wallet data commands ────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> {
-    let is_open = *state.wallet_open.read().await;
-    if !is_open {
+    if !*state.wallet_open.read().await {
         return Ok(Balance {
             total: 0,
             unlocked: 0,
@@ -760,22 +713,63 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
         });
     }
 
-    // Read from Rust scanner state (primary) with C++ fallback
-    match wallet_bridge::get_scanner_balance(&state.wallet).await {
-        Ok(summary) => Ok(Balance {
-            total: summary.total,
-            unlocked: summary.unlocked,
-            staked: summary.staked_total,
-        }),
-        Err(_) => {
-            let resp = wallet_bridge::get_balance(&state.wallet, 0)?;
-            Ok(Balance {
-                total: resp.balance,
-                unlocked: resp.unlocked_balance,
-                staked: 0,
-            })
-        }
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Ok(Balance {
+            total: 0,
+            unlocked: 0,
+            staked: 0,
+        });
     }
+    // `staked` is reported as 0 by design: personal archival stake is shown
+    // only on the Staking page (WI-RPC-1 three-leg view), not as a single
+    // dashboard total. See `EngineSession::balance` dual-truth note.
+    let (total, unlocked, staked) = eng.balance().await?;
+    Ok(Balance {
+        total,
+        unlocked,
+        staked,
+    })
+}
+
+/// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B). Staker-only figure.
+///
+/// Returns the single wire DTO from [`crate::drain_balance`] — no second
+/// identity map. A closed / not-yet-open wallet is a *non-value*, not a zero:
+/// it returns `Err("No wallet is open")` so the frontend `.catch` renders
+/// "—". An *open* wallet with no P-scan seal is an honest
+/// `Ready { spendable: 0 }`. Transient anchor lag surfaces as `Syncing`; a
+/// non-transient read fault propagates as `Err(String)`.
+#[tauri::command]
+pub async fn get_drain_balance(state: State<'_, AppState>) -> Result<DrainBalance, String> {
+    if !*state.wallet_open.read().await {
+        return Err("No wallet is open".into());
+    }
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err("No wallet is open".into());
+    }
+    eng.drain_balance().await
+}
+
+/// Authoritative staking read (`StakeFacade::staking_read_view`, WI-RPC-1).
+///
+/// Returns the single wire DTO from [`crate::staking_view`] — no second
+/// identity map. Fail-closed like `get_drain_balance`: a closed wallet and a
+/// corrupt / version-mismatched seal are both `Err(String)` — the frontend
+/// `.catch` renders a non-value, never "nothing staked" over a bad read
+/// (rule 82). An open non-staker wallet is an honest all-zero / empty view
+/// from the core.
+#[tauri::command]
+pub async fn get_staking_view(state: State<'_, AppState>) -> Result<StakingView, String> {
+    if !*state.wallet_open.read().await {
+        return Err("No wallet is open".into());
+    }
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err("No wallet is open".into());
+    }
+    eng.staking_view().await
 }
 
 #[tauri::command]
@@ -784,13 +778,17 @@ pub async fn get_address(
     account: u32,
     _index: u32,
 ) -> Result<String, String> {
-    let is_open = *state.wallet_open.read().await;
-    if !is_open {
+    if !*state.wallet_open.read().await {
         return Err("No wallet is open".into());
     }
-
-    let resp = wallet_bridge::get_address(&state.wallet, account)?;
-    Ok(resp.address)
+    if account != 0 {
+        return Err("Engine backend: only the primary account is supported".into());
+    }
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err("No wallet is open".into());
+    }
+    eng.primary_address().await
 }
 
 #[tauri::command]
@@ -802,41 +800,41 @@ pub async fn transfer(
     validate::validate_address(&address)?;
     validate::validate_amount(amount)?;
 
-    let is_open = *state.wallet_open.read().await;
-    if !is_open {
+    if !*state.wallet_open.read().await {
         return Err("No wallet is open".into());
     }
-
-    let resp = wallet_bridge::transfer(&state.wallet, &address, amount)?;
-
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err("No wallet is open".into());
+    }
+    let outcome = eng.transfer(&address, amount).await?;
     Ok(TxInfo {
-        hash: resp.tx_hash,
-        amount: resp.amount,
-        fee: resp.fee,
-        height: 0,
+        id: outcome.tx_hash.clone(),
+        hash: outcome.tx_hash,
+        amount: outcome.amount,
+        fee: outcome.fee,
+        height: None,
         timestamp: 0,
-        direction: "out".into(),
-        confirmed: false,
+        direction: TransferDirection::Out,
+        status: TransferStatus::Pending,
         pqc_protected: true,
     })
 }
 
 #[tauri::command]
 pub async fn estimate_fee(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     address: String,
     amount: u64,
 ) -> Result<u64, String> {
     validate::validate_address(&address)?;
     validate::validate_amount(amount)?;
 
-    // FCMP++ tx cost model: base_fee_per_byte * estimated_weight.
-    // A typical 2-in/2-out FCMP++ tx is ~15-20 KB including the membership
-    // proof and PQC auth. Conservative default until the daemon provides
-    // a dynamic base_fee.
-    const BASE_FEE_PER_BYTE: u64 = 20;
-    const ESTIMATED_TX_BYTES: u64 = 18_000;
-    Ok(BASE_FEE_PER_BYTE * ESTIMATED_TX_BYTES)
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Err("No wallet is open".into());
+    }
+    eng.estimate_fee(&address, amount).await
 }
 
 #[tauri::command]
@@ -845,123 +843,15 @@ pub async fn get_transactions(
     _offset: u32,
     _limit: u32,
 ) -> Result<Vec<TxInfo>, String> {
-    let is_open = *state.wallet_open.read().await;
-    if !is_open {
+    if !*state.wallet_open.read().await {
         return Ok(vec![]);
     }
-
-    let resp = wallet_bridge::get_transfers(&state.wallet, true, true, true, false)?;
-
-    let mut txs: Vec<TxInfo> = Vec::new();
-    for entry in resp.r#in {
-        txs.push(TxInfo {
-            hash: entry.txid,
-            amount: entry.amount,
-            fee: entry.fee,
-            height: entry.height,
-            timestamp: entry.timestamp,
-            direction: "in".into(),
-            confirmed: entry.confirmations > 0,
-            pqc_protected: entry.pqc_protected,
-        });
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Ok(vec![]);
     }
-    for entry in resp.out {
-        txs.push(TxInfo {
-            hash: entry.txid,
-            amount: entry.amount,
-            fee: entry.fee,
-            height: entry.height,
-            timestamp: entry.timestamp,
-            direction: "out".into(),
-            confirmed: entry.confirmations > 0,
-            pqc_protected: entry.pqc_protected,
-        });
-    }
-    for entry in resp.pending {
-        txs.push(TxInfo {
-            hash: entry.txid,
-            amount: entry.amount,
-            fee: entry.fee,
-            height: 0,
-            timestamp: entry.timestamp,
-            direction: "out".into(),
-            confirmed: false,
-            pqc_protected: entry.pqc_protected,
-        });
-    }
-
-    txs.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    Ok(txs)
-}
-
-#[tauri::command]
-pub async fn get_staking_info(state: State<'_, AppState>) -> Result<WalletStakingInfo, String> {
-    let is_open = *state.wallet_open.read().await;
-    if !is_open {
-        return Ok(WalletStakingInfo {
-            total_staked: 0,
-            staked_outputs: vec![],
-        });
-    }
-
-    let resp = wallet_bridge::get_staked_outputs(&state.wallet)?;
-    Ok(WalletStakingInfo {
-        total_staked: resp.total_staked,
-        staked_outputs: resp
-            .staked_outputs
-            .into_iter()
-            .map(|o| StakedOutputInfo {
-                amount: o.amount,
-                tier: o.tier,
-                lock_height: o.lock_height,
-                unlock_height: o.unlock_height,
-                claimable: o.claimable,
-            })
-            .collect(),
-    })
-}
-
-#[tauri::command]
-pub async fn stake(state: State<'_, AppState>, tier: u8, amount: u64) -> Result<TxInfo, String> {
-    validate::validate_tier(tier)?;
-    validate::validate_amount(amount)?;
-
-    let is_open = *state.wallet_open.read().await;
-    if !is_open {
-        return Err("No wallet is open".into());
-    }
-
-    let resp = wallet_bridge::stake(&state.wallet, tier, amount)?;
-    Ok(TxInfo {
-        hash: resp.tx_hash,
-        amount: resp.amount,
-        fee: resp.fee,
-        height: 0,
-        timestamp: 0,
-        direction: "out".into(),
-        confirmed: false,
-        pqc_protected: true,
-    })
-}
-
-#[tauri::command]
-pub async fn claim_rewards(state: State<'_, AppState>) -> Result<TxInfo, String> {
-    let is_open = *state.wallet_open.read().await;
-    if !is_open {
-        return Err("No wallet is open".into());
-    }
-
-    let resp = wallet_bridge::claim_rewards(&state.wallet)?;
-    Ok(TxInfo {
-        hash: resp.tx_hash,
-        amount: resp.amount,
-        fee: resp.fee,
-        height: 0,
-        timestamp: 0,
-        direction: "in".into(),
-        confirmed: false,
-        pqc_protected: true,
-    })
+    let rows = eng.list_transfers().await?;
+    Ok(rows.into_iter().map(TxInfo::from).collect())
 }
 
 #[tauri::command]
@@ -990,8 +880,7 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
         tree.root.clone()
     };
 
-    let wallet_refreshed =
-        wallet_bridge::is_initialized(&state.wallet) && *state.wallet_open.read().await;
+    let wallet_refreshed = *state.wallet_open.read().await;
 
     Ok(SecurityStatus {
         scheme: "Hybrid".into(),
@@ -1011,39 +900,31 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
 
 // ─── PQC Multisig commands ────────────────────────────────────────────────────
 
+// PQC multisig ran only on the Wallet2 backend, which has been retired. These
+// commands stay registered so the Multisig page loads, but return an honest
+// refusal until multisig is ported to the Engine backend.
+
 #[tauri::command]
 pub async fn create_multisig_group(
-    state: State<'_, AppState>,
-    n_total: u8,
-    m_required: u8,
-    participant_keys: Vec<String>,
+    _state: State<'_, AppState>,
+    _n_total: u8,
+    _m_required: u8,
+    _participant_keys: Vec<String>,
 ) -> Result<serde_json::Value, String> {
-    let resp = wallet_bridge::create_pqc_multisig_group(
-        &state.wallet,
-        n_total,
-        m_required,
-        participant_keys,
-    )?;
-    Ok(serde_json::json!({
-        "group_id": resp.group_id,
-        "n_total": resp.n_total,
-        "m_required": resp.m_required,
-    }))
+    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 #[tauri::command]
-pub async fn get_multisig_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let info = wallet_bridge::get_pqc_multisig_info(&state.wallet)?;
-    serde_json::to_value(info).map_err(|e| e.to_string())
+pub async fn get_multisig_info(_state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 #[tauri::command]
 pub async fn sign_multisig_partial(
-    state: State<'_, AppState>,
-    signing_request: String,
+    _state: State<'_, AppState>,
+    _signing_request: String,
 ) -> Result<serde_json::Value, String> {
-    let resp = wallet_bridge::sign_multisig_partial(&state.wallet, &signing_request)?;
-    Ok(serde_json::json!({ "signature_response": resp.signature_response }))
+    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 // ─── Group Descriptor import/export ──────────────────────────────────────────
@@ -1070,38 +951,11 @@ pub struct GroupDescriptorRelay {
 
 #[tauri::command]
 pub async fn export_group_descriptor(
-    state: State<'_, AppState>,
-    path: String,
+    _state: State<'_, AppState>,
+    _path: String,
 ) -> Result<(), String> {
-    let info = wallet_bridge::get_pqc_multisig_info(&state.wallet)?;
-    let info_val = serde_json::to_value(&info).map_err(|e| e.to_string())?;
-
-    let descriptor = GroupDescriptorPayload {
-        version: 1,
-        group_id: info_val["group_id"].as_str().unwrap_or("").to_string(),
-        m_required: info_val["m_required"].as_u64().unwrap_or(0) as u8,
-        n_total: info_val["n_total"].as_u64().unwrap_or(0) as u8,
-        spend_auth_version: 2,
-        participant_pubkeys: info_val["participant_keys"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        address_fingerprint: info_val["fingerprint"].as_str().unwrap_or("").to_string(),
-        relays: vec![],
-        created_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-        notes: None,
-    };
-
-    let json = serde_json::to_string_pretty(&descriptor).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("Failed to write descriptor: {e}"))?;
-    Ok(())
+    // Depends on multisig group info, which is Wallet2-only and retired.
+    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 #[tauri::command]
@@ -1156,55 +1010,38 @@ pub async fn export_signature_response_file(response: String, path: String) -> R
 }
 
 // ─── Scanner commands ─────────────────────────────────────────────────────────
+//
+// The scanner surfaced here was the Wallet2 in-process sync loop, now retired.
+// The Engine owns its own ledger/balance (see `get_balance`), so these
+// commands return an honest refusal until an Engine-native equivalent is
+// exposed. `scanner_freeze` / `scanner_thaw` still validate their key image so
+// the UI surfaces malformed input the same way. (The staked-output query
+// stubs are gone: `get_staking_view` is their Engine-native replacement,
+// GUI-PR3b.)
 
 #[tauri::command]
-pub async fn get_scanner_balance(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let summary = wallet_bridge::get_scanner_balance(&state.wallet).await?;
-    Ok(serde_json::json!({
-        "total": summary.total,
-        "unlocked": summary.unlocked,
-        "staked": summary.staked_total,
-        "locked": summary.locked_by_timelock,
-        "staked_matured": summary.staked_matured,
-    }))
+pub async fn get_scanner_balance(_state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 #[tauri::command]
-pub async fn get_scanner_height(state: State<'_, AppState>) -> Result<u64, String> {
-    wallet_bridge::get_scanner_height(&state.wallet).await
+pub async fn get_scanner_height(_state: State<'_, AppState>) -> Result<u64, String> {
+    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 #[tauri::command]
-pub async fn get_scanner_staked_outputs(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    wallet_bridge::get_scanner_staked_outputs(&state.wallet).await
-}
-
-#[tauri::command]
-pub async fn get_scanner_claimable_stakes(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    wallet_bridge::get_scanner_claimable_stakes(&state.wallet).await
-}
-
-#[tauri::command]
-pub async fn get_scanner_unstakeable_outputs(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    wallet_bridge::get_scanner_unstakeable_outputs(&state.wallet).await
-}
-
-#[tauri::command]
-pub async fn scanner_freeze(state: State<'_, AppState>, key_image: String) -> Result<bool, String> {
+pub async fn scanner_freeze(
+    _state: State<'_, AppState>,
+    key_image: String,
+) -> Result<bool, String> {
     validate::validate_key_image(&key_image)?;
-    wallet_bridge::scanner_freeze(&state.wallet, &key_image).await
+    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 #[tauri::command]
-pub async fn scanner_thaw(state: State<'_, AppState>, key_image: String) -> Result<bool, String> {
+pub async fn scanner_thaw(_state: State<'_, AppState>, key_image: String) -> Result<bool, String> {
     validate::validate_key_image(&key_image)?;
-    wallet_bridge::scanner_thaw(&state.wallet, &key_image).await
+    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 // ─── Daemon lifecycle commands ────────────────────────────────────────────────

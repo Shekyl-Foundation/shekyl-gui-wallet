@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DaemonProvider } from "../../context/DaemonContext";
@@ -79,7 +79,8 @@ describe("Help", () => {
   it("shows staking guide content when expanded", () => {
     renderHelp();
     fireEvent.click(screen.getByText("Staking Guide"));
-    expect(screen.getByText(/claim-based staking model/)).toBeInTheDocument();
-    expect(screen.getByText("Privacy Benefit")).toBeInTheDocument();
+    expect(screen.getByText(/archival participation/)).toBeInTheDocument();
+    expect(screen.getByText("Status in this wallet")).toBeInTheDocument();
+    expect(screen.getByText("What will ship next")).toBeInTheDocument();
   });
 });

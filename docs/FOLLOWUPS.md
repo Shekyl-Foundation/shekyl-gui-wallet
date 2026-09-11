@@ -1,8 +1,151 @@
 # Follow-ups
 
-Items that don't fit the current release scope. Each has a target version.
-Items without a target version get one within 30 days or get closed as
-"won't fix." See `shekyl-core/docs/15-deletion-and-debt.mdc` for policy.
+Items that don't fit the current release scope. Each has a `Target:` of
+**pre-genesis**, **post-genesis**, or **V4**. Items without one get one
+within 30 days or get closed as "won't fix." Policy:
+`.cursor/rules/15-deletion-and-debt.mdc` in this repo (mirrors
+shekyl-core).
+
+---
+
+## Daemon transport has no proxy — target: with the desktop's remote-node story
+
+The daemon client dials directly: `reqwest` is built without the `socks`
+feature (`src-tauri/Cargo.toml`) and `engine_session.rs` constructs
+`HttpRpc::new(url)` with no proxy, so a `.onion` or otherwise
+proxy-reachable daemon address cannot be entered in **Settings**. The
+troubleshooting guide therefore points at a local port forward, which
+needs nothing from the wallet.
+
+What would change it, and why it is not the one-line item it looks like:
+
+**A proxy setting — across *both* daemon transports.** This wallet
+   dials the daemon two ways on the same configured URL: `HttpRpc`
+   (`shekyl-rpc-transport`) for the Engine and scanner, and a plain
+   `reqwest::Client` held in `AppState` for everything the UI polls —
+   chain health, wallet status, staking info, curve-tree info, mining
+   (`daemon_rpc::*`, ~12 call sites in `commands.rs`). Proxying only the
+   first is worse than not starting: the wallet would scan through the
+   proxy while every status panel reported the daemon disconnected.
+   `shekyl-rpc-transport` already carries the SOCKS5h connector and the
+   constructor for its half (`HttpRpc::with_proxy(url, proxy)` beside
+   today's `HttpRpc::new(url)`); the `reqwest` half has no `socks`
+   feature enabled and would need one, or — better, and the reason this
+   is not a one-line item — the two transports collapse onto the one that
+already knows how to do this. Consolidation is the shape to aim at; a
+proxy field bolted onto a split transport is the shape to avoid.
+
+The §1 operator statement that belongs beside such a setting is **done**
+(this PR): a daemon URL that is not loopback draws it in the Settings
+panel and on load, so whatever a proxy later makes reachable is already
+disclosed for what it costs.
+
+**Trigger:** the first request for a remote daemon in the desktop
+wallet. Note the
+desktop scope is principal-focused, not an archival operator node, so a
+built-in onion listener is *not* what this asks for.
+
+---
+
+## Archival staking + Engine backend — target: post-PR0 sequence
+
+GUI-PR0 (this window) only makes staking **honest**: claim-era tier/claim UX
+is gone; network stats remain. Real staking needs the Engine path.
+
+**Locked product defaults (plan open-questions resolution):**
+
+1. Desktop scope = **principal-focused** (activate, fund, later drain) — not
+   a full archival operator node (onion HS / challenges) in-app.
+2. Engine embedding = in-process wallet-rpc **or** direct `engine-core`.
+3. Flip Engine default only after create/open/transfer parity.
+4. Cold-start: light note + link to `STAKER_OPERATOR_GUIDE.md`.
+
+**Sequence (do not reorder past honesty → Engine → activation):**
+
+| PR | Work | Core gate | Status |
+|----|------|-----------|--------|
+| GUI-PR0 | Honesty-mode staking | — | **done** |
+| GUI-PR1 | Engine session (create/open/close/refresh/balance) | Engine lifecycle on dev | **done** (Engine is the sole backend; Wallet2 path removed) |
+| GUI-PR2 | Engine transfer (build+submit) + fee estimate + ledger history | same | **done** |
+| GUI-PR3 | `activate_staker` / `stake { password }` + status + error map | PR #336 landed | **done** |
+| GUI-PR3b | Staked-balance/outputs read panel (`staking_read_view`) | WI-RPC-1 on core dev | **done** |
+| GUI-PR4 | `stake_in` funding UX | public/RPC `stake_in` (core PR-P3+) | next |
+| GUI-PR5 | Multisig address-fingerprint cutover | group_id deleted in core | pending |
+| GUI-PR6+ | unbond / drain / live shards | PR-P4/P5/P6 + emission | pending |
+
+**GUI-PR3 leftovers:** activation without stake_in funding often returns
+not-ready (expected until PR4). No UI for multi-slot W2 resume detail.
+Next: GUI-PR4 `stake_in` funding.
+
+**Deleted:** the Wallet2 backend, `wallet_bridge`, the `shekyl-ffi` /
+`shekyl-engine-rpc` deps and the C++ static linkage, the
+`SHEKYL_ENGINE_BACKEND` flag, claim-era `stake` / `claim_rewards` /
+`validate_tier`, and (GUI-PR3b) the claim-era `get_staking_info`
+placeholder plus the three staked-output scanner stubs
+(`get_scanner_staked_outputs` / `get_scanner_claimable_stakes` /
+`get_scanner_unstakeable_outputs`) — `get_staking_view` is their
+Engine-native replacement. **Still to delete when done:** `StakeTierCard`
+if unused, `get_tier_yields` if daemon tiers vanish, and the remaining
+scanner stubs (`get_scanner_balance` / `get_scanner_height` /
+`scanner_freeze` / `scanner_thaw`) once Engine-native equivalents exist.
+
+---
+
+## Per-stake views + unstake UI — item 1 landed (GUI-PR3b); item 2 target: GUI-PR6 window
+
+The June 2026 design spike `feat/staking-views-ux` (archived as
+`archive/feat/staking-views-ux-2026-08-09`, branch deleted) built a
+per-stake "Your Stakes" list: maturity countdown (blocks + approx
+duration), claimable-now reward, projected yield to maturity,
+"Unlocked" / "Unstaking…" badges, and a per-stake Unstake action. It
+was implemented on `shekyl_scanner::StakeView` /
+`LedgerBlockExt::stake_views` (core branch `feat/scanner-stake-views`,
+never landed) and the Wallet2 `wallet_bridge` path (retired at
+GUI-PR1), with unstake riding the C++ wallet2 `json_rpc` path (also
+retired).
+
+Audited 2026-08-09: no equivalent has landed on dev — today's Staking
+page has activation, staker status, and the drainable-P figure only —
+but the branch is unrebasable; every layer it touches was replaced.
+The archive tag is the design reference (UI layout, status semantics,
+and its 5 Staking tests).
+
+**Substrate correction (2026-08-09, same-day core audit).** The
+Engine-native per-stake read **already exists** on core dev:
+`Engine::staking_read_view()` (WI-RPC-1, `engine/staking_read.rs`)
+returns `StakedBalance` (confirmed/pending bond principal,
+rewards-received-unspent) plus per-output `StakedOutput` rows
+(gindex, amount, p_slot, unlock_height, confirmed) and
+`pscan_synced_height` — the same surface wallet-RPC's
+`get_staked_balance` / `get_staked_outputs` / `staking_info` project
+and the CLI consumes. Note its semantics are the archival-bond
+model's, not the archived spike's claim-era ones: there is no
+maturity countdown or yield projection (accrued-but-unclaimed
+rewards are a named separate design item in core's FOLLOWUPS), and
+pending-unbond state is durable in `PScanState` rather than
+advisory. The core-side sibling branch (`feat/scanner-stake-views`,
+archived as `archive/feat/scanner-stake-views-2026-08-09` in
+shekyl-core) is superseded by this landed surface.
+
+**Splits into two work items:**
+
+1. **Staked-outputs read UI — LANDED (GUI-PR3b).**
+   UPDATE 2026-08-09: the "Your stake" panel on the Staking page
+   projects `Engine::staking_read_view()` through
+   `engine_session.rs` / `get_staking_view`, with the three balance
+   legs kept distinct and fail-closed read faults (rule 82). The
+   staked-output scanner stubs and the claim-era `get_staking_info`
+   placeholder were deleted in the same PR.
+   UPDATE 2026-09-02: the session call is `engine.stake().staking_read_view()`
+   (wallet-rpc product door); the Engine inherent still owns the body.
+2. **Unstake/unbond action — still gated.** No unbond mutation is
+   exposed on the Engine (`pub fn` audit 2026-08-09). Reimplement
+   when core PR-P4 (unbond) exposes one to embedders, per the
+   sequence table above.
+
+Re-evaluation shape: fresh GUI PRs in the GUI-PR4+/PR6+ slots,
+designed against the landed Engine API and using the archive tag as
+the UX reference — not a revival of the archived commit.
 
 ---
 
@@ -27,9 +170,15 @@ window.
 
 ### GUI wallet gaps
 
-- The `multisig` feature on `shekyl-engine-rpc` is not enabled in
+- ~~The `multisig` feature on `shekyl-engine-rpc` is not enabled in
   `src-tauri/Cargo.toml`, so the Rust FROST multisig handlers are not
-  compiled into the wallet binary.
+  compiled into the wallet binary.~~ **Moot** — the dep was dropped at
+  GUI-PR1 and the crate is now deleted from `shekyl-core`. Its `multisig`
+  feature also named no code inside it (it only forwarded to
+  `shekyl-engine-core` / `shekyl-fcmp`), so enabling it would never have
+  compiled any handler. Restated: the GUI has **no** FROST multisig path
+  today; wiring one means going through `shekyl-multisig` /
+  `shekyl-engine-core`, not through a Cargo feature flag.
 - `export_group_descriptor` produces mostly-empty data because
   `participant_pubkeys` and `address_fingerprint` come from JSON fields
   the backend doesn't return.
@@ -65,63 +214,6 @@ Create a dedicated multisig integration plan for alpha.3 that:
    matches what the components already consume, or introducing an
    adapter at the Tauri boundary if it doesn't.
 6. Adds integration tests for the multisig signing round-trip.
-
----
-
-## Pin shekyl-core by tag in release workflow — target: beta cadence
-
-`.github/workflows/release.yml` currently clones `shekyl-core` from the
-`dev` branch (and `ci.yml` / `codeql.yml` do the same):
-
-```
-git clone --depth 1 --branch dev --recurse-submodules \
-  https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
-```
-
-This is a reproducibility gap: replaying the GUI wallet `vX.Y.Z` build a
-week later pulls whatever `dev` points at today, not what shipped. The
-bundled `shekyld` binary in a release tarball therefore cannot be
-reproduced from the git tag alone — it depends on when you run the
-build.
-
-**Status as of alpha.5:** explicitly deferred to beta cadence. The
-alpha pipeline is still in motion on both sides (core's KeyEngine
-migration, DAA LWMA-1 phase rollout, RandomX v2 phase work), so the
-GUI continues cloning `shekyl-core/dev`. Each alpha changelog entry
-records the specific dev SHA the bundled `shekyld` was built from so
-the gap is at least auditable.
-
-**Reversion criteria.** Per `shekyl-core/.cursor/rules/21-reversion-clause-discipline.mdc`,
-the deferred-rejection here reopens to a positive decision when **any
-one of**:
-
-1. The GUI moves out of alpha cadence (first beta or RC tag).
-2. `shekyl-core` publishes a `v3.1.0-alpha.N` tag matching a GUI
-   alpha.N release window (and continues to do so).
-3. An audit response or downstream user explicitly requests
-   reproducible bundle builds for an alpha.
-
-For alpha releases the gap is acceptable. Before tagging anything
-users would hold long-term (beta, stable, or any release labeled
-reproducible) the release workflow must pin to a specific
-`shekyl-core` revision. Options, in order of preference:
-
-1. **Matching-tag pin.** GUI wallet `v3.1.0-betaN` clones
-   `shekyl-core` at tag `v3.1.0-betaN`. Requires that the shekyl-core
-   tag exists before the GUI wallet tag is pushed. Makes the "which
-   daemon ships in which wallet release" question trivially auditable.
-2. **Pinned SHA.** The GUI wallet workflow reads a `SHEKYL_CORE_REV` file
-   from its own repo and clones that exact commit. More flexible, less
-   self-documenting, but decouples the two tag cadences.
-
-CI (`ci.yml`) and CodeQL (`codeql.yml`) can stay on `dev` regardless
-of release-workflow policy — they're "does current dev still build
-against current dev" checks, which is exactly what we want there.
-
-Before closing this item: verify the release workflow actually passes
-the pinned tag to all three platforms' checkout commands, and update
-`docs/BUILD.md` (or equivalent) to document the pin policy for anyone
-building from source.
 
 ---
 
@@ -169,11 +261,15 @@ Forward-tracking shekyl-core's pending wallet-engine migration.
 `docs/design/STAGE_1_PR_4_REFRESH_ENGINE.md` (and its preflight notes)
 define a pure-Rust refresh engine that replaces the C++
 `wallet2::refresh` loop with an isolated process driving
-`LedgerIndexes::process_scanned_outputs` and reorg handling. The GUI
+`LedgerIndexes::process_scanned_outputs` and reorg handling. ~~The GUI
 currently runs an in-process local sync loop in `wallet_bridge.rs`
 (landed in alpha.5); when the engine lands in core and reaches feature
 parity with the C++ `wallet2` FFI, the GUI's local loop is replaced
-by a thin `RefreshHandle` client.
+by a thin `RefreshHandle` client.~~ **Done** — the engine landed and
+GUI-PR1 moved the GUI onto it: refresh is `Engine::start_refresh` driven
+from `engine_session.rs`, the GUI-owned sync loop and `wallet_bridge.rs`
+are deleted, and scan state lives inside the Engine rather than in a
+GUI-held mutex.
 
 **No GUI implementation work today.** `STAGE_1_PR_4` is design-only;
 adopting it now would build against an unmerged API. Tracked so the
@@ -235,18 +331,89 @@ matches the C++ implementation across the RandomX test vector suite.
 
 ---
 
-## Track `WALLET_REWRITE_PLAN.md` — target: post-V3.x
+## ~~Track `WALLET_REWRITE_PLAN.md` — target: post-V3.x~~ — **CLOSED**
 
-Placeholder for the eventual deletion of `shekyl-engine-rpc`'s
-`wallet2` FFI dependency in favor of the pure-Rust `Engine` (the
-combination of `STAGE_1_PR_3` Key Engine, `STAGE_1_PR_4` Refresh
-Engine, `STAGE_1_PR_5` Pending Tx Engine, and follow-ups). When the
-rewrite reaches feature parity, the GUI drops `shekyl-ffi` /
-`shekyl-engine-rpc`'s C++ surface and links the Rust engine directly.
+This was the umbrella deletion target for the GUI's C++ `wallet2`
+dependency: "when the rewrite reaches feature parity, the GUI drops
+`shekyl-ffi` / `shekyl-engine-rpc`'s C++ surface and links the Rust engine
+directly."
 
-**No GUI implementation work today.** The wallet rewrite is staged
-across multiple `shekyl-core` PRs and a multi-quarter timeline.
+**Done, in two steps.** GUI-PR1 replaced `wallet_bridge.rs` with
+`engine_session.rs` embedding `shekyl-engine-core::Engine` in-process,
+dropping the `shekyl-ffi` / `shekyl-engine-rpc` deps and the C++ static
+linkage. `shekyl-core` then deleted the `shekyl-engine-rpc` crate outright
+(roadmap B1), so there is no longer a C++ wallet surface for this repo to
+depend on even in principle. Nothing in the GUI process links C++ wallet
+code.
 
-**Reversion criteria.** Track via the per-PR followups above; this
-entry is the umbrella deletion target for the C++ `wallet2`
-dependency once all per-PR migrations are complete.
+**Residual, tracked elsewhere:** feature parity is not complete — the
+capabilities that only ever existed on the old path (import-from-keys, PQC
+multisig, scanner freeze/thaw) return honest "not available on the Engine
+backend" errors and are carried by the per-PR followups above, not by this
+entry. The *dependency* question this entry existed to answer is settled.
+
+---
+
+## Atomic amounts serialized as JS `number` — target: post-genesis
+
+Every balance the Tauri layer hands the frontend is a Rust `u64` of
+atomic units serialized to a JS `number`: `Balance.{total,unlocked,
+staked}` (`get_balance`), `DrainBalance.spendable`
+(`get_drain_balance`, DS-PR-3 PR-B), and the `StakingView` legs +
+`StakedOutputView.amount` (`get_staking_view`, GUI-PR3b — same
+display-only disposition). JS `number` is IEEE-754 double —
+exact only to 2^53 (≈ 9.007e15 atomic ≈ 9.0M SKL at 1e9 atomic/SKL).
+Above that, the low-order atomic digits round in the JSON bridge.
+
+**Named blocker:** precision is display-only today (Rust `u64` does the
+arithmetic; formatters are coarser than ULP across the supply range).
+Not a genesis consensus item.
+
+**The fix (systemic).** Migrate the balance-read pipeline wholesale:
+serialize atomic amounts as decimal strings, type them `string` in
+`daemon.ts`, parse with `BigInt`, and add a BigInt-native SKL formatter
+that `Balance` and `DrainBalance` share. One PR, one consistent surface.
+
+**Why it's deferred, not fixed in DS-PR-3 PR-B.** The exposure is
+*display-only* — these figures are rendered, never round-tripped into
+transaction arithmetic (a drain/transfer computes its amounts in core
+Rust `u64`; the GUI's `Send` path parses user input with `BigInt`
+independently). And the SKL formatters (`formatSkl` 6-dp, `formatSklCompact`
+K/M) are coarser than the `number` ULP across the entire supply range
+(max supply 4.29e9 SKL → ULP at that magnitude ≈ the 6-dp display
+granularity), so the rounding is not observable in any rendered value.
+Patching one field to string+BigInt would need a divergent BigInt
+formatter and leave `Balance` inconsistent beside it — tech-debt-shaped,
+not tech-debt-removing (rules 15/16).
+
+**Reversion criteria (bring forward from post-genesis).** Any one of:
+
+1. A drainable/balance figure begins seeding a transaction amount (e.g.
+   a "drain max" button that prefills the send field from `spendable`) —
+   at that point precision becomes arithmetic-load-bearing, not display.
+2. A realistic single-wallet balance is expected to exceed ~9M SKL.
+3. The daemon RPC contract migrates its own amount fields to strings and
+   the GUI should follow in lockstep.
+
+---
+
+## npm / toolchain holds from the 2026-08-09 refresh — target: V3.1 / next Node bump
+
+Taken in the `chore/npm-deps-refresh` window: lucide-react 1.x, TypeScript
+6.0.3, ESLint 10, `@types/node` 26, jsdom 30, plugin-opener 2.5.4. Holds
+with named reopen criteria:
+
+1. **TypeScript 7.** `@latest` reports `7.0.2`, but `typescript-eslint@8`
+   peers `typescript: '>=4.8.4 <6.1.0'`. Jumping to 7 breaks the lint
+   pipeline. **Reopen when** typescript-eslint publishes a peer that
+   admits TypeScript ≥7 (or a v9 that does), then bump TS + eslint
+   together.
+2. **React Compiler lint rules** (`react-hooks/set-state-in-effect`,
+   `react-hooks/purity`). Folded into `recommended` in
+   `eslint-plugin-react-hooks` ≥7.1; currently `off` in
+   `eslint.config.js` because they still fire on ~10 intentional Tauri
+   IPC poll / seed-challenge / `Date.now` sites after GUI-PR3b's
+   YourStakePanel fix. **Reopen as** a dedicated cleanup PR that either
+   rewrites those sites (e.g. `useSyncExternalStore` / event-driven
+   refresh) or documents per-site exceptions — not as a silent
+   re-enable on a dep bump.

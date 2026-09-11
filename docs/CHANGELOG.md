@@ -4,6 +4,216 @@
 
 ### Changed
 
+- **Branch topology matches shekyl-core.** `main` advances only by merge
+  commit from `dev`. The April 2026 duplicate-history split is closed:
+  `main` merges `dev` taking dev's tree; `main`'s unique SHAs remain as
+  first-parent history (append-only). Subsequent release tags sit on the
+  dev→main merge commit. `v3.1.0-alpha.8` stays on dev `7d209ad`
+  (already signed and pushed).
+
+## [3.1.0-alpha.8] - 2026-09-10
+
+> Pairs with shekyl-core `v3.1.0-alpha.8`
+> (`d8f0f24b03b3a0cb1bf846e7228da20eb2dd6480`). Distinct from the April
+> 2026 MSVC-cycle heading of the same version string, retained below as
+> history.
+>
+> The bundled `shekyld` is built from that tag (matching-tag pin in
+> `release.yml`). It speaks the pre-Noise Levin p2p cut: handshake,
+> compact-block relay, and IBD work between homogeneous alpha.8 nodes.
+> Do not mix with Monero or pre-B5/I1 Shekyl peers; drop any old
+> `p2pstate.bin`. NoiseNN is the next core cut (alpha.9), not this one.
+>
+> `ci.yml` / `codeql.yml` still track shekyl-core `dev`.
+
+### Changed
+
+- **Release workflow pins shekyl-core by matching tag.**
+  `.github/workflows/release.yml` clones `v3.1.0-alpha.8` instead of
+  `dev`, so replaying this wallet tag rebuilds the same daemon sidecar
+  and the same Engine path-deps. Closes the FOLLOWUPS pin item (reversion
+  criterion 2: core published a matching `v3.1.0-alpha.N` tag).
+
+- **Daemon identity check (VC-4).** Opening, creating, restoring, or
+  re-opening a wallet now uses `DaemonClient::verifying` — the same
+  constructor wallet-RPC uses — so the daemon must prove it is this
+  network, this RPC contract, this rule set, and this genesis before any
+  Engine request. Create and restore run that handshake **before**
+  `Engine::create` writes the file, so a mismatch never leaves a wallet
+  on disk without its one-shot recovery phrase. Open still fail-closes
+  the session after attach. A daemon that is merely unreachable still lets
+  an existing file open (offline). There is no fakechain / regtest
+  opt-in.
+
+- **npm dependency refresh.** Took current majors/minors that the toolchain
+  already supports: `lucide-react` 0.577 → 1.31 (all in-use icons still
+  export), TypeScript ~5.9 → ~6.0.3 (within `typescript-eslint` peer
+  `<6.1.0`), ESLint 9 → 10 + `@eslint/js` 10 + `eslint-plugin-react-hooks`
+  7.1.1, `@types/node` 24 → 26, `jsdom` 29 → 30, `@tauri-apps/plugin-opener`
+  pin to `^2.5.4`. `vitest.config.ts` now imports `./vite.config.ts` with an
+  extension (Vite's upcoming native config loader). **Node pin:**
+  `.nvmrc` 22.22.0 → **24.19.0** (current LTS) so `audit.yml`
+  (`node-version-file`) matches what `ci.yml` / `release.yml` get from
+  `lts/*`; audit action bumped to `setup-node@v5` + npm cache. Held back:
+  TypeScript 7 (typescript-eslint peer still `<6.1.0`).
+  React Compiler lint rules newly folded into hooks `recommended`
+  (`set-state-in-effect`, `purity`) stay off — they fire on intentional
+  Tauri IPC poll patterns; enabling them is a separate cleanup.
+
+### Added
+
+- **"Your stake" panel on the Staking page (GUI-PR3b).** Active stakers now
+  see their staked balance and outputs, projected from the core
+  `Engine::staking_read_view` (WI-RPC-1) — the one authoritative aggregation
+  over the sealed persona-scan / pending-post records. The three balance legs
+  render as distinct figures, never summed (rule 82): **Bonded (confirmed)**,
+  **Bonded (pending)** (sealed posts not yet on chain), and **Rewards
+  (unspent)**. Each unspent staked output lists its slot, amount, and unlock
+  height, with the persona-scan sync frontier below. Tauri command
+  `get_staking_view` fails closed like the core read: a corrupt or
+  version-mismatched staking seal is an explicit fault message, never an
+  empty "nothing staked" panel. Deleted with it: the claim-era
+  `get_staking_info` placeholder (fabricated empty list) and the three
+  staked-output scanner stubs (`get_scanner_staked_outputs` /
+  `get_scanner_claimable_stakes` / `get_scanner_unstakeable_outputs`) —
+  `get_staking_view` is their Engine-native replacement.
+
+### Changed
+
+- **Composition discipline for staking/drain projections.** Wire DTOs live in
+  dedicated modules (`staking_view`, `drain_balance`) with a single
+  serializable type per surface — no identity hop through `commands.rs`.
+  The "Your stake" UI is `components/staking/YourStakePanel` with one load
+  discriminant (not dual booleans). File-size CI ratchet
+  (`scripts/ci/check_file_size_ratchet.sh`) and rule
+  `27-composition-decomposition.mdc` lock the greenfield module ceiling.
+
+- **Adapted to shekyl-core send-journal/ledger drift (PR-SJ-1b, PR-SJ-3).**
+  Balance now reads through core `WalletLedgerExt::balance` (journal-composed:
+  an in-flight send counts in total, never unlocked); incoming-row pending
+  status derives from the journal's in-flight spend locks (the persisted
+  ledger field was retired upstream); and the Transactions list gains a
+  distinct **Abandoned** status for sends the user told the wallet to stop
+  tracking (never collapsed into Dropped; a late confirmation still flips it
+  to Confirmed).
+
+- **Sent transactions appear in Transactions history (PR-SJ-2 GUI
+  enablement).** `transfer_history` merges the Engine send journal with
+  receive-ledger rows so outgoing payments show with realized fee and a
+  distinct status per lifecycle arm — **Pending**, **Confirmed**,
+  **Failed** (daemon refused; never mined), **Dropped** (wallet stopped
+  waiting; funds spendable again), plus receive-side **Spent**. Arms never
+  collapse (rule 82). Projection mirrors wallet-rpc PR-SJ-2 (one row per
+  receive output, same order key, typed status; newest-first for the UI;
+  inclusion height absent until on chain). Closes the GUI half of the
+  send-journal W-D surface landed in `shekyl-core` PR-SJ-1/#414 +
+  PR-SJ-2/#420. The Transactions page polls every 15s (and on window focus)
+  so status advances without remount, surfaces load failures with a retry
+  action instead of an empty list (rule 82), and unit-tests the arms.
+
+- **Drainable (P) balance on the Staking page (DS-PR-3 PR-B;
+  `ARCHIVAL_DRAIN_SEND_FD2.md` §1).** The active-staker panel now shows the
+  aggregate spendable `P` figure a drain could send, read from the core
+  `Engine::drain_balance_aggregate` accessor (DS-PR-3 PR-A) — anchored to the
+  same send-path reference a real drain proves against, not raw tip. Tauri
+  command `get_drain_balance` returns a two-shape result that keeps the core
+  distinction alive across the boundary (rule 82): a transient anchor-lag renders
+  **"Syncing…"** (never a zero), and a non-transient read fault renders **"—"**
+  (never a fabricated zero) — only a genuine `ready` result shows an SKL value.
+  Aggregate-only by construction: no reward decomposition crosses the surface
+  (F-D1 trust boundary). Requires the DS-PR-3 PR-A engine-core accessor.
+
+- **Staker activation (GUI-PR3).** Staking page can activate an archival
+  staker on the Engine backend: password re-auth → optional first-stake
+  intent reopen → `Engine::first_stake`. Bond post is sealed as
+  `pending_dispatch` (not broadcast on this call). Tauri commands:
+  `activate_staker`, `get_staker_status`. Errors map funding / in-flight /
+  already-staked refusals to clear UI text.
+
+- **Engine send lifecycle (GUI-PR2).** `transfer` on the Engine backend builds
+  and submits a pending tx (`build_pending_tx_async` → `submit_pending_tx_async`,
+  `FeePriority::Standard`). CT-5d `ContentChanged` is resubmitted once with the
+  advanced `content_gen`. `estimate_fee` builds then discards a pending tx for a
+  real fee. `get_transactions` projects ledger receive outputs as incoming
+  rows grouped by transaction.
+
+- **Pure-Rust Engine wallet session (GUI-PR1).** New `engine_session` module
+  embeds `shekyl-engine-core::Engine` directly (create / open / close /
+  refresh / balance / primary address / BIP-39 restore). Tauri command:
+  `refresh_wallet`. Engine files use `{name}.wallet` + `{name}.wallet.keys`.
+  Create returns a BIP-39 mnemonic on mainnet/stagenet (raw hex on testnet).
+  Mid-session seed display is intentionally unavailable (seed dropped at open).
+
+### Fixed
+
+- **The wallet-startup failure message no longer tells users to install
+  something that does not exist.** On an `init_wallet_rpc` failure the UI said
+  "Make sure shekyl-engine-rpc is installed and accessible" — naming a crate
+  that has been deleted from `shekyl-core`, and implying a separate installable
+  wallet service. There is none: the wallet runs in-process as
+  `shekyl-engine-core::Engine`, and that command's only failure mode is
+  preparing the wallet directory (permissions, or a path that exists as a
+  file). The message now says the wallet is part of the app and points at the
+  actionable remedy — choose a different wallet folder in Settings (rule 82).
+  The specific cause continues to be surfaced verbatim from the backend, which
+  already returns path-free, cause-specific strings.
+
+### Changed
+
+- **Documentation retired alongside the `shekyl-engine-rpc` deletion in
+  `shekyl-core`.** The architecture docs still described `wallet_bridge.rs` and
+  a C++ `wallet2` FFI backend as *current*, two migrations after both were
+  deleted (GUI-PR1 moved the wallet onto the in-process Engine; `shekyl-core`
+  then deleted the crate). Corrected to the real shape — `engine_session.rs`
+  embedding `shekyl-engine-core::Engine`, refresh via `Engine::start_refresh`,
+  scan state owned by the Engine rather than a GUI-held mutex — across
+  `README.md`, `CONTRIBUTING.md`, `docs/WALLET_STARTUP.md` (architecture,
+  open/close flow, concurrency model), `docs/GUI_SECURITY.md`, and
+  `src-tauri/binaries/README.md`. Two `FOLLOWUPS.md` entries are closed as done
+  (the `WALLET_REWRITE_PLAN.md` umbrella C++-dependency deletion target, and the
+  `STAGE_1_PR_4` "GUI's local sync loop is replaced" item) and the multisig
+  Cargo-feature gap is restated, since that feature named no code even when the
+  dep existed. `BIP39_GUI_PREP.md`'s integration checklist is marked superseded:
+  it routed through `wallet2_ffi` symbols that `shekyl-core` declined to add.
+  `.gitignore` drops the `shekyl-engine-rpc-*` sidecar pattern for a binary that
+  can no longer exist. CHANGELOG history is left as written.
+
+- **CI now runs the backend unit tests.** The `ci.yml` step that previously
+  only compiled the Rust tests (`cargo check --tests`, executing nothing) now
+  runs them (`cargo test`) — all backend unit tests execute on every push/PR.
+  Sidecar-dependent integration tests are marked `#[ignore]` (none exist yet)
+  and run only in the release build (`release.yml`) after the real `shekyld`
+  sidecar is compiled, via `cargo test --release -- --ignored`. Convention
+  documented in `CONTRIBUTING.md`.
+
+- **Engine is the sole wallet backend.** The transitional Wallet2 /
+  `shekyl-engine-rpc` path and the `SHEKYL_ENGINE_BACKEND` flag are removed;
+  `wallet_bridge` and the `get_engine_backend` / `set_engine_backend` commands
+  are gone. Every wallet lifecycle and money command now runs only on the
+  Engine. Features that lived solely on Wallet2 (import-from-keys, PQC
+  multisig, scanner freeze/thaw + `get_scanner_*`) stay registered but return
+  an honest "not available on the Engine backend" error until they are ported.
+  Retired claim-era dead code (`stake` / `claim_rewards` commands,
+  `validate_tier`) is deleted.
+
+- **Transaction history projects send-journal outgoing rows** (see Added
+  above). Receive-side rows are one output each (change included as
+  incoming); spent outputs are labeled Spent, not re-projected as fabricated
+  outgoing debits. Never-mined / unsettled rows sort to the top of the
+  newest-first list.
+
+- **Staking honesty mode (GUI-PR0).** Claim-era tier lock / claim-rewards UX is
+  removed from the Staking page. The page now explains archival staking
+  (activate → fund persona → hold shards → later unbond/drain), shows
+  network-wide daemon stats only, and (with GUI-PR3) offers staker activation
+  on the Engine backend while funding / unbond / drain remain pending.
+  `get_balance` no longer reports a claim-era staked total; the Engine does
+  not yet compute a personal `staked` total (Stage 3), so it reads zero as an
+  honest "not yet available". Help center and `USER_GUIDE.md` restated to
+  match. **shekyl-core pin:** `cf375a786` (dev tip, 2026-07-18 — stake
+  activation entry PR #336). Product default: principal-focused desktop UX
+  (not full operator node in-app).
+
 - **BIP-39 prep (GUI only).** User-facing copy, import validation, and docs now
   describe a **24-word recovery phrase** (BIP-39 English) instead of a
   25-word legacy seed. Import rejects 25-word phrases client-side with a clear
@@ -17,6 +227,8 @@
   shekyl-core ships `wallet2_ffi_create_wallet_from_bip39` and BIP-39 restore
   FFI and the gui-wallet integration PR lands. See
   `docs/design/BIP39_GUI_PREP.md`.
+- Archival staker activation / funding / drain require the Engine backend
+  (GUI-PR1+) and are intentionally not faked in this release.
 
 ## [3.1.0-alpha.5] - 2026-05-19
 

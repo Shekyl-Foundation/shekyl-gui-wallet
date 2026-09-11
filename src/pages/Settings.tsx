@@ -16,6 +16,18 @@ interface DaemonStatusInfo {
   height: number;
 }
 
+/**
+ * What the backend says about the daemon URL now in effect. `warnings` is
+ * empty for a daemon on this machine — the default and the supported
+ * configuration — and never contains an assurance: the only thing this
+ * wallet can establish about a daemon address is what it costs, never that
+ * it is safe.
+ */
+interface DaemonConnection {
+  url: string;
+  warnings: string[];
+}
+
 const NETWORKS = ["mainnet", "testnet", "stagenet"] as const;
 
 const DEFAULT_PORTS: Record<string, number> = {
@@ -31,10 +43,26 @@ export default function Settings() {
     `http://127.0.0.1:${DEFAULT_PORTS[network]}/json_rpc`,
   );
   const [saving, setSaving] = useState(false);
+  const [daemonWarnings, setDaemonWarnings] = useState<string[]>([]);
   const [daemonSettings, setDaemonSettings] = useState<DaemonSettings | null>(null);
   const [daemonStatus, setDaemonStatus] = useState<DaemonStatusInfo | null>(null);
 
   const loadDaemonInfo = useCallback(async () => {
+    try {
+      // A wallet that starts pointed at somebody else's daemon says so on
+      // sight, not only in the session where the URL was typed.
+      const current = await invoke<DaemonConnection>(
+        "daemon_connection_disclosures",
+      );
+      // The URL as well as its warnings: the field is what "Save &
+      // Reconnect" writes back, so showing the default beside a warning
+      // about the configured daemon would quietly revert the operator's
+      // choice the next time they pressed it.
+      setDaemonUrl(current.url);
+      setDaemonWarnings(current.warnings);
+    } catch {
+      // command not available yet
+    }
     try {
       const [settings, status] = await Promise.all([
         invoke<DaemonSettings>("get_daemon_settings"),
@@ -66,7 +94,11 @@ export default function Settings() {
     setDaemonUrl(url);
     setSaving(true);
     try {
-      await invoke("set_daemon_connection", { network: net, url });
+      const applied = await invoke<DaemonConnection>("set_daemon_connection", {
+        network: net,
+        url,
+      });
+      setDaemonWarnings(applied.warnings);
       refresh();
     } catch {
       // ignore
@@ -78,7 +110,11 @@ export default function Settings() {
   async function handleSaveUrl() {
     setSaving(true);
     try {
-      await invoke("set_daemon_connection", { network, url: daemonUrl });
+      const applied = await invoke<DaemonConnection>("set_daemon_connection", {
+        network,
+        url: daemonUrl,
+      });
+      setDaemonWarnings(applied.warnings);
       refresh();
     } catch {
       // ignore
@@ -139,6 +175,15 @@ export default function Settings() {
         >
           {saving ? "Connecting..." : "Save & Reconnect"}
         </button>
+        {daemonWarnings.map((warning) => (
+          <p
+            key={warning}
+            className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-200"
+            role="status"
+          >
+            {warning}
+          </p>
+        ))}
         {health && (
           <p className="text-center text-[10px] text-emerald-400">
             Connected — Block {health.height.toLocaleString()} — {health.version}

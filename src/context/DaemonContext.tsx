@@ -35,7 +35,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
     // Cheap probe first — in production this Tauri command never throws; it
     // reports `connected: false` on daemon unreachable. In tests `invoke`
     // is mocked and may resolve to undefined, so we defend against that too.
-    let nextStatus: WalletStatus | null = null;
+    let nextStatus: WalletStatus | null;
     try {
       const raw = await invoke<WalletStatus | undefined>("get_wallet_status");
       nextStatus = raw ?? null;
