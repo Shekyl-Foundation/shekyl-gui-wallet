@@ -68,7 +68,11 @@ jobs:
       # Pin is the matching shekyl-core tag, not `dev`: replaying this
       # wallet tag must rebuild the same daemon and the same Engine crates.
       - name: Checkout Shekyl core (daemon sidecar + Engine crates)
-        run: git clone --depth 1 --branch "${SHEKYL_CORE_REF}" --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
+        # ${{ env.* }} is interpolated by Actions before the shell runs, so
+        # this is the same string on bash and on Windows pwsh. "${SHEKYL_CORE_REF}"
+        # is a bash expansion and is empty under pwsh (`fatal: Remote branch  not found`).
+        shell: bash
+        run: git clone --depth 1 --branch "${{ env.SHEKYL_CORE_REF }}" --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
 
       # ── Linux: use contrib/depends for all third-party libs ──
 

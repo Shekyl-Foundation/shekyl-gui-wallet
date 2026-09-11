@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Windows release clone of shekyl-core.** `release.yml` pinned core with
+  `"${SHEKYL_CORE_REF}"`, which PowerShell does not expand. The Windows
+  job cloned `--branch ""` and died (`fatal: Remote branch  not found`).
+  The pin is now `${{ env.SHEKYL_CORE_REF }}` (Actions-interpolated) and
+  the step runs under `bash` on every runner.
+
 ### Changed
 
 - **Branch topology matches shekyl-core.** `main` advances only by merge
