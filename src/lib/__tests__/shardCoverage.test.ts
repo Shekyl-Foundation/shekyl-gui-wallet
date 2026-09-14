@@ -35,4 +35,11 @@ describe("shuffleEqualProfitBands", () => {
     expect(out[0].shard_id).toBe(3);
     expect(out[3].shard_id).toBe(0);
   });
+
+  it("groups equal profit even when scarcity still differs", () => {
+    const rows = [row(3, 50, 900), row(1, 50, 100), row(2, 50, 10)];
+    const out = shuffleEqualProfitBands(rows, () => 0.99);
+    expect(out.map((r) => r.expected_profit_atomic)).toEqual([50, 50, 50]);
+    expect(new Set(out.map((r) => r.shard_id))).toEqual(new Set([3, 1, 2]));
+  });
 });

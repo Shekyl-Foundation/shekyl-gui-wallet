@@ -75,7 +75,7 @@ export default function Staking() {
   // Ok(0) — no point showing it outside the active panel). A fault or a closed
   // wallet resets to null → the panel renders "—", never a fabricated zero; the
   // transient "syncing" arm is the only non-value render (DS-PR-3, rule 82).
-  // The `cancelled` guard (matching Shards.tsx) drops a late-resolving read if
+  // The `cancelled` guard (matching ShardCoverageGallery) drops a late-resolving read if
   // the wallet closes / staking is disabled / the component unmounts first, so
   // a stale in-flight value can never re-populate `drain` after the reset.
   useEffect(() => {

@@ -2,9 +2,10 @@ import type { ShardCoverageRow } from "../types/shards";
 
 /**
  * Shuffle equal join-profit bands in place of a copy. Daemon order is
- * join-scarcity desc then shard_id asc; equal-profit neighbours stay a
- * contiguous band and are shuffled with a per-process RNG so the gallery
- * does not always present the same id first inside a tie.
+ * join-scarcity desc then shard_id asc; expected profit is a floor of that
+ * scarcity, so equal-profit neighbours are a contiguous band even when
+ * scarcity still differs. Shuffle that band so the gallery does not always
+ * present the same id first inside a tie.
  */
 export function shuffleEqualProfitBands<T extends ShardCoverageRow>(
   rows: readonly T[],
@@ -16,8 +17,7 @@ export function shuffleEqualProfitBands<T extends ShardCoverageRow>(
     let j = i + 1;
     while (
       j < out.length &&
-      out[j].expected_profit_atomic === out[i].expected_profit_atomic &&
-      out[j].join_scarcity_micro === out[i].join_scarcity_micro
+      out[j].expected_profit_atomic === out[i].expected_profit_atomic
     ) {
       j += 1;
     }

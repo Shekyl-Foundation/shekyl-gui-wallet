@@ -30,8 +30,12 @@ was the original seam), but they now speak JSON-RPC only:
   aggregate
 
 The GUI never fetches shard bodies. Selection is session state (you pick;
-the network does not assign). The fixture preview on the Staking tab is
-unchanged until the Stage 5 checklist below.
+the network does not assign). Picks that leave the latest coverage list
+are dropped. The gallery panel (`ShardCoverageGallery`) owns fetch and
+fail-closed render; it mounts a window of cards (`GALLERY_PAGE_SIZE`)
+with Show more, so a long frozen set does not create one observer per
+row. The fixture preview on the Staking tab is unchanged until the
+Stage 5 checklist below.
 
 ## Stage 5 cutover checklist
 

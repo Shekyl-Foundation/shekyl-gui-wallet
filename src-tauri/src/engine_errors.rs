@@ -116,7 +116,7 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError, selected_shard_count: u32)
                  first. Nothing was written and your funds were not touched"
                     .into()
             } else {
-                "archival staking is not open yet: a saved selection exists \
+                "archival staking is not open yet: a session selection exists \
                  but posting is not open. Nothing was written and your funds \
                  were not touched"
                     .into()
@@ -206,7 +206,7 @@ mod tests {
         let msg = map_first_stake_err(FirstStakeError::NoShardsAvailable, 3);
         let copy = msg.to_lowercase();
         assert!(
-            copy.contains("saved selection exists"),
+            copy.contains("session selection exists"),
             "non-empty selection must not be described as missing: {msg}"
         );
         assert!(

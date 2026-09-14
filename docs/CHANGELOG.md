@@ -9,7 +9,10 @@
   toggles a session-only selection (not a network assignment). Identity
   PNGs load lazily via `request_archival_shard` (`shard_id` only); the GUI
   never fetches shard bodies. Empty frozen coverage is an honest empty;
-  a coverage fault does not fall back to fixtures.
+  a coverage fault does not fall back to fixtures. A truncated coverage
+  JSON is a fault, not an empty gallery. Session picks that leave coverage
+  are dropped. The gallery mounts a window of cards (`Show more`) rather
+  than one observer per frozen row.
 
 ### Fixed
 

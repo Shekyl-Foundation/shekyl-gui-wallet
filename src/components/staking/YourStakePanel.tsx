@@ -30,7 +30,7 @@ export interface YourStakePanelProps {
  * and persona-scan frontier. Owns its own fetch; the Staking page only decides
  * whether to mount it.
  *
- * Fetch shape matches Shards.tsx: the effect only schedules the external
+ * Fetch shape matches ShardCoverageGallery: the effect only schedules the external
  * invoke; setState runs in the promise callbacks (not synchronously in the
  * effect body — `react-hooks/set-state-in-effect`). Initial `loading` is the
  * useState default; re-polls keep the previous ready view until the new

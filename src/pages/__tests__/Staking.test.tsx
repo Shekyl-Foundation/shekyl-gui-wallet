@@ -1,8 +1,12 @@
+import { useEffect } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DaemonProvider } from "../../context/DaemonContext";
+import { ShardPickerProvider } from "../../context/ShardPickerContext";
+import { useShardPicker } from "../../context/useShardPicker";
 import { WalletContext } from "../../context/walletState";
 import type { WalletContextValue } from "../../context/walletState";
 import Staking from "../Staking";
@@ -52,14 +56,38 @@ const walletStub: WalletContextValue = {
   refreshWalletDir: async () => "",
 };
 
-function renderStaking(wallet: Partial<WalletContextValue> = {}) {
+function SeedSelection({
+  shardId,
+  profit,
+}: {
+  shardId: number;
+  profit: number;
+}) {
+  const { toggle, isSelected } = useShardPicker();
+  useEffect(() => {
+    if (!isSelected(shardId)) {
+      toggle(shardId, profit);
+    }
+  }, [isSelected, shardId, profit, toggle]);
+  return null;
+}
+
+function renderStaking(
+  wallet: Partial<WalletContextValue> = {},
+  seed?: { shardId: number; profit: number },
+) {
   return render(
     <MemoryRouter>
-      <WalletContext.Provider value={{ ...walletStub, ...wallet }}>
-        <DaemonProvider>
-          <Staking />
-        </DaemonProvider>
-      </WalletContext.Provider>
+      <ShardPickerProvider>
+        {seed ? (
+          <SeedSelection shardId={seed.shardId} profit={seed.profit} />
+        ) : null}
+        <WalletContext.Provider value={{ ...walletStub, ...wallet }}>
+          <DaemonProvider>
+            <Staking />
+          </DaemonProvider>
+        </WalletContext.Provider>
+      </ShardPickerProvider>
     </MemoryRouter>,
   );
 }
@@ -108,6 +136,49 @@ describe("Staking (archival activation)", () => {
     expect(
       screen.getByText(/Pick archives on the Shards page/),
     ).toBeInTheDocument();
+  });
+
+  it("shows this-session copy and passes selectedShardCount on activate", async () => {
+    const user = userEvent.setup();
+    let captured: unknown;
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === "list_shard_preview_fixtures" || cmd === "list_shards") {
+        return [];
+      }
+      if (cmd === "get_staker_status") {
+        return {
+          staking_enabled: false,
+          has_stake_engine: false,
+          bonded_slot_count: 0,
+          has_pscan: false,
+        };
+      }
+      if (cmd === "activate_staker") {
+        captured = args;
+        return {
+          slot: 0,
+          swept_inputs: 1,
+          resumed: false,
+          state: "sealed",
+        };
+      }
+      return null;
+    });
+    renderStaking(
+      { phase: "ready", walletName: "alice" },
+      { shardId: 2, profit: 1 },
+    );
+    expect(
+      await screen.findByText(/1 archive selected this session/),
+    ).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("Wallet password"), "pw");
+    await user.click(screen.getByRole("button", { name: /Activate staker/i }));
+    await waitFor(() => {
+      expect(captured).toEqual({
+        password: "pw",
+        selectedShardCount: 1,
+      });
+    });
   });
 });
 

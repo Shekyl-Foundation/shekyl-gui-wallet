@@ -102,6 +102,7 @@ describe("Shards", () => {
   });
 
   it("keeps the list when one lazy render fails", async () => {
+    const user = userEvent.setup();
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "list_shards") return SAMPLE_LIST;
       if (cmd === "get_shard_render") {
@@ -110,7 +111,37 @@ describe("Shards", () => {
       return null;
     });
     renderShards();
-    expect(await screen.findByText("Archive #2")).toBeInTheDocument();
+    const card = await screen.findByRole("button", { name: /Archive #2/i });
+    await user.click(card);
+    await waitFor(() => {
+      expect(
+        vi.mocked(invoke).mock.calls.some((c) => c[0] === "get_shard_render"),
+      ).toBe(true);
+    });
+    expect(screen.getByText("Archive #2")).toBeInTheDocument();
     expect(screen.getByText("5.000000 SKL / epoch")).toBeInTheDocument();
+    expect(screen.getByText("Selected")).toBeInTheDocument();
+  });
+
+  it("drops session selection when coverage no longer lists the shard", async () => {
+    const user = userEvent.setup();
+    let list: ShardCoverageList = SAMPLE_LIST;
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "list_shards") return list;
+      if (cmd === "get_shard_render") {
+        throw new Error("lazy PNG must not fetch on mount");
+      }
+      return null;
+    });
+    renderShards();
+    const card = await screen.findByRole("button", { name: /Archive #2/i });
+    await user.click(card);
+    expect(screen.getByText(/1 of 4096 archives selected/)).toBeInTheDocument();
+    list = { ...SAMPLE_LIST, frozen_count: 0, shards: [] };
+    await user.click(screen.getByRole("button", { name: /Refresh/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/No frozen archives yet/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/archives selected/)).not.toBeInTheDocument();
   });
 });

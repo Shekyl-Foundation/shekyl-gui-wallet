@@ -35,3 +35,9 @@ export interface ShardRenderResponse {
 
 /** Bond holdings cap (`ArchivalBondValue::kMaxHoldings`). */
 export const MAX_HOLDINGS_SHARDS = 4096;
+
+/**
+ * Cards mounted at once on the operator gallery. Selection lives in session
+ * state for the full coverage set; this only bounds DOM / observers.
+ */
+export const GALLERY_PAGE_SIZE = 36;

@@ -8,35 +8,50 @@ export function ShardPickerProvider({ children }: { children: ReactNode }) {
     () => new Map(),
   );
 
-  const toggle = useCallback((shardId: number, expectedProfitAtomic: number) => {
-    let accepted = true;
-    setSelected((prev) => {
-      const next = new Map(prev);
-      if (next.has(shardId)) {
-        next.delete(shardId);
-        return next;
+  const toggle = useCallback(
+    (shardId: number, expectedProfitAtomic: number) => {
+      // Decide from the render that handled the click so the caller (cap
+      // notice) matches what we enqueue. The updater still guards a burst
+      // of clicks in the same tick.
+      const removing = selected.has(shardId);
+      const rejected = !removing && selected.size >= MAX_HOLDINGS_SHARDS;
+      if (!rejected) {
+        setSelected((prev) => {
+          const next = new Map(prev);
+          if (next.has(shardId)) {
+            next.delete(shardId);
+            return next;
+          }
+          if (next.size >= MAX_HOLDINGS_SHARDS) {
+            return prev;
+          }
+          next.set(shardId, expectedProfitAtomic);
+          return next;
+        });
       }
-      if (next.size >= MAX_HOLDINGS_SHARDS) {
-        accepted = false;
-        return prev;
-      }
-      next.set(shardId, expectedProfitAtomic);
-      return next;
-    });
-    return accepted;
-  }, []);
+      return !rejected;
+    },
+    [selected],
+  );
 
   const registerCoverage = useCallback((rows: readonly ShardCoverageRow[]) => {
     setSelected((prev) => {
       if (prev.size === 0) return prev;
-      const next = new Map(prev);
-      let changed = false;
+      const live = new Map<number, number>();
       for (const row of rows) {
-        if (next.has(row.shard_id)) {
-          if (next.get(row.shard_id) !== row.expected_profit_atomic) {
-            next.set(row.shard_id, row.expected_profit_atomic);
-            changed = true;
-          }
+        live.set(row.shard_id, row.expected_profit_atomic);
+      }
+      const next = new Map<number, number>();
+      let changed = false;
+      for (const [id, profit] of prev) {
+        const fresh = live.get(id);
+        if (fresh === undefined) {
+          changed = true;
+          continue;
+        }
+        next.set(id, fresh);
+        if (fresh !== profit) {
+          changed = true;
         }
       }
       return changed ? next : prev;

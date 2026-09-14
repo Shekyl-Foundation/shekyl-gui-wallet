@@ -210,23 +210,18 @@ pub struct ShardCoverageRow {
     pub expected_profit_atomic: u64,
 }
 
+/// 3.31 coverage fields are mandatory. A truncated `{}` must not deserialize
+/// as an honest-empty gallery (`frozen_count: 0`); that would hide a daemon
+/// that is not speaking the contract.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GetArchivalShardCoverageResponse {
-    #[serde(default)]
     pub as_of_height: u64,
-    #[serde(default)]
     pub leaf_count: u64,
-    #[serde(default)]
     pub frozen_count: u64,
-    #[serde(default)]
     pub settled_epoch: u64,
-    #[serde(default)]
     pub budget_atomic: u64,
-    #[serde(default)]
     pub sigma_work_milli: u64,
-    #[serde(default)]
     pub profit_estimate_available: bool,
-    #[serde(default)]
     pub shards: Vec<ShardCoverageRow>,
 }
 
@@ -405,4 +400,37 @@ pub async fn estimate_claim_reward(
         }),
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const COMPLETE_COVERAGE: &str = r#"{
+        "as_of_height": 50,
+        "leaf_count": 0,
+        "frozen_count": 0,
+        "settled_epoch": 0,
+        "budget_atomic": 0,
+        "sigma_work_milli": 0,
+        "profit_estimate_available": false,
+        "shards": []
+    }"#;
+
+    #[test]
+    fn coverage_empty_object_is_a_fault() {
+        assert!(
+            serde_json::from_str::<GetArchivalShardCoverageResponse>("{}").is_err(),
+            "truncated JSON must not become frozen_count=0"
+        );
+    }
+
+    #[test]
+    fn coverage_complete_honest_empty_deserializes() {
+        let res: GetArchivalShardCoverageResponse =
+            serde_json::from_str(COMPLETE_COVERAGE).expect("complete 3.31 empty");
+        assert_eq!(res.frozen_count, 0);
+        assert!(res.shards.is_empty());
+        assert!(!res.profit_estimate_available);
+    }
 }
