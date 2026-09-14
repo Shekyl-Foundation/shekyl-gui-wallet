@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DaemonProvider } from "../../context/DaemonContext";
@@ -53,11 +54,13 @@ const walletStub: WalletContextValue = {
 
 function renderStaking(wallet: Partial<WalletContextValue> = {}) {
   return render(
-    <WalletContext.Provider value={{ ...walletStub, ...wallet }}>
-      <DaemonProvider>
-        <Staking />
-      </DaemonProvider>
-    </WalletContext.Provider>,
+    <MemoryRouter>
+      <WalletContext.Provider value={{ ...walletStub, ...wallet }}>
+        <DaemonProvider>
+          <Staking />
+        </DaemonProvider>
+      </WalletContext.Provider>
+    </MemoryRouter>,
   );
 }
 
@@ -101,6 +104,10 @@ describe("Staking (archival activation)", () => {
       await screen.findByPlaceholderText("Wallet password"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Activate staker/i })).toBeInTheDocument();
+    expect(screen.getByText(/No archives selected/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Pick archives on the Shards page/),
+    ).toBeInTheDocument();
   });
 });
 

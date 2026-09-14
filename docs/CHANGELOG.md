@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Live shard gallery.** The Shards page lists daemon coverage
+  (`get_archival_shard_coverage`) ordered by expected SKL per epoch. Click
+  toggles a session-only selection (not a network assignment). Identity
+  PNGs load lazily via `request_archival_shard` (`shard_id` only); the GUI
+  never fetches shard bodies. Empty frozen coverage is an honest empty;
+  a coverage fault does not fall back to fixtures.
+
 ### Fixed
 
 - **Linux release rustdoc `--ignored` trap.** After the daemon and Tauri

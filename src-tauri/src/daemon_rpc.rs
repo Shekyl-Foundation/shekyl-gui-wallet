@@ -198,6 +198,78 @@ pub async fn get_curve_tree_info(client: &Client, url: &str) -> Result<CurveTree
     rpc_call(client, url, "get_curve_tree_info", serde_json::json!({})).await
 }
 
+// ─── get_archival_shard_coverage (SL-D4 / SL-D7) ────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ShardCoverageRow {
+    pub shard_id: u64,
+    pub bonded_count: u64,
+    pub served_count: u64,
+    pub freeze_height: u64,
+    pub join_scarcity_micro: u64,
+    pub expected_profit_atomic: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GetArchivalShardCoverageResponse {
+    #[serde(default)]
+    pub as_of_height: u64,
+    #[serde(default)]
+    pub leaf_count: u64,
+    #[serde(default)]
+    pub frozen_count: u64,
+    #[serde(default)]
+    pub settled_epoch: u64,
+    #[serde(default)]
+    pub budget_atomic: u64,
+    #[serde(default)]
+    pub sigma_work_milli: u64,
+    #[serde(default)]
+    pub profit_estimate_available: bool,
+    #[serde(default)]
+    pub shards: Vec<ShardCoverageRow>,
+}
+
+pub async fn get_archival_shard_coverage(
+    client: &Client,
+    url: &str,
+) -> Result<GetArchivalShardCoverageResponse, String> {
+    rpc_call(
+        client,
+        url,
+        "get_archival_shard_coverage",
+        serde_json::json!({}),
+    )
+    .await
+}
+
+// ─── request_archival_shard (SF-D1; shard_id only) ───────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RequestArchivalShardResponse {
+    pub shard_id: u64,
+    pub shard_hash: String,
+    pub block_count: u64,
+    pub tx_count: u64,
+    pub output_count: u64,
+    pub coinbase_output_count: u64,
+    pub time_range_seconds: u64,
+}
+
+pub async fn request_archival_shard(
+    client: &Client,
+    url: &str,
+    shard_id: u64,
+) -> Result<RequestArchivalShardResponse, String> {
+    rpc_call(
+        client,
+        url,
+        "request_archival_shard",
+        serde_json::json!({ "shard_id": shard_id }),
+    )
+    .await
+}
+
 // ─── estimate_claim_reward ───────────────────────────────────────────────────
 
 #[allow(dead_code)]

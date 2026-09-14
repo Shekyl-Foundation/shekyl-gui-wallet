@@ -5765,6 +5765,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-onion-v3"
+version = "3.1.0"
+dependencies = [
+ "sha3",
+]
+
+[[package]]
 name = "shekyl-operator-alarm"
 version = "3.1.0"
 dependencies = [
@@ -5777,6 +5784,7 @@ dependencies = [
 name = "shekyl-p-host"
 version = "3.1.0"
 dependencies = [
+ "shekyl-crypto-pq",
  "shekyl-curve-tree",
  "shekyl-p-serve",
  "shekyl-tor-control-wallet",
@@ -5787,6 +5795,8 @@ dependencies = [
 name = "shekyl-p-serve"
 version = "3.1.0"
 dependencies = [
+ "shekyl-archival-retention",
+ "shekyl-crypto-pq",
  "shekyl-curve-tree",
  "tokio",
 ]
@@ -5890,16 +5900,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shekyl-shard-source"
-version = "3.1.0"
-dependencies = [
- "hex",
- "serde",
- "shekyl-shard-visual",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "shekyl-shard-visual"
 version = "3.1.0"
 dependencies = [
@@ -5929,7 +5929,7 @@ dependencies = [
  "kameo",
  "libc",
  "sha2",
- "sha3",
+ "shekyl-onion-v3",
  "tokio",
  "zeroize",
 ]
@@ -6021,7 +6021,6 @@ dependencies = [
  "shekyl-rpc-client",
  "shekyl-rpc-transport",
  "shekyl-scanner",
- "shekyl-shard-source",
  "shekyl-shard-visual",
  "shekyl-types",
  "shekyl-units",

@@ -38,7 +38,6 @@ use std::path::{Path, PathBuf};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use shekyl_shard_source::{FixtureShardSource, ShardRenderHandle, ShardSource, ShardSummary};
 use shekyl_shard_visual::fixtures;
 use shekyl_shard_visual::{
     parameters_from_aggregate, parameters_with_hash_override, recipe_from_params,
@@ -47,9 +46,9 @@ use shekyl_shard_visual::{
 };
 use tauri::{AppHandle, Manager};
 
-const MIN_SIZE: u32 = 64;
-const MAX_SIZE: u32 = 512;
-const DEFAULT_SIZE: u32 = 192;
+pub(crate) const MIN_SIZE: u32 = 64;
+pub(crate) const MAX_SIZE: u32 = 512;
+pub(crate) const DEFAULT_SIZE: u32 = 192;
 
 #[derive(Debug, Serialize)]
 pub struct ShardPreviewFixtureInfo {
@@ -120,14 +119,6 @@ pub fn render_shard_preview(
     })
 }
 
-// ── Shards page (ShardSource-backed; cutover-stable seam) ─────────────────
-//
-// The Staking-tab preview above renders one fixture inline. The Shards page
-// lists every visible shard and renders each, through the `ShardSource`
-// abstraction (`shekyl-shard-source`). Today that source is fixtures; at
-// Stage 5 it becomes `ArchivalShardSource` and only the constructor below
-// changes — these commands and their wire types stay fixed.
-
 /// Render result for a single shard on the Shards page.
 #[derive(Debug, Serialize)]
 pub struct ShardRenderResponse {
@@ -137,45 +128,6 @@ pub struct ShardRenderResponse {
     pub shard_id: u64,
 }
 
-/// The active shard source. Swap this one line at the Stage 5 cutover.
-fn shard_source() -> impl ShardSource {
-    FixtureShardSource
-}
-
-#[tauri::command]
-pub fn list_shards() -> Result<Vec<ShardSummary>, String> {
-    shard_source().list_shards().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_shard_render(
-    app: AppHandle,
-    handle: ShardRenderHandle,
-) -> Result<ShardRenderResponse, String> {
-    let aggregate = shard_source()
-        .aggregate_for(&handle)
-        .map_err(|e| e.to_string())?;
-    let size = handle.size.clamp(MIN_SIZE, MAX_SIZE);
-    let hash_override = handle.hash_override;
-
-    let cache_key = cache_digest(
-        &handle.shard_id.to_string(),
-        aggregate.shard_hash,
-        hash_override,
-        size,
-    );
-    let recipe = recipe_for(&aggregate, hash_override);
-    let png = render_cached(&app, &cache_key, &aggregate, hash_override, size)
-        .map_err(|e| e.to_string())?;
-
-    Ok(ShardRenderResponse {
-        png_base64: STANDARD.encode(&png),
-        recipe,
-        cache_key,
-        shard_id: handle.shard_id,
-    })
-}
-
 /// Return the cached PNG for `cache_key`, rendering and persisting it on miss.
 ///
 /// Concurrent renders for the same key can race on the write: both miss the
@@ -183,7 +135,7 @@ pub fn get_shard_render(
 /// platforms where rename refuses an existing destination). In that case the
 /// other writer already produced a valid file — read it back rather than
 /// failing a successful render.
-fn render_cached(
+pub(crate) fn render_cached(
     app: &AppHandle,
     cache_key: &str,
     aggregate: &ShardAggregate,
@@ -203,7 +155,10 @@ fn render_cached(
     }
 }
 
-fn recipe_for(aggregate: &ShardAggregate, hash_override: Option<[u8; 32]>) -> CandidateRecipe {
+pub(crate) fn recipe_for(
+    aggregate: &ShardAggregate,
+    hash_override: Option<[u8; 32]>,
+) -> CandidateRecipe {
     let params = if let Some(hash) = hash_override {
         parameters_with_hash_override(aggregate, hash)
     } else {
@@ -256,7 +211,7 @@ fn parse_hash_override(raw: Option<&str>) -> Result<Option<[u8; 32]>, String> {
 ///
 /// The comment lives here, at the site, and not only in the design doc,
 /// because a design doc does not defend a line of code from a cleanup PR.
-fn cache_digest(
+pub(crate) fn cache_digest(
     id: &str,
     base_hash: [u8; 32],
     hash_override: Option<[u8; 32]>,
