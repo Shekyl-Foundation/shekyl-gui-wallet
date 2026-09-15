@@ -1,39 +1,41 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { ShardPickerProvider } from "../../context/ShardPickerContext";
 import Shards from "../Shards";
-import type { ShardSummary } from "../../types/shards";
+import type { ShardCoverageList, ShardCoverageRow } from "../../types/shards";
 
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
 });
 
-const SAMPLE: ShardSummary = {
-  label: "Genesis regime",
-  aggregate: {
-    shard_id: 0,
-    shard_hash: "82a866d2e033b952a133a0cb4595fa736d23584b20a88df66dbb5e4a8eedb750",
-    block_count: 10_000,
-    tx_count: 516,
-    output_count: 11_324,
-    coinbase_output_count: 10_000,
-    time_range_seconds: 1_196_437,
-    coinbase_ratio: 0.88,
-    value_log_mean: 16.1,
-    value_log_variance: 30.9,
-    stake_events_created: 3,
-    stake_events_claimed: 0,
-    tier_distribution: [0, 0, 3],
-    dominant_regime: "genesis",
-  },
+const SAMPLE_ROW: ShardCoverageRow = {
+  shard_id: 2,
+  bonded_count: 1,
+  served_count: 0,
+  freeze_height: 1000,
+  join_scarcity_micro: 900_000,
+  expected_profit_atomic: 5_000_000_000,
 };
 
-function mockShards(list: ShardSummary[]) {
+const SAMPLE_LIST: ShardCoverageList = {
+  as_of_height: 50_000,
+  leaf_count: 77_976,
+  frozen_count: 1,
+  settled_epoch: 1,
+  budget_atomic: 1,
+  sigma_work_milli: 1,
+  profit_estimate_available: true,
+  shards: [SAMPLE_ROW],
+};
+
+function mockCoverage(list: ShardCoverageList) {
   vi.mocked(invoke).mockImplementation(async (cmd: string) => {
     if (cmd === "list_shards") return list;
     if (cmd === "get_shard_render") {
-      return { png_base64: "AAAA", recipe: {}, cache_key: "k", shard_id: 0 };
+      throw new Error("lazy PNG must not fetch on mount");
     }
     return null;
   });
@@ -42,37 +44,104 @@ function mockShards(list: ShardSummary[]) {
 function renderShards() {
   return render(
     <MemoryRouter>
-      <Shards />
+      <ShardPickerProvider>
+        <Shards />
+      </ShardPickerProvider>
     </MemoryRouter>,
   );
 }
 
 describe("Shards", () => {
-  it("renders the page heading and pre-archival note", () => {
-    mockShards([]);
+  it("renders the heading and profit-led copy, not a fixture banner", async () => {
+    mockCoverage({ ...SAMPLE_LIST, frozen_count: 0, shards: [] });
     renderShards();
     expect(screen.getByText("Shards")).toBeInTheDocument();
-    expect(screen.getByText(/Pre-archival preview/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/the network does not assign them/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Pre-archival preview/)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/No frozen archives yet/)).toBeInTheDocument();
+    });
   });
 
-  it("lists shards returned by the backend", async () => {
-    mockShards([SAMPLE]);
+  it("lists profit, not regime or tier fields, and does not fetch PNGs on mount", async () => {
+    mockCoverage(SAMPLE_LIST);
     renderShards();
     await waitFor(() => {
-      expect(screen.getByText("Genesis regime")).toBeInTheDocument();
+      expect(screen.getByText("Archive #2")).toBeInTheDocument();
     });
-    expect(screen.getByText("Shard #0")).toBeInTheDocument();
-    expect(screen.getByText("genesis")).toBeInTheDocument();
-    // Tier distribution short/med/long.
-    expect(screen.getByText("0 / 0 / 3")).toBeInTheDocument();
+    expect(screen.getByText("5.000000 SKL / epoch")).toBeInTheDocument();
+    expect(screen.queryByText("genesis")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tier distribution/)).not.toBeInTheDocument();
+    expect(
+      vi.mocked(invoke).mock.calls.every((c) => c[0] !== "get_shard_render"),
+    ).toBe(true);
   });
 
-  it("surfaces a backend error with retry", async () => {
+  it("toggles a card into session selection", async () => {
+    const user = userEvent.setup();
+    mockCoverage(SAMPLE_LIST);
+    renderShards();
+    const card = await screen.findByRole("button", { name: /Archive #2/i });
+    await user.click(card);
+    expect(screen.getByText("Selected")).toBeInTheDocument();
+    expect(screen.getByText(/1 of 4096 archives selected/)).toBeInTheDocument();
+  });
+
+  it("surfaces a backend error with retry and never substitutes fixtures", async () => {
     vi.mocked(invoke).mockRejectedValue("boom");
     renderShards();
     await waitFor(() => {
-      expect(screen.getByText("boom")).toBeInTheDocument();
+      expect(screen.getByText(/Could not load archive coverage/)).toBeInTheDocument();
+      expect(screen.getByText(/boom/)).toBeInTheDocument();
     });
     expect(screen.getByText("Retry")).toBeInTheDocument();
+    expect(screen.queryByText(/Genesis regime/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pre-archival preview/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the list when one lazy render fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "list_shards") return SAMPLE_LIST;
+      if (cmd === "get_shard_render") {
+        throw new Error("could not retrieve this archive");
+      }
+      return null;
+    });
+    renderShards();
+    const card = await screen.findByRole("button", { name: /Archive #2/i });
+    await user.click(card);
+    await waitFor(() => {
+      expect(
+        vi.mocked(invoke).mock.calls.some((c) => c[0] === "get_shard_render"),
+      ).toBe(true);
+    });
+    expect(screen.getByText("Archive #2")).toBeInTheDocument();
+    expect(screen.getByText("5.000000 SKL / epoch")).toBeInTheDocument();
+    expect(screen.getByText("Selected")).toBeInTheDocument();
+  });
+
+  it("drops session selection when coverage no longer lists the shard", async () => {
+    const user = userEvent.setup();
+    let list: ShardCoverageList = SAMPLE_LIST;
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "list_shards") return list;
+      if (cmd === "get_shard_render") {
+        throw new Error("lazy PNG must not fetch on mount");
+      }
+      return null;
+    });
+    renderShards();
+    const card = await screen.findByRole("button", { name: /Archive #2/i });
+    await user.click(card);
+    expect(screen.getByText(/1 of 4096 archives selected/)).toBeInTheDocument();
+    list = { ...SAMPLE_LIST, frozen_count: 0, shards: [] };
+    await user.click(screen.getByRole("button", { name: /Refresh/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/No frozen archives yet/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/archives selected/)).not.toBeInTheDocument();
   });
 });

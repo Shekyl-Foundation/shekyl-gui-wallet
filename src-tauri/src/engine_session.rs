@@ -348,10 +348,13 @@ impl EngineSession {
     ///
     /// Mirrors `shekyl-wallet-rpc` `stake { password }`: verify password →
     /// optional intent reopen → [`StakeFacade::first_stake`]. No broadcast on this
-    /// path (`state: pending_dispatch`).
+    /// path (`state: pending_dispatch`). `selected_shard_count` is GUI session
+    /// state only — it is not passed into `first_stake` (D-3 still uses
+    /// `StakePosture::Market`).
     pub async fn activate_staker(
         &mut self,
         password: &str,
+        selected_shard_count: u32,
     ) -> Result<ActivateStakerOutcome, String> {
         let shared = self
             .engine
@@ -418,7 +421,7 @@ impl EngineSession {
         // is no acknowledgment path here for a caller to name it through.
         let outcome = StakeFacade::first_stake(shared, slot, StakePosture::Market)
             .await
-            .map_err(map_first_stake_err)?;
+            .map_err(|e| map_first_stake_err(e, selected_shard_count))?;
 
         Ok(ActivateStakerOutcome::from(outcome))
     }

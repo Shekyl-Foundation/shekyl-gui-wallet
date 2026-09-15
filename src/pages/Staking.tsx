@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Link } from "react-router";
 import {
   Coins,
   Lock,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
 import { useWallet } from "../context/useWallet";
+import { useShardPicker } from "../context/useShardPicker";
 import { formatSklCompact, formatPercent } from "../lib/format";
 import type { DrainBalance } from "../types/daemon";
 import EmissionGauge from "../components/EmissionGauge";
@@ -42,6 +44,7 @@ interface ActivateStakerResult {
 export default function Staking() {
   const { health } = useDaemon();
   const { phase } = useWallet();
+  const { selectedCount } = useShardPicker();
   const walletOpen = phase === "ready";
 
   const [status, setStatus] = useState<StakerStatusInfo | null>(null);
@@ -72,7 +75,7 @@ export default function Staking() {
   // Ok(0) — no point showing it outside the active panel). A fault or a closed
   // wallet resets to null → the panel renders "—", never a fabricated zero; the
   // transient "syncing" arm is the only non-value render (DS-PR-3, rule 82).
-  // The `cancelled` guard (matching Shards.tsx) drops a late-resolving read if
+  // The `cancelled` guard (matching ShardCoverageGallery) drops a late-resolving read if
   // the wallet closes / staking is disabled / the component unmounts first, so
   // a stale in-flight value can never re-populate `drain` after the reset.
   useEffect(() => {
@@ -113,6 +116,7 @@ export default function Staking() {
     try {
       const result = await invoke<ActivateStakerResult>("activate_staker", {
         password,
+        selectedShardCount: selectedCount,
       });
       setLastOutcome(result);
       setPassword("");
@@ -205,6 +209,23 @@ export default function Staking() {
               Re-enter your wallet password to activate. This re-materializes
               keys for the first bond post. Nothing is broadcast on this step —
               the post is sealed for scheduled dispatch.
+            </p>
+            <p className="text-xs text-purple-300">
+              {selectedCount === 0 ? (
+                <>
+                  No archives selected.{" "}
+                  <Link to="/shards" className="text-gold-400 underline">
+                    Pick archives on the Shards page
+                  </Link>{" "}
+                  first — you choose them; the network does not assign them.
+                </>
+              ) : (
+                <>
+                  {selectedCount} archive{selectedCount === 1 ? "" : "s"}{" "}
+                  selected this session. Expected profit is a ranking hint, not
+                  a payout.
+                </>
+              )}
             </p>
             <input
               type="password"

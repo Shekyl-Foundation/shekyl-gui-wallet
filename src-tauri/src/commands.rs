@@ -488,6 +488,7 @@ pub async fn get_staker_status(state: State<'_, AppState>) -> Result<StakerStatu
 pub async fn activate_staker(
     state: State<'_, AppState>,
     password: String,
+    selected_shard_count: u32,
 ) -> Result<ActivateStakerResult, String> {
     validate::validate_password(&password)?;
     if !*state.wallet_open.read().await {
@@ -497,7 +498,7 @@ pub async fn activate_staker(
     if !eng.is_open() {
         return Err("no wallet is open on the Engine backend".into());
     }
-    let outcome = eng.activate_staker(&password).await?;
+    let outcome = eng.activate_staker(&password, selected_shard_count).await?;
     Ok(ActivateStakerResult {
         slot: outcome.slot,
         swept_inputs: outcome.swept_inputs,

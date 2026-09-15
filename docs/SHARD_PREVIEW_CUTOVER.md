@@ -17,6 +17,29 @@ Fixtures mirror the visualization explorer fake-chain shards 0–5 (genesis thro
 whale regimes). Optional `hash_override` on render requests exercises palette and
 opacity variation without changing aggregate features.
 
+## Shards page (operator gallery)
+
+The sidebar **Shards** page is not this Staking-tab preview. Command names
+`list_shards` and `get_shard_render` stay stable (`docs/SHARD_PREVIEW_CUTOVER.md`
+was the original seam), but they now speak JSON-RPC only:
+
+- `list_shards` → daemon `get_archival_shard_coverage` (no Tor, no bodies)
+- `get_shard_render` → daemon `request_archival_shard` with `shard_id` only.
+  Today the daemon returns a typed miss (`ARCHIVAL_UNAVAILABLE` / "could
+  not retrieve this archive") until holder draw and SOCKS are production-
+  wired; a miss is a per-card fault, not a gallery fault. Once that path
+  is enabled the daemon fetches a pruned-window body from a staker (or a
+  temporary view-cache; never a local chain-store walk) and this command
+  renders the verified aggregate.
+
+The GUI never fetches shard bodies. Selection is session state (you pick;
+the network does not assign). Picks that leave the latest coverage list
+are dropped. The gallery panel (`ShardCoverageGallery`) owns fetch and
+fail-closed render; it mounts a window of cards (`GALLERY_PAGE_SIZE`)
+with Show more, so a long frozen set does not create one observer per
+row. The fixture preview on the Staking tab is unchanged until the
+Stage 5 checklist below.
+
 ## Stage 5 cutover checklist
 
 When `ArchivalEngine` lands and the wallet can list real archived shards:
