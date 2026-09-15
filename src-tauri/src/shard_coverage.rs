@@ -57,13 +57,21 @@ pub async fn get_shard_render(
         None,
         size,
     );
-    let recipe: CandidateRecipe = recipe_for(&aggregate, None);
-    let png = render_cached(&app, &cache_key, &aggregate, None, size)?;
+    // Recipe + PNG cache/render are sync I/O and 69–385 ms CPU on the
+    // rule-76 floor (`shard_visual.rs` cache_digest). Keep them off the
+    // async runtime so visible cards cannot stall unrelated Tauri work.
+    let (recipe, png, cache_key) = tokio::task::spawn_blocking(move || {
+        let recipe: CandidateRecipe = recipe_for(&aggregate, None);
+        let png = render_cached(&app, &cache_key, &aggregate, None, size)?;
+        Ok::<_, String>((recipe, png, cache_key))
+    })
+    .await
+    .map_err(|e| format!("shard render task failed: {e}"))??;
     Ok(ShardRenderResponse {
         png_base64: STANDARD.encode(&png),
         recipe,
         cache_key,
-        shard_id: aggregate.shard_id,
+        shard_id,
     })
 }
 

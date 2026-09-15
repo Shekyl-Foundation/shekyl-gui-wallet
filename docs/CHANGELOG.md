@@ -5,14 +5,16 @@
 ### Changed
 
 - **Live shard gallery.** The Shards page lists daemon coverage
-  (`get_archival_shard_coverage`) ordered by expected SKL per epoch. Click
-  toggles a session-only selection (not a network assignment). Identity
-  PNGs load lazily via `request_archival_shard` (`shard_id` only); the GUI
-  never fetches shard bodies. Empty frozen coverage is an honest empty;
-  a coverage fault does not fall back to fixtures. A truncated coverage
-  JSON is a fault, not an empty gallery. Session picks that leave coverage
-  are dropped. The gallery mounts a window of cards (`Show more`) rather
-  than one observer per frozen row.
+  (`get_archival_shard_coverage`) in join-scarcity order; equal-scarcity
+  ties are shuffled. Click toggles a session-only selection (not a network
+  assignment). Identity PNGs load lazily via `request_archival_shard`
+  (`shard_id` only); the GUI never fetches shard bodies. Until the daemon
+  wires holder draw / SOCKS, that RPC is a typed miss and the card
+  fail-closes without dropping the list. Empty frozen coverage is an
+  honest empty; a coverage fault does not fall back to fixtures. A
+  truncated coverage JSON is a fault, not an empty gallery. Session picks
+  that leave coverage are dropped. The gallery mounts a window of cards
+  (`Show more`) rather than one observer per frozen row.
 
 ### Fixed
 

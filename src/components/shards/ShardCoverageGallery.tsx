@@ -4,7 +4,7 @@ import { AlertTriangle, Boxes, RefreshCw } from "lucide-react";
 import ShardCard from "./ShardCard";
 import { useShardPicker } from "../../context/useShardPicker";
 import { formatSklCompact } from "../../lib/format";
-import { shuffleEqualProfitBands } from "../../lib/shardCoverage";
+import { shuffleEqualScarcityBands } from "../../lib/shardCoverage";
 import type { ShardCoverageList, ShardCoverageRow } from "../../types/shards";
 import { GALLERY_PAGE_SIZE, MAX_HOLDINGS_SHARDS } from "../../types/shards";
 
@@ -55,7 +55,7 @@ export default function ShardCoverageGallery() {
 
   const displayRows = useMemo(() => {
     if (load.kind !== "ready") return [];
-    return shuffleEqualProfitBands(load.value.shards);
+    return shuffleEqualScarcityBands(load.value.shards);
   }, [load]);
 
   const visibleRows = displayRows.slice(0, visibleCount);
@@ -102,7 +102,7 @@ export default function ShardCoverageGallery() {
         </p>
       )}
 
-      {capNotice && (
+      {capNotice && atCap && (
         <p className="text-xs text-amber-200">
           A bond can hold at most {MAX_HOLDINGS_SHARDS} archives. Deselect
           one before adding another.
