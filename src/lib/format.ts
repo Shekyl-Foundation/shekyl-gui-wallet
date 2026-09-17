@@ -1,19 +1,61 @@
+const ATOMIC_PER_SKL = 1_000_000_000n;
+const MILLION_SKL_ATOMIC = 1_000_000n * ATOMIC_PER_SKL;
+const THOUSAND_SKL_ATOMIC = 1_000n * ATOMIC_PER_SKL;
 const ATOMIC_DIVISOR = 1e9;
 const FIXED_POINT_SCALE = 1_000_000;
 const MAX_SUPPLY = 4_294_967_296;
+const ATOMIC_INTEGER = /^-?\d+$/;
 
-export function formatSkl(atomic: number, precision: 6 | 9 = 6): string {
-  const value = atomic / ATOMIC_DIVISOR;
-  const factor = Math.pow(10, precision);
-  const truncated = Math.trunc(value * factor) / factor;
-  return truncated.toFixed(precision);
+/** Atomic units from the Tauri wire (`string` / `bigint`) or remaining JSON-number DTOs. */
+export type AtomicAmount = bigint | string | number;
+
+export function atomicAmount(atomic: AtomicAmount): bigint {
+  if (typeof atomic === "bigint") {
+    return atomic;
+  }
+  if (typeof atomic === "string") {
+    const t = atomic.trim();
+    if (!ATOMIC_INTEGER.test(t)) {
+      throw new RangeError(`atomic amount is not a decimal integer: ${atomic}`);
+    }
+    return BigInt(t);
+  }
+  if (!Number.isFinite(atomic)) {
+    throw new RangeError("atomic amount is not finite");
+  }
+  return BigInt(Math.trunc(atomic));
 }
 
-export function formatSklCompact(atomic: number): string {
-  const value = atomic / ATOMIC_DIVISOR;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(2)}K`;
-  return formatSkl(atomic);
+function formatHundredths(hundredths: bigint): string {
+  const sign = hundredths < 0n ? "-" : "";
+  const abs = hundredths < 0n ? -hundredths : hundredths;
+  const whole = abs / 100n;
+  const frac = (abs % 100n).toString().padStart(2, "0");
+  return `${sign}${whole}.${frac}`;
+}
+
+export function formatSkl(atomic: AtomicAmount, precision: 6 | 9 = 6): string {
+  const n = atomicAmount(atomic);
+  const sign = n < 0n ? "-" : "";
+  const abs = n < 0n ? -n : n;
+  const whole = abs / ATOMIC_PER_SKL;
+  const frac = (abs % ATOMIC_PER_SKL)
+    .toString()
+    .padStart(9, "0")
+    .slice(0, precision);
+  return `${sign}${whole}.${frac}`;
+}
+
+export function formatSklCompact(atomic: AtomicAmount): string {
+  const n = atomicAmount(atomic);
+  const abs = n < 0n ? -n : n;
+  if (abs >= MILLION_SKL_ATOMIC) {
+    return `${formatHundredths((n * 100n) / MILLION_SKL_ATOMIC)}M`;
+  }
+  if (abs >= THOUSAND_SKL_ATOMIC) {
+    return `${formatHundredths((n * 100n) / THOUSAND_SKL_ATOMIC)}K`;
+  }
+  return formatSkl(n);
 }
 
 export function formatPercent(fixedPoint: number, scale = FIXED_POINT_SCALE): string {

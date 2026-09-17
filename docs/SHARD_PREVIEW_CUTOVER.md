@@ -23,14 +23,18 @@ The sidebar **Shards** page is not this Staking-tab preview. Command names
 `list_shards` and `get_shard_render` stay stable (`docs/SHARD_PREVIEW_CUTOVER.md`
 was the original seam), but they now speak JSON-RPC only:
 
-- `list_shards` → daemon `get_archival_shard_coverage` (no Tor, no bodies)
+- `list_shards` → daemon `get_archival_shard_coverage` (no Tor, no bodies).
+  `expected_profit_atomic` on each row is a decimal string of atomic units
+  so values above 2^53 stay exact; the gallery sums and formats with BigInt.
 - `get_shard_render` → daemon `request_archival_shard` with `shard_id` only.
-  Today the daemon returns a typed miss (`ARCHIVAL_UNAVAILABLE` / "could
-  not retrieve this archive") until holder draw and SOCKS are production-
-  wired; a miss is a per-card fault, not a gallery fault. Once that path
-  is enabled the daemon fetches a pruned-window body from a staker (or a
-  temporary view-cache; never a local chain-store walk) and this command
-  renders the verified aggregate.
+  The command fails closed if the reply's `shard_id` does not match the
+  request, so a stale or swapped archive cannot be cached or shown under
+  the requested id. Today the daemon returns a typed miss
+  (`ARCHIVAL_UNAVAILABLE` / "could not retrieve this archive") until
+  holder draw and SOCKS are production-wired; a miss is a per-card fault,
+  not a gallery fault. Once that path is enabled the daemon fetches a
+  pruned-window body from a staker (or a temporary view-cache; never a
+  local chain-store walk) and this command renders the verified aggregate.
 
 The GUI never fetches shard bodies. Selection is session state (you pick;
 the network does not assign). Picks that leave the latest coverage list

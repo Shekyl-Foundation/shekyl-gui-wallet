@@ -5,17 +5,17 @@ import type { ShardCoverageRow } from "../types/shards";
 export interface ShardPickerState {
   selectedIds: ReadonlySet<number>;
   selectedCount: number;
-  expectedProfitSumAtomic: number;
+  expectedProfitSumAtomic: bigint;
   atCap: boolean;
   isSelected: (shardId: number) => boolean;
-  toggle: (shardId: number, expectedProfitAtomic: number) => boolean;
+  toggle: (shardId: number, expectedProfitAtomic: string) => boolean;
   registerCoverage: (rows: readonly ShardCoverageRow[]) => void;
 }
 
 export const ShardPickerContext = createContext<ShardPickerState>({
   selectedIds: new Set(),
   selectedCount: 0,
-  expectedProfitSumAtomic: 0,
+  expectedProfitSumAtomic: 0n,
   atCap: false,
   isSelected: () => false,
   toggle: () => false,

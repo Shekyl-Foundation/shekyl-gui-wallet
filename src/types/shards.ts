@@ -1,8 +1,10 @@
 import type { CandidateRecipe } from "./shardPreview";
 
 /**
- * One row of `get_archival_shard_coverage` (`COMMAND_RPC_GET_ARCHIVAL_SHARD_COVERAGE`).
+ * One row of `list_shards` (daemon `get_archival_shard_coverage`).
  * Ranking uses join-adjusted scarcity; the GUI shows `expected_profit_atomic`.
+ * That field is a decimal string of atomic units so values above 2^53 stay
+ * exact across the Tauri JSON edge.
  */
 export interface ShardCoverageRow {
   shard_id: number;
@@ -10,7 +12,7 @@ export interface ShardCoverageRow {
   served_count: number;
   freeze_height: number;
   join_scarcity_micro: number;
-  expected_profit_atomic: number;
+  expected_profit_atomic: string;
 }
 
 /** Full coverage list. `frozen_count === 0` is an honest empty, not a fault. */

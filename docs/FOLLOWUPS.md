@@ -356,6 +356,11 @@ entry. The *dependency* question this entry existed to answer is settled.
 
 ## Atomic amounts serialized as JS `number` — target: post-genesis
 
+UPDATE 2026-09-17: shared `formatSkl` / `formatSklCompact` take
+`bigint | string | number`. Gallery `list_shards` `expected_profit_atomic`
+is a decimal string, summed as bigint. Remaining `Balance` /
+`DrainBalance` / `StakingView` still JSON numbers (display-only).
+
 Every balance the Tauri layer hands the frontend is a Rust `u64` of
 atomic units serialized to a JS `number`: `Balance.{total,unlocked,
 staked}` (`get_balance`), `DrainBalance.spendable`
@@ -369,10 +374,10 @@ Above that, the low-order atomic digits round in the JSON bridge.
 arithmetic; formatters are coarser than ULP across the supply range).
 Not a genesis consensus item.
 
-**The fix (systemic).** Migrate the balance-read pipeline wholesale:
-serialize atomic amounts as decimal strings, type them `string` in
-`daemon.ts`, parse with `BigInt`, and add a BigInt-native SKL formatter
-that `Balance` and `DrainBalance` share. One PR, one consistent surface.
+**The fix (systemic).** The BigInt-native SKL formatter is in `format.ts`
+(`bigint | string | number`). Remaining work: serialize `Balance` /
+`DrainBalance` / `StakingView` as decimal strings and type them `string`
+in the frontend. One PR, one consistent surface.
 
 **Why it's deferred, not fixed in DS-PR-3 PR-B.** The exposure is
 *display-only* — these figures are rendered, never round-tripped into
@@ -382,9 +387,10 @@ independently). And the SKL formatters (`formatSkl` 6-dp, `formatSklCompact`
 K/M) are coarser than the `number` ULP across the entire supply range
 (max supply 4.29e9 SKL → ULP at that magnitude ≈ the 6-dp display
 granularity), so the rounding is not observable in any rendered value.
-Patching one field to string+BigInt would need a divergent BigInt
-formatter and leave `Balance` inconsistent beside it — tech-debt-shaped,
-not tech-debt-removing (rules 15/16).
+Patching one field in DS-PR-3 would have needed a divergent BigInt
+formatter and left `Balance` inconsistent beside it. Gallery profit now
+uses the shared formatter; remaining number DTOs wait for the wholesale
+pipeline.
 
 **Reversion criteria (bring forward from post-genesis).** Any one of:
 

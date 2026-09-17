@@ -61,7 +61,7 @@ function SeedSelection({
   profit,
 }: {
   shardId: number;
-  profit: number;
+  profit: string;
 }) {
   const { toggle, isSelected } = useShardPicker();
   useEffect(() => {
@@ -74,7 +74,7 @@ function SeedSelection({
 
 function renderStaking(
   wallet: Partial<WalletContextValue> = {},
-  seed?: { shardId: number; profit: number },
+  seed?: { shardId: number; profit: string },
 ) {
   return render(
     <MemoryRouter>
@@ -166,7 +166,7 @@ describe("Staking (archival activation)", () => {
     });
     renderStaking(
       { phase: "ready", walletName: "alice" },
-      { shardId: 2, profit: 1 },
+      { shardId: 2, profit: "1" },
     );
     expect(
       await screen.findByText(/1 archive selected this session/),

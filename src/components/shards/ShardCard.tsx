@@ -55,10 +55,16 @@ export default function ShardCard({
       size: RENDER_SIZE,
     })
       .then((res) => {
-        if (!cancelled) {
-          setPng(res.png_base64);
-          setRenderError(null);
+        if (cancelled) {
+          return;
         }
+        if (res.shard_id !== row.shard_id) {
+          setRenderError("daemon returned a different archive than requested");
+          setPng(null);
+          return;
+        }
+        setPng(res.png_base64);
+        setRenderError(null);
       })
       .catch((e) => {
         if (!cancelled) {
@@ -76,11 +82,18 @@ export default function ShardCard({
     : "profit estimate unavailable";
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       aria-pressed={selected}
       onClick={onToggle}
-      className={`card w-full space-y-3 text-left transition ${
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      className={`card w-full cursor-pointer space-y-3 text-left transition ${
         selected
           ? "border-gold-400/60 ring-1 ring-gold-400/40"
           : "hover:border-purple-500/60"
@@ -136,6 +149,6 @@ export default function ShardCard({
           </dd>
         </div>
       </dl>
-    </button>
+    </div>
   );
 }

@@ -17,7 +17,7 @@ const SAMPLE_ROW: ShardCoverageRow = {
   served_count: 0,
   freeze_height: 1000,
   join_scarcity_micro: 900_000,
-  expected_profit_atomic: 5_000_000_000,
+  expected_profit_atomic: "5000000000",
 };
 
 const SAMPLE_LIST: ShardCoverageList = {
