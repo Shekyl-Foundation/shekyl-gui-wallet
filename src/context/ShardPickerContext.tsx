@@ -1,21 +1,23 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import type { ShardCoverageRow } from "../types/shards";
 import { MAX_HOLDINGS_SHARDS } from "../types/shards";
+import { atomicAmount } from "../lib/format";
 import { ShardPickerContext } from "./shardPickerState";
 
 export function ShardPickerProvider({ children }: { children: ReactNode }) {
-  const [selected, setSelected] = useState<Map<number, number>>(
+  const [selected, setSelected] = useState<Map<number, bigint>>(
     () => new Map(),
   );
 
   const toggle = useCallback(
-    (shardId: number, expectedProfitAtomic: number) => {
+    (shardId: number, expectedProfitAtomic: string) => {
       // Decide from the render that handled the click so the caller (cap
       // notice) matches what we enqueue. The updater still guards a burst
       // of clicks in the same tick.
       const removing = selected.has(shardId);
       const rejected = !removing && selected.size >= MAX_HOLDINGS_SHARDS;
       if (!rejected) {
+        const profit = atomicAmount(expectedProfitAtomic);
         setSelected((prev) => {
           const next = new Map(prev);
           if (next.has(shardId)) {
@@ -25,7 +27,7 @@ export function ShardPickerProvider({ children }: { children: ReactNode }) {
           if (next.size >= MAX_HOLDINGS_SHARDS) {
             return prev;
           }
-          next.set(shardId, expectedProfitAtomic);
+          next.set(shardId, profit);
           return next;
         });
       }
@@ -37,11 +39,11 @@ export function ShardPickerProvider({ children }: { children: ReactNode }) {
   const registerCoverage = useCallback((rows: readonly ShardCoverageRow[]) => {
     setSelected((prev) => {
       if (prev.size === 0) return prev;
-      const live = new Map<number, number>();
+      const live = new Map<number, bigint>();
       for (const row of rows) {
-        live.set(row.shard_id, row.expected_profit_atomic);
+        live.set(row.shard_id, atomicAmount(row.expected_profit_atomic));
       }
-      const next = new Map<number, number>();
+      const next = new Map<number, bigint>();
       let changed = false;
       for (const [id, profit] of prev) {
         const fresh = live.get(id);
@@ -64,7 +66,7 @@ export function ShardPickerProvider({ children }: { children: ReactNode }) {
   );
 
   const expectedProfitSumAtomic = useMemo(() => {
-    let sum = 0;
+    let sum = 0n;
     for (const v of selected.values()) {
       sum += v;
     }

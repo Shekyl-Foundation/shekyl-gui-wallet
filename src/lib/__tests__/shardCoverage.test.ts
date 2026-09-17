@@ -5,7 +5,7 @@ import type { ShardCoverageRow } from "../../types/shards";
 function row(
   shard_id: number,
   join_scarcity_micro: number,
-  expected_profit_atomic = join_scarcity_micro,
+  expected_profit_atomic: number | string = join_scarcity_micro,
 ): ShardCoverageRow {
   return {
     shard_id,
@@ -13,7 +13,7 @@ function row(
     served_count: 1,
     freeze_height: 1,
     join_scarcity_micro,
-    expected_profit_atomic,
+    expected_profit_atomic: String(expected_profit_atomic),
   };
 }
 

@@ -4,6 +4,12 @@
 
 ### Changed
 
+- **Gallery profit as a decimal string.** `list_shards` emits
+  `expected_profit_atomic` as a decimal string of atomic units (not a JSON
+  number). The gallery sums and formats with BigInt so values above 2^53
+  stay exact. Remaining balance DTOs are still JSON numbers (see
+  `docs/FOLLOWUPS.md`).
+
 - **Live shard gallery.** The Shards page lists daemon coverage
   (`get_archival_shard_coverage`) in join-scarcity order; equal-scarcity
   ties are shuffled. Click toggles a session-only selection (not a network

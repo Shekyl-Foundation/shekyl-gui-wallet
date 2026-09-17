@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  atomicAmount,
   formatSkl,
   formatSklCompact,
   formatPercent,
@@ -27,6 +28,13 @@ describe("formatSkl", () => {
   it("handles zero", () => {
     expect(formatSkl(0)).toBe("0.000000");
   });
+
+  it("does not round a string above 2^53 the way JSON number would", () => {
+    expect(formatSkl("9007199254740993", 9)).toBe("9007199.254740993");
+    const asJsonNumber = JSON.parse("9007199254740993") as number;
+    expect(asJsonNumber).toBe(Number.MAX_SAFE_INTEGER + 1);
+    expect(formatSkl(asJsonNumber, 9)).toBe("9007199.254740992");
+  });
 });
 
 describe("formatSklCompact", () => {
@@ -40,6 +48,16 @@ describe("formatSklCompact", () => {
 
   it("formats small values as regular SKL", () => {
     expect(formatSklCompact(500_000_000)).toBe("0.500000");
+  });
+});
+
+describe("atomicAmount", () => {
+  it("keeps 2^53+1 exact from a decimal string", () => {
+    expect(atomicAmount("9007199254740993")).toBe(9007199254740993n);
+  });
+
+  it("rejects a non-integer string", () => {
+    expect(() => atomicAmount("1.5")).toThrow(/decimal integer/);
   });
 });
 
