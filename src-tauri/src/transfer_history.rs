@@ -13,8 +13,10 @@
 //! - **Newest-first display** — same order key as wallet-rpc (ascending
 //!   inclusion height, incoming before outgoing, never-mined last), then
 //!   reversed for the Transactions UI.
-//! - **Flat Tauri DTO** — atomic `u64` amounts and snake_case enums instead of
-//!   OpenAPI `TransferView` strings.
+//! - **Flat Tauri DTO** — [`TransferRow`] is the JSON edge (raw `u64`,
+//!   snake_case enums). Receive facts and the merge key stay domain-typed
+//!   (`TxHash`, `OutputIndexInTx`, `AtomicUnits`, `BlockHeight`) until that
+//!   unwrap, same cut as wallet-rpc `project.rs` / [`crate::staking_view`].
 //!
 //! A future shared crate (or engine-core helper) should own this once; until
 //! then this module is the single GUI home for the projection so it does not
@@ -25,6 +27,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 use shekyl_engine_state::{InFlightSpendLocks, SendRecord, SendState, TransferDetails};
+use shekyl_types::{BlockHeight, OutputIndexInTx, TxHash};
+use shekyl_units::AtomicUnits;
 
 /// Lifecycle status on a projected history row (rule 82 — never collapse arms).
 ///
@@ -72,13 +76,14 @@ pub struct TransferRow {
 }
 
 /// Narrow receive facts so projection tests need no full `TransferDetails`
-/// crypto fixtures.
+/// crypto fixtures. Domain-typed on purpose: this is still Rust, not the
+/// Tauri JSON edge — that unwrap happens in [`project_incoming_row`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncomingFact {
-    pub tx_hash: [u8; 32],
-    pub output_index: u64,
-    pub amount: u64,
-    pub block_height: u64,
+    pub tx_hash: TxHash,
+    pub output_index: OutputIndexInTx,
+    pub amount: AtomicUnits,
+    pub block_height: BlockHeight,
     pub spent: bool,
     pub awaiting_confirmation: bool,
 }
@@ -92,10 +97,10 @@ impl IncomingFact {
     /// same shape as wallet-rpc's `transfer_state(td, spend_locks)`.
     pub fn from_details(td: &TransferDetails, spend_locks: &InFlightSpendLocks) -> Self {
         Self {
-            tx_hash: td.tx_hash.to_bytes(),
-            output_index: td.internal_output_index.to_raw(),
-            amount: td.amount().to_raw(),
-            block_height: td.block_height.to_raw(),
+            tx_hash: td.tx_hash,
+            output_index: td.internal_output_index,
+            amount: td.amount(),
+            block_height: td.block_height,
             spent: td.spent,
             awaiting_confirmation: spend_locks.contains(td.global_output_index),
         }
@@ -130,8 +135,8 @@ pub fn merge_transfer_history(
             HistoryOrder {
                 block_height: outgoing_block_height(record),
                 outgoing: true,
-                tx_hash: *txid,
-                output_index: 0,
+                tx_hash: TxHash::from_bytes(*txid),
+                output_index: OutputIndexInTx::ZERO,
             },
             row,
         ));
@@ -153,13 +158,13 @@ fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
     } else {
         TransferStatus::Confirmed
     };
-    let hash = hex::encode(fact.tx_hash);
+    let hash = fact.tx_hash.to_string();
     TransferRow {
-        id: format!("{hash}:{}", fact.output_index),
+        id: format!("{hash}:{}", fact.output_index.to_raw()),
         hash,
-        amount: fact.amount,
+        amount: fact.amount.to_raw(),
         fee: 0,
-        height: Some(fact.block_height),
+        height: Some(fact.block_height.to_raw()),
         timestamp: 0,
         direction: TransferDirection::In,
         status,
@@ -200,9 +205,9 @@ fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<Transfer
 ///
 /// Only refresh-observed `Confirmed { height }` yields a height — never
 /// `dispatched_at_height` (rule 82; same rationale as wallet-rpc).
-fn outgoing_block_height(record: &SendRecord) -> Option<u64> {
+fn outgoing_block_height(record: &SendRecord) -> Option<BlockHeight> {
     match record.state {
-        SendState::Confirmed { height } => Some(height),
+        SendState::Confirmed { height } => Some(BlockHeight::from_raw(height)),
         SendState::Dispatched
         | SendState::TerminalRejected
         | SendState::PresumedDead
@@ -213,10 +218,10 @@ fn outgoing_block_height(record: &SendRecord) -> Option<u64> {
 /// Deterministic merge order (wallet-rpc `TransferOrder`).
 #[derive(Debug, PartialEq, Eq)]
 struct HistoryOrder {
-    block_height: Option<u64>,
+    block_height: Option<BlockHeight>,
     outgoing: bool,
-    tx_hash: [u8; 32],
-    output_index: u64,
+    tx_hash: TxHash,
+    output_index: OutputIndexInTx,
 }
 
 impl Ord for HistoryOrder {
@@ -271,10 +276,10 @@ mod tests {
         awaiting: bool,
     ) -> IncomingFact {
         IncomingFact {
-            tx_hash: [seed; 32],
-            output_index,
-            amount,
-            block_height: height,
+            tx_hash: TxHash::from_bytes([seed; 32]),
+            output_index: OutputIndexInTx::from_raw(output_index),
+            amount: AtomicUnits::from_raw(amount),
+            block_height: BlockHeight::from_raw(height),
             spent,
             awaiting_confirmation: awaiting,
         }
