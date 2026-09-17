@@ -93,9 +93,9 @@ impl IncomingFact {
     pub fn from_details(td: &TransferDetails, spend_locks: &InFlightSpendLocks) -> Self {
         Self {
             tx_hash: td.tx_hash.to_bytes(),
-            output_index: td.internal_output_index,
+            output_index: td.internal_output_index.to_raw(),
             amount: td.amount().to_raw(),
-            block_height: td.block_height,
+            block_height: td.block_height.to_raw(),
             spent: td.spent,
             awaiting_confirmation: spend_locks.contains(td.global_output_index),
         }
