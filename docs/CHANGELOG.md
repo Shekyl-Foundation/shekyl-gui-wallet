@@ -18,6 +18,11 @@
 
 ### Fixed
 
+- **Archival render identity.** `get_shard_render` refuses a
+  `request_archival_shard` reply whose `shard_id` does not match the
+  request, so a stale or swapped archive cannot be cached or shown under
+  the requested id.
+
 - **Linux release rustdoc `--ignored` trap.** After the daemon and Tauri
   bundles succeeded, `cargo test --release -- --ignored` still compiled
   rustdoc examples marked ` ```ignore ` (`validate_wallet_name`'s

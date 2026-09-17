@@ -49,10 +49,11 @@ pub async fn get_shard_render(
 ) -> Result<ShardRenderResponse, String> {
     let url = state.url().await;
     let rpc = daemon_rpc::request_archival_shard(&state.http, &url, shard_id).await?;
-    let aggregate = aggregate_from_rpc(rpc)?;
+    let aggregate = aggregate_from_rpc(shard_id, rpc)?;
     let size = size.unwrap_or(DEFAULT_SIZE).clamp(MIN_SIZE, MAX_SIZE);
+    let verified_shard_id = aggregate.shard_id;
     let cache_key = cache_digest(
-        &aggregate.shard_id.to_string(),
+        &verified_shard_id.to_string(),
         aggregate.shard_hash,
         None,
         size,
@@ -71,7 +72,7 @@ pub async fn get_shard_render(
         png_base64: STANDARD.encode(&png),
         recipe,
         cache_key,
-        shard_id,
+        shard_id: verified_shard_id,
     })
 }
 
@@ -88,7 +89,16 @@ fn coverage_list_from_rpc(res: GetArchivalShardCoverageResponse) -> ShardCoverag
     }
 }
 
-fn aggregate_from_rpc(rpc: RequestArchivalShardResponse) -> Result<ShardAggregate, String> {
+fn aggregate_from_rpc(
+    requested_shard_id: u64,
+    rpc: RequestArchivalShardResponse,
+) -> Result<ShardAggregate, String> {
+    if rpc.shard_id != requested_shard_id {
+        return Err(format!(
+            "daemon returned archive {} for requested {}",
+            rpc.shard_id, requested_shard_id
+        ));
+    }
     let bytes = hex::decode(rpc.shard_hash.trim())
         .map_err(|e| format!("daemon shard_hash is not hex: {e}"))?;
     let shard_hash: [u8; 32] = bytes
@@ -120,7 +130,7 @@ mod tests {
             coinbase_output_count: 0,
             time_range_seconds: 0,
         };
-        assert!(aggregate_from_rpc(rpc).is_err());
+        assert!(aggregate_from_rpc(0, rpc).is_err());
     }
 
     #[test]
@@ -134,9 +144,31 @@ mod tests {
             coinbase_output_count: 1,
             time_range_seconds: 120,
         };
-        let agg = aggregate_from_rpc(rpc).expect("valid hash");
+        let agg = aggregate_from_rpc(7, rpc).expect("valid hash");
         assert_eq!(agg.shard_id, 7);
         assert_eq!(agg.block_count, 10);
         assert_eq!(agg.shard_hash[0], 0x11);
+    }
+
+    #[test]
+    fn aggregate_from_rpc_rejects_mismatched_shard_id() {
+        let rpc = RequestArchivalShardResponse {
+            shard_id: 7,
+            shard_hash: "11".repeat(32),
+            block_count: 10,
+            tx_count: 2,
+            output_count: 4,
+            coinbase_output_count: 1,
+            time_range_seconds: 120,
+        };
+        let err = aggregate_from_rpc(1, rpc).expect_err("identity mismatch");
+        assert!(
+            err.contains("requested 1"),
+            "mismatch must name the request: {err}"
+        );
+        assert!(
+            err.contains("archive 7"),
+            "mismatch must name the daemon id: {err}"
+        );
     }
 }
