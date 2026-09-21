@@ -5489,6 +5489,7 @@ name = "shekyl-consensus"
 version = "3.1.0"
 dependencies = [
  "serde",
+ "shekyl-difficulty",
  "thiserror 2.0.18",
 ]
 
@@ -5528,6 +5529,7 @@ dependencies = [
  "shekyl-crypto-hash",
  "shekyl-curve-generators",
  "shekyl-curve-primitives",
+ "shekyl-types",
  "thiserror 2.0.18",
  "x25519-dalek",
  "zeroize",
@@ -5592,6 +5594,15 @@ dependencies = [
  "shekyl-crypto-pq",
  "shekyl-curve-io",
  "shekyl-fcmp",
+ "shekyl-types",
+]
+
+[[package]]
+name = "shekyl-difficulty"
+version = "3.1.0"
+dependencies = [
+ "serde_json",
+ "shekyl-types",
 ]
 
 [[package]]
@@ -5964,6 +5975,7 @@ dependencies = [
  "shekyl-curve-io",
  "shekyl-curve-primitives",
  "shekyl-fcmp",
+ "shekyl-types",
  "shekyl-units",
  "shekyl-wire",
  "thiserror 2.0.18",
@@ -5977,6 +5989,7 @@ dependencies = [
  "shekyl-crypto-pq",
  "shekyl-curve-io",
  "shekyl-fcmp",
+ "shekyl-types",
  "shekyl-wire",
 ]
 
@@ -6053,6 +6066,7 @@ version = "3.1.0"
 dependencies = [
  "shekyl-crypto-hash",
  "shekyl-curve-generators",
+ "shekyl-types",
 ]
 
 [[package]]
