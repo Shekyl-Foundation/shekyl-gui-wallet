@@ -182,7 +182,7 @@ fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<Transfer
     })?;
     let (status, height) = match record.state {
         SendState::Dispatched => (TransferStatus::Pending, None),
-        SendState::Confirmed { height } => (TransferStatus::Confirmed, Some(height)),
+        SendState::Confirmed { height } => (TransferStatus::Confirmed, Some(height.to_raw())),
         SendState::TerminalRejected => (TransferStatus::Failed, None),
         SendState::PresumedDead => (TransferStatus::Dropped, None),
         SendState::Abandoned => (TransferStatus::Abandoned, None),
@@ -207,7 +207,7 @@ fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<Transfer
 /// `dispatched_at_height` (rule 82; same rationale as wallet-rpc).
 fn outgoing_block_height(record: &SendRecord) -> Option<BlockHeight> {
     match record.state {
-        SendState::Confirmed { height } => Some(BlockHeight::from_raw(height)),
+        SendState::Confirmed { height } => Some(height),
         SendState::Dispatched
         | SendState::TerminalRejected
         | SendState::PresumedDead
@@ -251,7 +251,7 @@ mod tests {
 
     fn sample_record(state: SendState, fee: u64, amounts: &[u64]) -> SendRecord {
         SendRecord {
-            dispatched_at_height: 10,
+            dispatched_at_height: BlockHeight::from_raw(10),
             fee,
             recipients: amounts
                 .iter()
@@ -303,7 +303,13 @@ mod tests {
     fn outgoing_confirmed_carries_inclusion_height() {
         let row = project_outgoing_row(
             &[1u8; 32],
-            &sample_record(SendState::Confirmed { height: 42 }, 7, &[500, 250]),
+            &sample_record(
+                SendState::Confirmed {
+                    height: BlockHeight::from_raw(42),
+                },
+                7,
+                &[500, 250],
+            ),
         )
         .expect("project");
         assert_eq!(row.status, TransferStatus::Confirmed);
@@ -341,7 +347,7 @@ mod tests {
     #[test]
     fn outgoing_rejects_overflowing_recipient_sum() {
         let bad = SendRecord {
-            dispatched_at_height: 1,
+            dispatched_at_height: BlockHeight::from_raw(1),
             fee: 0,
             recipients: vec![
                 SendRecipient {
@@ -394,7 +400,13 @@ mod tests {
         journal.insert([0x11; 32], sample_record(SendState::Dispatched, 1, &[100]));
         journal.insert(
             [0x22; 32],
-            sample_record(SendState::Confirmed { height: 5 }, 1, &[200]),
+            sample_record(
+                SendState::Confirmed {
+                    height: BlockHeight::from_raw(5),
+                },
+                1,
+                &[200],
+            ),
         );
         let facts = vec![incoming(0x33, 50, 5, 0, false, false)];
 
@@ -417,7 +429,7 @@ mod tests {
         journal.insert(
             [0x01; 32],
             SendRecord {
-                dispatched_at_height: 1,
+                dispatched_at_height: BlockHeight::from_raw(1),
                 fee: 0,
                 recipients: vec![
                     SendRecipient {
