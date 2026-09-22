@@ -429,7 +429,7 @@ mod tests {
         journal.insert(
             [0x01; 32],
             SendRecord {
-                dispatched_at_height: 1,
+                dispatched_at_height: BlockHeight::from_raw(1),
                 fee: 0,
                 recipients: vec![
                     SendRecipient {
