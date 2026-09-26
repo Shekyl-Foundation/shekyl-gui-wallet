@@ -23,6 +23,7 @@ use crate::shard_visual::{
     cache_digest, recipe_for, render_cached, ShardRenderResponse, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE,
 };
 use crate::state::AppState;
+use crate::wire::AtomicUnitsString;
 
 #[derive(Debug, Serialize)]
 pub struct ShardCoverageList {
@@ -37,8 +38,8 @@ pub struct ShardCoverageList {
 }
 
 /// Tauri-wire row. Daemon JSON still carries `expected_profit_atomic` as a
-/// number (`RpcRow`); JS `number` is lossy above 2^53, so this edge is a
-/// decimal string and the frontend sums with `bigint`.
+/// number (`RpcRow`); on this edge it is an `AtomicUnitsString` (see `wire`)
+/// and the frontend sums with `bigint`.
 #[derive(Debug, Serialize)]
 pub struct ShardCoverageRow {
     pub shard_id: u64,
@@ -46,7 +47,7 @@ pub struct ShardCoverageRow {
     pub served_count: u64,
     pub freeze_height: u64,
     pub join_scarcity_micro: u64,
-    pub expected_profit_atomic: String,
+    pub expected_profit_atomic: AtomicUnitsString,
 }
 
 impl From<RpcRow> for ShardCoverageRow {
@@ -57,7 +58,7 @@ impl From<RpcRow> for ShardCoverageRow {
             served_count: row.served_count,
             freeze_height: row.freeze_height,
             join_scarcity_micro: row.join_scarcity_micro,
-            expected_profit_atomic: row.expected_profit_atomic.to_string(),
+            expected_profit_atomic: row.expected_profit_atomic.into(),
         }
     }
 }

@@ -19,7 +19,14 @@
   `discard_pending_tx` (Cancel, leaving the page, closing the window). A
   content change discards and rebuilds so the user re-confirms figures they can
   read; ambiguous or still-pending submits keep their reservation and are never
-  discarded by the page. The three fee tiers (FL-R17) are user-selectable.
+  discarded by the page, and a failed discard keeps the reservation owned and
+  visible rather than forgotten. The three fee tiers (FL-R17) are
+  user-selectable. Every atomic amount on this boundary is a decimal string
+  (`AtomicUnitsString`), parsed losslessly with `parseSkl` and rendered on the
+  review card at full 9-decimal precision, so a fee or amount above 2^53 is
+  never rounded at the Tauri edge and two reservations one atomic unit apart
+  never display alike. The page composes `FeeTierPicker` and `ReviewCard`
+  panels (rule 27).
   `transfer`, `estimate_fee` and the dead `transfer_stage` progress UI (no
   Rust emitter existed) are deleted.
 

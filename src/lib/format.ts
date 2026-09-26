@@ -34,6 +34,39 @@ function formatHundredths(hundredths: bigint): string {
   return `${sign}${whole}.${frac}`;
 }
 
+/** Fractional digits in one SKL: an atomic unit is 10^-9 SKL. */
+export const SKL_DECIMALS = 9;
+/**
+ * The grammar of a typed SKL amount, for an `<input pattern>`: digits, then
+ * optionally a point and up to `SKL_DECIMALS` digits. `parseSkl` accepts
+ * exactly this grammar, so the browser's refusal and the parser's agree by
+ * construction rather than by two hand-copied regexes.
+ */
+export const SKL_AMOUNT_PATTERN = `\\d+(\\.\\d{0,${SKL_DECIMALS}})?`;
+const SKL_INPUT = new RegExp(`^(\\d+)(?:\\.(\\d{0,${SKL_DECIMALS}}))?$`);
+
+/**
+ * Parse a user-typed SKL amount into atomic units, losslessly.
+ *
+ * The send boundary carries amounts as decimal strings of atomic units, the
+ * same convention as every other large atomic value on the Tauri wire
+ * (`ShardCoverageRow.expected_profit_atomic`), so a balance above 2^53 reaches
+ * Rust as the decimal the user typed and never as a rounded `number`.
+ *
+ * Accepts `"12"`, `"12."`, `"0.5"`; not `".5"` (a leading digit is required,
+ * as `SKL_AMOUNT_PATTERN` says). More than `SKL_DECIMALS` fractional digits is
+ * a RangeError: the extra digits cannot be represented, and silently
+ * truncating them would send a different amount than the one typed.
+ */
+export function parseSkl(text: string): bigint {
+  const m = SKL_INPUT.exec(text.trim());
+  if (!m) {
+    throw new RangeError(`not an SKL amount: ${JSON.stringify(text)}`);
+  }
+  const [, whole, frac = ""] = m;
+  return BigInt(whole) * ATOMIC_PER_SKL + BigInt(frac.padEnd(SKL_DECIMALS, "0"));
+}
+
 export function formatSkl(atomic: AtomicAmount, precision: 6 | 9 = 6): string {
   const n = atomicAmount(atomic);
   const sign = n < 0n ? "-" : "";

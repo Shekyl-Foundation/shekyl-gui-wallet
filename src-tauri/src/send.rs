@@ -62,36 +62,76 @@
 use serde::Serialize;
 use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    FeePriority, InputCount, OutputCount, SubmitOutcome, TxRecipient, TxRequest,
+    FeePriority, InputCount, OutputCount, ReservationId, SubmitOutcome, TxRecipient, TxRequest,
 };
-use shekyl_units::AtomicUnits;
 use tauri::State;
 
 use crate::engine_session::SharedEngine;
 use crate::state::AppState;
 use crate::validate;
+use crate::wire::AtomicUnitsString;
+
+/// The wallet contract's vocabulary (`wallet_rpc.yaml`), so the page branches
+/// on the same names the CLI and RPC clients see. Strings, not an enum, because
+/// they cross the Tauri edge as the contract spells them.
+pub mod contract {
+    /// Fee tiers (`build_pending_tx.priority`).
+    pub const TIER_ECONOMY: &str = "ECONOMY";
+    pub const TIER_STANDARD: &str = "STANDARD";
+    pub const TIER_PRIORITY: &str = "PRIORITY";
+    /// The tier a fresh page starts on (`get_default_fee_priority.default_priority`).
+    pub const DEFAULT_TIER: &str = TIER_STANDARD;
+
+    /// Submit verdicts (`SubmitVerdictView`).
+    pub const VERDICT_ACCEPTED: &str = "ACCEPTED";
+    pub const VERDICT_ALREADY_IN_POOL: &str = "ALREADY_IN_POOL";
+    pub const VERDICT_ALREADY_IN_CHAIN: &str = "ALREADY_IN_CHAIN";
+
+    /// Error names (the contract's -29xxx / -32602 codes, by name).
+    pub const ERR_INVALID_PARAMS: &str = "INVALID_PARAMS";
+    pub const ERR_WALLET_NOT_OPEN: &str = "WALLET_NOT_OPEN";
+    pub const ERR_INSUFFICIENT_FUNDS: &str = "INSUFFICIENT_FUNDS";
+    pub const ERR_FEE_ESTIMATION_FAILED: &str = "FEE_ESTIMATION_FAILED";
+    pub const ERR_RESERVATION_NOT_FOUND: &str = "RESERVATION_NOT_FOUND";
+    pub const ERR_SNAPSHOT_INVALIDATED: &str = "SNAPSHOT_INVALIDATED";
+    pub const ERR_CONTENT_GEN_MISMATCH: &str = "CONTENT_GEN_MISMATCH";
+    pub const ERR_SUBMIT_REJECTED: &str = "SUBMIT_REJECTED";
+    pub const ERR_SUBMIT_AMBIGUOUS: &str = "SUBMIT_AMBIGUOUS";
+    /// The arms the contract leaves unnamed.
+    pub const ERR_INTERNAL: &str = "INTERNAL_ERROR";
+}
+
+/// The shape the typing-time tier quote is priced for: one payment output and
+/// its change, funded from two inputs — the canonical transfer, the same
+/// default wallet-rpc's `get_default_fee_priority` uses when the caller gives
+/// no shape.
+const CANONICAL_INPUT_COUNT: usize = 2;
+const CANONICAL_OUTPUT_COUNT: usize = 2;
 
 /// The contract's tier names (`wallet_rpc.yaml`, `build_pending_tx.priority`).
 pub fn parse_priority(tier: &str) -> Result<FeePriority, SendError> {
     match tier {
-        "ECONOMY" => Ok(FeePriority::Economy),
-        "STANDARD" => Ok(FeePriority::Standard),
-        "PRIORITY" => Ok(FeePriority::Priority),
+        contract::TIER_ECONOMY => Ok(FeePriority::Economy),
+        contract::TIER_STANDARD => Ok(FeePriority::Standard),
+        contract::TIER_PRIORITY => Ok(FeePriority::Priority),
         other => Err(SendError::invalid(format!(
-            "unknown fee priority tier: {other} (expected ECONOMY, STANDARD or PRIORITY)"
+            "unknown fee priority tier: {other} (expected {}, {} or {})",
+            contract::TIER_ECONOMY,
+            contract::TIER_STANDARD,
+            contract::TIER_PRIORITY
         ))),
     }
 }
 
 /// `get_default_fee_priority` result: the daemon's tier quotes for the
-/// canonical 2-in/2-out shape. An estimate for choosing a tier — never the
-/// fee the user confirms; that comes from the build.
+/// canonical shape. An estimate for choosing a tier — never the fee the user
+/// confirms; that comes from the build.
 #[derive(Debug, Serialize)]
 pub struct FeeTierQuote {
     pub default_priority: &'static str,
-    pub economy_fee: u64,
-    pub standard_fee: u64,
-    pub priority_fee: u64,
+    pub economy_fee: AtomicUnitsString,
+    pub standard_fee: AtomicUnitsString,
+    pub priority_fee: AtomicUnitsString,
     pub tree_depth: u8,
 }
 
@@ -102,7 +142,8 @@ pub struct FeeTierQuote {
 pub struct BuiltPendingTx {
     /// Opaque reservation handle (`ReservationId::raw` as a decimal string).
     pub pending_tx_id: String,
-    pub fee: u64,
+    /// The exact fee of this transaction.
+    pub fee: AtomicUnitsString,
     /// Pass back as `seen_gen` on submit.
     pub content_gen: u64,
 }
@@ -134,7 +175,7 @@ pub struct SendError {
 impl SendError {
     fn invalid(message: String) -> Self {
         Self {
-            code: "INVALID_PARAMS",
+            code: contract::ERR_INVALID_PARAMS,
             message,
             reservation_retained: false,
         }
@@ -142,7 +183,7 @@ impl SendError {
 
     fn wallet_closed() -> Self {
         Self {
-            code: "WALLET_NOT_OPEN",
+            code: contract::ERR_WALLET_NOT_OPEN,
             message: "No wallet is open".into(),
             reservation_retained: false,
         }
@@ -170,13 +211,13 @@ impl SendError {
         // SUBMIT_REJECTED, and the arms the contract leaves unnamed are
         // internal. `SubmitError` is `#[non_exhaustive]`, hence the wildcard.
         let code = match &err {
-            SubmitError::ContentChanged { .. } => "CONTENT_GEN_MISMATCH",
-            SubmitError::SnapshotInvalidated { .. } => "SNAPSHOT_INVALIDATED",
-            SubmitError::ReservationNotFound { .. } => "RESERVATION_NOT_FOUND",
-            SubmitError::DaemonAmbiguous { .. } => "SUBMIT_AMBIGUOUS",
+            SubmitError::ContentChanged { .. } => contract::ERR_CONTENT_GEN_MISMATCH,
+            SubmitError::SnapshotInvalidated { .. } => contract::ERR_SNAPSHOT_INVALIDATED,
+            SubmitError::ReservationNotFound { .. } => contract::ERR_RESERVATION_NOT_FOUND,
+            SubmitError::DaemonAmbiguous { .. } => contract::ERR_SUBMIT_AMBIGUOUS,
             SubmitError::DaemonRejectedTerminal { .. }
-            | SubmitError::DaemonRejectedRetryable { .. } => "SUBMIT_REJECTED",
-            _ => "INTERNAL_ERROR",
+            | SubmitError::DaemonRejectedRetryable { .. } => contract::ERR_SUBMIT_REJECTED,
+            _ => contract::ERR_INTERNAL,
         };
         Self {
             code,
@@ -186,11 +227,11 @@ impl SendError {
     }
 }
 
-fn parse_pending_tx_id(s: &str) -> Result<shekyl_engine_core::ReservationId, SendError> {
+fn parse_pending_tx_id(s: &str) -> Result<ReservationId, SendError> {
     let raw: u64 = s
         .parse()
         .map_err(|_| SendError::invalid("pending_tx_id must be a decimal reservation id".into()))?;
-    Ok(shekyl_engine_core::ReservationId::from_raw(raw))
+    Ok(ReservationId::from_raw(raw))
 }
 
 /// Clone the shared engine out from under the session lock, so the caller can
@@ -210,19 +251,21 @@ pub async fn get_default_fee_priority(
     let shared = shared_engine(&state).await?;
     let engine = shared.read().await;
     let quote = engine
-        // The canonical 2-in/2-out shape, built the way wallet-rpc builds it.
-        .quote_fee_tiers(InputCount::clamped(2), OutputCount::clamped(2))
+        .quote_fee_tiers(
+            InputCount::clamped(CANONICAL_INPUT_COUNT),
+            OutputCount::clamped(CANONICAL_OUTPUT_COUNT),
+        )
         .await
         .map_err(|e| SendError {
-            code: "FEE_ESTIMATION_FAILED",
+            code: contract::ERR_FEE_ESTIMATION_FAILED,
             message: format!("fee quote: {e}"),
             reservation_retained: false,
         })?;
     Ok(FeeTierQuote {
-        default_priority: "STANDARD",
-        economy_fee: quote.economy_fee.to_raw(),
-        standard_fee: quote.standard_fee.to_raw(),
-        priority_fee: quote.priority_fee.to_raw(),
+        default_priority: contract::DEFAULT_TIER,
+        economy_fee: quote.economy_fee.into(),
+        standard_fee: quote.standard_fee.into(),
+        priority_fee: quote.priority_fee.into(),
         tree_depth: quote.tree_depth,
     })
 }
@@ -231,17 +274,17 @@ pub async fn get_default_fee_priority(
 pub async fn build_pending_tx(
     state: State<'_, AppState>,
     address: String,
-    amount: u64,
+    amount: AtomicUnitsString,
     priority: String,
 ) -> Result<BuiltPendingTx, SendError> {
     validate::validate_address(&address).map_err(SendError::invalid)?;
-    validate::validate_amount(amount).map_err(SendError::invalid)?;
+    validate::validate_amount(amount.to_raw()).map_err(SendError::invalid)?;
     let priority = parse_priority(&priority)?;
     let shared = shared_engine(&state).await?;
     let request = TxRequest {
         recipients: vec![TxRecipient {
             address,
-            amount_atomic_units: AtomicUnits::from_raw(amount),
+            amount_atomic_units: amount.to_atomic_units(),
         }],
         priority,
     };
@@ -252,16 +295,18 @@ pub async fn build_pending_tx(
         .map_err(|e| SendError {
             // The contract's build-side names; anything else is internal.
             code: match &e {
-                shekyl_engine_core::SendError::InsufficientFunds { .. } => "INSUFFICIENT_FUNDS",
-                shekyl_engine_core::SendError::Fee(_) => "FEE_ESTIMATION_FAILED",
-                _ => "INTERNAL_ERROR",
+                shekyl_engine_core::SendError::InsufficientFunds { .. } => {
+                    contract::ERR_INSUFFICIENT_FUNDS
+                }
+                shekyl_engine_core::SendError::Fee(_) => contract::ERR_FEE_ESTIMATION_FAILED,
+                _ => contract::ERR_INTERNAL,
             },
             message: format!("build transaction: {e}"),
             reservation_retained: false,
         })?;
     Ok(BuiltPendingTx {
         pending_tx_id: pending.id.raw().to_string(),
-        fee: pending.fee_atomic_units.to_raw(),
+        fee: pending.fee_atomic_units.into(),
         content_gen: pending.content_gen,
     })
 }
@@ -278,9 +323,11 @@ pub async fn submit_pending_tx(
     match engine.submit_pending_tx_async(id, seen_gen).await {
         Ok(outcome) => {
             let (verdict, confirmed_height) = match &outcome {
-                SubmitOutcome::Accepted { .. } => ("ACCEPTED", None),
-                SubmitOutcome::AlreadyInPool { .. } => ("ALREADY_IN_POOL", None),
-                SubmitOutcome::AlreadyInChain { height, .. } => ("ALREADY_IN_CHAIN", Some(*height)),
+                SubmitOutcome::Accepted { .. } => (contract::VERDICT_ACCEPTED, None),
+                SubmitOutcome::AlreadyInPool { .. } => (contract::VERDICT_ALREADY_IN_POOL, None),
+                SubmitOutcome::AlreadyInChain { height, .. } => {
+                    (contract::VERDICT_ALREADY_IN_CHAIN, Some(*height))
+                }
             };
             Ok(SubmitResult {
                 tx_hash: outcome.hash().to_string(),
@@ -310,7 +357,7 @@ pub async fn discard_pending_tx(
     let shared = shared_engine(&state).await?;
     let engine = shared.read().await;
     engine.discard_pending_tx(id).map_err(|e| SendError {
-        code: "INTERNAL_ERROR",
+        code: contract::ERR_INTERNAL,
         message: format!("discard transaction: {e}"),
         reservation_retained: true,
     })
@@ -319,7 +366,6 @@ pub async fn discard_pending_tx(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shekyl_engine_core::ReservationId;
 
     #[test]
     fn tiers_are_the_contracts_names_and_nothing_else() {
@@ -337,8 +383,38 @@ mod tests {
         ));
         for bad in ["standard", "Standard", "", "FAST", "2"] {
             let err = parse_priority(bad).unwrap_err();
-            assert_eq!(err.code, "INVALID_PARAMS", "{bad}");
+            assert_eq!(err.code, contract::ERR_INVALID_PARAMS, "{bad}");
         }
+    }
+
+    /// The page never sees a JSON number for an amount: the DTOs the send
+    /// commands return carry every atomic value as the contract's decimal
+    /// string, so a fee above 2^53 reaches JS exactly.
+    #[test]
+    fn every_atomic_amount_on_the_wire_is_a_decimal_string() {
+        const BEYOND_DOUBLE: u64 = (1u64 << 53) + 1;
+        let built = serde_json::to_value(BuiltPendingTx {
+            pending_tx_id: "42".into(),
+            fee: BEYOND_DOUBLE.into(),
+            content_gen: 0,
+        })
+        .unwrap();
+        assert_eq!(built["fee"], "9007199254740993");
+        assert_eq!(built["pending_tx_id"], "42");
+        assert_eq!(built["content_gen"], 0);
+
+        let quote = serde_json::to_value(FeeTierQuote {
+            default_priority: contract::DEFAULT_TIER,
+            economy_fee: 1.into(),
+            standard_fee: 2.into(),
+            priority_fee: BEYOND_DOUBLE.into(),
+            tree_depth: 6,
+        })
+        .unwrap();
+        assert_eq!(quote["default_priority"], "STANDARD");
+        assert_eq!(quote["economy_fee"], "1");
+        assert_eq!(quote["priority_fee"], "9007199254740993");
+        assert_eq!(quote["tree_depth"], 6);
     }
 
     #[test]

@@ -51,6 +51,7 @@ mod state;
 mod transfer_history;
 mod validate;
 mod wallet_name;
+mod wire;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

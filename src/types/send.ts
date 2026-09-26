@@ -1,11 +1,21 @@
-/** Wire types for the send flow — the wallet contract's names, not the GUI's. */
+/**
+ * Wire types for the send flow — the wallet contract's names, not the GUI's.
+ *
+ * Every atomic amount here is a decimal string (`AtomicUnitsString` in the
+ * contract): a JS `number` cannot hold all `u64` values, and a fee or amount
+ * rounded at the Tauri edge would defeat the one invariant this flow exists
+ * for — the fee the user confirms is the fee that ships. Format with
+ * `formatSkl`, parse with `parseSkl`, never through `Number`.
+ */
+
+export type AtomicUnitsString = string;
 
 /** `get_default_fee_priority`: tier quotes for the canonical 2-in/2-out shape. */
 export interface FeeTierQuote {
   default_priority: "STANDARD";
-  economy_fee: number;
-  standard_fee: number;
-  priority_fee: number;
+  economy_fee: AtomicUnitsString;
+  standard_fee: AtomicUnitsString;
+  priority_fee: AtomicUnitsString;
   tree_depth: number;
 }
 
@@ -14,8 +24,8 @@ export type FeePriorityTier = "ECONOMY" | "STANDARD" | "PRIORITY";
 /** `build_pending_tx`: the reservation the user is asked to confirm. */
 export interface BuiltPendingTx {
   pending_tx_id: string;
-  /** The exact fee of this transaction, in atomic units. */
-  fee: number;
+  /** The exact fee of this transaction. */
+  fee: AtomicUnitsString;
   /** Pass back as `seenGen` on submit. */
   content_gen: number;
 }
@@ -47,4 +57,8 @@ export function isSendError(e: unknown): e is SendError {
     typeof (e as SendError).code === "string" &&
     typeof (e as SendError).reservation_retained === "boolean"
   );
+}
+
+export function sendErrorMessage(e: unknown): string {
+  return isSendError(e) ? e.message : String(e);
 }

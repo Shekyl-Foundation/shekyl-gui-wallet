@@ -65,7 +65,7 @@ Every Tauri command that accepts user input validates before reaching the C++ FF
 | Input | Validation |
 |-------|-----------|
 | Address | Bech32m decode via `shekyl-address` crate |
-| Amount | Non-zero u64 |
+| Amount | Non-zero u64, carried across the Tauri edge as a decimal string (`AtomicUnitsString`, `src-tauri/src/wire.rs`) — never a JS `number` |
 | Wallet name | No path separators, no dots prefix, max 255 chars |
 | Password | No null bytes, max 1024 chars |
 | Seed phrase | ASCII, 1-30 words, no null bytes |
@@ -84,6 +84,8 @@ The GUI drives the wallet engine's own reservation lifecycle under the contract'
 - **A content change is never resubmitted silently.** If the realized fee or change moved on re-anchor, the reservation is discarded and rebuilt, and the user re-confirms figures they can read.
 - **Retained reservations are never discarded by the page.** An ambiguous or still-pending submit may already be on the network; the engine keeps the reservation so a retry cannot double-spend, and the page leaves it alone.
 - **Cancel, leaving the page, or closing the window discards** the reservation and releases the funds.
+- **Every atomic amount crosses the Tauri edge as a decimal string** (`AtomicUnitsString`), parsed with `BigInt` and shown on the review card at full 9-decimal precision. A JS `number` is lossy above 2^53; a fee rounded at the edge would break the invariant that the fee the user confirms is the fee that ships, and two reservations one atomic unit apart must never display alike.
+- **A failed discard keeps the reservation owned.** The page releases ownership only when a submit succeeds, a discard succeeds, or the engine reports it has retained the reservation; a discard that fails is shown, review stays, and a rebuild is never stacked on a reservation that is still live.
 
 Spent-marking is unchanged: the engine's refresh is the sole settlement authority, and a submit verdict is display metadata only.
 
