@@ -40,7 +40,7 @@ pub(crate) async fn make_daemon(
     );
     // First Engine RPC runs the four-axis handshake. Identity mismatch
     // refuses here so create/restore never write a file the person cannot
-    // recover (`get_seed` is create-once). Unreachable is not a mismatch.
+    // recover (the phrase is create-once; there is no seed-returning command). Unreachable is not a mismatch.
     match daemon.get_height().await {
         Ok(_) => Ok(daemon),
         Err(e) => {

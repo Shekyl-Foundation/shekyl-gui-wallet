@@ -2,7 +2,36 @@
 
 ## [Unreleased]
 
+### Security
+
+- **No resident copy of the recovery phrase.** `EngineSession` kept a second,
+  never-zeroized `String` of the mnemonic for the whole session, solely so a
+  `get_seed` command nothing called could hand it out. `create_wallet` already
+  returns the phrase once, in its result. The field, `get_seed`,
+  `take_create_mnemonic` and `seed_unavailable_message` are deleted.
+- **Webview shell authority removed.** `capabilities/daemon.json` granted the
+  renderer `shell:allow-spawn`/`allow-kill`/`allow-stdin-write`. The bundled
+  `shekyld` is spawned from Rust, and the frontend does not install the shell
+  plugin, so this was dead authority. Deleted; the sidecar is unaffected.
+- **Seed copy is mitigated, not removed.** The copy button stays (denying it
+  only pushes users to photograph the screen). `copy_to_clipboard` writes the
+  phrase, keeps only a digest, and arms the clear itself: 60 s later, when
+  the create page is left, and when the window is destroyed. A clear forgets
+  the digest only when the clipboard has changed or the OS clear succeeds. A
+  failed read or clear leaves the digest tracked so the expiry task can
+  retry. The page timer only hides the notice. The webview has no clipboard
+  capability.
+
 ### Changed
+
+- **Multisig Rust surface is compiled out by default.** The commands and the
+  arbitrary-path file shuttle compile only with `--features multisig`
+  (`src-tauri/src/multisig.rs`). That code is in flight — there is no Engine
+  port yet — not dead. The frontend is one bundle: it always contains the
+  page, reads `get_feature_flags`, and keeps the nav entry, route content,
+  Help section, and glossary terms hidden until Rust reports the feature.
+  The route stays registered so a loading flag cannot fall through to the
+  catch-all.
 
 - **Gallery profit as a decimal string.** `list_shards` emits
   `expected_profit_atomic` as a decimal string of atomic units (not a JSON
@@ -57,6 +86,14 @@
   first-parent history (append-only). Subsequent release tags sit on the
   dev→main merge commit. `v3.1.0-alpha.8` stays on dev `7d209ad`
   (already signed and pushed).
+
+### Removed
+
+- Eleven registered commands with no caller: `get_seed`, `refresh_wallet`,
+  `restart_daemon`, `shutdown_wallet_rpc` (a duplicate of `close_wallet`),
+  `get_curve_tree_info`, `get_tier_yields`, and the four Wallet2 scanner
+  stubs, which returned an unconditional refusal — a registered refusal is
+  not an absent feature.
 
 ## [3.1.0-alpha.8] - 2026-09-10
 
