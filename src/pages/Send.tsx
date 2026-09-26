@@ -67,6 +67,8 @@ export default function Send() {
   const [sent, setSent] = useState<SubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** A discard is in flight: the review buttons are held so nothing can act on a reservation being released. */
+  const [releasing, setReleasing] = useState(false);
   const owned = useRef<string | null>(null);
 
   useEffect(() => {
@@ -86,6 +88,7 @@ export default function Send() {
   const discardOwned = useCallback(async (): Promise<boolean> => {
     const id = owned.current;
     if (!id) return true;
+    setReleasing(true);
     try {
       await invoke("discard_pending_tx", { pendingTxId: id });
       owned.current = null;
@@ -93,6 +96,8 @@ export default function Send() {
     } catch (e) {
       setError(`${sendErrorMessage(e)} ${RELEASE_FAILED_ADVICE}`);
       return false;
+    } finally {
+      setReleasing(false);
     }
   }, []);
 
@@ -163,10 +168,15 @@ export default function Send() {
         // The realized fee or change moved. The engine exposes no view of the
         // re-anchored reservation, so release it and build again rather than
         // ask for consent to figures nobody can see. If the release fails the
-        // old reservation is still ours: stay in review and say so — never
-        // stack a second reservation on top of a live one.
-        setPhase("review");
-        if (!(await discardOwned())) return;
+        // old reservation is still ours: return to review and say so — never
+        // stack a second reservation on top of a live one. The page reads as
+        // building throughout, so nothing can act on the stale reservation
+        // while it is being released.
+        setPhase("building");
+        if (!(await discardOwned())) {
+          setPhase("review");
+          return;
+        }
         setBuilt(null);
         setNotice(CONTENT_CHANGED_NOTICE);
         await build();
@@ -279,10 +289,10 @@ export default function Send() {
 
           {phase === "review" && (
             <div className="flex gap-2">
-              <button type="button" className="btn btn-ghost flex-1" onClick={handleCancel}>
+              <button type="button" className="btn btn-ghost flex-1" onClick={handleCancel} disabled={releasing}>
                 Cancel
               </button>
-              <button type="button" className="btn btn-primary flex-1" onClick={handleConfirm}>
+              <button type="button" className="btn btn-primary flex-1" onClick={handleConfirm} disabled={releasing}>
                 <SendIcon className="h-4 w-4" />
                 Confirm and send
               </button>

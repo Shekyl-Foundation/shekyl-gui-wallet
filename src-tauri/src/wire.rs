@@ -54,7 +54,9 @@ impl Serialize for AtomicUnitsString {
 
 impl<'de> Deserialize<'de> for AtomicUnitsString {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = <&str>::deserialize(deserializer)?;
+        // `String`, not `&str`: this must also deserialize from an owned
+        // `serde_json::Value`, which cannot lend a borrowed string.
+        let text = String::deserialize(deserializer)?;
         text.parse::<u64>().map(Self).map_err(|_| {
             serde::de::Error::custom(format!(
                 "expected a decimal string of atomic units, got {text:?}"
@@ -84,6 +86,9 @@ mod tests {
     fn deserializes_the_decimal_string_losslessly() {
         let parsed: AtomicUnitsString = serde_json::from_str("\"9007199254740993\"").unwrap();
         assert_eq!(parsed.to_raw(), BEYOND_DOUBLE);
+        let owned: AtomicUnitsString =
+            serde_json::from_value(serde_json::json!("9007199254740993")).unwrap();
+        assert_eq!(owned, parsed);
         assert_eq!(
             parsed.to_atomic_units(),
             AtomicUnits::from_raw(BEYOND_DOUBLE)

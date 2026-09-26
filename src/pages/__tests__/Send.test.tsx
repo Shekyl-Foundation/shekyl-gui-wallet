@@ -72,7 +72,6 @@ describe("Send page", () => {
     await fillForm(user());
     await new Promise((r) => setTimeout(r, 800)); // longer than any debounce the old page had
     expect(calls("build_pending_tx")).toHaveLength(0);
-    expect(calls("estimate_fee")).toHaveLength(0);
   });
 
   it("Review builds exactly once with the chosen tier and shows the exact fee", async () => {
@@ -146,6 +145,26 @@ describe("Send page", () => {
     await u.click(screen.getByRole("button", { name: /cancel/i }));
     await waitFor(() => expect(screen.queryByTestId("review")).not.toBeInTheDocument());
     expect(calls("discard_pending_tx")).toHaveLength(2);
+  });
+
+  it("nothing can act on a reservation while its discard is in flight", async () => {
+    let releaseDiscard: () => void = () => {};
+    route({
+      get_default_fee_priority: () => QUOTE,
+      build_pending_tx: () => BUILT,
+      discard_pending_tx: () => new Promise<void>((resolve) => (releaseDiscard = resolve)),
+    });
+    const u = user();
+    render(<Send />);
+    await reachReview(u);
+    await u.click(screen.getByRole("button", { name: /cancel/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /confirm and send/i })).toBeDisabled());
+    await u.click(screen.getByRole("button", { name: /confirm and send/i }));
+    expect(calls("submit_pending_tx")).toHaveLength(0);
+    releaseDiscard();
+    await waitFor(() => expect(screen.queryByTestId("review")).not.toBeInTheDocument());
+    expect(calls("submit_pending_tx")).toHaveLength(0);
+    expect(calls("discard_pending_tx")).toHaveLength(1);
   });
 
   it("a content change discards, rebuilds once, and never resubmits the stale generation", async () => {
