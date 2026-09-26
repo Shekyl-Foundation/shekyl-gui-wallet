@@ -2,7 +2,31 @@
 
 ## [Unreleased]
 
+### Security
+
+- **No resident copy of the recovery phrase.** `EngineSession` kept a second,
+  never-zeroized `String` of the mnemonic for the whole session, solely so a
+  `get_seed` command nothing called could hand it out. `create_wallet` already
+  returns the phrase once, in its result. The field, `get_seed`,
+  `take_create_mnemonic` and `seed_unavailable_message` are deleted.
+- **Webview shell authority removed.** `capabilities/daemon.json` granted the
+  renderer `shell:allow-spawn`/`allow-kill`/`allow-stdin-write`. The bundled
+  `shekyld` is spawned from Rust, and the frontend does not install the shell
+  plugin, so this was dead authority. Deleted; the sidecar is unaffected.
+- **Seed copy is mitigated, not removed.** The copy button stays (denying it
+  only pushes users to photograph the screen). It now clears the clipboard
+  Rust-side (`clear_clipboard`) 60 s after copying and on leaving the page,
+  and says so at the moment of copying.
+
 ### Changed
+
+- **Multisig is compiled out by default.** The PQC multisig commands, the
+  file-shuttle primitives (arbitrary-path reads/writes handed to the
+  renderer), the page, the nav entry and the Help section now sit behind the
+  `multisig` cargo feature in `src-tauri/src/multisig.rs` — kept, not enabled,
+  mirroring `shekyl-engine-core`'s own gate. The frontend reads the compiled
+  feature set via `get_feature_flags` and fails closed until Rust answers; it
+  carries no flag of its own that could disagree.
 
 - **Gallery profit as a decimal string.** `list_shards` emits
   `expected_profit_atomic` as a decimal string of atomic units (not a JSON
@@ -57,6 +81,14 @@
   first-parent history (append-only). Subsequent release tags sit on the
   dev→main merge commit. `v3.1.0-alpha.8` stays on dev `7d209ad`
   (already signed and pushed).
+
+### Removed
+
+- Eleven registered commands with no caller: `get_seed`, `refresh_wallet`,
+  `restart_daemon`, `shutdown_wallet_rpc` (a duplicate of `close_wallet`),
+  `get_curve_tree_info`, `get_tier_yields`, and the four Wallet2 scanner
+  stubs, which returned an unconditional refusal — a registered refusal is
+  not an absent feature.
 
 ## [3.1.0-alpha.8] - 2026-09-10
 

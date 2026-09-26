@@ -1,7 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import Sidebar from "../Sidebar";
+import { resetFeatureFlagsForTests } from "../../features";
+
+beforeEach(() => {
+  vi.mocked(invoke).mockReset();
+  resetFeatureFlagsForTests();
+});
 
 function renderSidebar(initialRoute = "/") {
   return render(
@@ -24,6 +31,25 @@ describe("Sidebar", () => {
     expect(screen.getByText("Chain Health")).toBeInTheDocument();
     expect(screen.getByText("Help")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
+  });
+
+  it("hides Multisig by default — the gate fails closed when Rust does not answer", async () => {
+    // The global mock rejects `invoke`; the flags must stay at their default.
+    renderSidebar();
+    expect(screen.queryByText("Multisig")).not.toBeInTheDocument();
+    await screen.findByText("Dashboard");
+    expect(screen.queryByText("Multisig")).not.toBeInTheDocument();
+  });
+
+  it("shows Multisig only when the compiled feature set says so", async () => {
+    vi.mocked(invoke).mockImplementation((cmd) =>
+      cmd === "get_feature_flags"
+        ? Promise.resolve({ multisig: true })
+        : Promise.reject(new Error(`unexpected invoke ${String(cmd)}`)),
+    );
+    renderSidebar();
+    expect(await screen.findByText("Multisig")).toBeInTheDocument();
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_feature_flags");
   });
 
   it("renders the Shekyl branding", () => {

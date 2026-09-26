@@ -27,8 +27,9 @@ The Engine's daemon client is constructed with
 `DaemonClient::verifying` (`engine_daemon.rs` `make_daemon`), matching
 `shekyl-wallet-rpc`. `make_daemon` runs the four-axis handshake before
 it returns, so create/restore refuse a foreign node **before**
-`Engine::create` writes a file (the recovery phrase is create-once and
-cannot be recovered by `get_seed`). Open still fail-closes the session
+`Engine::create` writes a file (the recovery phrase is create-once: it is
+returned in the `create_wallet` result and nothing retains a copy — there
+is no seed-returning command). Open still fail-closes the session
 if a later Engine RPC sees a mismatch. Status-panel polls that still
 go through `daemon_rpc.rs` do not run this check — they are a separate
 HTTP client.
@@ -55,7 +56,7 @@ This prevents:
 Capabilities are defined in `capabilities/default.json`:
 - Scoped to `"windows": ["main"]` only
 - Permissions: `core:default`, `opener:default`
-- Sensitive commands (`get_seed`, `transfer`, `import_wallet_from_seed`, `import_wallet_from_keys`, `query_key`) are only callable from the main window context
+- Sensitive commands (`transfer`, `import_wallet_from_seed`, `import_wallet_from_keys`, `query_key`) are only callable from the main window context
 
 ## Input Validation
 
@@ -116,7 +117,8 @@ These are inherent to any desktop wallet with a GUI:
 ### User Guidance
 
 - Use a dedicated, clean machine for seed entry when possible
-- Clear clipboard after pasting seed material
+- Clear clipboard after pasting seed material on import; on create the
+  wallet clears it for you (60 s after "Copy", or when you leave the page)
 - Avoid screen-sharing or remote desktop during seed display
 - Store the seed offline (paper/metal backup), not in digital form
 
@@ -126,8 +128,8 @@ These are tracked for implementation in future releases:
 
 - [ ] **On-screen keyboard for seed entry** — bypasses OS keyboard pipeline, accessibility loggers, predictive text
 - [ ] **Seed display with dismissal gesture** — show words once, require explicit acknowledgement, then clear from DOM
-- [ ] **Clipboard access denial for seed fields** — prevent clipboard logger exfiltration via `navigator.clipboard` API restriction
-- [ ] **Automatic seed field clearing** — if user navigates away, clear seed fields after a short timeout
+- [x] ~~**Clipboard access denial for seed fields**~~ — **declined 2026-09-25.** Denying the copy button does not deny the capability (the words are selectable text), and users denied a copy photograph the screen, which is worse. Ruled the other way: the button stays and is the mitigated path — Rust-side clear after 60 s and on leaving the page, with the warning shown at the moment of copying.
+- [x] **Automatic clipboard clearing** — a copied seed is cleared from the OS clipboard on a 60 s timer and on leaving the create page (`clear_clipboard`, Rust-side so it works when the window is unfocused). The DOM copy unmounts with the page.
 - [ ] **Memory-locked allocations** — `mlock()` on pages holding wallet secrets in the Rust process
 - [ ] **`prctl(PR_SET_DUMPABLE, 0)`** — suppress core dumps containing secrets on Linux
 

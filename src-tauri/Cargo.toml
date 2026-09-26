@@ -19,6 +19,11 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
+# Rust-side only (no webview capability is granted): clears the seed from the
+# OS clipboard on a timer / on leaving the create page. Done from Rust because
+# a webview `clipboard.writeText("")` can be refused once the window loses
+# focus — which is exactly when the user has alt-tabbed to paste the seed.
+tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -48,6 +53,16 @@ tracing = "0.1"
 thiserror = "1"
 zeroize = { version = "1", features = ["alloc"] }
 rand = "0.8"
+
+[features]
+default = []
+# Mirrors shekyl-core (`shekyl-engine-core`: `multisig = ["dep:shekyl-multisig"]`,
+# default off). The multisig commands, file-shuttle primitives, page, nav entry
+# and Help section compile only under this feature. Alpha posture (ruled
+# 2026-09-25): the code stays, the surface is not enabled — the V3.1 multisig
+# round has not ruled a transport, and the file-shuttle shape here is the one
+# the wallet rejected for cold signing on 2026-09-07.
+multisig = []
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

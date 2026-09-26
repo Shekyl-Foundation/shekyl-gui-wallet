@@ -84,10 +84,11 @@ Next: GUI-PR4 `stake_in` funding.
 placeholder plus the three staked-output scanner stubs
 (`get_scanner_staked_outputs` / `get_scanner_claimable_stakes` /
 `get_scanner_unstakeable_outputs`) — `get_staking_view` is their
-Engine-native replacement. **Still to delete when done:** `StakeTierCard`
-if unused, `get_tier_yields` if daemon tiers vanish, and the remaining
-scanner stubs (`get_scanner_balance` / `get_scanner_height` /
-`scanner_freeze` / `scanner_thaw`) once Engine-native equivalents exist.
+Engine-native replacement. **Deleted 2026-09-26:** `get_tier_yields` and
+the four scanner stubs (`get_scanner_balance` / `get_scanner_height` /
+`scanner_freeze` / `scanner_thaw`) — none had a caller, and a registered
+refusal is not an absent feature. **Still to delete when done:**
+`StakeTierCard` if unused.
 
 ---
 

@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router";
 import {
   ArrowLeft,
@@ -15,6 +16,18 @@ import WalletDirAdvanced from "../components/WalletDirAdvanced";
 
 type Step = "setup" | "seed" | "confirm" | "done";
 
+/**
+ * How long the recovery phrase may sit on the OS clipboard after "Copy".
+ *
+ * The button is kept on purpose: without it users photograph the screen, and
+ * a phone's cloud photo backup is a worse place for a seed than clipboard
+ * history. Keeping the button is what makes mitigation possible at all — a
+ * manual highlight-and-copy is untouchable by us. The clear runs Rust-side
+ * (`clear_clipboard`) because a webview write can be refused once the window
+ * loses focus, which is exactly the moment the user has alt-tabbed to paste.
+ */
+export const SEED_CLIPBOARD_TTL_MS = 60_000;
+
 export default function CreateWallet() {
   const navigate = useNavigate();
   const { createWallet, setPhase } = useWallet();
@@ -28,6 +41,10 @@ export default function CreateWallet() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CreateWalletResult | null>(null);
   const [copied, setCopied] = useState(false);
+  // True only between a successful copy and the clear that follows it, so
+  // leaving the page never wipes a clipboard the seed was not put on.
+  const seedOnClipboard = useRef(false);
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Seed confirmation state
   const [confirmValues, setConfirmValues] = useState<Record<number, string>>(
@@ -90,21 +107,49 @@ export default function CreateWallet() {
     }
   }, [createWallet, name, password]);
 
+  const clearSeedFromClipboard = useCallback(async () => {
+    if (clearTimer.current) {
+      clearTimeout(clearTimer.current);
+      clearTimer.current = null;
+    }
+    if (!seedOnClipboard.current) return;
+    seedOnClipboard.current = false;
+    setCopied(false);
+    try {
+      await invoke("clear_clipboard");
+    } catch {
+      // Best effort: the seed was already handed out on purpose; a failed
+      // clear must not block leaving the page.
+    }
+  }, []);
+
   const handleCopySeed = useCallback(async () => {
     if (!result?.seed) return;
     await navigator.clipboard.writeText(result.seed);
+    seedOnClipboard.current = true;
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [result]);
+    if (clearTimer.current) clearTimeout(clearTimer.current);
+    clearTimer.current = setTimeout(() => {
+      void clearSeedFromClipboard();
+    }, SEED_CLIPBOARD_TTL_MS);
+  }, [result, clearSeedFromClipboard]);
+
+  // Leaving the page (unmount) clears a seed that is still on the clipboard.
+  useEffect(() => {
+    return () => {
+      void clearSeedFromClipboard();
+    };
+  }, [clearSeedFromClipboard]);
 
   const handleFinish = useCallback(() => {
+    void clearSeedFromClipboard();
     // Navigate before flipping phase: the ready-phase <Routes> in WalletGate
     // has no /create entry, so leaving the URL on /create would unmount this
     // page into an unmatched route and expose the body's bg-purple-900 as a
     // blank screen.
     navigate("/", { replace: true });
     setPhase("ready");
-  }, [navigate, setPhase]);
+  }, [navigate, setPhase, clearSeedFromClipboard]);
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-purple-900">
@@ -276,6 +321,14 @@ export default function CreateWallet() {
                 </>
               )}
             </button>
+            {copied && (
+              <p className="text-[11px] text-orange-200/80" role="status">
+                Copied. Other apps and your clipboard history can read it until
+                it is cleared — automatically in{" "}
+                {Math.round(SEED_CLIPBOARD_TTL_MS / 1000)} seconds, or when you
+                leave this page.
+              </p>
+            )}
 
             <button
               onClick={() => setStep("confirm")}

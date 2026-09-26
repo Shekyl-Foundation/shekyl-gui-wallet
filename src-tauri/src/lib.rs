@@ -39,6 +39,8 @@ mod engine_daemon;
 mod engine_errors;
 mod engine_session;
 mod gui_config;
+#[cfg(feature = "multisig")]
+mod multisig;
 mod shard_coverage;
 mod shard_visual;
 mod staking_view;
@@ -53,6 +55,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(state::AppState::new())
         .setup(|app| {
             let config_dir = app
@@ -72,12 +75,12 @@ pub fn run() {
             // Daemon / chain
             commands::get_wallet_status,
             daemon_connection::get_chain_health,
-            commands::get_tier_yields,
             daemon_connection::set_daemon_connection,
             daemon_connection::daemon_connection_disclosures,
             commands::get_pqc_status,
             commands::get_security_status,
-            commands::get_curve_tree_info,
+            commands::get_feature_flags,
+            commands::clear_clipboard,
             // Mining
             commands::get_mining_status,
             commands::start_mining_cmd,
@@ -85,7 +88,6 @@ pub fn run() {
             // Wallet startup
             commands::check_wallet_files,
             commands::init_wallet_rpc,
-            commands::shutdown_wallet_rpc,
             commands::set_wallet_dir,
             commands::reset_wallet_dir,
             commands::get_wallet_dir,
@@ -95,8 +97,6 @@ pub fn run() {
             commands::close_wallet,
             commands::import_wallet_from_seed,
             commands::import_wallet_from_keys,
-            commands::get_seed,
-            commands::refresh_wallet,
             commands::get_staker_status,
             commands::activate_staker,
             // Wallet data
@@ -113,23 +113,25 @@ pub fn run() {
             // Shards page (daemon coverage + lazy render; command names stable)
             shard_coverage::list_shards,
             shard_coverage::get_shard_render,
-            // PQC Multisig
-            commands::create_multisig_group,
-            commands::get_multisig_info,
-            commands::sign_multisig_partial,
-            commands::export_group_descriptor,
-            commands::import_group_descriptor,
-            commands::export_signing_request_file,
-            commands::import_signing_request_file,
-            commands::export_signature_response_file,
-            // Scanner
-            commands::get_scanner_balance,
-            commands::get_scanner_height,
-            commands::scanner_freeze,
-            commands::scanner_thaw,
+            // PQC Multisig — only under the `multisig` cargo feature (see multisig.rs)
+            #[cfg(feature = "multisig")]
+            multisig::create_multisig_group,
+            #[cfg(feature = "multisig")]
+            multisig::get_multisig_info,
+            #[cfg(feature = "multisig")]
+            multisig::sign_multisig_partial,
+            #[cfg(feature = "multisig")]
+            multisig::export_group_descriptor,
+            #[cfg(feature = "multisig")]
+            multisig::import_group_descriptor,
+            #[cfg(feature = "multisig")]
+            multisig::export_signing_request_file,
+            #[cfg(feature = "multisig")]
+            multisig::import_signing_request_file,
+            #[cfg(feature = "multisig")]
+            multisig::export_signature_response_file,
             // Daemon lifecycle
             commands::daemon_status,
-            commands::restart_daemon,
             commands::get_daemon_settings,
             commands::set_daemon_settings,
         ])

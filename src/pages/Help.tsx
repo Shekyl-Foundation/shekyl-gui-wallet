@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import CollapsibleSection from "../components/CollapsibleSection";
+import { useFeatureFlags } from "../features";
 
 interface SectionProps {
   icon: React.ComponentType<{ className?: string }>;
@@ -34,6 +35,7 @@ function Section({ icon, title, id, children, open, onToggle }: SectionProps) {
 
 export default function Help() {
   const [open, setOpen] = useState<string | null>("getting-started");
+  const flags = useFeatureFlags();
 
   function toggle(id: string) {
     setOpen((prev) => (prev === id ? null : id));
@@ -214,6 +216,7 @@ export default function Help() {
         </div>
       </Section>
 
+      {flags.multisig && (
       <Section
         icon={Users}
         title="Multisig Wallets"
@@ -296,6 +299,7 @@ export default function Help() {
           </div>
         </div>
       </Section>
+      )}
 
       <Section
         icon={ShieldCheck}

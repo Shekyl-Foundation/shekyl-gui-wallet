@@ -1,4 +1,5 @@
 import { NavLink } from "react-router";
+import { useFeatureFlags, type FeatureFlags } from "../features";
 import {
   LayoutDashboard,
   Send,
@@ -13,7 +14,15 @@ import {
   Settings,
 } from "lucide-react";
 
-const links = [
+interface NavItem {
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  /** Present only on entries that exist solely under a compiled feature. */
+  feature?: keyof FeatureFlags;
+}
+
+const links: NavItem[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/send", icon: Send, label: "Send" },
   { to: "/receive", icon: Download, label: "Receive" },
@@ -21,13 +30,15 @@ const links = [
   { to: "/staking", icon: Coins, label: "Staking" },
   { to: "/shards", icon: Boxes, label: "Shards" },
   { to: "/transactions", icon: ArrowLeftRight, label: "Transactions" },
-  { to: "/multisig", icon: Users, label: "Multisig" },
+  { to: "/multisig", icon: Users, label: "Multisig", feature: "multisig" },
   { to: "/chain-health", icon: Activity, label: "Chain Health" },
   { to: "/help", icon: HelpCircle, label: "Help" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
 export default function Sidebar() {
+  const flags = useFeatureFlags();
+  const visible = links.filter((l) => l.feature === undefined || flags[l.feature]);
   return (
     <aside className="flex w-56 flex-col border-r border-purple-700/50 bg-purple-900/80">
       {/* Logo */}
@@ -42,7 +53,7 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-2">
-        {links.map(({ to, icon: Icon, label }) => (
+        {visible.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}

@@ -2,11 +2,13 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { resetFeatureFlagsForTests } from "../../features";
 import { DaemonProvider } from "../../context/DaemonContext";
 import Help from "../Help";
 
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
+  resetFeatureFlagsForTests();
 });
 
 function renderHelp() {
@@ -82,5 +84,21 @@ describe("Help", () => {
     expect(screen.getByText(/archival participation/)).toBeInTheDocument();
     expect(screen.getByText("Status in this wallet")).toBeInTheDocument();
     expect(screen.getByText("What will ship next")).toBeInTheDocument();
+  });
+
+  it("does not advertise Multisig while the feature is compiled out", async () => {
+    render(<Help />);
+    await screen.findByText(/Getting Started/i);
+    expect(screen.queryByText("Multisig Wallets")).not.toBeInTheDocument();
+  });
+
+  it("advertises Multisig only when the compiled feature set says so", async () => {
+    vi.mocked(invoke).mockImplementation((cmd) =>
+      cmd === "get_feature_flags"
+        ? Promise.resolve({ multisig: true })
+        : Promise.reject(new Error(`unexpected invoke ${String(cmd)}`)),
+    );
+    render(<Help />);
+    expect(await screen.findByText("Multisig Wallets")).toBeInTheDocument();
   });
 });
