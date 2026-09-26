@@ -30,6 +30,7 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
+mod clipboard;
 mod commands;
 mod daemon_connection;
 mod daemon_manager;
@@ -80,7 +81,8 @@ pub fn run() {
             commands::get_pqc_status,
             commands::get_security_status,
             commands::get_feature_flags,
-            commands::clear_clipboard,
+            clipboard::copy_to_clipboard,
+            clipboard::clear_clipboard,
             // Mining
             commands::get_mining_status,
             commands::start_mining_cmd,

@@ -14,8 +14,6 @@ vi.mock("../../context/useWallet", () => ({
 // The wallet-dir panel polls the backend; it is not what these tests are about.
 vi.mock("../../components/WalletDirAdvanced", () => ({ default: () => null }));
 
-const writeText = vi.fn();
-
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockResolvedValue(undefined);
@@ -26,12 +24,6 @@ beforeEach(() => {
     seed: SEED,
     seed_language: "English",
     network: "mainnet",
-  });
-  writeText.mockReset();
-  writeText.mockResolvedValue(undefined);
-  Object.defineProperty(navigator, "clipboard", {
-    value: { writeText },
-    configurable: true,
   });
 });
 
@@ -63,7 +55,7 @@ async function clickCopy() {
   await act(async () => {
     await Promise.resolve();
   });
-  expect(writeText).toHaveBeenCalledWith(SEED);
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith("copy_to_clipboard", { text: SEED });
   expect(screen.getByRole("status")).toHaveTextContent(/cleared/i);
 }
 

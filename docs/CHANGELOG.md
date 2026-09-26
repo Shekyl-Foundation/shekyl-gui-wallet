@@ -14,9 +14,13 @@
   `shekyld` is spawned from Rust, and the frontend does not install the shell
   plugin, so this was dead authority. Deleted; the sidecar is unaffected.
 - **Seed copy is mitigated, not removed.** The copy button stays (denying it
-  only pushes users to photograph the screen). It now clears the clipboard
-  Rust-side (`clear_clipboard`) 60 s after copying and on leaving the page,
-  and says so at the moment of copying.
+  only pushes users to photograph the screen). Rust now owns the clipboard
+  lifecycle: `copy_to_clipboard` writes the phrase and keeps only a hash of
+  what it wrote; `clear_clipboard` — 60 s after copying and on leaving the
+  page — clears only while the clipboard still holds exactly that, so a value
+  copied in another app since is never destroyed. The webview no longer
+  touches the clipboard at all, and the notice says so at the moment of
+  copying.
 
 ### Changed
 

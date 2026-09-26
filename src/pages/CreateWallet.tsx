@@ -22,9 +22,12 @@ type Step = "setup" | "seed" | "confirm" | "done";
  * The button is kept on purpose: without it users photograph the screen, and
  * a phone's cloud photo backup is a worse place for a seed than clipboard
  * history. Keeping the button is what makes mitigation possible at all — a
- * manual highlight-and-copy is untouchable by us. The clear runs Rust-side
- * (`clear_clipboard`) because a webview write can be refused once the window
- * loses focus, which is exactly the moment the user has alt-tabbed to paste.
+ * manual highlight-and-copy is untouchable by us. Rust owns the whole
+ * lifecycle (`copy_to_clipboard` / `clear_clipboard`): it keeps a hash of
+ * what it wrote and clears only while the clipboard still holds exactly
+ * that, so a value the user copied elsewhere since is never destroyed. Rust
+ * rather than the webview because a webview write can be refused once the
+ * window loses focus — the moment the user has alt-tabbed to paste.
  */
 export const SEED_CLIPBOARD_TTL_MS = 60_000;
 
@@ -41,8 +44,8 @@ export default function CreateWallet() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CreateWalletResult | null>(null);
   const [copied, setCopied] = useState(false);
-  // True only between a successful copy and the clear that follows it, so
-  // leaving the page never wipes a clipboard the seed was not put on.
+  // True between a successful copy and the clear that follows it. Rust
+  // additionally verifies the clipboard still holds the seed before clearing.
   const seedOnClipboard = useRef(false);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -125,7 +128,7 @@ export default function CreateWallet() {
 
   const handleCopySeed = useCallback(async () => {
     if (!result?.seed) return;
-    await navigator.clipboard.writeText(result.seed);
+    await invoke("copy_to_clipboard", { text: result.seed });
     seedOnClipboard.current = true;
     setCopied(true);
     if (clearTimer.current) clearTimeout(clearTimer.current);

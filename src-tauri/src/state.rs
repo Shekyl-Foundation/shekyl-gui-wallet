@@ -110,6 +110,11 @@ pub struct AppState {
     /// picks a working location.
     pub wallet_dir_warning: RwLock<Option<PathBuf>>,
     pub wallet_open: RwLock<bool>,
+    /// SHA-256 of the text this app last placed on the OS clipboard via
+    /// `copy_to_clipboard`, or `None`. `clear_clipboard` clears only while
+    /// the clipboard still hashes to this — never a value another app put
+    /// there since. Only the hash is kept, never the text.
+    pub clipboard_owned: tokio::sync::Mutex<Option<[u8; 32]>>,
     pub wallet_name: RwLock<Option<String>>,
     /// Pure-Rust Engine session — the sole wallet backend.
     pub engine: tokio::sync::Mutex<engine_session::EngineSession>,
@@ -132,6 +137,7 @@ impl AppState {
             wallet_dir: RwLock::new(resolved.dir),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
             wallet_open: RwLock::new(false),
+            clipboard_owned: tokio::sync::Mutex::new(None),
             wallet_name: RwLock::new(None),
             engine: tokio::sync::Mutex::new(engine_session::EngineSession::new()),
         }

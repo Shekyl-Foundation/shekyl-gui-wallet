@@ -807,24 +807,6 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
 
 // ─── PQC Multisig commands ────────────────────────────────────────────────────
 
-// ─── Clipboard ───────────────────────────────────────────────────────────────
-
-/// Clear the OS clipboard. The create page calls this a fixed time after the
-/// user copies the recovery phrase, and again when the page is left.
-///
-/// Done from Rust, not the webview, because a `navigator.clipboard.writeText`
-/// can be refused once the window has lost focus — which is exactly the
-/// moment the user has alt-tabbed to paste the phrase somewhere. The plugin's
-/// Rust API consults no permission scope, so the webview is granted no
-/// clipboard capability at all; this command is the only path.
-#[tauri::command]
-pub fn clear_clipboard(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_clipboard_manager::ClipboardExt;
-    app.clipboard()
-        .clear()
-        .map_err(|e| format!("clear clipboard: {e}"))
-}
-
 // ─── Compiled feature set ────────────────────────────────────────────────────
 
 /// The feature switches the frontend gates its surfaces on. There is ONE
