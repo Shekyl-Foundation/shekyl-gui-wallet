@@ -6,3 +6,4 @@ export { default as RelayConfig } from "./RelayConfig";
 export { default as ViolationAlert } from "./ViolationAlert";
 export { default as SigningDashboard } from "./SigningDashboard";
 export { default as GroupDescriptor } from "./GroupDescriptor";
+export { default as MultisigHelpSection } from "./MultisigHelpSection";

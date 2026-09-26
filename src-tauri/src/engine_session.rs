@@ -60,10 +60,6 @@ pub struct EngineSession {
     base_path: Option<PathBuf>,
     network: Option<Network>,
     daemon_http_base: Option<String>,
-    /// One-shot mnemonic retained only until the create response is
-    /// delivered (Engine drops seed material at open; mid-session
-    /// `get_seed` cannot re-materialize it without a password reopen).
-    create_mnemonic: Option<String>,
 }
 
 impl EngineSession {
@@ -75,7 +71,6 @@ impl EngineSession {
             base_path: None,
             network: None,
             daemon_http_base: None,
-            create_mnemonic: None,
         }
     }
 
@@ -107,7 +102,6 @@ impl EngineSession {
         self.base_path = None;
         self.network = None;
         self.daemon_http_base = None;
-        self.create_mnemonic = None;
     }
 
     /// Create a fresh Engine wallet (BIP-39 on mainnet/stagenet; raw32 on testnet).
@@ -170,16 +164,14 @@ impl EngineSession {
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.catch_up_after_open().await?;
 
+        // The seed goes out ONCE, in the create response, and nothing here
+        // keeps a copy: a resident duplicate of the master secret held for
+        // the whole session was a rule-35 defect (it was a plain `String`,
+        // never zeroized, and its only reader was a command nothing called).
         let seed = match backup {
-            SeedBackup::Mnemonic(m) => {
-                self.create_mnemonic = Some(m.clone());
-                m
-            }
-            SeedBackup::RawHex(h) => {
-                // Testnet raw seed: surface as hex for backup; not BIP-39.
-                self.create_mnemonic = None;
-                h
-            }
+            SeedBackup::Mnemonic(m) => m,
+            // Testnet raw seed: surface as hex for backup; not BIP-39.
+            SeedBackup::RawHex(h) => h,
         };
 
         Ok(CreateOutcome { address, seed })
@@ -252,7 +244,6 @@ impl EngineSession {
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
-        self.create_mnemonic = None;
         self.catch_up_after_open().await?;
 
         Ok(address)
@@ -304,7 +295,6 @@ impl EngineSession {
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
-        self.create_mnemonic = None;
 
         self.catch_up_after_open().await?;
         Ok(address)
@@ -825,17 +815,6 @@ impl EngineSession {
             .iter()
             .map(|td| IncomingFact::from_details(td, &locks));
         transfer_history::merge_transfer_history(incoming, &ledger.send_journal.rows)
-    }
-
-    /// Seed available only immediately after create (if BIP-39 path).
-    pub fn take_create_mnemonic(&mut self) -> Option<String> {
-        self.create_mnemonic.take()
-    }
-
-    /// Mid-session seed is not available on the Engine path (seed dropped at open).
-    pub fn seed_unavailable_message() -> &'static str {
-        "recovery phrase is only shown once at wallet creation on the Engine backend; \
-         mid-session seed display requires a credentialed reopen (not yet exposed)"
     }
 }
 

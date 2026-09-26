@@ -19,6 +19,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
+# Recovery-phrase clipboard slot. Rust writes and clears; no webview
+# capability is granted. The plugin's Rust API does not consult one.
+tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -48,6 +51,15 @@ tracing = "0.1"
 thiserror = "1"
 zeroize = { version = "1", features = ["alloc"] }
 rand = "0.8"
+
+[features]
+default = []
+# Default off, same posture as shekyl-engine-core's `multisig` feature.
+# This compiles `multisig.rs`: the commands and the arbitrary-path file
+# shuttle. The frontend is one bundle and does not compile out with this
+# flag; it reads `get_feature_flags` and hides the surface until the flag
+# is on. The commands are in flight (no Engine port yet), not dead code.
+multisig = []
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

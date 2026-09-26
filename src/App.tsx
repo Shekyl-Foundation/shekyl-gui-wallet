@@ -14,7 +14,7 @@ import Transactions from "./pages/Transactions";
 import Settings from "./pages/Settings";
 import ChainHealthPage from "./pages/ChainHealth";
 import Help from "./pages/Help";
-import Multisig from "./pages/Multisig";
+import MultisigRoute from "./components/multisig/MultisigRoute";
 import Welcome from "./pages/Welcome";
 import CreateWallet from "./pages/CreateWallet";
 import ImportWallet from "./pages/ImportWallet";
@@ -73,7 +73,7 @@ function WalletGate() {
                 <Route path="transactions" element={<Transactions />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="chain-health" element={<ChainHealthPage />} />
-                <Route path="multisig" element={<Multisig />} />
+                <Route path="multisig" element={<MultisigRoute />} />
                 <Route path="help" element={<Help />} />
                 {/* Catch-all so stale URLs from the no-wallet/unlock phases
                     (e.g. /create, /import) never render an empty tree. */}

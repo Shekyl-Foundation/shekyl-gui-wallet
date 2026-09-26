@@ -31,9 +31,12 @@
 //! Chain/staking/mining commands call the daemon via JSON-RPC. The wallet
 //! lifecycle runs entirely on the pure-Rust [`crate::engine_session`] backend
 //! — the transitional Wallet2 / `shekyl-engine-rpc` path has been removed.
-//! Features that were only ever backed by that path (import-from-keys, PQC
-//! multisig, scanner freeze/thaw) return honest "not available on the Engine
-//! backend" errors until they are ported.
+//! Import-from-keys was only ever backed by that path and returns an honest
+//! "not available on the Engine backend" error until it is ported. The PQC
+//! multisig surface lives in [`crate::multisig`] behind the `multisig` cargo
+//! feature (off by default); the Wallet2 scanner stubs are gone.
+//! Compiled feature switches live in [`crate::features`]. The recovery-phrase
+//! clipboard slot lives in [`crate::clipboard`].
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -50,12 +53,9 @@ use crate::wallet_name;
 
 /// User-facing refusal for wallet features that only ran on the retired
 /// Wallet2 backend and have no Engine implementation yet.
-const ENGINE_BACKEND_UNSUPPORTED: &str = "\
+pub(crate) const ENGINE_BACKEND_UNSUPPORTED: &str = "\
 this feature is not available on the Engine backend yet; it ran only on the \
 retired Wallet2 path and is pending an Engine implementation";
-
-const SCALE: f64 = 1_000_000.0;
-const BLOCKS_PER_YEAR: f64 = 262_800.0; // 2-minute blocks
 
 // ─── Data types ──────────────────────────────────────────────────────────────
 
@@ -137,15 +137,6 @@ impl From<TransferRow> for TxInfo {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub struct TierYield {
-    pub tier: u8,
-    pub lock_blocks: u64,
-    pub lock_duration_hours: f64,
-    pub yield_multiplier: f64,
-    pub estimated_apy: f64,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PqcStatus {
     pub enabled: bool,
@@ -203,41 +194,6 @@ pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatu
             daemon_height: 0,
         }),
     }
-}
-
-#[tauri::command]
-pub async fn get_tier_yields(state: State<'_, AppState>) -> Result<Vec<TierYield>, String> {
-    let url = state.url().await;
-    let staking = daemon_rpc::get_staking_info(&state.http, &url).await?;
-    let info = daemon_rpc::get_info(&state.http, &url).await?;
-
-    let emission_share = info.staker_emission_share_effective as f64 / SCALE;
-
-    let tiers = [
-        (0u8, staking.tier_0_lock_blocks, 1.0),
-        (1, staking.tier_1_lock_blocks, 1.5),
-        (2, staking.tier_2_lock_blocks, 2.0),
-    ];
-
-    let total_staked = staking.total_staked.max(1) as f64;
-
-    Ok(tiers
-        .iter()
-        .map(|&(tier, lock_blocks, multiplier)| {
-            let lock_hours = lock_blocks as f64 * 2.0 / 60.0;
-            let locks_per_year = BLOCKS_PER_YEAR / lock_blocks.max(1) as f64;
-            let estimated_apy =
-                emission_share * multiplier * locks_per_year / (total_staked / 1e9) * 100.0;
-
-            TierYield {
-                tier,
-                lock_blocks,
-                lock_duration_hours: lock_hours,
-                yield_multiplier: multiplier,
-                estimated_apy: estimated_apy.min(999.9),
-            }
-        })
-        .collect())
 }
 
 #[tauri::command]
@@ -416,31 +372,6 @@ pub async fn get_wallet_dir(state: State<'_, AppState>) -> Result<WalletDirRespo
         dir: dir.to_string_lossy().to_string(),
         fallback_from: fallback.map(|p| p.to_string_lossy().to_string()),
     })
-}
-
-#[tauri::command]
-pub async fn shutdown_wallet_rpc(state: State<'_, AppState>) -> Result<bool, String> {
-    let close_result = {
-        let mut eng = state.engine.lock().await;
-        eng.close().await
-    };
-    // Clear the open flags even if close errored: the wallet is being torn
-    // down, so the UI must not keep believing one is open — a stale
-    // `wallet_open` would block a clean re-open.
-    *state.wallet_open.write().await = false;
-    *state.wallet_name.write().await = None;
-    close_result?;
-    Ok(true)
-}
-
-#[tauri::command]
-pub async fn refresh_wallet(state: State<'_, AppState>) -> Result<bool, String> {
-    if !*state.wallet_open.read().await {
-        return Err("No wallet is open".into());
-    }
-    let eng = state.engine.lock().await;
-    eng.refresh().await?;
-    Ok(true)
 }
 
 /// Archival staker status (Engine only).
@@ -687,21 +618,6 @@ pub async fn import_wallet_from_keys(
     Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
-#[tauri::command]
-pub async fn get_seed(state: State<'_, AppState>) -> Result<String, String> {
-    if !*state.wallet_open.read().await {
-        return Err("No wallet is open".into());
-    }
-    let mut eng = state.engine.lock().await;
-    if !eng.is_open() {
-        return Err("No wallet is open".into());
-    }
-    if let Some(m) = eng.take_create_mnemonic() {
-        return Ok(m);
-    }
-    Err(engine_session::EngineSession::seed_unavailable_message().into())
-}
-
 // ─── Wallet data commands ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -856,14 +772,6 @@ pub async fn get_transactions(
 }
 
 #[tauri::command]
-pub async fn get_curve_tree_info(
-    state: State<'_, AppState>,
-) -> Result<daemon_rpc::CurveTreeInfo, String> {
-    let url = state.url().await;
-    daemon_rpc::get_curve_tree_info(&state.http, &url).await
-}
-
-#[tauri::command]
 pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityStatus, String> {
     let url = state.url().await;
     let tree = daemon_rpc::get_curve_tree_info(&state.http, &url)
@@ -899,168 +807,12 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
     })
 }
 
-// ─── PQC Multisig commands ────────────────────────────────────────────────────
-
-// PQC multisig ran only on the Wallet2 backend, which has been retired. These
-// commands stay registered so the Multisig page loads, but return an honest
-// refusal until multisig is ported to the Engine backend.
-
-#[tauri::command]
-pub async fn create_multisig_group(
-    _state: State<'_, AppState>,
-    _n_total: u8,
-    _m_required: u8,
-    _participant_keys: Vec<String>,
-) -> Result<serde_json::Value, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn get_multisig_info(_state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn sign_multisig_partial(
-    _state: State<'_, AppState>,
-    _signing_request: String,
-) -> Result<serde_json::Value, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-// ─── Group Descriptor import/export ──────────────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GroupDescriptorPayload {
-    pub version: u8,
-    pub group_id: String,
-    pub m_required: u8,
-    pub n_total: u8,
-    pub spend_auth_version: u8,
-    pub participant_pubkeys: Vec<String>,
-    pub address_fingerprint: String,
-    pub relays: Vec<GroupDescriptorRelay>,
-    pub created_at: u64,
-    pub notes: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GroupDescriptorRelay {
-    pub url: String,
-    pub operator_id: String,
-}
-
-#[tauri::command]
-pub async fn export_group_descriptor(
-    _state: State<'_, AppState>,
-    _path: String,
-) -> Result<(), String> {
-    // Depends on multisig group info, which is Wallet2-only and retired.
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn import_group_descriptor(path: String) -> Result<GroupDescriptorPayload, String> {
-    let json = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read descriptor file: {e}"))?;
-    let desc: GroupDescriptorPayload =
-        serde_json::from_str(&json).map_err(|e| format!("Invalid descriptor format: {e}"))?;
-
-    if desc.version != 1 {
-        return Err(format!("Unsupported descriptor version: {}", desc.version));
-    }
-    if desc.m_required == 0 || desc.m_required > desc.n_total {
-        return Err(format!(
-            "Invalid threshold: {}-of-{}",
-            desc.m_required, desc.n_total
-        ));
-    }
-    if desc.participant_pubkeys.len() != desc.n_total as usize {
-        return Err(format!(
-            "Expected {} pubkeys, got {}",
-            desc.n_total,
-            desc.participant_pubkeys.len()
-        ));
-    }
-
-    Ok(desc)
-}
-
-// ─── File-based transport ────────────────────────────────────────────────────
-
-#[tauri::command]
-pub async fn export_signing_request_file(
-    state: State<'_, AppState>,
-    signing_request: String,
-    path: String,
-) -> Result<(), String> {
-    let _ = &state;
-    std::fs::write(&path, signing_request.as_bytes())
-        .map_err(|e| format!("Failed to write signing request: {e}"))
-}
-
-#[tauri::command]
-pub async fn import_signing_request_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read signing request: {e}"))
-}
-
-#[tauri::command]
-pub async fn export_signature_response_file(response: String, path: String) -> Result<(), String> {
-    std::fs::write(&path, response.as_bytes())
-        .map_err(|e| format!("Failed to write signature response: {e}"))
-}
-
-// ─── Scanner commands ─────────────────────────────────────────────────────────
-//
-// The scanner surfaced here was the Wallet2 in-process sync loop, now retired.
-// The Engine owns its own ledger/balance (see `get_balance`), so these
-// commands return an honest refusal until an Engine-native equivalent is
-// exposed. `scanner_freeze` / `scanner_thaw` still validate their key image so
-// the UI surfaces malformed input the same way. (The staked-output query
-// stubs are gone: `get_staking_view` is their Engine-native replacement,
-// GUI-PR3b.)
-
-#[tauri::command]
-pub async fn get_scanner_balance(_state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn get_scanner_height(_state: State<'_, AppState>) -> Result<u64, String> {
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn scanner_freeze(
-    _state: State<'_, AppState>,
-    key_image: String,
-) -> Result<bool, String> {
-    validate::validate_key_image(&key_image)?;
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
-#[tauri::command]
-pub async fn scanner_thaw(_state: State<'_, AppState>, key_image: String) -> Result<bool, String> {
-    validate::validate_key_image(&key_image)?;
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
-}
-
 // ─── Daemon lifecycle commands ────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn daemon_status(
     dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
 ) -> Result<crate::daemon_manager::DaemonStatus, String> {
-    Ok(dm.status().await)
-}
-
-#[tauri::command]
-pub async fn restart_daemon(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-    app: tauri::AppHandle,
-) -> Result<crate::daemon_manager::DaemonStatus, String> {
-    dm.shutdown().await;
-    dm.start(&app).await;
     Ok(dm.status().await)
 }
 

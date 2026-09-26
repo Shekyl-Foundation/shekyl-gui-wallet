@@ -2,11 +2,13 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { resetFeatureFlagsForTests } from "../../features";
 import { DaemonProvider } from "../../context/DaemonContext";
 import Help from "../Help";
 
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
+  resetFeatureFlagsForTests();
 });
 
 function renderHelp() {
@@ -66,7 +68,7 @@ describe("Help", () => {
     expect(screen.getAllByText(/ML-DSA-65/).length).toBeGreaterThan(0);
   });
 
-  it("shows glossary terms when expanded", () => {
+  it("shows glossary terms when expanded", async () => {
     renderHelp();
     fireEvent.click(screen.getByText("Glossary"));
     expect(screen.getByText("Atomic Unit")).toBeInTheDocument();
@@ -74,6 +76,10 @@ describe("Help", () => {
     expect(screen.getByText("FCMP++")).toBeInTheDocument();
     expect(screen.getByText("Curve Tree")).toBeInTheDocument();
     expect(screen.getByText("Ring Signature")).toBeInTheDocument();
+    await screen.findByText("Hash Rate");
+    expect(screen.queryByText("Group ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("M-of-N")).not.toBeInTheDocument();
+    expect(screen.queryByText("Scheme Downgrade Attack")).not.toBeInTheDocument();
   });
 
   it("shows staking guide content when expanded", () => {
@@ -82,5 +88,30 @@ describe("Help", () => {
     expect(screen.getByText(/archival participation/)).toBeInTheDocument();
     expect(screen.getByText("Status in this wallet")).toBeInTheDocument();
     expect(screen.getByText("What will ship next")).toBeInTheDocument();
+  });
+
+  it("does not advertise Multisig while the feature is compiled out", async () => {
+    render(<Help />);
+    await screen.findByText(/Getting Started/i);
+    expect(screen.queryByText("Multisig Wallets")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Glossary"));
+    expect(screen.getByText("Hash Rate")).toBeInTheDocument();
+    expect(screen.queryByText("Group ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Multisig")).not.toBeInTheDocument();
+    expect(screen.queryByText("Scheme Downgrade Attack")).not.toBeInTheDocument();
+  });
+
+  it("advertises Multisig only when the compiled feature set says so", async () => {
+    vi.mocked(invoke).mockImplementation((cmd) =>
+      cmd === "get_feature_flags"
+        ? Promise.resolve({ multisig: true })
+        : Promise.reject(new Error(`unexpected invoke ${String(cmd)}`)),
+    );
+    render(<Help />);
+    expect(await screen.findByText("Multisig Wallets")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Glossary"));
+    expect(await screen.findByText("Group ID")).toBeInTheDocument();
+    expect(screen.getByText("M-of-N")).toBeInTheDocument();
+    expect(screen.getByText("Scheme Downgrade Attack")).toBeInTheDocument();
   });
 });

@@ -133,11 +133,6 @@ pub fn validate_recovery_phrase(phrase: &str) -> Result<(), String> {
     ))
 }
 
-/// Validate a key image hex string (32 bytes = 64 hex chars).
-pub fn validate_key_image(key_image: &str) -> Result<(), String> {
-    validate_hex(key_image, 32, "key_image")
-}
-
 /// Validate a secret key hex string (32 bytes = 64 hex chars).
 pub fn validate_secret_key(key: &str, name: &str) -> Result<(), String> {
     validate_hex(key, 32, name)
@@ -301,13 +296,6 @@ mod tests {
     }
 
     #[test]
-    fn key_image_error_does_not_leak_canary() {
-        let short_ki = &CANARY_HEX[..32];
-        let err = validate_key_image(short_ki).unwrap_err();
-        assert_no_canary(&err, &[short_ki, CANARY_SHORT]);
-    }
-
-    #[test]
     fn secret_key_error_does_not_leak_canary() {
         let short_sk = &CANARY_HEX[..32];
         let err = validate_secret_key(short_sk, "spend_key").unwrap_err();
@@ -394,11 +382,6 @@ mod tests {
             #[test]
             fn validate_recovery_phrase_never_panics(s in "\\PC{0,1000}") {
                 let _ = validate_recovery_phrase(&s);
-            }
-
-            #[test]
-            fn validate_key_image_never_panics(s in "\\PC{0,200}") {
-                let _ = validate_key_image(&s);
             }
 
             #[test]

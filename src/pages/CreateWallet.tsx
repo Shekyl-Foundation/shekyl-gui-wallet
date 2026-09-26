@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router";
 import {
   ArrowLeft,
@@ -15,6 +16,18 @@ import WalletDirAdvanced from "../components/WalletDirAdvanced";
 
 type Step = "setup" | "seed" | "confirm" | "done";
 
+/**
+ * Recovery-phrase copy. Rust places the text, keeps a digest, and clears on
+ * its own timer, on leave, and when the window is destroyed. `clearAfterMs`
+ * is the delay Rust reports; the timer here only hides the notice.
+ */
+interface ClipboardPlacement {
+  clear_after_ms: number;
+}
+
+const COPY_FAILED =
+  "The recovery phrase could not be copied. Write it down from the screen.";
+
 export default function CreateWallet() {
   const navigate = useNavigate();
   const { createWallet, setPhase } = useWallet();
@@ -28,6 +41,8 @@ export default function CreateWallet() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CreateWalletResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [clearAfterMs, setClearAfterMs] = useState<number | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Seed confirmation state
   const [confirmValues, setConfirmValues] = useState<Record<number, string>>(
@@ -92,10 +107,31 @@ export default function CreateWallet() {
 
   const handleCopySeed = useCallback(async () => {
     if (!result?.seed) return;
-    await navigator.clipboard.writeText(result.seed);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      const placed = await invoke<ClipboardPlacement>("copy_to_clipboard", {
+        text: result.seed,
+      });
+      setClearAfterMs(placed.clear_after_ms);
+      setCopied(true);
+      setError(null);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      noticeTimer.current = setTimeout(() => {
+        setCopied(false);
+      }, placed.clear_after_ms);
+    } catch (error) {
+      setCopied(false);
+      setError(typeof error === "string" ? error : COPY_FAILED);
+    }
   }, [result]);
+
+  // Leave, including Strict Mode's simulated unmount before a copy, asks
+  // Rust to clear. Rust does nothing when it is not tracking a placement.
+  useEffect(() => {
+    return () => {
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      void invoke("clear_clipboard").catch(() => {});
+    };
+  }, []);
 
   const handleFinish = useCallback(() => {
     // Navigate before flipping phase: the ready-phase <Routes> in WalletGate
@@ -276,6 +312,13 @@ export default function CreateWallet() {
                 </>
               )}
             </button>
+            {copied && clearAfterMs !== null && (
+              <p className="text-[11px] text-orange-200/80" role="status">
+                Copied. Other apps and your clipboard history can read it until
+                it is cleared — automatically in {Math.round(clearAfterMs / 1000)}{" "}
+                seconds, when you leave this page, or when you close the wallet.
+              </p>
+            )}
 
             <button
               onClick={() => setStep("confirm")}
