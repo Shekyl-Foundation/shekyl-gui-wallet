@@ -709,52 +709,6 @@ pub async fn get_address(
 }
 
 #[tauri::command]
-pub async fn transfer(
-    state: State<'_, AppState>,
-    address: String,
-    amount: u64,
-) -> Result<TxInfo, String> {
-    validate::validate_address(&address)?;
-    validate::validate_amount(amount)?;
-
-    if !*state.wallet_open.read().await {
-        return Err("No wallet is open".into());
-    }
-    let eng = state.engine.lock().await;
-    if !eng.is_open() {
-        return Err("No wallet is open".into());
-    }
-    let outcome = eng.transfer(&address, amount).await?;
-    Ok(TxInfo {
-        id: outcome.tx_hash.clone(),
-        hash: outcome.tx_hash,
-        amount: outcome.amount,
-        fee: outcome.fee,
-        height: None,
-        timestamp: 0,
-        direction: TransferDirection::Out,
-        status: TransferStatus::Pending,
-        pqc_protected: true,
-    })
-}
-
-#[tauri::command]
-pub async fn estimate_fee(
-    state: State<'_, AppState>,
-    address: String,
-    amount: u64,
-) -> Result<u64, String> {
-    validate::validate_address(&address)?;
-    validate::validate_amount(amount)?;
-
-    let eng = state.engine.lock().await;
-    if !eng.is_open() {
-        return Err("No wallet is open".into());
-    }
-    eng.estimate_fee(&address, amount).await
-}
-
-#[tauri::command]
 pub async fn get_transactions(
     state: State<'_, AppState>,
     _offset: u32,

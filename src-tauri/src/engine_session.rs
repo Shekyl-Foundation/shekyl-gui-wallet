@@ -28,17 +28,14 @@ use shekyl_crypto_pq::account::{
 };
 use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES};
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
-use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams, FeePriority,
-    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, StakeFacade,
-    StakePosture, TxRecipient, TxRequest,
+    Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams, FirstStakeOutcome,
+    Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, StakeFacade, StakePosture,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
 use shekyl_scanner::WalletLedgerExt;
-use shekyl_units::AtomicUnits;
 use tokio::sync::RwLock;
 use tracing::warn;
 use zeroize::{Zeroize, Zeroizing};
@@ -72,6 +69,13 @@ impl EngineSession {
             network: None,
             daemon_http_base: None,
         }
+    }
+
+    /// The shared engine, for work that must not hold the session's outer
+    /// mutex across a proof: callers clone this, drop the session lock, and
+    /// take the engine's own read guard (the same shape as wallet-rpc).
+    pub fn shared_engine(&self) -> Option<SharedEngine> {
+        self.engine.clone()
     }
 
     pub fn is_open(&self) -> bool {
@@ -695,106 +699,6 @@ impl EngineSession {
         Ok(StakingView::from(view))
     }
 
-    /// One-shot send: build pending tx + submit (GUI transfer command).
-    ///
-    /// Mirrors wallet-rpc `build_pending_tx` → `submit_pending_tx` with
-    /// `FeePriority::Standard`. On CT-5d `ContentChanged`, resubmits once
-    /// with the advanced `content_gen` (user already confirmed the send
-    /// intent at the UI layer for this one-shot path).
-    pub async fn transfer(
-        &self,
-        address: &str,
-        amount_atomic: u64,
-    ) -> Result<TransferOutcome, String> {
-        let shared = self
-            .engine
-            .clone()
-            .ok_or_else(|| "No wallet is open".to_string())?;
-
-        let request = TxRequest {
-            recipients: vec![TxRecipient {
-                address: address.to_owned(),
-                amount_atomic_units: AtomicUnits::from_raw(amount_atomic),
-            }],
-            priority: FeePriority::Standard,
-        };
-
-        // Phase 4b: build/submit/discard take `&self` (interior mutability +
-        // engine-owned permits). Hold a *read* guard — same as wallet-rpc —
-        // so P-scan and other SharedEngine readers are not stalled across
-        // FCMP++ assembly and the daemon submit RTT. Serialization of the
-        // send path itself lives in LocalPendingTx, not this lock.
-        let engine = shared.read().await;
-        let pending = engine
-            .build_pending_tx_async(&request)
-            .await
-            .map_err(|e| format!("build transfer: {e}"))?;
-
-        let fee = pending.fee_atomic_units.to_raw();
-        let id = pending.id;
-        let mut seen_gen = pending.content_gen;
-
-        // SubmitOutcome is identity-bearing (Accepted / AlreadyInPool /
-        // AlreadyInChain); one-shot GUI needs only the txid. Verdict UX is a
-        // separate follow-up; refresh remains settlement authority.
-        let tx_hash = match engine.submit_pending_tx_async(id, seen_gen).await {
-            Ok(outcome) => outcome.hash(),
-            Err(SubmitError::ContentChanged {
-                content_gen,
-                reservation_id,
-            }) => {
-                // One-shot GUI path: re-confirm is implicit; resubmit once.
-                seen_gen = content_gen;
-                engine
-                    .submit_pending_tx_async(reservation_id, seen_gen)
-                    .await
-                    .map_err(|e| {
-                        // Best-effort discard so funds unlock if still held.
-                        let _ = engine.discard_pending_tx(reservation_id);
-                        format!("submit transfer (after re-anchor): {e}")
-                    })?
-                    .hash()
-            }
-            Err(e) => {
-                let _ = engine.discard_pending_tx(id);
-                return Err(format!("submit transfer: {e}"));
-            }
-        };
-
-        Ok(TransferOutcome {
-            tx_hash: tx_hash.to_string(),
-            amount: amount_atomic,
-            fee,
-        })
-    }
-
-    /// Estimate fee by building (then discarding) a pending tx.
-    pub async fn estimate_fee(&self, address: &str, amount_atomic: u64) -> Result<u64, String> {
-        let shared = self
-            .engine
-            .clone()
-            .ok_or_else(|| "No wallet is open".to_string())?;
-
-        let request = TxRequest {
-            recipients: vec![TxRecipient {
-                address: address.to_owned(),
-                amount_atomic_units: AtomicUnits::from_raw(amount_atomic),
-            }],
-            priority: FeePriority::Standard,
-        };
-
-        // Read guard: fee estimate is build+discard under the same Phase 4b
-        // shared-borrow contract as transfer (see above).
-        let engine = shared.read().await;
-        let pending = engine
-            .build_pending_tx_async(&request)
-            .await
-            .map_err(|e| format!("fee estimate: {e}"))?;
-        let fee = pending.fee_atomic_units.to_raw();
-        let _ = engine.discard_pending_tx(pending.id);
-        Ok(fee)
-    }
-
     /// Project receive ledger + send journal into a transaction list.
     ///
     /// See [`transfer_history`] for the PR-SJ-2 projection rules.
@@ -816,13 +720,6 @@ impl EngineSession {
             .map(|td| IncomingFact::from_details(td, &locks));
         transfer_history::merge_transfer_history(incoming, &ledger.send_journal.rows)
     }
-}
-
-/// Result of a one-shot Engine transfer.
-pub struct TransferOutcome {
-    pub tx_hash: String,
-    pub amount: u64,
-    pub fee: u64,
 }
 
 /// Archival staker status (GUI-PR3).
