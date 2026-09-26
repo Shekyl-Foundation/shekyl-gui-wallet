@@ -17,19 +17,16 @@ import WalletDirAdvanced from "../components/WalletDirAdvanced";
 type Step = "setup" | "seed" | "confirm" | "done";
 
 /**
- * How long the recovery phrase may sit on the OS clipboard after "Copy".
- *
- * The button is kept on purpose: without it users photograph the screen, and
- * a phone's cloud photo backup is a worse place for a seed than clipboard
- * history. Keeping the button is what makes mitigation possible at all — a
- * manual highlight-and-copy is untouchable by us. Rust owns the whole
- * lifecycle (`copy_to_clipboard` / `clear_clipboard`): it keeps a hash of
- * what it wrote and clears only while the clipboard still holds exactly
- * that, so a value the user copied elsewhere since is never destroyed. Rust
- * rather than the webview because a webview write can be refused once the
- * window loses focus — the moment the user has alt-tabbed to paste.
+ * Recovery-phrase copy. Rust places the text, keeps a digest, and clears on
+ * its own timer, on leave, and when the window is destroyed. `clearAfterMs`
+ * is the delay Rust reports; the timer here only hides the notice.
  */
-export const SEED_CLIPBOARD_TTL_MS = 60_000;
+interface ClipboardPlacement {
+  clear_after_ms: number;
+}
+
+const COPY_FAILED =
+  "The recovery phrase could not be copied. Write it down from the screen.";
 
 export default function CreateWallet() {
   const navigate = useNavigate();
@@ -44,10 +41,8 @@ export default function CreateWallet() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CreateWalletResult | null>(null);
   const [copied, setCopied] = useState(false);
-  // True between a successful copy and the clear that follows it. Rust
-  // additionally verifies the clipboard still holds the seed before clearing.
-  const seedOnClipboard = useRef(false);
-  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [clearAfterMs, setClearAfterMs] = useState<number | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Seed confirmation state
   const [confirmValues, setConfirmValues] = useState<Record<number, string>>(
@@ -110,49 +105,42 @@ export default function CreateWallet() {
     }
   }, [createWallet, name, password]);
 
-  const clearSeedFromClipboard = useCallback(async () => {
-    if (clearTimer.current) {
-      clearTimeout(clearTimer.current);
-      clearTimer.current = null;
-    }
-    if (!seedOnClipboard.current) return;
-    seedOnClipboard.current = false;
-    setCopied(false);
-    try {
-      await invoke("clear_clipboard");
-    } catch {
-      // Best effort: the seed was already handed out on purpose; a failed
-      // clear must not block leaving the page.
-    }
-  }, []);
-
   const handleCopySeed = useCallback(async () => {
     if (!result?.seed) return;
-    await invoke("copy_to_clipboard", { text: result.seed });
-    seedOnClipboard.current = true;
-    setCopied(true);
-    if (clearTimer.current) clearTimeout(clearTimer.current);
-    clearTimer.current = setTimeout(() => {
-      void clearSeedFromClipboard();
-    }, SEED_CLIPBOARD_TTL_MS);
-  }, [result, clearSeedFromClipboard]);
+    try {
+      const placed = await invoke<ClipboardPlacement>("copy_to_clipboard", {
+        text: result.seed,
+      });
+      setClearAfterMs(placed.clear_after_ms);
+      setCopied(true);
+      setError(null);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      noticeTimer.current = setTimeout(() => {
+        setCopied(false);
+      }, placed.clear_after_ms);
+    } catch (error) {
+      setCopied(false);
+      setError(typeof error === "string" ? error : COPY_FAILED);
+    }
+  }, [result]);
 
-  // Leaving the page (unmount) clears a seed that is still on the clipboard.
+  // Leave, including Strict Mode's simulated unmount before a copy, asks
+  // Rust to clear. Rust does nothing when it is not tracking a placement.
   useEffect(() => {
     return () => {
-      void clearSeedFromClipboard();
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      void invoke("clear_clipboard").catch(() => {});
     };
-  }, [clearSeedFromClipboard]);
+  }, []);
 
   const handleFinish = useCallback(() => {
-    void clearSeedFromClipboard();
     // Navigate before flipping phase: the ready-phase <Routes> in WalletGate
     // has no /create entry, so leaving the URL on /create would unmount this
     // page into an unmatched route and expose the body's bg-purple-900 as a
     // blank screen.
     navigate("/", { replace: true });
     setPhase("ready");
-  }, [navigate, setPhase, clearSeedFromClipboard]);
+  }, [navigate, setPhase]);
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-purple-900">
@@ -324,12 +312,11 @@ export default function CreateWallet() {
                 </>
               )}
             </button>
-            {copied && (
+            {copied && clearAfterMs !== null && (
               <p className="text-[11px] text-orange-200/80" role="status">
                 Copied. Other apps and your clipboard history can read it until
-                it is cleared — automatically in{" "}
-                {Math.round(SEED_CLIPBOARD_TTL_MS / 1000)} seconds, or when you
-                leave this page.
+                it is cleared — automatically in {Math.round(clearAfterMs / 1000)}{" "}
+                seconds, when you leave this page, or when you close the wallet.
               </p>
             )}
 

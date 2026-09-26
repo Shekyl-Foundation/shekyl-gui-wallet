@@ -68,7 +68,7 @@ describe("Help", () => {
     expect(screen.getAllByText(/ML-DSA-65/).length).toBeGreaterThan(0);
   });
 
-  it("shows glossary terms when expanded", () => {
+  it("shows glossary terms when expanded", async () => {
     renderHelp();
     fireEvent.click(screen.getByText("Glossary"));
     expect(screen.getByText("Atomic Unit")).toBeInTheDocument();
@@ -76,6 +76,10 @@ describe("Help", () => {
     expect(screen.getByText("FCMP++")).toBeInTheDocument();
     expect(screen.getByText("Curve Tree")).toBeInTheDocument();
     expect(screen.getByText("Ring Signature")).toBeInTheDocument();
+    await screen.findByText("Hash Rate");
+    expect(screen.queryByText("Group ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("M-of-N")).not.toBeInTheDocument();
+    expect(screen.queryByText("Scheme Downgrade Attack")).not.toBeInTheDocument();
   });
 
   it("shows staking guide content when expanded", () => {
@@ -90,6 +94,11 @@ describe("Help", () => {
     render(<Help />);
     await screen.findByText(/Getting Started/i);
     expect(screen.queryByText("Multisig Wallets")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Glossary"));
+    expect(screen.getByText("Hash Rate")).toBeInTheDocument();
+    expect(screen.queryByText("Group ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Multisig")).not.toBeInTheDocument();
+    expect(screen.queryByText("Scheme Downgrade Attack")).not.toBeInTheDocument();
   });
 
   it("advertises Multisig only when the compiled feature set says so", async () => {
@@ -100,5 +109,9 @@ describe("Help", () => {
     );
     render(<Help />);
     expect(await screen.findByText("Multisig Wallets")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Glossary"));
+    expect(await screen.findByText("Group ID")).toBeInTheDocument();
+    expect(screen.getByText("M-of-N")).toBeInTheDocument();
+    expect(screen.getByText("Scheme Downgrade Attack")).toBeInTheDocument();
   });
 });

@@ -34,9 +34,9 @@
 //! request out to a path, a signature back in from one — is the same shape
 //! the wallet rejected outright for cold signing on 2026-09-07. It reaches
 //! users through the wallet contract when a round rules it, and the GUI then
-//! consumes that like any other method. Until then the commands, the page,
-//! the nav entry and the Help section all follow this one feature switch,
-//! which the frontend reads via `get_feature_flags`.
+//! consumes that like any other method. Until then these commands compile
+//! only under this feature. The page stays in the frontend bundle and hides
+//! until `get_feature_flags` reports it.
 //!
 //! The group operations ran only on the retired Wallet2 backend and return an
 //! honest refusal; the file primitives are real reads/writes of caller-named

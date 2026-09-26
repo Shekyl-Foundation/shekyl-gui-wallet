@@ -39,6 +39,7 @@ mod drain_balance;
 mod engine_daemon;
 mod engine_errors;
 mod engine_session;
+mod features;
 mod gui_config;
 #[cfg(feature = "multisig")]
 mod multisig;
@@ -58,6 +59,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(state::AppState::new())
+        .manage(clipboard::ClipboardOwner::new())
         .setup(|app| {
             let config_dir = app
                 .path()
@@ -80,7 +82,7 @@ pub fn run() {
             daemon_connection::daemon_connection_disclosures,
             commands::get_pqc_status,
             commands::get_security_status,
-            commands::get_feature_flags,
+            features::get_feature_flags,
             clipboard::copy_to_clipboard,
             clipboard::clear_clipboard,
             // Mining
@@ -139,6 +141,9 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
+                // Before engine teardown. The page's timer dies with the webview.
+                clipboard::clear_on_window_destroy(window.app_handle());
+
                 let app_state: tauri::State<'_, state::AppState> = window.state();
                 tauri::async_runtime::block_on(async {
                     let mut eng = app_state.engine.lock().await;

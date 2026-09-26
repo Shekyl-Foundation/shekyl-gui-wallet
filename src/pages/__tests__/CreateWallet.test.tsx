@@ -2,9 +2,11 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import CreateWallet, { SEED_CLIPBOARD_TTL_MS } from "../CreateWallet";
+import CreateWallet from "../CreateWallet";
 
 const SEED = Array.from({ length: 24 }, (_, i) => `word${i + 1}`).join(" ");
+/** The delay the command reports. Production owns the real constant. */
+const REPORTED_CLEAR_AFTER_MS = 60_000;
 const createWallet = vi.fn();
 const setPhase = vi.fn();
 
@@ -16,7 +18,13 @@ vi.mock("../../components/WalletDirAdvanced", () => ({ default: () => null }));
 
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
-  vi.mocked(invoke).mockResolvedValue(undefined);
+  vi.mocked(invoke).mockImplementation((cmd) => {
+    if (cmd === "copy_to_clipboard") {
+      return Promise.resolve({ clear_after_ms: REPORTED_CLEAR_AFTER_MS });
+    }
+    if (cmd === "clear_clipboard") return Promise.resolve(false);
+    return Promise.resolve(undefined);
+  });
   createWallet.mockReset();
   createWallet.mockResolvedValue({
     name: "My Wallet",
@@ -51,36 +59,30 @@ async function reachSeedStep() {
 async function clickCopy() {
   vi.useFakeTimers();
   fireEvent.click(screen.getByText("Copy to clipboard"));
-  // Let the awaited `writeText` resolve so the TTL timer gets scheduled.
   await act(async () => {
     await Promise.resolve();
   });
   expect(vi.mocked(invoke)).toHaveBeenCalledWith("copy_to_clipboard", { text: SEED });
-  expect(screen.getByRole("status")).toHaveTextContent(/cleared/i);
+  expect(screen.getByRole("status")).toHaveTextContent(/60 seconds/);
 }
 
 const clearCalls = () =>
   vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "clear_clipboard").length;
 
 describe("CreateWallet seed clipboard mitigation", () => {
-  it("clears the clipboard Rust-side once the TTL elapses", async () => {
+  it("shows the clear delay Rust reported and does not clear from the page timer", async () => {
     await reachSeedStep();
     await clickCopy();
     expect(clearCalls()).toBe(0);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(SEED_CLIPBOARD_TTL_MS - 1);
+      await vi.advanceTimersByTimeAsync(REPORTED_CLEAR_AFTER_MS);
     });
     expect(clearCalls()).toBe(0);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(clearCalls()).toBe(1);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("clears the clipboard when the page is left before the TTL", async () => {
+  it("asks Rust to clear when the page is left after copying", async () => {
     const view = await reachSeedStep();
     await clickCopy();
     await act(async () => {
@@ -89,11 +91,23 @@ describe("CreateWallet seed clipboard mitigation", () => {
     expect(clearCalls()).toBe(1);
   });
 
-  it("never wipes a clipboard the seed was not put on", async () => {
+  it("asks Rust to clear when the page is left without copying", async () => {
     const view = await reachSeedStep();
     await act(async () => {
       view.unmount();
     });
-    expect(clearCalls()).toBe(0);
+    expect(clearCalls()).toBe(1);
+  });
+
+  it("tells the reader to write the phrase down when copy fails", async () => {
+    vi.mocked(invoke).mockImplementation((cmd) => {
+      if (cmd === "copy_to_clipboard") return Promise.reject(new Error("backend unavailable"));
+      return Promise.resolve(false);
+    });
+    await reachSeedStep();
+    fireEvent.click(screen.getByText("Copy to clipboard"));
+    expect(await screen.findByText(/write it down from the screen/i)).toBeInTheDocument();
+    expect(screen.queryByText(/backend unavailable/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

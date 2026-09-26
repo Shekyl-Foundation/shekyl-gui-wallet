@@ -35,6 +35,8 @@
 //! "not available on the Engine backend" error until it is ported. The PQC
 //! multisig surface lives in [`crate::multisig`] behind the `multisig` cargo
 //! feature (off by default); the Wallet2 scanner stubs are gone.
+//! Compiled feature switches live in [`crate::features`]. The recovery-phrase
+//! clipboard slot lives in [`crate::clipboard`].
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -803,25 +805,6 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
         estimated_proof_size_kb: 4.5,
         paths_precomputed: wallet_refreshed,
     })
-}
-
-// ─── PQC Multisig commands ────────────────────────────────────────────────────
-
-// ─── Compiled feature set ────────────────────────────────────────────────────
-
-/// The feature switches the frontend gates its surfaces on. There is ONE
-/// switch per feature — the cargo feature — and the UI reads it from here at
-/// boot rather than carrying a second flag of its own that could disagree.
-#[derive(Debug, Serialize)]
-pub struct FeatureFlags {
-    pub multisig: bool,
-}
-
-#[tauri::command]
-pub fn get_feature_flags() -> FeatureFlags {
-    FeatureFlags {
-        multisig: cfg!(feature = "multisig"),
-    }
 }
 
 // ─── Daemon lifecycle commands ────────────────────────────────────────────────

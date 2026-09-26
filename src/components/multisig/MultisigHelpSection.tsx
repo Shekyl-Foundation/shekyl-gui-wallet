@@ -1,7 +1,7 @@
 import { Users } from "lucide-react";
 
 import CollapsibleSection from "../CollapsibleSection";
-import { useFeatureFlags } from "../../features";
+import { isSurfaceEnabled, useFeatureGate } from "../../features";
 
 interface MultisigHelpSectionProps {
   /** The id of the section the Help page currently has open, if any. */
@@ -12,15 +12,12 @@ interface MultisigHelpSectionProps {
 const ID = "multisig";
 
 /**
- * The Help page's multisig section. Owns its own feature fetch and renders
- * nothing unless the compiled feature set enables multisig — the page only
- * composes it (rule 27: pages compose panels; panels own fetch and
- * fail-closed state). Lives with the other multisig UI, which is exactly the
- * surface the `multisig` cargo feature gates.
+ * Help's multisig section. Renders nothing unless `get_feature_flags`
+ * reports the cargo feature. The page only composes this panel.
  */
 export default function MultisigHelpSection({ open, onToggle }: MultisigHelpSectionProps) {
-  const flags = useFeatureFlags();
-  if (!flags.multisig) return null;
+  const gate = useFeatureGate();
+  if (!isSurfaceEnabled(gate, "multisig")) return null;
   return (
     <CollapsibleSection
       icon={Users}

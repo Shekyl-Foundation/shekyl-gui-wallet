@@ -19,10 +19,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
-# Rust-side only (no webview capability is granted): clears the seed from the
-# OS clipboard on a timer / on leaving the create page. Done from Rust because
-# a webview `clipboard.writeText("")` can be refused once the window loses
-# focus — which is exactly when the user has alt-tabbed to paste the seed.
+# Recovery-phrase clipboard slot. Rust writes and clears; no webview
+# capability is granted. The plugin's Rust API does not consult one.
 tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -56,12 +54,11 @@ rand = "0.8"
 
 [features]
 default = []
-# Mirrors shekyl-core (`shekyl-engine-core`: `multisig = ["dep:shekyl-multisig"]`,
-# default off). The multisig commands, file-shuttle primitives, page, nav entry
-# and Help section compile only under this feature. Alpha posture (ruled
-# 2026-09-25): the code stays, the surface is not enabled — the V3.1 multisig
-# round has not ruled a transport, and the file-shuttle shape here is the one
-# the wallet rejected for cold signing on 2026-09-07.
+# Default off, same posture as shekyl-engine-core's `multisig` feature.
+# This compiles `multisig.rs`: the commands and the arbitrary-path file
+# shuttle. The frontend is one bundle and does not compile out with this
+# flag; it reads `get_feature_flags` and hides the surface until the flag
+# is on. The commands are in flight (no Engine port yet), not dead code.
 multisig = []
 
 [target.'cfg(unix)'.dependencies]

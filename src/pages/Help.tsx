@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import CollapsibleSection from "../components/CollapsibleSection";
+import GlossaryList, { type GlossaryEntry } from "../components/help/GlossaryList";
 import { MultisigHelpSection } from "../components/multisig";
 
 interface SectionProps {
@@ -303,20 +304,13 @@ export default function Help() {
         open={open}
         onToggle={toggle}
       >
-        <div className="space-y-2">
-          {GLOSSARY.map(({ term, definition }) => (
-            <div key={term}>
-              <span className="font-semibold text-gold-400">{term}</span>
-              <span className="text-purple-300"> — {definition}</span>
-            </div>
-          ))}
-        </div>
+        <GlossaryList entries={GLOSSARY} />
       </Section>
     </div>
   );
 }
 
-const GLOSSARY = [
+const GLOSSARY: GlossaryEntry[] = [
   {
     term: "Atomic Unit",
     definition:
@@ -339,6 +333,7 @@ const GLOSSARY = [
   },
   {
     term: "Group ID",
+    feature: "multisig",
     definition:
       "A cryptographic hash that uniquely identifies a multisig group. Derived from the sorted participant public keys and the M/N threshold. All participants should verify their Group ID matches.",
   },
@@ -349,6 +344,7 @@ const GLOSSARY = [
   },
   {
     term: "M-of-N",
+    feature: "multisig",
     definition:
       "A multisig threshold where M signatures from N total participants are required to authorize a transaction. For example, 2-of-3 means any two of the three key holders must sign.",
   },
@@ -359,6 +355,7 @@ const GLOSSARY = [
   },
   {
     term: "Multisig",
+    feature: "multisig",
     definition:
       "A wallet requiring multiple private keys to authorize a transaction. Provides shared custody and eliminates single points of failure.",
   },
@@ -374,6 +371,7 @@ const GLOSSARY = [
   },
   {
     term: "Scheme Downgrade Attack",
+    feature: "multisig",
     definition:
       "An attack where an adversary tries to spend a multisig-protected output using a cheaper single-signer scheme. Shekyl prevents this by binding each output to its expected signature scheme on-chain.",
   },

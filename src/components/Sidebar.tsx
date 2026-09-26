@@ -1,5 +1,5 @@
 import { NavLink } from "react-router";
-import { useFeatureFlags, type FeatureFlags } from "../features";
+import { isSurfaceEnabled, useFeatureGate, type FeatureFlags } from "../features";
 import {
   LayoutDashboard,
   Send,
@@ -37,8 +37,8 @@ const links: NavItem[] = [
 ];
 
 export default function Sidebar() {
-  const flags = useFeatureFlags();
-  const visible = links.filter((l) => l.feature === undefined || flags[l.feature]);
+  const gate = useFeatureGate();
+  const visible = links.filter((link) => isSurfaceEnabled(gate, link.feature));
   return (
     <aside className="flex w-56 flex-col border-r border-purple-700/50 bg-purple-900/80">
       {/* Logo */}

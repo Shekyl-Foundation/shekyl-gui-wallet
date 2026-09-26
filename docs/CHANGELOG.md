@@ -14,23 +14,24 @@
   `shekyld` is spawned from Rust, and the frontend does not install the shell
   plugin, so this was dead authority. Deleted; the sidecar is unaffected.
 - **Seed copy is mitigated, not removed.** The copy button stays (denying it
-  only pushes users to photograph the screen). Rust now owns the clipboard
-  lifecycle: `copy_to_clipboard` writes the phrase and keeps only a hash of
-  what it wrote; `clear_clipboard` — 60 s after copying and on leaving the
-  page — clears only while the clipboard still holds exactly that, so a value
-  copied in another app since is never destroyed. The webview no longer
-  touches the clipboard at all, and the notice says so at the moment of
-  copying.
+  only pushes users to photograph the screen). `copy_to_clipboard` writes the
+  phrase, keeps only a digest, and arms the clear itself: 60 s later, when
+  the create page is left, and when the window is destroyed. A clear forgets
+  the digest only when the clipboard has changed or the OS clear succeeds. A
+  failed read or clear leaves the digest tracked so the expiry task can
+  retry. The page timer only hides the notice. The webview has no clipboard
+  capability.
 
 ### Changed
 
-- **Multisig is compiled out by default.** The PQC multisig commands, the
-  file-shuttle primitives (arbitrary-path reads/writes handed to the
-  renderer), the page, the nav entry and the Help section now sit behind the
-  `multisig` cargo feature in `src-tauri/src/multisig.rs` — kept, not enabled,
-  mirroring `shekyl-engine-core`'s own gate. The frontend reads the compiled
-  feature set via `get_feature_flags` and fails closed until Rust answers; it
-  carries no flag of its own that could disagree.
+- **Multisig Rust surface is compiled out by default.** The commands and the
+  arbitrary-path file shuttle compile only with `--features multisig`
+  (`src-tauri/src/multisig.rs`). That code is in flight — there is no Engine
+  port yet — not dead. The frontend is one bundle: it always contains the
+  page, reads `get_feature_flags`, and keeps the nav entry, route content,
+  Help section, and glossary terms hidden until Rust reports the feature.
+  The route stays registered so a loading flag cannot fall through to the
+  catch-all.
 
 - **Gallery profit as a decimal string.** `list_shards` emits
   `expected_profit_atomic` as a decimal string of atomic units (not a JSON
