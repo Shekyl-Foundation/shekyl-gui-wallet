@@ -13,7 +13,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [walletFiles, setWalletFiles] = useState<WalletFileInfo[]>([]);
   const [walletName, setWalletName] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [rpcReady, setRpcReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [walletDir, setWalletDir] = useState<string | null>(null);
   const [walletDirFallbackFrom, setWalletDirFallbackFrom] = useState<
@@ -65,7 +64,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       try {
         await invoke<void>("ensure_wallet_dir");
         if (cancelled) return;
-        setRpcReady(true);
         try {
           const resp = await invoke<WalletDirResponse>("get_wallet_dir");
           if (!cancelled) {
@@ -173,7 +171,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         walletFiles,
         walletName,
         walletAddress,
-        rpcReady,
         error,
         openWallet,
         createWallet,

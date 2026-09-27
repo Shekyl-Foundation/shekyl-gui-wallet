@@ -35,7 +35,6 @@ export interface WalletState {
   walletFiles: WalletFileInfo[];
   walletName: string | null;
   walletAddress: string | null;
-  rpcReady: boolean;
   error: string | null;
 }
 

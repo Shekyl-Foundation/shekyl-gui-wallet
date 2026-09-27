@@ -40,7 +40,6 @@ const walletStub: WalletContextValue = {
   walletFiles: [],
   walletName: null,
   walletAddress: null,
-  rpcReady: false,
   error: null,
   openWallet: () => Promise.reject("stub"),
   createWallet: () => Promise.reject("stub"),

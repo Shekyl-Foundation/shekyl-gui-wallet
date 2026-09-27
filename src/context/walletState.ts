@@ -11,7 +11,6 @@ export interface WalletContextValue {
   walletFiles: WalletFileInfo[];
   walletName: string | null;
   walletAddress: string | null;
-  rpcReady: boolean;
   error: string | null;
 
   openWallet: (filename: string, password: string) => Promise<WalletInfo>;
@@ -67,7 +66,6 @@ export const WalletContext = createContext<WalletContextValue>({
   walletFiles: [],
   walletName: null,
   walletAddress: null,
-  rpcReady: false,
   error: null,
 
   openWallet: () => Promise.reject("Not initialized"),
