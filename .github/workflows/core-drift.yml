@@ -142,6 +142,16 @@ jobs:
         working-directory: ./gui/src-tauri
         run: cargo check --all-targets
 
+      # The command surface reads the wallet contract from the core checkout
+      # above (`../shekyl-core` resolves from `gui/`). A core PR that REJECTs
+      # a method the GUI registers, or drops a method a RENAME/COMPOSITE row
+      # cites, goes red here — on the core pull request, through
+      # `workflow_call` — not on the next GUI PR. Grep-cheap: no npm, no
+      # cargo. Policy: .cursor/rules/28-command-surface.mdc
+      - name: Command surface against the core contract
+        working-directory: gui
+        run: scripts/ci/check_command_surface.sh
+
       - name: Report
         if: always()
         run: |

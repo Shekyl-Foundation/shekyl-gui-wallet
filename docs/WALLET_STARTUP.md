@@ -62,9 +62,10 @@ C++ `wallet2` FFI bridge is gone: `wallet_bridge.rs` was deleted at GUI-PR1,
 the `shekyl-ffi` / `shekyl-engine-rpc` deps and the C++ static linkage went
 with it, and `shekyl-engine-rpc` itself has since been deleted from
 `shekyl-core`. Nothing in this process links C++ wallet code. Features that
-were only ever backed by the old path (import-from-keys, PQC multisig,
-scanner freeze/thaw) return honest "not available on the Engine backend"
-errors until they are ported.
+were only ever backed by the old path are absent from the default build
+rather than registered refusals (rule 28, stub leg): import-from-keys and
+scanner freeze/thaw are deleted; PQC multisig compiles only under
+`--features multisig`.
 
 ---
 
@@ -79,7 +80,7 @@ The frontend uses a phase-based state machine to control what the user sees:
 | `select_wallet`| Unlock (with picker)| Multiple .keys files; user picks one       |
 | `unlock`       | Unlock              | Single .keys file; enter password          |
 | `creating`     | Create Wallet       | In the middle of wallet creation wizard    |
-| `importing`    | Import Wallet       | Restoring from seed/keys                   |
+| `importing`    | Import Wallet       | Restoring from the recovery phrase         |
 | `ready`        | Main app (Dashboard)| Wallet is open and authenticated           |
 
 Transitions:
@@ -207,21 +208,17 @@ When a wallet is closed (`close_wallet`) or the window is destroyed:
 
 ## Create Wallet Flow
 
-**Current (pre–BIP-39 integration):** Frontend calls
-`create_wallet(name, password, language)`. The `language` parameter is legacy
-and will be removed in the integration PR.
+`create_wallet(name, password, language)` creates the wallet through the
+Engine and returns `CreateWalletResult` — name, address, the 24-word
+recovery phrase, `seed_language`, network. (`language` is a Wallet2-era
+parameter the Engine ignores; slice (d) retires it with the other renames.)
 
-**Planned (after shekyl-core BIP-39 FFI + gui integration PR):**
-`create_wallet(name, password)` → `wallet2_ffi_create_wallet_from_bip39`, then
-`query_key("mnemonic")` for the 24-word recovery phrase. No seed-language
-parameter.
-
-1. Bridge creates the wallet file and queries the recovery phrase and primary
-   address.
-2. Returns `CreateWalletResult` with name, address, seed, network.
-3. Frontend displays the phrase in a numbered grid (24 words).
-5. Frontend challenges user to enter 4 randomly chosen words.
-6. On success, transitions to `phase: "ready"`.
+1. **setup** — name, password and confirmation.
+2. **seed** — the phrase in a numbered grid; "Copy to clipboard" hands it to
+   Rust, which owns the clipboard's timed, hash-checked clear
+   (`GUI_SECURITY.md` "Recovery phrase").
+3. **confirm** — the user is challenged for 4 randomly chosen words.
+4. **done** — transitions to `phase: "ready"`.
 
 The wallet automatically includes PQC key material (Ed25519 + ML-DSA-65)
 because `wallet2` calls `generate_pqc_key_material()` during account
