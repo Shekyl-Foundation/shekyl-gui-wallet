@@ -25,7 +25,7 @@ const SAMPLE_LIST: ShardCoverageList = {
   leaf_count: 77_976,
   frozen_count: 1,
   settled_epoch: 1,
-  budget_atomic: 1,
+  budget_atomic: "1",
   sigma_work_milli: 1,
   profit_estimate_available: true,
   shards: [SAMPLE_ROW],

@@ -12,15 +12,16 @@ export interface ChainHealth {
   release_multiplier: number;
   burn_pct: number;
   stake_ratio: number;
-  total_burned: number;
-  staker_pool_balance: number;
+  /** Atomic units, decimal string (`AtomicUnitsString`). */
+  total_burned: string;
+  staker_pool_balance: string;
   staker_emission_share_effective: number;
   emission_era: string;
-  last_block_reward: number;
+  last_block_reward: string;
   last_block_timestamp: number;
   last_block_hash: string;
   last_block_size: number;
-  total_staked: number;
+  total_staked: string;
   tier_0_lock_blocks: number;
   tier_1_lock_blocks: number;
   tier_2_lock_blocks: number;
@@ -78,7 +79,8 @@ export interface MiningStatus {
   pow_algorithm: string;
   is_background_mining_enabled: boolean;
   block_target: number;
-  block_reward: number;
+  /** Atomic units, decimal string. */
+  block_reward: string;
   difficulty: number;
 }
 

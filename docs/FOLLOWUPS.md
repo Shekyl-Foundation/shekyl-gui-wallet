@@ -361,9 +361,14 @@ existed to answer is settled.
 Every atomic amount on the Tauri edge is now `wire::AtomicUnitsString`, a
 decimal string parsed with BigInt on the frontend: the send edge (#26),
 shard profit (#26), and — closing this entry — `Balance`, `DrainBalance`,
-`StakingView` / `StakedOutputView.amount`, and the transfer rows'
-`amount` / `fee`. No JS `number` carries a `u64` of atomic units anywhere on
-the wire; `src/types/*` type them `string`, and `formatSkl` renders them.
+`StakingView` / `StakedOutputView.amount`, the transfer rows' `amount` /
+`fee`, and the daemon-facing SKL figures (`ChainHealth`'s `total_burned`,
+`staker_pool_balance`, `last_block_reward`, `total_staked`;
+`MiningStatus.block_reward`; `ShardCoverageList.budget_atomic`). No JS
+`number` carries a `u64` of atomic units anywhere on the wire; `src/types/*`
+type them `string`, and `formatSkl` renders them. The daemon's own JSON
+still delivers numbers (`daemon_rpc.rs` deserializes them as `u64`); the
+conversion happens once, at the Tauri edge.
 The history below is kept for the reasoning; the residue is gone.
 
 <details><summary>History</summary>

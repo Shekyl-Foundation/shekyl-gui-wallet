@@ -179,7 +179,7 @@ pub struct MiningStatus {
     pub pow_algorithm: String,
     pub is_background_mining_enabled: bool,
     pub block_target: u32,
-    pub block_reward: u64,
+    pub block_reward: AtomicUnitsString,
     pub difficulty: u64,
 }
 
@@ -195,7 +195,7 @@ pub async fn get_mining_status(state: State<'_, AppState>) -> Result<MiningStatu
         pow_algorithm: ms.pow_algorithm,
         is_background_mining_enabled: ms.is_background_mining_enabled,
         block_target: ms.block_target,
-        block_reward: ms.block_reward,
+        block_reward: ms.block_reward.into(),
         difficulty: ms.difficulty,
     })
 }

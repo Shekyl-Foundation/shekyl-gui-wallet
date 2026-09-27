@@ -23,10 +23,14 @@
   `scripts/ci/command_surface.conf` carries no `RENAME` row.
 - **Every atomic amount on the Tauri edge is a decimal string.**
   `Balance`, `DrainBalance.spendable`, the three `StakingView` legs,
-  `StakedOutputView.amount` and the transfer rows' `amount` / `fee` join the
-  send edge on `wire::AtomicUnitsString`; the frontend types them `string`
-  and renders with `formatSkl`. The FOLLOWUPS entry "Atomic amounts
-  serialized as JS `number`" is resolved.
+  `StakedOutputView.amount`, the transfer rows' `amount` / `fee`, and the
+  daemon-facing figures the wallet renders as SKL — `ChainHealth`'s
+  `total_burned` / `staker_pool_balance` / `last_block_reward` /
+  `total_staked`, `MiningStatus.block_reward`,
+  `ShardCoverageList.budget_atomic` — join the send edge on
+  `wire::AtomicUnitsString`; the frontend types them `string` and renders
+  with `formatSkl`. The FOLLOWUPS entry "Atomic amounts serialized as JS
+  `number`" is resolved.
 
 ### Added
 
