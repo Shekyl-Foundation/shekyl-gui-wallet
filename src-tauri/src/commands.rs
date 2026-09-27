@@ -439,7 +439,6 @@ pub async fn create_wallet(
     state: State<'_, AppState>,
     name: String,
     password: String,
-    language: Option<String>,
 ) -> Result<CreateWalletResult, String> {
     // Sanitize first (collapses whitespace, replaces spaces with '_') so
     // the on-disk name is filesystem-friendly regardless of what the
@@ -448,11 +447,6 @@ pub async fn create_wallet(
     validate::validate_wallet_name(&sanitized)?;
     validate::validate_password(&password)?;
 
-    // `language` is a legacy Wallet2 mnemonic-language selector; the Engine
-    // derives the recovery phrase itself (BIP-39 English on mainnet/stagenet,
-    // raw32 hex on testnet), so the argument is accepted for API stability but
-    // no longer drives seed generation.
-    let _ = language;
     let network = *state.network.read().await;
 
     let wallet_dir = state.wallet_dir.read().await.clone();
@@ -545,7 +539,6 @@ pub async fn import_wallet_from_seed(
     name: String,
     seed: String,
     password: String,
-    language: Option<String>,
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
     let sanitized = wallet_name::sanitize(&name);
@@ -553,10 +546,6 @@ pub async fn import_wallet_from_seed(
     validate::validate_recovery_phrase(&seed)?;
     validate::validate_password(&password)?;
 
-    // `language` is a legacy Wallet2 mnemonic-language selector; the Engine
-    // restores from the BIP-39 phrase directly, so it is accepted for API
-    // stability but no longer used.
-    let _ = language;
     let network = *state.network.read().await;
     let height = restore_height.unwrap_or(0);
 

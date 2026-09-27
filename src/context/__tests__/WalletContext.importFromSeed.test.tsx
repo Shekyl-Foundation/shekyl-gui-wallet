@@ -54,7 +54,12 @@ describe("restore through the real provider", () => {
     // to show completion after the engine has restored the wallet.
     expect(await screen.findByText("Restore complete")).toBeInTheDocument();
     expect(screen.queryByText("READY_APP")).not.toBeInTheDocument();
-    expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "import_wallet_from_seed")).toHaveLength(1);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("import_wallet_from_seed", {
+      name: "Restored Wallet",
+      seed: SEED,
+      password: "correct horse battery",
+      restoreHeight: 0,
+    });
 
     // …and then the page navigates off /import and flips to ready.
     await waitFor(() => expect(screen.getByText("READY_APP")).toBeInTheDocument(), { timeout: 3000 });

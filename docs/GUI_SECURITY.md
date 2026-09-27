@@ -61,7 +61,7 @@ Capabilities are defined in `capabilities/default.json`:
 
 ## Input Validation
 
-Every Tauri command that accepts user input validates before reaching the C++ FFI or Rust scanner. The `validate.rs` module enforces:
+Commands that take user input check it in `validate.rs` before it reaches the Engine:
 
 | Input | Validation |
 |-------|-----------|
@@ -69,12 +69,9 @@ Every Tauri command that accepts user input validates before reaching the C++ FF
 | Amount | Non-zero u64, carried across the Tauri edge as a decimal string (`AtomicUnitsString`, `src-tauri/src/wire.rs`) — never a JS `number` |
 | Wallet name | No path separators, no dots prefix, max 255 chars |
 | Password | No null bytes, max 1024 chars |
-| Seed phrase | ASCII, 1-30 words, no null bytes |
-| Secret keys | Exact 64 hex chars |
-| Key images | Exact 64 hex chars |
-| Staking tier | 0, 1, or 2 |
+| Recovery phrase | Exactly 24 ASCII words, no null bytes |
 
-Malformed inputs are rejected at the Rust bridge layer with a human-readable error. No malformed data reaches C++.
+Malformed inputs are rejected at the Rust bridge with a human-readable error. No malformed input reaches the Engine.
 
 ## Send Flow
 

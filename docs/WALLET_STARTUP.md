@@ -208,10 +208,11 @@ When a wallet is closed (`close_wallet`) or the window is destroyed:
 
 ## Create Wallet Flow
 
-`create_wallet(name, password, language)` creates the wallet through the
-Engine and returns `CreateWalletResult` — name, address, the 24-word
-recovery phrase, `seed_language`, network. (`language` is a Wallet2-era
-parameter the Engine ignores; slice (d) retires it with the other renames.)
+`create_wallet(name, password)` creates the wallet through the Engine and
+returns `CreateWalletResult` — name, address, the 24-word recovery phrase,
+`seed_language`, network. `seed_language` reports the encoding the Engine
+chose (BIP-39 English, or raw 32-byte hex on testnet). There is no
+mnemonic-language argument: the Engine picks the encoding.
 
 1. **setup** — name, password and confirmation.
 2. **seed** — the phrase in a numbered grid; "Copy to clipboard" hands it to
@@ -220,9 +221,8 @@ parameter the Engine ignores; slice (d) retires it with the other renames.)
 3. **confirm** — the user is challenged for 4 randomly chosen words.
 4. **done** — transitions to `phase: "ready"`.
 
-The wallet automatically includes PQC key material (Ed25519 + ML-DSA-65)
-because `wallet2` calls `generate_pqc_key_material()` during account
-generation. No special flags needed -- all new wallets are v3 PQC wallets.
+Every new wallet is a v3 wallet. The Engine derives hybrid Ed25519 + ML-DSA-65
+spend authorization as part of creation; there is no flag that turns it off.
 
 New wallets also generate ML-KEM-768 key material for the Bech32m address
 format (`shekyl1:<version><classical ~103 chars>/<pqc ~1750 chars>`, ~1,870
@@ -238,11 +238,12 @@ classical segment by default; the PQC segment is handled internally.
 ### From Recovery Phrase
 
 The only restore path. `import_wallet_from_seed(name, seed, password,
-language, restore_height)` validates the 24-word phrase and calls the
-Engine's `restore_from_bip39`; the hybrid post-quantum keys are derived from
-the phrase, so nothing is "generated for" a restored wallet and no passphrase
-is taken. `restore_height` defaults to 0 (full scan). On success the page
-shows "Restore complete" and transitions to `phase: "ready"`.
+restore_height)` validates the 24-word phrase and calls the Engine's
+`restore_from_bip39`; the hybrid post-quantum keys are derived from the
+phrase, so nothing is "generated for" a restored wallet and no passphrase
+or mnemonic language is taken. `restore_height` defaults to 0 (full scan).
+On success the page shows "Restore complete" and transitions to
+`phase: "ready"`.
 
 There is no import from raw spend/view keys: that was a Wallet2 path whose
 GUI command had become an unconditional refusal, and the command-surface
@@ -272,9 +273,8 @@ The wallet connects to a `shekyld` daemon over HTTP. Default ports:
 | Testnet   | 12029      |
 | Stagenet  | 13029      |
 
-Both the C++ `wallet2` instance (for transaction submission, key image
-checks) and the Rust scanner (for block fetching) talk to the same daemon
-endpoint.
+The Engine (transaction construction and submission) and the scanner (block
+fetching) both talk to that same daemon endpoint.
 
 ---
 

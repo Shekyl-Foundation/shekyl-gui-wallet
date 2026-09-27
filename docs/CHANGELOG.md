@@ -10,10 +10,12 @@
   Tauri edge: every command in `generate_handler![...]` is a wallet-contract
   adapter (its name is SPECIFIED in `wallet_rpc.yaml`) or declared in
   `scripts/ci/command_surface.conf` as `SHELL`, `RENAME <method>` or
-  `COMPOSITE <methods>`; every registered command is invoked by a page and
-  every invoked name is registered; no registered command is an unconditional
-  refusal. The `RENAME` rows are the vocabulary-drift ledger slice (d)
-  retires. Policy: `.cursor/rules/28-command-surface.mdc`.
+  `COMPOSITE <methods>`; every registered command is invoked from frontend
+  source and every invoked name is registered; no registered command's tail
+  is an unconditional `Err(...)` or `return Err(...)`. The `RENAME` rows are
+  the vocabulary-drift ledger slice (d) retires. `COMPOSITE` is the reviewed
+  claim that `get_staking_view` projects `staking_info`, `get_staked_balance`,
+  and `get_staked_outputs`. Policy: `.cursor/rules/28-command-surface.mdc`.
 
 ### Removed
 
@@ -26,7 +28,9 @@
   Import page also no longer collects a BIP-39 passphrase it never sent, and
   no longer listens on the `wallet-progress` event nothing emitted (its
   stage list showed steps that never happened); it now shows one honest
-  restoring state. `ImportWallet.test.tsx` covers the remaining path.
+  restoring state. `create_wallet` and `import_wallet_from_seed` no longer
+  take the Wallet2 mnemonic-language selector the Engine discarded.
+  `ImportWallet.test.tsx` covers the remaining path.
 
 ### Fixed
 

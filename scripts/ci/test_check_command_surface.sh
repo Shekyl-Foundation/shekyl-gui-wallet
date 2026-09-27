@@ -39,6 +39,25 @@ register() {
 invoke_from_page() { printf '\nexport const __probe = () => invoke("%s");\n' "$1" >>"$WORK/tree/$PAGE"; }
 allow() { printf '%s SHELL self-test probe\n' "$1" >>"$WORK/tree/$CONF"; }
 
+# Replace the body of `pub async fn <name>` in commands.rs. `body` is the
+# new interior, including its leading newline-free indentation.
+replace_body() {
+  local name="$1" body="$2"
+  python3 - "$WORK/tree/$CMDS" "$name" "$body" <<'PY'
+import re, sys, pathlib
+path, name, body = sys.argv[1:]
+file = pathlib.Path(path)
+text = file.read_text()
+match = re.search(
+    rf'^pub async fn {re.escape(name)}\([^{{]*\{{\n(.*?)^\}}',
+    text,
+    re.S | re.M,
+)
+assert match, f"{name} body"
+file.write_text(text[: match.start(1)] + body + "\n" + text[match.end(1) :])
+PY
+}
+
 failed=0
 expect() {
   local label="$1" want_rc="$2" want_text="$3" rc=0 out
@@ -78,16 +97,13 @@ printf '\nimport { invoke } from "@tauri-apps/api/core";\nexport const __probe =
 expect "a *.spec.ts caller does not rescue a dead command" 1 "DEAD    orphan_probe"
 
 # Leg 3 alone: a live, consumed command whose body becomes a refusal.
+# Both shapes this tree writes: a bare `Err(...)` tail, and `return Err(...)`.
 fresh
-python3 - "$WORK/tree/$CMDS" <<'PY'
-import re, sys, pathlib
-p = pathlib.Path(sys.argv[1]); t = p.read_text()
-m = re.search(r'^pub async fn get_wallet_dir\([^{]*\{\n(.*?)^\}', t, re.S | re.M)
-assert m, "get_wallet_dir body"
-t = t[:m.start(1)] + '    Err("stubbed".into())\n' + t[m.end(1):]
-p.write_text(t)
-PY
+replace_body get_wallet_dir '    Err("stubbed".into())'
 expect "keep a stub behind a live command" 1 "STUB    get_wallet_dir"
+fresh
+replace_body get_wallet_dir '    return Err("stubbed".into());'
+expect "a live command whose tail is return Err" 1 "STUB    get_wallet_dir"
 
 # Leg 1: a name the contract REJECTED, even with a caller and a row.
 fresh; register claim '    Ok(())'; invoke_from_page claim; allow claim
@@ -116,6 +132,17 @@ expect "a handler entry the extractor cannot read" 2 "cannot read"
 
 fresh; printf '\nexport const __probe = (n: string) => invoke(n);\n' >>"$WORK/tree/$PAGE"
 expect "an invoke with a computed name" 2 "not a string literal"
+
+# A generic that itself contains `>` is still one call. Stopping at the first
+# `>` would neither count the literal nor reject the computed name.
+fresh
+register orphan_probe '    Ok(())'
+allow orphan_probe
+printf '\nexport const __probe = () => invoke<Record<string, number>>("orphan_probe");\n' >>"$WORK/tree/$PAGE"
+expect "a nested generic literal is still a consumer" 0 "three legs hold"
+fresh
+printf '\nexport const __probe = (n: string) => invoke<Record<string, number>>(n);\n' >>"$WORK/tree/$PAGE"
+expect "a computed name inside a nested generic fails closed" 2 "not a string literal"
 
 # Fail closed without the contract.
 fresh

@@ -15,16 +15,11 @@ export interface WalletContextValue {
   error: string | null;
 
   openWallet: (filename: string, password: string) => Promise<WalletInfo>;
-  createWallet: (
-    name: string,
-    password: string,
-    language?: string,
-  ) => Promise<CreateWalletResult>;
+  createWallet: (name: string, password: string) => Promise<CreateWalletResult>;
   importFromSeed: (
     name: string,
     seed: string,
     password: string,
-    language?: string,
     restoreHeight?: number,
   ) => Promise<WalletInfo>;
   lockWallet: () => Promise<void>;

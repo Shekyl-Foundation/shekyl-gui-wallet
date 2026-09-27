@@ -45,11 +45,16 @@ describe("ImportWallet", () => {
     expect(screen.queryByText(/passphrase/i)).not.toBeInTheDocument();
   });
 
-  it("restores with the contract's parameters and reports completion", async () => {
+  it("sends the name, phrase, password, and restore height it collected", async () => {
     renderPage();
     fill({ height: "1200" });
     fireEvent.click(screen.getByRole("button", { name: /restore from recovery phrase/i }));
-    expect(importFromSeed).toHaveBeenCalledWith("Restored Wallet", SEED, "correct horse battery", "English", 1200);
+    expect(importFromSeed).toHaveBeenCalledWith(
+      "Restored Wallet",
+      SEED,
+      "correct horse battery",
+      1200,
+    );
     expect(await screen.findByText("Restore complete")).toBeInTheDocument();
   });
 

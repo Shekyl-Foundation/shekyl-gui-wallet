@@ -21,14 +21,16 @@
 #                    or has a row in command_surface.conf saying what it is
 #                    instead: SHELL, RENAME <method>, or COMPOSITE <methods>.
 #                    A name the contract REJECTED is never registered.
-#   2. Consumer leg. A command is registered that no page invokes (dead
-#                    surface shipped by default), or a page invokes a name
-#                    that is not registered (a button that can only fail).
-#                    Both directions are checked.
-#   3. Stub leg.     A registered command's body is an unconditional refusal
-#                    (`import_wallet_from_keys` validated its inputs and then
-#                    returned "not available"). An absent feature is absent
-#                    from the UI, not a registered refusal.
+#   2. Consumer leg. A command is registered that the frontend never invokes
+#                    (dead surface shipped by default), or the frontend
+#                    invokes a name that is not registered (a button that can
+#                    only fail). Both directions are checked. Tests are not
+#                    consumers.
+#   3. Stub leg.     A registered command's tail is an unconditional refusal:
+#                    `Err(...)` or `return Err(...)`. An earlier `return Err`
+#                    guarding a real tail is not one (a closed wallet). An
+#                    absent feature is absent from the UI, not a registered
+#                    refusal. No constant is special-cased.
 #
 # Feature-gated registrations (`#[cfg(feature = "...")]` in the handler
 # list) are not in the default build; legs 2 and 3 do not apply to them and
@@ -118,28 +120,32 @@ if [[ ${#ORDER[@]} -eq 0 ]]; then
 fi
 
 # ── What the frontend invokes ──────────────────────────────────────────────
-# `invoke("name"` / `invoke<T>("name"`, across lines. Tests are not
-# consumers: neither the test directories nor a `*.test.*` / `*.spec.*`
-# file beside its subject (src/context/ShardPickerContext.test.tsx is one).
-# An invoke whose first argument is not a string literal cannot be read
-# here and fails closed.
+# `invoke("name"` / `invoke<T>("name"`, across lines, including a nested
+# generic (`invoke<Record<string, T>>("name")`). Tests are not consumers:
+# neither the test directories nor a `*.test.*` / `*.spec.*` file beside its
+# subject (src/context/ShardPickerContext.test.tsx is one). The first capture
+# is the generic, so (?1) walks nested angle brackets. An invoke whose first
+# argument is not a string literal cannot be read here and fails closed.
+# Group 1 must stay the generic: (?1) is that group.
+readonly INVOKE_LITERAL='\binvoke(<(?:[^<>]++|(?1))*>)?\(\s*"[a-z0-9_]+"'
+readonly INVOKE_UNREADABLE='\binvoke(<(?:[^<>]++|(?1))*>)?\(\s*[^"\s)]'
 invoke_scan() {
   grep -rPzo --include='*.ts' --include='*.tsx' \
     --exclude-dir=__tests__ --exclude-dir=test \
     --exclude='*.test.ts' --exclude='*.test.tsx' --exclude='*.spec.ts' --exclude='*.spec.tsx' \
     "$1" "$FRONTEND" 2>/dev/null | tr '\0' '\n' || true
 }
-unreadable=$(invoke_scan '\binvoke(<[^>]*>)?\(\s*[^"\s)]' | grep -c . || true)
+unreadable=$(invoke_scan "$INVOKE_UNREADABLE" | grep -c . || true)
 if [[ $unreadable -ne 0 ]]; then
   echo "FAIL: $unreadable invoke() call(s) whose command is not a string literal:"
-  invoke_scan '\binvoke(<[^>]*>)?\(\s*[^"\s)]' | sed 's/^/      /'
+  invoke_scan "$INVOKE_UNREADABLE" | sed 's/^/      /'
   echo "      The consumer leg reads literal names; a computed name is invisible to it."
   exit 2
 fi
 declare -A INVOKED=()
 while IFS= read -r name; do
   [[ -n $name ]] && INVOKED[$name]=1
-done < <(invoke_scan '\binvoke(<[^>]*>)?\(\s*"[a-z0-9_]+"' | grep -oP '"[a-z0-9_]+"' | tr -d '"' | sort -u)
+done < <(invoke_scan "$INVOKE_LITERAL" | grep -oP '"[a-z0-9_]+"' | tr -d '"' | sort -u)
 if [[ ${#INVOKED[@]} -eq 0 ]]; then
   echo "FAIL: no invoke(\"...\") found under $FRONTEND — the consumer leg has no subject."; exit 2
 fi
@@ -216,14 +222,14 @@ done
 for name in "${ORDER[@]}"; do
   if [[ -z ${INVOKED[$name]:-} ]]; then
     if [[ ${REGISTERED[$name]} == ungated ]]; then
-      flag DEAD "$name" "registered but no page invokes it"
+      flag DEAD "$name" "registered but nothing in the frontend invokes it"
     else
-      printf '  %-7s %-30s feature-gated and no page invokes it (not judged)\n' gated "$name"
+      printf '  %-7s %-30s feature-gated and nothing in the frontend invokes it (not judged)\n' gated "$name"
     fi
   fi
 done
 for name in "${!INVOKED[@]}"; do
-  [[ -n ${REGISTERED[$name]:-} ]] || flag UNREG "$name" "invoked by a page but not registered"
+  [[ -n ${REGISTERED[$name]:-} ]] || flag UNREG "$name" "invoked from the frontend but not registered"
 done
 
 # ── Leg 3: stub ────────────────────────────────────────────────────────────
@@ -233,9 +239,11 @@ for name in "${ORDER[@]}"; do
     flag NOBODY "$name" "cannot locate exactly one 'pub [async] fn $name(' under src-tauri/src"
     continue
   fi
+  # The tail, not a named constant. `^}` is the fn's own close; an
+  # indented `}` stays, so a match whose last arm is `Err` is not a tail.
   last=$(printf '%s\n' "$body" | grep -v '^[[:space:]]*$' | grep -v '^}' | tail -n 1)
-  if [[ $last =~ ^[[:space:]]*Err\( ]] || grep -q 'ENGINE_BACKEND_UNSUPPORTED' <<<"$body"; then
-    flag STUB "$name" "body ends in an unconditional refusal; an absent feature is absent from the UI"
+  if [[ $last =~ ^[[:space:]]*(return[[:space:]]+)?Err\( ]]; then
+    flag STUB "$name" "tail is an unconditional refusal; an absent feature is absent from the UI"
   fi
 done
 
@@ -246,10 +254,11 @@ FAIL: $fail command-surface violation(s).
 
 Every registered command is a contract adapter or has a row in
 scripts/ci/command_surface.conf (SHELL | RENAME <method> | COMPOSITE
-<methods>); every registered command is invoked by a page and every invoked
-name is registered; no registered command is a refusal. Fix the surface —
-wire the caller, delete the command, or name what it is — rather than the
-gate. Policy: .cursor/rules/28-command-surface.mdc
+<methods>); every registered command is invoked from the frontend and
+every invoked name is registered; no registered command's tail is a
+refusal. Fix the surface — wire the caller, delete the command, or name
+what it is — rather than the gate.
+Policy: .cursor/rules/28-command-surface.mdc
 EOF
   exit 1
 fi

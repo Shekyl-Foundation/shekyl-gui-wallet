@@ -46,7 +46,6 @@ export default function ImportWallet() {
         name.trim(),
         seed.trim(),
         password,
-        "English",
         restoreHeight ? parseInt(restoreHeight, 10) : 0,
       );
       setRestore("complete");

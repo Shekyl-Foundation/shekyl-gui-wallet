@@ -16,10 +16,14 @@ by `scripts/ci/check_command_surface.sh`, in three legs:
    contract analogue), `RENAME <method>` (the same operation under a GUI-only
    name; the drift ledger), or `COMPOSITE <methods>` (one round trip over
    several contract methods). A `REJECTED` name is never registered.
-2. **Consumer.** Every registered command is invoked by a page, and every
-   invoked name is registered. Tests are not consumers.
-3. **Stub.** No registered command's body is an unconditional refusal. An
-   absent feature is absent from the UI, not a registered "not available".
+2. **Consumer.** Every registered command is invoked from frontend source
+   (a page, a context, or a component), and every invoked name is
+   registered. Tests are not consumers: not a `__tests__` directory, and
+   not a `*.test.*` / `*.spec.*` file beside its subject.
+3. **Stub.** No registered command's tail is an unconditional refusal —
+   `Err(...)` or `return Err(...)`. An earlier `return Err` guarding a
+   real tail is not one. An absent feature is absent from the UI, not a
+   registered "not available".
 
 Feature-gated registrations (`#[cfg(feature = "...")]`) are outside the
 default build: reported, not judged, except that a `REJECTED` name is refused

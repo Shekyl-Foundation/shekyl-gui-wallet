@@ -121,12 +121,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const createWallet = useCallback(
-    async (name: string, password: string, language?: string) => {
+    async (name: string, password: string) => {
       setError(null);
       const result = await invoke<CreateWalletResult>("create_wallet", {
         name,
         password,
-        language: language ?? "English",
       });
       setWalletName(result.name);
       setWalletAddress(result.address);
@@ -136,19 +135,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const importFromSeed = useCallback(
-    async (
-      name: string,
-      seed: string,
-      password: string,
-      language?: string,
-      restoreHeight?: number,
-    ) => {
+    async (name: string, seed: string, password: string, restoreHeight?: number) => {
       setError(null);
       const info = await invoke<WalletInfo>("import_wallet_from_seed", {
         name,
         seed,
         password,
-        language: language ?? "English",
         restoreHeight: restoreHeight ?? 0,
       });
       setWalletName(info.name);
