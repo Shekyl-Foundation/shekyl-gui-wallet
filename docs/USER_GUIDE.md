@@ -196,27 +196,19 @@ backup, or the CLI tools -- you can import it instead of creating a new one.
 1. On the Welcome screen, click **Import Existing Wallet**.
 2. Choose **Recovery Phrase**.
 3. Enter your **24 words** in the text area. The wallet checks the word count
-   before restore. An optional **passphrase** field is available if you used
-   one when the wallet was created.
+   before restore.
 4. Set a **restore height** (optional but recommended). This is the block
    height at which your wallet was first created. If you know it, enter it --
    the wallet will skip scanning blocks before that height, which is much
    faster. If you don't know it, leave it blank and the wallet will scan from
    the beginning (this can take a long time).
 5. Choose a **password** for the wallet file.
-6. Click **Import**. You'll see a progress bar as the wallet scans the
-   blockchain for your transactions.
+6. Click **Restore from Recovery Phrase**. The wallet derives your keys and
+   scans the chain from your restore height, then opens.
 
-### Restoring from keys
-
-This is less common but available for advanced users who have exported their
-spend key and view key separately.
-
-1. On the Welcome screen, click **Import Existing Wallet**.
-2. Choose **Import from Keys**.
-3. Enter your **spend key**, **view key**, and **address**.
-4. Set a password and optionally a restore height.
-5. Click **Import**.
+The recovery phrase is the only restore path. Shekyl's quantum-resistant keys
+are all derived from it, so there is no separate spend key or view key to
+import, and the phrase takes no extra passphrase.
 
 ### Why restore height matters
 

@@ -159,34 +159,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const importFromKeys = useCallback(
-    async (
-      name: string,
-      address: string,
-      spendkey: string,
-      viewkey: string,
-      password: string,
-      language?: string,
-      restoreHeight?: number,
-    ) => {
-      setError(null);
-      const info = await invoke<WalletInfo>("import_wallet_from_keys", {
-        name,
-        address,
-        spendkey,
-        viewkey,
-        password,
-        language: language ?? "English",
-        restoreHeight: restoreHeight ?? 0,
-      });
-      setWalletName(info.name);
-      setWalletAddress(info.address);
-      setPhase("ready");
-      return info;
-    },
-    [],
-  );
-
   const lockWallet = useCallback(async () => {
     try {
       await invoke<boolean>("close_wallet");
@@ -211,7 +183,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         openWallet,
         createWallet,
         importFromSeed,
-        importFromKeys,
         lockWallet,
         setPhase,
         refreshFiles,

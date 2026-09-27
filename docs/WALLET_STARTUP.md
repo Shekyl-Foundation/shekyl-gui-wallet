@@ -240,45 +240,28 @@ classical segment by default; the PQC segment is handled internally.
 
 ### From Recovery Phrase
 
-**Current (pre–BIP-39 integration):** Calls
-`restore_deterministic_wallet(filename, seed, password, language, restore_height)`.
-The GUI prep PR validates 24-word input client-side; full BIP-39 restore
-requires the integration PR and updated shekyl-core FFI.
+The only restore path. `import_wallet_from_seed(name, seed, password,
+language, restore_height)` validates the 24-word phrase and calls the
+Engine's `restore_from_bip39`; the hybrid post-quantum keys are derived from
+the phrase, so nothing is "generated for" a restored wallet and no passphrase
+is taken. `restore_height` defaults to 0 (full scan). On success the page
+shows "Restore complete" and transitions to `phase: "ready"`.
 
-**Planned:** `restore_from_bip39(filename, phrase, password, passphrase, restore_height)`
-(replaces Electrum restore). Optional BIP-39 passphrase maps to
-`seed_passphrase` in wallet2 JSON semantics per
-`shekyl-core/docs/design/ELECTRUM_WORDS_REMOVAL.md` §4.5.1.
-
-PQC keys are generated automatically for restored wallets via
-`generate_pqc_for_restored_address()` in `wallet2`.
-
-### From Keys
-
-Calls `generate_from_keys(filename, address, spendkey, viewkey, password, language, restore_height)`.
-If the address includes PQC public key bytes, they are preserved. If not,
-`wallet2` generates fresh PQC key material on the restore path.
-
-Both flows set `restore_height` (default 0 = full scan) and transition to
-`phase: "ready"` on success.
+There is no import from raw spend/view keys: that was a Wallet2 path whose
+GUI command had become an unconditional refusal, and the command-surface
+gate (`scripts/ci/check_command_surface.sh`, stub leg) now refuses such a
+command. The contract's `restore_wallet` takes a mnemonic only.
 
 ---
 
-## Transfer Flow (Native-Sign)
+## Transfer Flow
 
-Outgoing transactions use the native-sign path:
-
-1. **C++ prepare** -- `wallet2` selects inputs, computes change, and builds
-   the transaction skeleton (output construction, commitment masks; no ring
-   selection -- FCMP++ replaces ring signatures).
-2. **Rust sign** -- the FCMP++ membership proof and PQC `pqc_auth` blobs
-   are produced by the Rust signing crates.
-3. **C++ finalize** -- `wallet2` records the transaction, marks inputs
-   spent, and submits to the daemon.
-
-If finalize fails after sign, the bridge returns an error to the frontend;
-inputs remain spendable from the wallet's perspective and will be
-reconsidered on the next transfer attempt.
+Outgoing transactions follow the wallet contract's own three steps in
+`src-tauri/src/send.rs` — `get_default_fee_priority` → `build_pending_tx`
+→ `submit_pending_tx` / `discard_pending_tx` — entirely in Rust through the
+Engine. See `GUI_SECURITY.md` "Send Flow" for the invariant (one built
+transaction per user intent; the fee the user confirms is the fee that
+ships) and the reservation-ownership rules.
 
 ---
 

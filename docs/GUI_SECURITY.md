@@ -56,7 +56,8 @@ This prevents:
 Capabilities are defined in `capabilities/default.json`:
 - Scoped to `"windows": ["main"]` only
 - Permissions: `core:default`, `opener:default`
-- Sensitive commands (`build_pending_tx` / `submit_pending_tx`, `import_wallet_from_seed`, `import_wallet_from_keys`, `query_key`) are only callable from the main window context
+- Sensitive commands (`build_pending_tx` / `submit_pending_tx`, `import_wallet_from_seed`, `copy_to_clipboard`) are only callable from the main window context
+- The command surface itself is gated: `scripts/ci/check_command_surface.sh` holds `generate_handler![...]` to the wallet contract (every command is a contract adapter or declared in `scripts/ci/command_surface.conf`), to its callers (no registered command without a page that invokes it, no invoke without a command), and to honesty (no registered command whose body is an unconditional refusal)
 
 ## Input Validation
 

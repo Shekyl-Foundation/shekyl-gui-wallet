@@ -45,7 +45,6 @@ const walletStub: WalletContextValue = {
   openWallet: () => Promise.reject("stub"),
   createWallet: () => Promise.reject("stub"),
   importFromSeed: () => Promise.reject("stub"),
-  importFromKeys: () => Promise.reject("stub"),
   lockWallet: () => Promise.resolve(),
   setPhase: () => {},
   refreshFiles: async () => [],

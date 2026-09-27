@@ -148,9 +148,3 @@ export interface StakingView {
   recovery_pending_reopen: boolean;
 }
 
-export interface WalletProgress {
-  event_type: string;
-  current: number;
-  total: number;
-  detail: string | null;
-}

@@ -46,21 +46,6 @@ pub fn validate_amount(amount: u64) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a hex string of expected byte length.
-pub fn validate_hex(hex_str: &str, expected_bytes: usize, field_name: &str) -> Result<(), String> {
-    if hex_str.len() != expected_bytes * 2 {
-        return Err(format!(
-            "{field_name} must be {} hex chars, got {}",
-            expected_bytes * 2,
-            hex_str.len()
-        ));
-    }
-    if !hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("{field_name} contains non-hex characters"));
-    }
-    Ok(())
-}
-
 /// Validate a wallet filename **after** it has been normalized by
 /// [`crate::wallet_name::sanitize`].
 ///
@@ -133,11 +118,6 @@ pub fn validate_recovery_phrase(phrase: &str) -> Result<(), String> {
     ))
 }
 
-/// Validate a secret key hex string (32 bytes = 64 hex chars).
-pub fn validate_secret_key(key: &str, name: &str) -> Result<(), String> {
-    validate_hex(key, 32, name)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,23 +142,6 @@ mod tests {
     fn accept_nonzero_amount() {
         assert!(validate_amount(1).is_ok());
         assert!(validate_amount(u64::MAX).is_ok());
-    }
-
-    #[test]
-    fn validate_hex_correct_length() {
-        let hex64 = "a".repeat(64);
-        assert!(validate_hex(&hex64, 32, "test").is_ok());
-    }
-
-    #[test]
-    fn reject_hex_wrong_length() {
-        assert!(validate_hex("abcd", 32, "test").is_err());
-    }
-
-    #[test]
-    fn reject_hex_non_hex_chars() {
-        let bad = "zz".to_string() + &"0".repeat(62);
-        assert!(validate_hex(&bad, 32, "test").is_err());
     }
 
     #[test]
@@ -290,19 +253,6 @@ mod tests {
     }
 
     #[test]
-    fn hex_error_does_not_leak_input() {
-        let err = validate_hex(CANARY_HEX, 16, "test_field").unwrap_err();
-        assert_no_canary(&err, &[CANARY_HEX, CANARY_SHORT]);
-    }
-
-    #[test]
-    fn secret_key_error_does_not_leak_canary() {
-        let short_sk = &CANARY_HEX[..32];
-        let err = validate_secret_key(short_sk, "spend_key").unwrap_err();
-        assert_no_canary(&err, &[short_sk, CANARY_SHORT]);
-    }
-
-    #[test]
     fn wallet_name_error_does_not_leak_canary() {
         // `validate_wallet_name` only rejects empty / oversize after
         // `wallet_name::sanitize` has scrubbed path traversal,
@@ -362,11 +312,6 @@ mod tests {
             #[test]
             fn validate_amount_never_panics(a: u64) {
                 let _ = validate_amount(a);
-            }
-
-            #[test]
-            fn validate_hex_never_panics(s in "\\PC{0,200}", len in 0usize..100) {
-                let _ = validate_hex(&s, len, "fuzz");
             }
 
             #[test]

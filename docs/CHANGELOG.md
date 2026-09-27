@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The command surface is gated** (`scripts/ci/check_command_surface.sh`,
+  with its own negative controls in `test_check_command_surface.sh`, both in
+  CI). Three legs, mirroring shekyl-core's wallet-RPC liveness gate at the
+  Tauri edge: every command in `generate_handler![...]` is a wallet-contract
+  adapter (its name is SPECIFIED in `wallet_rpc.yaml`) or declared in
+  `scripts/ci/command_surface.conf` as `SHELL`, `RENAME <method>` or
+  `COMPOSITE <methods>`; every registered command is invoked by a page and
+  every invoked name is registered; no registered command is an unconditional
+  refusal. The `RENAME` rows are the vocabulary-drift ledger slice (d)
+  retires. Policy: `.cursor/rules/28-command-surface.mdc`.
+
+### Removed
+
+- **Import from private keys.** `import_wallet_from_keys` validated a
+  Monero-shaped spend/view key pair and then returned "not available on the
+  Engine backend" — a registered refusal behind a live tab. A Shekyl wallet's
+  hybrid post-quantum keys are derived from the recovery phrase, and the
+  contract's `restore_wallet` takes a mnemonic only; the command, its key
+  validator, the Private Keys tab and the context method are gone. The
+  Import page also no longer collects a BIP-39 passphrase it never sent, and
+  no longer listens on the `wallet-progress` event nothing emitted (its
+  stage list showed steps that never happened); it now shows one honest
+  restoring state. `ImportWallet.test.tsx` covers the remaining path.
+
 ### Fixed
 
 - **The Send flow built a full transaction on every keystroke pause, and the

@@ -102,7 +102,6 @@ pub fn run() {
             commands::open_wallet,
             commands::close_wallet,
             commands::import_wallet_from_seed,
-            commands::import_wallet_from_keys,
             commands::get_staker_status,
             commands::activate_staker,
             // Wallet data

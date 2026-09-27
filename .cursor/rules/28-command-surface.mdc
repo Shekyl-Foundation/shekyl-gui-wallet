@@ -1,0 +1,44 @@
+---
+description: The Tauri command surface is held to the wallet contract by a three-leg gate — name, consumer, stub. How to add, rename or delete a command.
+alwaysApply: true
+---
+
+# Command surface (GUI wallet)
+
+`tauri::generate_handler![...]` in `src-tauri/src/lib.rs` is the wallet's
+entire command surface: what a page can invoke. It is held to the wallet
+contract (`shekyl-core/docs/api/wallet_rpc.yaml`, `x-shekyl-method-registry`)
+by `scripts/ci/check_command_surface.sh`, in three legs:
+
+1. **Name.** Every registered command is a contract adapter — its name is a
+   `SPECIFIED` method — or has a row in `scripts/ci/command_surface.conf`
+   saying what it is instead: `SHELL <reason>` (app-shell concern with no
+   contract analogue), `RENAME <method>` (the same operation under a GUI-only
+   name; the drift ledger), or `COMPOSITE <methods>` (one round trip over
+   several contract methods). A `REJECTED` name is never registered.
+2. **Consumer.** Every registered command is invoked by a page, and every
+   invoked name is registered. Tests are not consumers.
+3. **Stub.** No registered command's body is an unconditional refusal. An
+   absent feature is absent from the UI, not a registered "not available".
+
+Feature-gated registrations (`#[cfg(feature = "...")]`) are outside the
+default build: reported, not judged, except that a `REJECTED` name is refused
+everywhere.
+
+## Working with it
+
+- **Adding a command:** name it as the contract does. If the contract has no
+  such method, either it is app shell (add a `SHELL` row with the reason) or
+  the contract is missing a method — which is a shekyl-core contract change,
+  reviewed as one, not a GUI-only name.
+- **Renaming toward the contract:** delete the `RENAME` row in the same PR;
+  a row for a name that no longer exists fails the gate as stale.
+- **Deleting a command:** delete its callers and its row in the same PR.
+- **The gate goes red on a tree you did not touch:** the contract moved.
+  Read `wallet_rpc.yaml`'s registry diff; a method newly `REJECTED` must lose
+  its GUI command, not gain an allowlist row.
+- **Never widen the gate to pass.** `scripts/ci/test_check_command_surface.sh`
+  proves each leg can still go red; it runs before the gate in CI.
+
+Sibling gates: shekyl-core `check_wallet_rpc_liveness.sh` (the RPC edge) and
+this repo's `check_file_size_ratchet.sh` (rule 27).

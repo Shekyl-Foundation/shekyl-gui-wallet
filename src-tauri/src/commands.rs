@@ -51,12 +51,6 @@ use crate::transfer_history::{TransferDirection, TransferRow, TransferStatus};
 use crate::validate;
 use crate::wallet_name;
 
-/// User-facing refusal for wallet features that only ran on the retired
-/// Wallet2 backend and have no Engine implementation yet.
-pub(crate) const ENGINE_BACKEND_UNSUPPORTED: &str = "\
-this feature is not available on the Engine backend yet; it ran only on the \
-retired Wallet2 path and is pending an Engine implementation";
-
 // ─── Data types ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -591,31 +585,6 @@ pub async fn import_wallet_from_seed(
         seed_language: seed_language_for(network),
         network: network.as_str().into(),
     })
-}
-
-/// Import from raw view/spend keys.
-///
-/// Retired with the Wallet2 backend: the Engine has no key-import path yet, so
-/// this returns an honest refusal rather than silently doing nothing. Inputs
-/// are still validated so the UI surfaces malformed keys the same way.
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn import_wallet_from_keys(
-    _state: State<'_, AppState>,
-    name: String,
-    address: String,
-    spendkey: String,
-    viewkey: String,
-    password: String,
-    _language: Option<String>,
-    _restore_height: Option<u64>,
-) -> Result<WalletInfo, String> {
-    validate::validate_wallet_name(&wallet_name::sanitize(&name))?;
-    validate::validate_address(&address)?;
-    validate::validate_secret_key(&spendkey, "spend key")?;
-    validate::validate_secret_key(&viewkey, "view key")?;
-    validate::validate_password(&password)?;
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 // ─── Wallet data commands ────────────────────────────────────────────────────
