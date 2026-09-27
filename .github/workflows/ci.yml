@@ -69,6 +69,19 @@ jobs:
       - name: File-size decomposition ratchet
         run: scripts/ci/check_file_size_ratchet.sh
 
+      # The command surface, held to the wallet contract in three legs:
+      # every registered command is a contract adapter or declared in
+      # command_surface.conf; every registered command has a caller and
+      # every caller a command; no registered command is a refusal. Reads
+      # the contract from the shekyl-core checkout made above. The
+      # negative controls run first: a gate that cannot go red is not one.
+      # Policy: .cursor/rules/28-command-surface.mdc
+      - name: Command-surface gate — negative controls
+        run: scripts/ci/test_check_command_surface.sh
+
+      - name: Command-surface gate — three legs
+        run: scripts/ci/check_command_surface.sh
+
       - name: ESLint
         run: npm run lint
 

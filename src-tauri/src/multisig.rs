@@ -45,8 +45,15 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::commands::ENGINE_BACKEND_UNSUPPORTED;
 use crate::state::AppState;
+
+/// User-facing refusal for the group operations, which ran only on the
+/// retired Wallet2 backend and have no Engine implementation yet. Lives here,
+/// behind the feature, so the default build carries no registered refusal
+/// (`scripts/ci/check_command_surface.sh`, stub leg).
+const ENGINE_BACKEND_UNSUPPORTED: &str = "\
+this feature is not available on the Engine backend yet; it ran only on the \
+retired Wallet2 path and is pending an Engine implementation";
 
 #[tauri::command]
 pub async fn create_multisig_group(

@@ -51,12 +51,6 @@ use crate::transfer_history::{TransferDirection, TransferRow, TransferStatus};
 use crate::validate;
 use crate::wallet_name;
 
-/// User-facing refusal for wallet features that only ran on the retired
-/// Wallet2 backend and have no Engine implementation yet.
-pub(crate) const ENGINE_BACKEND_UNSUPPORTED: &str = "\
-this feature is not available on the Engine backend yet; it ran only on the \
-retired Wallet2 path and is pending an Engine implementation";
-
 // ─── Data types ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -445,7 +439,6 @@ pub async fn create_wallet(
     state: State<'_, AppState>,
     name: String,
     password: String,
-    language: Option<String>,
 ) -> Result<CreateWalletResult, String> {
     // Sanitize first (collapses whitespace, replaces spaces with '_') so
     // the on-disk name is filesystem-friendly regardless of what the
@@ -454,11 +447,6 @@ pub async fn create_wallet(
     validate::validate_wallet_name(&sanitized)?;
     validate::validate_password(&password)?;
 
-    // `language` is a legacy Wallet2 mnemonic-language selector; the Engine
-    // derives the recovery phrase itself (BIP-39 English on mainnet/stagenet,
-    // raw32 hex on testnet), so the argument is accepted for API stability but
-    // no longer drives seed generation.
-    let _ = language;
     let network = *state.network.read().await;
 
     let wallet_dir = state.wallet_dir.read().await.clone();
@@ -551,19 +539,14 @@ pub async fn import_wallet_from_seed(
     name: String,
     seed: String,
     password: String,
-    language: Option<String>,
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
     let sanitized = wallet_name::sanitize(&name);
+    let network = *state.network.read().await;
     validate::validate_wallet_name(&sanitized)?;
-    validate::validate_recovery_phrase(&seed)?;
+    validate::validate_seed_backup(&seed, network)?;
     validate::validate_password(&password)?;
 
-    // `language` is a legacy Wallet2 mnemonic-language selector; the Engine
-    // restores from the BIP-39 phrase directly, so it is accepted for API
-    // stability but no longer used.
-    let _ = language;
-    let network = *state.network.read().await;
     let height = restore_height.unwrap_or(0);
 
     let wallet_dir = state.wallet_dir.read().await.clone();
@@ -572,12 +555,11 @@ pub async fn import_wallet_from_seed(
     let daemon = state.daemon_http_base().await;
     let mut eng = state.engine.lock().await;
     let address = eng
-        .restore_from_bip39(
+        .restore_from_backup(
             &wallet_dir,
             &sanitized,
             &seed,
             &password,
-            "",
             height,
             network,
             &daemon,
@@ -591,31 +573,6 @@ pub async fn import_wallet_from_seed(
         seed_language: seed_language_for(network),
         network: network.as_str().into(),
     })
-}
-
-/// Import from raw view/spend keys.
-///
-/// Retired with the Wallet2 backend: the Engine has no key-import path yet, so
-/// this returns an honest refusal rather than silently doing nothing. Inputs
-/// are still validated so the UI surfaces malformed keys the same way.
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn import_wallet_from_keys(
-    _state: State<'_, AppState>,
-    name: String,
-    address: String,
-    spendkey: String,
-    viewkey: String,
-    password: String,
-    _language: Option<String>,
-    _restore_height: Option<u64>,
-) -> Result<WalletInfo, String> {
-    validate::validate_wallet_name(&wallet_name::sanitize(&name))?;
-    validate::validate_address(&address)?;
-    validate::validate_secret_key(&spendkey, "spend key")?;
-    validate::validate_secret_key(&viewkey, "view key")?;
-    validate::validate_password(&password)?;
-    Err(ENGINE_BACKEND_UNSUPPORTED.into())
 }
 
 // ─── Wallet data commands ────────────────────────────────────────────────────

@@ -56,11 +56,12 @@ This prevents:
 Capabilities are defined in `capabilities/default.json`:
 - Scoped to `"windows": ["main"]` only
 - Permissions: `core:default`, `opener:default`
-- Sensitive commands (`build_pending_tx` / `submit_pending_tx`, `import_wallet_from_seed`, `import_wallet_from_keys`, `query_key`) are only callable from the main window context
+- Sensitive commands (`build_pending_tx` / `submit_pending_tx`, `import_wallet_from_seed`, `copy_to_clipboard`) are only callable from the main window context
+- The command surface itself is gated: `scripts/ci/check_command_surface.sh` holds `generate_handler![...]` to the wallet contract (every command is a contract adapter or declared in `scripts/ci/command_surface.conf`), to its callers (no registered command without a page that invokes it, no invoke without a command), and to honesty (no registered command whose body is an unconditional refusal)
 
 ## Input Validation
 
-Every Tauri command that accepts user input validates before reaching the C++ FFI or Rust scanner. The `validate.rs` module enforces:
+Commands that take user input check it in `validate.rs` before it reaches the Engine:
 
 | Input | Validation |
 |-------|-----------|
@@ -68,12 +69,9 @@ Every Tauri command that accepts user input validates before reaching the C++ FF
 | Amount | Non-zero u64, carried across the Tauri edge as a decimal string (`AtomicUnitsString`, `src-tauri/src/wire.rs`) — never a JS `number` |
 | Wallet name | No path separators, no dots prefix, max 255 chars |
 | Password | No null bytes, max 1024 chars |
-| Seed phrase | ASCII, 1-30 words, no null bytes |
-| Secret keys | Exact 64 hex chars |
-| Key images | Exact 64 hex chars |
-| Staking tier | 0, 1, or 2 |
+| Recovery phrase | Exactly 24 ASCII words, no null bytes |
 
-Malformed inputs are rejected at the Rust bridge layer with a human-readable error. No malformed data reaches C++.
+Malformed inputs are rejected at the Rust bridge with a human-readable error. No malformed input reaches the Engine.
 
 ## Send Flow
 

@@ -15,25 +15,11 @@ export interface WalletContextValue {
   error: string | null;
 
   openWallet: (filename: string, password: string) => Promise<WalletInfo>;
-  createWallet: (
-    name: string,
-    password: string,
-    language?: string,
-  ) => Promise<CreateWalletResult>;
+  createWallet: (name: string, password: string) => Promise<CreateWalletResult>;
   importFromSeed: (
     name: string,
     seed: string,
     password: string,
-    language?: string,
-    restoreHeight?: number,
-  ) => Promise<WalletInfo>;
-  importFromKeys: (
-    name: string,
-    address: string,
-    spendkey: string,
-    viewkey: string,
-    password: string,
-    language?: string,
     restoreHeight?: number,
   ) => Promise<WalletInfo>;
   lockWallet: () => Promise<void>;
@@ -86,7 +72,6 @@ export const WalletContext = createContext<WalletContextValue>({
   openWallet: () => Promise.reject("Not initialized"),
   createWallet: () => Promise.reject("Not initialized"),
   importFromSeed: () => Promise.reject("Not initialized"),
-  importFromKeys: () => Promise.reject("Not initialized"),
   lockWallet: () => Promise.reject("Not initialized"),
   setPhase: () => {},
   refreshFiles: () => Promise.resolve([]),

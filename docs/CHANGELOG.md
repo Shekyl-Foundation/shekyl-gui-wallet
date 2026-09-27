@@ -2,8 +2,55 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The command surface is gated** (`scripts/ci/check_command_surface.sh`,
+  with its own negative controls in `test_check_command_surface.sh`, both in
+  CI). Three legs, mirroring shekyl-core's wallet-RPC liveness gate at the
+  Tauri edge: every command in `generate_handler![...]` is a wallet-contract
+  adapter (its name is SPECIFIED in `wallet_rpc.yaml`) or declared in
+  `scripts/ci/command_surface.conf` as `SHELL`, `RENAME <method>` or
+  `COMPOSITE <methods>`; every registered command is invoked from frontend
+  source and every invoked name is registered; no registered command's tail
+  is an unconditional `Err(...)` or `return Err(...)`. The `RENAME` rows are
+  the vocabulary-drift ledger slice (d) retires. `COMPOSITE` is the reviewed
+  claim that `get_staking_view` projects `staking_info`, `get_staked_balance`,
+  and `get_staked_outputs`. Policy: `.cursor/rules/28-command-surface.mdc`.
+
+### Removed
+
+- **Import from private keys.** `import_wallet_from_keys` validated a
+  Monero-shaped spend/view key pair and then returned "not available on the
+  Engine backend" — a registered refusal behind a live tab. A Shekyl wallet's
+  hybrid post-quantum keys are derived from the recovery phrase, and the
+  contract's `restore_wallet` takes a mnemonic only; the command, its key
+  validator, the Private Keys tab and the context method are gone. The
+  Import page also no longer collects a BIP-39 passphrase it never sent, and
+  no longer listens on the `wallet-progress` event nothing emitted (its
+  stage list showed steps that never happened); it now shows one honest
+  restoring state. `create_wallet` and `import_wallet_from_seed` no longer
+  take the Wallet2 mnemonic-language selector the Engine discarded.
+  `ImportWallet.test.tsx` covers the remaining path.
+
 ### Fixed
 
+- **A testnet wallet could not be restored.** `create_wallet` hands a testnet
+  wallet its 32-byte raw seed as hex (`seed_language: "raw32"`), but the
+  Import page accepted only 24 words and the session's restore called the
+  BIP-39 path, which refuses testnet outright. Restore is now network-governed
+  exactly as creation is: `validate_seed_backup` and
+  `EngineSession::restore_from_backup` (`master_seed_from_backup`, the inverse
+  of `generate_seed_material`) take the phrase on mainnet/stagenet and the
+  64-hex seed on testnet — the contract's `restore_wallet` — and the page
+  accepts either shape, leaving the network's choice to Rust. Covered in
+  `validate.rs` and `ImportWallet.test.tsx`.
+- **The command-surface gate's two blind spots** (Copilot on #27): a string
+  literal that is not a command name (`invoke("get-balance")`) was invisible
+  to the consumer leg — every literal is now read and one that fails the name
+  grammar is an `UNREG` finding; and the stub leg judged the last physical
+  line, so a rustfmt-wrapped `Err(format!(...))` ending in `))` passed — it
+  now judges the last statement that opens at the fn's top-level indent.
+  Both have negative controls.
 - **The Send flow built a full transaction on every keystroke pause, and the
   fee the user saw was never the fee that shipped.** `estimate_fee` ran the
   complete build — selection, `AssembleTx`, FCMP++ proving, signing,

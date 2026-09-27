@@ -347,11 +347,12 @@ linkage. `shekyl-core` then deleted the `shekyl-engine-rpc` crate outright
 depend on even in principle. Nothing in the GUI process links C++ wallet
 code.
 
-**Residual, tracked elsewhere:** feature parity is not complete — the
-capabilities that only ever existed on the old path (import-from-keys, PQC
-multisig, scanner freeze/thaw) return honest "not available on the Engine
-backend" errors and are carried by the per-PR followups above, not by this
-entry. The *dependency* question this entry existed to answer is settled.
+**Residual, tracked elsewhere:** feature parity is not complete. The
+capabilities that only ever existed on the old path are absent from the
+default build rather than registered refusals (rule 28, stub leg, 2026-09-26):
+import-from-keys and scanner freeze/thaw are deleted, PQC multisig compiles
+only under `--features multisig`. The *dependency* question this entry
+existed to answer is settled.
 
 ---
 
@@ -361,6 +362,13 @@ UPDATE 2026-09-17: shared `formatSkl` / `formatSklCompact` take
 `bigint | string | number`. Gallery `list_shards` `expected_profit_atomic`
 is a decimal string, summed as bigint. Remaining `Balance` /
 `DrainBalance` / `StakingView` still JSON numbers (display-only).
+
+UPDATE 2026-09-26: the instrument now exists — `wire::AtomicUnitsString`
+(#26) is the one wire type for atomic amounts, used by the send edge
+(`amount`, `fee`, tier quotes) and shard profit, with `parseSkl` on the
+frontend. The remaining work is adopting it for `Balance` / `DrainBalance`
+/ `StakingView` and typing those fields `string`; nothing else is left to
+design.
 
 Every balance the Tauri layer hands the frontend is a Rust `u64` of
 atomic units serialized to a JS `number`: `Balance.{total,unlocked,

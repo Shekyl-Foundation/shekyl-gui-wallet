@@ -121,12 +121,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const createWallet = useCallback(
-    async (name: string, password: string, language?: string) => {
+    async (name: string, password: string) => {
       setError(null);
       const result = await invoke<CreateWalletResult>("create_wallet", {
         name,
         password,
-        language: language ?? "English",
       });
       setWalletName(result.name);
       setWalletAddress(result.address);
@@ -136,52 +135,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const importFromSeed = useCallback(
-    async (
-      name: string,
-      seed: string,
-      password: string,
-      language?: string,
-      restoreHeight?: number,
-    ) => {
+    async (name: string, seed: string, password: string, restoreHeight?: number) => {
       setError(null);
       const info = await invoke<WalletInfo>("import_wallet_from_seed", {
         name,
         seed,
         password,
-        language: language ?? "English",
         restoreHeight: restoreHeight ?? 0,
       });
       setWalletName(info.name);
       setWalletAddress(info.address);
-      setPhase("ready");
-      return info;
-    },
-    [],
-  );
-
-  const importFromKeys = useCallback(
-    async (
-      name: string,
-      address: string,
-      spendkey: string,
-      viewkey: string,
-      password: string,
-      language?: string,
-      restoreHeight?: number,
-    ) => {
-      setError(null);
-      const info = await invoke<WalletInfo>("import_wallet_from_keys", {
-        name,
-        address,
-        spendkey,
-        viewkey,
-        password,
-        language: language ?? "English",
-        restoreHeight: restoreHeight ?? 0,
-      });
-      setWalletName(info.name);
-      setWalletAddress(info.address);
-      setPhase("ready");
+      // The phase stays put, as with createWallet: the Import page owns the
+      // transition (show completion, navigate off /import, then "ready"),
+      // because the ready-phase routes have no /import entry — flipping here
+      // would unmount the page mid-flow into a blank route.
       return info;
     },
     [],
@@ -211,7 +178,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         openWallet,
         createWallet,
         importFromSeed,
-        importFromKeys,
         lockWallet,
         setPhase,
         refreshFiles,
