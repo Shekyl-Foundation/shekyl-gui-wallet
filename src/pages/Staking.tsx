@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Link } from "react-router";
 import {
   Coins,
   Lock,
@@ -12,7 +11,6 @@ import {
 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
 import { useWallet } from "../context/useWallet";
-import { useShardPicker } from "../context/useShardPicker";
 import { formatSklCompact, formatPercent } from "../lib/format";
 import type { DrainBalance } from "../types/daemon";
 import EmissionGauge from "../components/EmissionGauge";
@@ -45,7 +43,6 @@ interface StakeResult {
 export default function Staking() {
   const { health } = useDaemon();
   const { phase } = useWallet();
-  const { selectedCount } = useShardPicker();
   const walletOpen = phase === "ready";
 
   const [status, setStatus] = useState<StakerStatusInfo | null>(null);
@@ -115,9 +112,6 @@ export default function Staking() {
     setError(null);
     setLastOutcome(null);
     try {
-      // The contract's `stake { password }`: the Shards page selection is
-      // session state for the person, never a parameter (a posture, not a
-      // shard set, until assignment lands).
       const result = await invoke<StakeResult>("stake", { password });
       setLastOutcome(result);
       setPassword("");
@@ -210,23 +204,6 @@ export default function Staking() {
               Re-enter your wallet password to activate. This re-materializes
               keys for the first bond post. Nothing is broadcast on this step —
               the post is sealed for scheduled dispatch.
-            </p>
-            <p className="text-xs text-purple-300">
-              {selectedCount === 0 ? (
-                <>
-                  No archives selected.{" "}
-                  <Link to="/shards" className="text-gold-400 underline">
-                    Pick archives on the Shards page
-                  </Link>{" "}
-                  first — you choose them; the network does not assign them.
-                </>
-              ) : (
-                <>
-                  {selectedCount} archive{selectedCount === 1 ? "" : "s"}{" "}
-                  selected this session. Expected profit is a ranking hint, not
-                  a payout.
-                </>
-              )}
             </p>
             <input
               type="password"

@@ -1,12 +1,8 @@
-import { useEffect } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DaemonProvider } from "../../context/DaemonContext";
-import { ShardPickerProvider } from "../../context/ShardPickerContext";
-import { useShardPicker } from "../../context/useShardPicker";
 import { WalletContext } from "../../context/walletState";
 import type { WalletContextValue } from "../../context/walletState";
 import Staking from "../Staking";
@@ -54,39 +50,13 @@ const walletStub: WalletContextValue = {
   refreshWalletDir: async () => "",
 };
 
-function SeedSelection({
-  shardId,
-  profit,
-}: {
-  shardId: number;
-  profit: string;
-}) {
-  const { toggle, isSelected } = useShardPicker();
-  useEffect(() => {
-    if (!isSelected(shardId)) {
-      toggle(shardId, profit);
-    }
-  }, [isSelected, shardId, profit, toggle]);
-  return null;
-}
-
-function renderStaking(
-  wallet: Partial<WalletContextValue> = {},
-  seed?: { shardId: number; profit: string },
-) {
+function renderStaking(wallet: Partial<WalletContextValue> = {}) {
   return render(
-    <MemoryRouter>
-      <ShardPickerProvider>
-        {seed ? (
-          <SeedSelection shardId={seed.shardId} profit={seed.profit} />
-        ) : null}
-        <WalletContext.Provider value={{ ...walletStub, ...wallet }}>
-          <DaemonProvider>
-            <Staking />
-          </DaemonProvider>
-        </WalletContext.Provider>
-      </ShardPickerProvider>
-    </MemoryRouter>,
+    <WalletContext.Provider value={{ ...walletStub, ...wallet }}>
+      <DaemonProvider>
+        <Staking />
+      </DaemonProvider>
+    </WalletContext.Provider>,
   );
 }
 
@@ -130,13 +100,12 @@ describe("Staking (archival activation)", () => {
       await screen.findByPlaceholderText("Wallet password"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Activate staker/i })).toBeInTheDocument();
-    expect(screen.getByText(/No archives selected/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Pick archives on the Shards page/),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/No archives selected/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pick archives on the Shards page/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/you choose them/)).not.toBeInTheDocument();
   });
 
-  it("shows this-session copy and passes selectedShardCount on activate", async () => {
+  it("sends stake with only the password", async () => {
     const user = userEvent.setup();
     let captured: unknown;
     vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
@@ -162,14 +131,8 @@ describe("Staking (archival activation)", () => {
       }
       return null;
     });
-    renderStaking(
-      { phase: "ready", walletName: "alice" },
-      { shardId: 2, profit: "1" },
-    );
-    expect(
-      await screen.findByText(/1 archive selected this session/),
-    ).toBeInTheDocument();
-    await user.type(screen.getByPlaceholderText("Wallet password"), "pw");
+    renderStaking({ phase: "ready", walletName: "alice" });
+    await user.type(await screen.findByPlaceholderText("Wallet password"), "pw");
     await user.click(screen.getByRole("button", { name: /Activate staker/i }));
     await waitFor(() => {
       expect(captured).toEqual({ password: "pw" });

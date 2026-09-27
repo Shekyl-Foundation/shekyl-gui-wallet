@@ -51,8 +51,8 @@ describe("ImportWallet", () => {
     fireEvent.click(screen.getByRole("button", { name: /restore from recovery phrase/i }));
     expect(restoreWallet).toHaveBeenCalledWith(
       "Restored Wallet",
-      SEED,
       "correct horse battery",
+      SEED,
       1200,
     );
     expect(await screen.findByText("Restore complete")).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe("ImportWallet", () => {
     fill({ seed: hex });
     expect(screen.getByText("64/64 hex characters (testnet seed)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /restore from recovery phrase/i }));
-    expect(restoreWallet).toHaveBeenCalledWith("Restored Wallet", hex, "correct horse battery", 0);
+    expect(restoreWallet).toHaveBeenCalledWith("Restored Wallet", "correct horse battery", hex, 0);
   });
 
   it("refuses a hex seed that is not exactly 64 characters", () => {

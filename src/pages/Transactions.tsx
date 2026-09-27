@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowUpRight, ArrowDownLeft, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { statusClass, statusLabel, statusTitle } from "../lib/transactionStatus";
 import { atomicAmount, formatSkl } from "../lib/format";
 import type { Transfer, Transfers } from "../types/transfers";
@@ -108,28 +108,12 @@ export default function Transactions() {
                 )}
               </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-mono text-xs text-purple-300">
-                    {tx.tx_hash.slice(0, 16)}...
-                  </p>
-                  {tx.pqc_protected && (
-                    <span
-                      className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-300"
-                      title="Protected by post-quantum signatures"
-                    >
-                      <ShieldCheck className="h-2.5 w-2.5" />
-                      PQC
-                    </span>
-                  )}
-                </div>
+                <p className="font-mono text-xs text-purple-300">
+                  {tx.tx_hash.slice(0, 16)}...
+                </p>
                 <div className="flex items-center gap-2 text-xs text-purple-400">
-                  {tx.block_height != null && tx.block_height > 0 && (
+                  {tx.block_height != null && (
                     <span>Block {tx.block_height.toLocaleString()}</span>
-                  )}
-                  {tx.timestamp > 0 && (
-                    <span>
-                      {new Date(tx.timestamp * 1000).toLocaleDateString()}
-                    </span>
                   )}
                   {atomicAmount(tx.fee) > 0n && tx.direction === "OUTGOING" && (
                     <span className="text-purple-500">
@@ -149,7 +133,10 @@ export default function Transactions() {
                 </p>
                 <span
                   className={`text-[10px] ${statusClass(tx.state)}`}
-                  title={statusTitle(tx.state)}
+                  title={statusTitle(
+                    tx.state,
+                    tx.state === "UNSPENDABLE" ? tx.unspendable_reason : undefined,
+                  )}
                 >
                   {statusLabel(tx.state)}
                 </span>

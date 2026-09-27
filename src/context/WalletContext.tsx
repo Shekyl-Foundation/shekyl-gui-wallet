@@ -133,7 +133,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const restoreWallet = useCallback(
-    async (name: string, mnemonic: string, password: string, restoreHeight?: number) => {
+    async (name: string, password: string, mnemonic: string, restoreHeight?: number) => {
       setError(null);
       const info = await invoke<WalletInfo>("restore_wallet", {
         name,

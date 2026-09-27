@@ -15,11 +15,14 @@ export interface WalletContextValue {
 
   openWallet: (filename: string, password: string) => Promise<WalletInfo>;
   createWallet: (name: string, password: string) => Promise<CreateWalletResult>;
-  /** The contract's `restore_wallet`; `mnemonic` is the seed backup in the network's encoding. */
+  /**
+   * The contract's `restore_wallet(name, password, mnemonic, restore_height)`.
+   * `mnemonic` is the seed backup in the network's encoding.
+   */
   restoreWallet: (
     name: string,
-    mnemonic: string,
     password: string,
+    mnemonic: string,
     restoreHeight?: number,
   ) => Promise<WalletInfo>;
   lockWallet: () => Promise<void>;

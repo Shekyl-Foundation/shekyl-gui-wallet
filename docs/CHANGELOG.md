@@ -12,13 +12,15 @@
   (offset, limit) → rows` is `get_transfers() → { transfers }` whose rows are
   the contract's `Transfer` (`tx_hash`, `block_height` absent when not on
   chain, `direction: INCOMING | OUTGOING`, `state: PENDING | CONFIRMED |
-  SPENT | UNSPENDABLE | FAILED | DROPPED | ABANDONED`, plus the GUI's
-  `timestamp` / `pqc_protected`); `import_wallet_from_seed(name, seed,
-  password, restore_height)` is `restore_wallet(name, password, mnemonic,
-  restore_height)`; `activate_staker(password, selected_shard_count)` is
-  `stake(password)` — the contract takes a posture, never a shard set, so the
-  Shards page selection stops crossing the wire and the "not open yet"
-  refusal names shard assignment rather than the picker. The startup fossil
+  SPENT | UNSPENDABLE | FAILED | DROPPED | ABANDONED`, with
+  `unspendable_reason` present exactly on `UNSPENDABLE`);
+  `import_wallet_from_seed(name, seed, password, restore_height)` is
+  `restore_wallet(name, password, mnemonic, restore_height)`, and the
+  context method takes that same order; `activate_staker(password,
+  selected_shard_count)` is `stake(password)` — the contract takes a
+  posture, never a shard set, so the selection neither crosses the wire
+  nor is described on the activation card, and the "not open yet"
+  refusal names shard assignment. The startup fossil
   `init_wallet_rpc` is `ensure_wallet_dir`, which is all it ever did.
   `scripts/ci/command_surface.conf` carries no `RENAME` row.
 - **Every atomic amount on the Tauri edge is a decimal string.**

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { statusLabel, statusTitle } from "../../lib/transactionStatus";
-import type { Transfer, Transfers } from "../../types/transfers";
+import type { Transfer, TransferState, Transfers, UnspendableReason } from "../../types/transfers";
 import Transactions from "../Transactions";
 
 beforeEach(() => {
@@ -14,21 +14,37 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** One contract `Transfer` row; amounts are decimal strings on the wire. */
-function sampleTx(overrides: Partial<Transfer> = {}): Transfer {
+/** One projected `Transfer` row; amounts are decimal strings on the wire. */
+function sampleTx(
+  overrides: {
+    id?: string;
+    tx_hash?: string;
+    amount?: string;
+    fee?: string;
+    block_height?: number;
+    direction?: Transfer["direction"];
+    state?: TransferState;
+    unspendable_reason?: UnspendableReason;
+  } = {},
+): Transfer {
   const tx_hash =
     overrides.tx_hash ?? "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
-  return {
+  const common = {
     id: overrides.id ?? tx_hash,
     tx_hash,
-    amount: "1000000000",
-    fee: "10000",
-    timestamp: 0,
-    direction: "OUTGOING",
-    state: "PENDING",
-    pqc_protected: true,
-    ...overrides,
+    amount: overrides.amount ?? "1000000000",
+    fee: overrides.fee ?? "10000",
+    block_height: overrides.block_height,
+    direction: overrides.direction ?? "OUTGOING",
   };
+  if (overrides.state === "UNSPENDABLE") {
+    return {
+      ...common,
+      state: "UNSPENDABLE",
+      unspendable_reason: overrides.unspendable_reason ?? "PQC_LEAF_MISMATCH",
+    };
+  }
+  return { ...common, state: overrides.state ?? "PENDING" };
 }
 
 const transfers = (rows: Transfer[]): Transfers => ({ transfers: rows });
@@ -48,6 +64,8 @@ describe("state helpers", () => {
     expect(statusTitle("FAILED")).toMatch(/never mined/i);
     expect(statusTitle("DROPPED")).toMatch(/spendable again/i);
     expect(statusTitle("ABANDONED")).toMatch(/stop tracking/i);
+    expect(statusTitle("UNSPENDABLE", "PQC_LEAF_MISMATCH")).toMatch(/not created for this wallet/i);
+    expect(statusTitle("UNSPENDABLE", "PQC_LEAF_ENTRY_ABSENT")).toMatch(/missing what a spend needs/i);
     expect(statusTitle("UNSPENDABLE")).toMatch(/never spend/i);
     expect(statusTitle("PENDING")).toBeUndefined();
     expect(statusTitle("CONFIRMED")).toBeUndefined();
@@ -94,6 +112,24 @@ describe("Transactions", () => {
     expect(screen.getByTitle(/never mined/i)).toBeInTheDocument();
     expect(screen.getByTitle(/spendable again/i)).toBeInTheDocument();
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_transfers");
+  });
+
+  it("renders an unspendable receive with the reason the projection named", async () => {
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([
+        sampleTx({
+          direction: "INCOMING",
+          state: "UNSPENDABLE",
+          unspendable_reason: "PQC_LEAF_ENTRY_ABSENT",
+          block_height: 7,
+          fee: "0",
+        }),
+      ]),
+    );
+    render(<Transactions />);
+    expect(await screen.findByText("Unspendable")).toBeInTheDocument();
+    expect(screen.getByText("Block 7")).toBeInTheDocument();
+    expect(screen.getByTitle(/missing what a spend needs/i)).toBeInTheDocument();
   });
 
   it("renders amounts above 2^53 atomic units exactly", async () => {

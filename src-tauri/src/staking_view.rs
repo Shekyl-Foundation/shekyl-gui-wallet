@@ -6,17 +6,16 @@
 //! WI-RPC-1 staking read projection for the GUI (GUI-PR3b).
 //!
 //! Single serializable DTO for the Tauri wire — the one projection of core
-//! [`StakingReadView`] with newtypes unwrapped to raw integers. Lives here
-//! (not inside [`crate::engine_session`]) so the session stays a thin shell
-//! and so there is no second identity hop through `commands.rs`. Same
-//! ownership pattern as [`crate::transfer_history`].
+//! [`StakingReadView`]. Lives here (not inside [`crate::engine_session`]) so
+//! the session stays a thin shell and so there is no second identity hop
+//! through `commands.rs`. Same ownership pattern as [`crate::transfer_history`].
 //!
-//! The three balance legs stay distinct on purpose — confirmed bond
-//! principal, pending (in-flight post) principal, and received-unspent
-//! rewards are never conflated into one figure. Amounts are atomic-unit
-//! `u64`s, display-only at the frontend (FOLLOWUPS "Atomic amounts
-//! serialized as JS number"). Fail-closed: a corrupt / version-mismatched
-//! seal is an `Err(String)` from the session method, never an empty view.
+//! The three balance legs stay distinct: confirmed bond principal, pending
+//! (in-flight post) principal, and received-unspent rewards. Each of those
+//! amounts, and each staked output's amount, is
+//! [`crate::wire::AtomicUnitsString`] (a decimal string). Heights, slots, and
+//! gindexes stay raw integers. A corrupt or version-mismatched seal is an
+//! `Err(String)` from the session method, never an empty view.
 
 use serde::Serialize;
 use shekyl_engine_core::{StakedOutput, StakingReadView};
