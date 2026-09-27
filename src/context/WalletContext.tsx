@@ -153,7 +153,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       });
       setWalletName(info.name);
       setWalletAddress(info.address);
-      setPhase("ready");
+      // The phase stays put, as with createWallet: the Import page owns the
+      // transition (show completion, navigate off /import, then "ready"),
+      // because the ready-phase routes have no /import entry — flipping here
+      // would unmount the page mid-flow into a blank route.
       return info;
     },
     [],

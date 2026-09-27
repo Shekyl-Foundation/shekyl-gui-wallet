@@ -69,6 +69,14 @@ expect "register a command with no call site" 1 "DEAD    orphan_probe"
 fresh; invoke_from_page ghost_probe
 expect "a page invokes a name that is not registered" 1 "UNREG   ghost_probe"
 
+# A test file beside its subject is not a consumer: an invoke there neither
+# satisfies the consumer leg for a dead command nor trips it for a ghost.
+fresh; printf '\nimport { invoke } from "@tauri-apps/api/core";\nexport const __probe = () => invoke("ghost_probe");\n' >"$WORK/tree/src/probe.test.tsx"
+expect "an invoke in a *.test.tsx file outside __tests__ is not a consumer" 0 "three legs hold"
+fresh; register orphan_probe '    Ok(())'; allow orphan_probe
+printf '\nimport { invoke } from "@tauri-apps/api/core";\nexport const __probe = () => invoke("orphan_probe");\n' >"$WORK/tree/src/probe.spec.ts"
+expect "a *.spec.ts caller does not rescue a dead command" 1 "DEAD    orphan_probe"
+
 # Leg 3 alone: a live, consumed command whose body becomes a refusal.
 fresh
 python3 - "$WORK/tree/$CMDS" <<'PY'

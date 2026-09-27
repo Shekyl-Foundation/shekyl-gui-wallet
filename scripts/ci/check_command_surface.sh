@@ -118,12 +118,16 @@ if [[ ${#ORDER[@]} -eq 0 ]]; then
 fi
 
 # ── What the frontend invokes ──────────────────────────────────────────────
-# `invoke("name"` / `invoke<T>("name"`, across lines. Tests and the test
-# harness are not consumers. An invoke whose first argument is not a string
-# literal cannot be read here and fails closed.
+# `invoke("name"` / `invoke<T>("name"`, across lines. Tests are not
+# consumers: neither the test directories nor a `*.test.*` / `*.spec.*`
+# file beside its subject (src/context/ShardPickerContext.test.tsx is one).
+# An invoke whose first argument is not a string literal cannot be read
+# here and fails closed.
 invoke_scan() {
   grep -rPzo --include='*.ts' --include='*.tsx' \
-    --exclude-dir=__tests__ --exclude-dir=test "$1" "$FRONTEND" 2>/dev/null | tr '\0' '\n' || true
+    --exclude-dir=__tests__ --exclude-dir=test \
+    --exclude='*.test.ts' --exclude='*.test.tsx' --exclude='*.spec.ts' --exclude='*.spec.tsx' \
+    "$1" "$FRONTEND" 2>/dev/null | tr '\0' '\n' || true
 }
 unreadable=$(invoke_scan '\binvoke(<[^>]*>)?\(\s*[^"\s)]' | grep -c . || true)
 if [[ $unreadable -ne 0 ]]; then
