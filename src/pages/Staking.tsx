@@ -26,7 +26,8 @@ interface StakerStatusInfo {
   has_pscan: boolean;
 }
 
-interface ActivateStakerResult {
+/** The contract's `StakeResult`. */
+interface StakeResult {
   slot: number;
   swept_inputs: number;
   resumed: boolean;
@@ -52,7 +53,7 @@ export default function Staking() {
   const [password, setPassword] = useState("");
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastOutcome, setLastOutcome] = useState<ActivateStakerResult | null>(
+  const [lastOutcome, setLastOutcome] = useState<StakeResult | null>(
     null,
   );
 
@@ -114,10 +115,10 @@ export default function Staking() {
     setError(null);
     setLastOutcome(null);
     try {
-      const result = await invoke<ActivateStakerResult>("activate_staker", {
-        password,
-        selectedShardCount: selectedCount,
-      });
+      // The contract's `stake { password }`: the Shards page selection is
+      // session state for the person, never a parameter (a posture, not a
+      // shard set, until assignment lands).
+      const result = await invoke<StakeResult>("stake", { password });
       setLastOutcome(result);
       setPassword("");
       refreshStatus();

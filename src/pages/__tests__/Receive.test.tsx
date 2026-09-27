@@ -8,7 +8,7 @@ const MOCK_ADDRESS = "SKL1mock_account0_subaddr0...placeholder";
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(async (cmd: string) => {
-    if (cmd === "get_address") return MOCK_ADDRESS;
+    if (cmd === "get_primary_address") return { address: MOCK_ADDRESS };
     throw new Error(`unexpected: ${cmd}`);
   });
 });

@@ -4,18 +4,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import ImportWallet from "../ImportWallet";
 
 const SEED = Array.from({ length: 24 }, (_, i) => `word${i + 1}`).join(" ");
-const importFromSeed = vi.fn();
+const restoreWallet = vi.fn();
 const setPhase = vi.fn();
 
 vi.mock("../../context/useWallet", () => ({
-  useWallet: () => ({ importFromSeed, setPhase }),
+  useWallet: () => ({ restoreWallet, setPhase }),
 }));
 // The wallet-dir panel polls the backend; it is not what these tests are about.
 vi.mock("../../components/WalletDirAdvanced", () => ({ default: () => null }));
 
 beforeEach(() => {
-  importFromSeed.mockReset();
-  importFromSeed.mockResolvedValue({ name: "Restored_Wallet", address: "shekyl1test" });
+  restoreWallet.mockReset();
+  restoreWallet.mockResolvedValue({ name: "Restored_Wallet", address: "shekyl1test" });
 });
 
 function renderPage() {
@@ -49,7 +49,7 @@ describe("ImportWallet", () => {
     renderPage();
     fill({ height: "1200" });
     fireEvent.click(screen.getByRole("button", { name: /restore from recovery phrase/i }));
-    expect(importFromSeed).toHaveBeenCalledWith(
+    expect(restoreWallet).toHaveBeenCalledWith(
       "Restored Wallet",
       SEED,
       "correct horse battery",
@@ -71,7 +71,7 @@ describe("ImportWallet", () => {
     fill({ seed: hex });
     expect(screen.getByText("64/64 hex characters (testnet seed)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /restore from recovery phrase/i }));
-    expect(importFromSeed).toHaveBeenCalledWith("Restored Wallet", hex, "correct horse battery", 0);
+    expect(restoreWallet).toHaveBeenCalledWith("Restored Wallet", hex, "correct horse battery", 0);
   });
 
   it("refuses a hex seed that is not exactly 64 characters", () => {
@@ -82,7 +82,7 @@ describe("ImportWallet", () => {
   });
 
   it("shows the engine's refusal and returns to the form", async () => {
-    importFromSeed.mockRejectedValue("invalid recovery phrase");
+    restoreWallet.mockRejectedValue("invalid recovery phrase");
     renderPage();
     fill();
     fireEvent.click(screen.getByRole("button", { name: /restore from recovery phrase/i }));

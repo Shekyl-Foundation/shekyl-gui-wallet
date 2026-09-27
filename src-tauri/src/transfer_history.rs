@@ -30,13 +30,18 @@ use shekyl_engine_state::{InFlightSpendLocks, SendRecord, SendState, TransferDet
 use shekyl_types::{BlockHeight, OutputIndexInTx, TxHash};
 use shekyl_units::AtomicUnits;
 
-/// Lifecycle status on a projected history row (rule 82 — never collapse arms).
+use crate::wire::AtomicUnitsString;
+
+/// Lifecycle state on a projected history row (rule 82 — never collapse arms),
+/// spelled as the contract's `Transfer.state` enum.
 ///
-/// Outgoing arms map 1:1 from [`SendState`]. Incoming arms match wallet-rpc
-/// `transfer_state`: spent / awaiting confirmation / confirmed.
+/// Outgoing arms map 1:1 from [`SendState`]. Incoming arms match wallet-rpc's
+/// projection: spent / awaiting confirmation / confirmed. `UNSPENDABLE` is in
+/// the contract's enum but not projected here yet: the GUI's incoming facts
+/// carry no unspendable reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TransferStatus {
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TransferState {
     Confirmed,
     Pending,
     Failed,
@@ -50,28 +55,33 @@ pub enum TransferStatus {
     Spent,
 }
 
-/// Direction of a projected history row.
+/// Direction of a projected history row, spelled as the contract's
+/// `Transfer.direction` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TransferDirection {
-    In,
-    Out,
+    Incoming,
+    Outgoing,
 }
 
-/// One row in the Transactions list (receive ledger or send journal).
+/// One row in the Transactions list (receive ledger or send journal): the
+/// contract's `Transfer`, plus two GUI-only display facts (`timestamp`,
+/// `pqc_protected`) the contract does not carry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TransferRow {
-    /// Stable list key: `{hash}:{output_index}` (in) or bare `{hash}` (out).
+    /// Stable list key: `{tx_hash}:{output_index}` (incoming) or bare
+    /// `{tx_hash}` (outgoing). `tx_hash` alone is not unique across rows.
     pub id: String,
-    pub hash: String,
-    pub amount: u64,
-    pub fee: u64,
-    /// Inclusion height, or `None` when the tx is not on chain (pending /
-    /// failed / dropped sends). Matches wallet-rpc's absent `block_height`.
-    pub height: Option<u64>,
+    pub tx_hash: String,
+    pub amount: AtomicUnitsString,
+    pub fee: AtomicUnitsString,
+    /// Inclusion height; absent exactly when the tx is not on chain (pending /
+    /// failed / dropped / abandoned sends), as the contract specifies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_height: Option<u64>,
     pub timestamp: u64,
     pub direction: TransferDirection,
-    pub status: TransferStatus,
+    pub state: TransferState,
     pub pqc_protected: bool,
 }
 
@@ -151,23 +161,23 @@ pub fn merge_transfer_history(
 /// Project one ledger receive output (no folding — one row per output, like
 /// wallet-rpc).
 fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
-    let status = if fact.spent {
-        TransferStatus::Spent
+    let state = if fact.spent {
+        TransferState::Spent
     } else if fact.awaiting_confirmation {
-        TransferStatus::Pending
+        TransferState::Pending
     } else {
-        TransferStatus::Confirmed
+        TransferState::Confirmed
     };
-    let hash = fact.tx_hash.to_string();
+    let tx_hash = fact.tx_hash.to_string();
     TransferRow {
-        id: format!("{hash}:{}", fact.output_index.to_raw()),
-        hash,
-        amount: fact.amount.to_raw(),
-        fee: 0,
-        height: Some(fact.block_height.to_raw()),
+        id: format!("{tx_hash}:{}", fact.output_index.to_raw()),
+        tx_hash,
+        amount: fact.amount.into(),
+        fee: 0.into(),
+        block_height: Some(fact.block_height.to_raw()),
         timestamp: 0,
-        direction: TransferDirection::In,
-        status,
+        direction: TransferDirection::Incoming,
+        state,
         pqc_protected: true,
     }
 }
@@ -180,23 +190,23 @@ fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<Transfer
             hex::encode(txid)
         )
     })?;
-    let (status, height) = match record.state {
-        SendState::Dispatched => (TransferStatus::Pending, None),
-        SendState::Confirmed { height } => (TransferStatus::Confirmed, Some(height.to_raw())),
-        SendState::TerminalRejected => (TransferStatus::Failed, None),
-        SendState::PresumedDead => (TransferStatus::Dropped, None),
-        SendState::Abandoned => (TransferStatus::Abandoned, None),
+    let (state, block_height) = match record.state {
+        SendState::Dispatched => (TransferState::Pending, None),
+        SendState::Confirmed { height } => (TransferState::Confirmed, Some(height.to_raw())),
+        SendState::TerminalRejected => (TransferState::Failed, None),
+        SendState::PresumedDead => (TransferState::Dropped, None),
+        SendState::Abandoned => (TransferState::Abandoned, None),
     };
-    let hash = hex::encode(txid);
+    let tx_hash = hex::encode(txid);
     Ok(TransferRow {
-        id: hash.clone(),
-        hash,
-        amount: sent,
-        fee: record.fee,
-        height,
+        id: tx_hash.clone(),
+        tx_hash,
+        amount: sent.into(),
+        fee: record.fee.into(),
+        block_height,
         timestamp: 0,
-        direction: TransferDirection::Out,
-        status,
+        direction: TransferDirection::Outgoing,
+        state,
         pqc_protected: true,
     })
 }
@@ -290,13 +300,13 @@ mod tests {
         let txid = [0xabu8; 32];
         let row = project_outgoing_row(&txid, &sample_record(SendState::Dispatched, 100, &[1_000]))
             .expect("project");
-        assert_eq!(row.direction, TransferDirection::Out);
-        assert_eq!(row.status, TransferStatus::Pending);
-        assert_eq!(row.height, None);
-        assert_eq!(row.amount, 1_000);
-        assert_eq!(row.fee, 100);
-        assert_eq!(row.hash, hex::encode(txid));
-        assert_eq!(row.id, row.hash);
+        assert_eq!(row.direction, TransferDirection::Outgoing);
+        assert_eq!(row.state, TransferState::Pending);
+        assert_eq!(row.block_height, None);
+        assert_eq!(row.amount.to_raw(), 1_000);
+        assert_eq!(row.fee.to_raw(), 100);
+        assert_eq!(row.tx_hash, hex::encode(txid));
+        assert_eq!(row.id, row.tx_hash);
     }
 
     #[test]
@@ -312,9 +322,9 @@ mod tests {
             ),
         )
         .expect("project");
-        assert_eq!(row.status, TransferStatus::Confirmed);
-        assert_eq!(row.height, Some(42));
-        assert_eq!(row.amount, 750);
+        assert_eq!(row.state, TransferState::Confirmed);
+        assert_eq!(row.block_height, Some(42));
+        assert_eq!(row.amount.to_raw(), 750);
     }
 
     #[test]
@@ -324,14 +334,14 @@ mod tests {
             &sample_record(SendState::TerminalRejected, 1, &[9]),
         )
         .expect("failed");
-        assert_eq!(failed.status, TransferStatus::Failed);
-        assert_eq!(failed.height, None);
+        assert_eq!(failed.state, TransferState::Failed);
+        assert_eq!(failed.block_height, None);
 
         let dropped =
             project_outgoing_row(&[3u8; 32], &sample_record(SendState::PresumedDead, 1, &[9]))
                 .expect("dropped");
-        assert_eq!(dropped.status, TransferStatus::Dropped);
-        assert_eq!(dropped.height, None);
+        assert_eq!(dropped.state, TransferState::Dropped);
+        assert_eq!(dropped.block_height, None);
     }
 
     /// PR-SJ-3: a user-abandoned send keeps its own arm — it must not read
@@ -340,8 +350,8 @@ mod tests {
     fn outgoing_abandoned_keeps_its_own_arm() {
         let row = project_outgoing_row(&[4u8; 32], &sample_record(SendState::Abandoned, 1, &[9]))
             .expect("abandoned");
-        assert_eq!(row.status, TransferStatus::Abandoned);
-        assert_eq!(row.height, None);
+        assert_eq!(row.state, TransferState::Abandoned);
+        assert_eq!(row.block_height, None);
     }
 
     #[test]
@@ -371,15 +381,15 @@ mod tests {
     #[test]
     fn incoming_status_matches_wallet_rpc_arms() {
         let confirmed = project_incoming_row(&incoming(1, 10, 100, 0, false, false));
-        assert_eq!(confirmed.status, TransferStatus::Confirmed);
-        assert_eq!(confirmed.height, Some(100));
+        assert_eq!(confirmed.state, TransferState::Confirmed);
+        assert_eq!(confirmed.block_height, Some(100));
         assert_eq!(confirmed.id, format!("{}:0", hex::encode([1u8; 32])));
 
         let pending = project_incoming_row(&incoming(1, 10, 100, 1, false, true));
-        assert_eq!(pending.status, TransferStatus::Pending);
+        assert_eq!(pending.state, TransferState::Pending);
 
         let spent = project_incoming_row(&incoming(1, 10, 100, 2, true, false));
-        assert_eq!(spent.status, TransferStatus::Spent);
+        assert_eq!(spent.state, TransferState::Spent);
     }
 
     #[test]
@@ -390,7 +400,7 @@ mod tests {
         ];
         let rows = merge_transfer_history(facts, &BTreeMap::new()).expect("merge");
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].amount + rows[1].amount, 300);
+        assert_eq!(rows[0].amount.to_raw() + rows[1].amount.to_raw(), 300);
         assert_ne!(rows[0].id, rows[1].id);
     }
 
@@ -414,13 +424,13 @@ mod tests {
         assert_eq!(rows.len(), 3);
         // Ascending wallet-rpc order is [IN@5, OUT@5, unmined]; reverse →
         // unmined first, then OUT@5, then IN@5.
-        assert_eq!(rows[0].status, TransferStatus::Pending);
-        assert_eq!(rows[0].direction, TransferDirection::Out);
-        assert_eq!(rows[1].direction, TransferDirection::Out);
-        assert_eq!(rows[1].status, TransferStatus::Confirmed);
-        assert_eq!(rows[1].height, Some(5));
-        assert_eq!(rows[2].direction, TransferDirection::In);
-        assert_eq!(rows[2].height, Some(5));
+        assert_eq!(rows[0].state, TransferState::Pending);
+        assert_eq!(rows[0].direction, TransferDirection::Outgoing);
+        assert_eq!(rows[1].direction, TransferDirection::Outgoing);
+        assert_eq!(rows[1].state, TransferState::Confirmed);
+        assert_eq!(rows[1].block_height, Some(5));
+        assert_eq!(rows[2].direction, TransferDirection::Incoming);
+        assert_eq!(rows[2].block_height, Some(5));
     }
 
     #[test]

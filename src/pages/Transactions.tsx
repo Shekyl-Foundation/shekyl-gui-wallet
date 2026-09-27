@@ -1,33 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ArrowUpRight, ArrowDownLeft, ShieldCheck } from "lucide-react";
-import {
-  statusClass,
-  statusLabel,
-  statusTitle,
-  type TxDirection,
-  type TxStatus,
-} from "../lib/transactionStatus";
-
-interface TxInfo {
-  id: string;
-  hash: string;
-  amount: number;
-  fee: number;
-  /** Inclusion height, or null when not on chain. */
-  height: number | null;
-  timestamp: number;
-  direction: TxDirection;
-  status: TxStatus;
-  pqc_protected: boolean;
-}
+import { statusClass, statusLabel, statusTitle } from "../lib/transactionStatus";
+import { atomicAmount, formatSkl } from "../lib/format";
+import type { Transfer, Transfers } from "../types/transfers";
 
 /** Poll so pending → confirmed (and failed/dropped) updates without remount. */
 const REFRESH_MS = 15_000;
-
-function atomicToSkl(atomic: number): string {
-  return (atomic / 1e9).toFixed(4);
-}
 
 function loadErrorMessage(err: unknown): string {
   if (typeof err === "string" && err.trim()) return err;
@@ -36,7 +15,7 @@ function loadErrorMessage(err: unknown): string {
 }
 
 export default function Transactions() {
-  const [txs, setTxs] = useState<TxInfo[]>([]);
+  const [txs, setTxs] = useState<Transfer[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   /** Monotonic generation so overlapping loads discard stale results. */
@@ -45,12 +24,9 @@ export default function Transactions() {
   const load = useCallback(async () => {
     const gen = ++loadGen.current;
     try {
-      const rows = await invoke<TxInfo[]>("get_transactions", {
-        offset: 0,
-        limit: 50,
-      });
+      const { transfers } = await invoke<Transfers>("get_transfers");
       if (gen !== loadGen.current) return;
-      setTxs(rows);
+      setTxs(transfers);
       setError(null);
     } catch (err) {
       if (gen !== loadGen.current) return;
@@ -120,12 +96,12 @@ export default function Transactions() {
             <div key={tx.id} className="card flex items-center gap-4 py-3">
               <div
                 className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                  tx.direction === "in"
+                  tx.direction === "INCOMING"
                     ? "bg-emerald-500/20 text-emerald-400"
                     : "bg-red-500/20 text-red-400"
                 }`}
               >
-                {tx.direction === "in" ? (
+                {tx.direction === "INCOMING" ? (
                   <ArrowDownLeft className="h-4 w-4" />
                 ) : (
                   <ArrowUpRight className="h-4 w-4" />
@@ -134,7 +110,7 @@ export default function Transactions() {
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <p className="font-mono text-xs text-purple-300">
-                    {tx.hash.slice(0, 16)}...
+                    {tx.tx_hash.slice(0, 16)}...
                   </p>
                   {tx.pqc_protected && (
                     <span
@@ -147,17 +123,17 @@ export default function Transactions() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-purple-400">
-                  {tx.height != null && tx.height > 0 && (
-                    <span>Block {tx.height.toLocaleString()}</span>
+                  {tx.block_height != null && tx.block_height > 0 && (
+                    <span>Block {tx.block_height.toLocaleString()}</span>
                   )}
                   {tx.timestamp > 0 && (
                     <span>
                       {new Date(tx.timestamp * 1000).toLocaleDateString()}
                     </span>
                   )}
-                  {tx.fee > 0 && tx.direction === "out" && (
+                  {atomicAmount(tx.fee) > 0n && tx.direction === "OUTGOING" && (
                     <span className="text-purple-500">
-                      Fee: {atomicToSkl(tx.fee)}
+                      Fee: {formatSkl(tx.fee)}
                     </span>
                   )}
                 </div>
@@ -165,17 +141,17 @@ export default function Transactions() {
               <div className="text-right">
                 <p
                   className={`text-sm font-semibold ${
-                    tx.direction === "in" ? "text-emerald-400" : "text-red-400"
+                    tx.direction === "INCOMING" ? "text-emerald-400" : "text-red-400"
                   }`}
                 >
-                  {tx.direction === "in" ? "+" : "-"}
-                  {atomicToSkl(tx.amount)} SKL
+                  {tx.direction === "INCOMING" ? "+" : "-"}
+                  {formatSkl(tx.amount)} SKL
                 </p>
                 <span
-                  className={`text-[10px] ${statusClass(tx.status)}`}
-                  title={statusTitle(tx.status)}
+                  className={`text-[10px] ${statusClass(tx.state)}`}
+                  title={statusTitle(tx.state)}
                 >
-                  {statusLabel(tx.status)}
+                  {statusLabel(tx.state)}
                 </span>
               </div>
             </div>

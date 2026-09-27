@@ -16,9 +16,10 @@ export interface WalletContextValue {
 
   openWallet: (filename: string, password: string) => Promise<WalletInfo>;
   createWallet: (name: string, password: string) => Promise<CreateWalletResult>;
-  importFromSeed: (
+  /** The contract's `restore_wallet`; `mnemonic` is the seed backup in the network's encoding. */
+  restoreWallet: (
     name: string,
-    seed: string,
+    mnemonic: string,
     password: string,
     restoreHeight?: number,
   ) => Promise<WalletInfo>;
@@ -71,7 +72,7 @@ export const WalletContext = createContext<WalletContextValue>({
 
   openWallet: () => Promise.reject("Not initialized"),
   createWallet: () => Promise.reject("Not initialized"),
-  importFromSeed: () => Promise.reject("Not initialized"),
+  restoreWallet: () => Promise.reject("Not initialized"),
   lockWallet: () => Promise.reject("Not initialized"),
   setPhase: () => {},
   refreshFiles: () => Promise.resolve([]),

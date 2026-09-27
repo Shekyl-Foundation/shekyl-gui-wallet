@@ -63,7 +63,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     async function bootstrap() {
       try {
-        await invoke<boolean>("init_wallet_rpc");
+        await invoke<void>("ensure_wallet_dir");
         if (cancelled) return;
         setRpcReady(true);
         try {
@@ -134,13 +134,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const importFromSeed = useCallback(
-    async (name: string, seed: string, password: string, restoreHeight?: number) => {
+  const restoreWallet = useCallback(
+    async (name: string, mnemonic: string, password: string, restoreHeight?: number) => {
       setError(null);
-      const info = await invoke<WalletInfo>("import_wallet_from_seed", {
+      const info = await invoke<WalletInfo>("restore_wallet", {
         name,
-        seed,
         password,
+        mnemonic,
         restoreHeight: restoreHeight ?? 0,
       });
       setWalletName(info.name);
@@ -177,7 +177,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         error,
         openWallet,
         createWallet,
-        importFromSeed,
+        restoreWallet,
         lockWallet,
         setPhase,
         refreshFiles,

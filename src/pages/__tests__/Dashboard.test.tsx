@@ -35,7 +35,7 @@ describe("Dashboard", () => {
   it("renders the BalanceCard", () => {
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "get_balance") {
-        return { total: 0, unlocked: 0, staked: 0 };
+        return { total: "0", unlocked: "0", staked: "0" };
       }
       throw new Error(`unexpected: ${cmd}`);
     });

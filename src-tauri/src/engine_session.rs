@@ -335,18 +335,12 @@ impl EngineSession {
         })
     }
 
-    /// Become a staker: credentialed first-stake activation (GUI-PR3).
-    ///
-    /// Mirrors `shekyl-wallet-rpc` `stake { password }`: verify password →
-    /// optional intent reopen → [`StakeFacade::first_stake`]. No broadcast on this
-    /// path (`state: pending_dispatch`). `selected_shard_count` is GUI session
-    /// state only — it is not passed into `first_stake` (D-3 still uses
-    /// `StakePosture::Market`).
-    pub async fn activate_staker(
-        &mut self,
-        password: &str,
-        selected_shard_count: u32,
-    ) -> Result<ActivateStakerOutcome, String> {
+    /// The contract's `stake { password }`: credentialed first-stake
+    /// activation (GUI-PR3). Verify password → optional intent reopen →
+    /// [`StakeFacade::first_stake`]. No broadcast on this path
+    /// (`state: pending_dispatch`). Posture is always `Market`; the desktop
+    /// wallet offers no path to name the foundation posture.
+    pub async fn stake(&mut self, password: &str) -> Result<StakeOutcome, String> {
         let shared = self
             .engine
             .clone()
@@ -412,9 +406,9 @@ impl EngineSession {
         // is no acknowledgment path here for a caller to name it through.
         let outcome = StakeFacade::first_stake(shared, slot, StakePosture::Market)
             .await
-            .map_err(|e| map_first_stake_err(e, selected_shard_count))?;
+            .map_err(map_first_stake_err)?;
 
-        Ok(ActivateStakerOutcome::from(outcome))
+        Ok(StakeOutcome::from(outcome))
     }
 
     /// SA-R1-a: verify password, close, reopen with first-stake intent, start P-scan.
@@ -659,7 +653,7 @@ impl EngineSession {
             .ok_or_else(|| "No wallet is open".to_string())?;
         match StakeFacade::drain_balance_aggregate(shared).await {
             Ok(spendable) => Ok(DrainBalance::Ready {
-                spendable: spendable.to_raw(),
+                spendable: spendable.into(),
             }),
             Err(DrainBalanceReadError::Unanchorable { detail }) => Ok(DrainBalance::Syncing {
                 detail: detail.to_string(),
@@ -728,16 +722,16 @@ pub struct StakerStatus {
     pub has_pscan: bool,
 }
 
-/// Outcome of `activate_staker` (bond sealed, not yet broadcast).
+/// Outcome of `stake` (bond sealed, not yet broadcast).
 #[derive(Debug, Clone)]
-pub struct ActivateStakerOutcome {
+pub struct StakeOutcome {
     pub slot: u32,
     pub swept_inputs: usize,
     pub resumed: bool,
     pub state: &'static str,
 }
 
-impl From<FirstStakeOutcome> for ActivateStakerOutcome {
+impl From<FirstStakeOutcome> for StakeOutcome {
     fn from(o: FirstStakeOutcome) -> Self {
         Self {
             slot: o.p_slot,

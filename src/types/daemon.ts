@@ -41,10 +41,11 @@ export interface WalletStatus {
   daemon_height: number;
 }
 
+/** Atomic amounts are decimal strings on the wire (`AtomicUnitsString`); format with `formatSkl`. */
 export interface Balance {
-  total: number;
-  unlocked: number;
-  staked: number;
+  total: string;
+  unlocked: string;
+  staked: string;
 }
 
 /**
@@ -58,7 +59,7 @@ export interface Balance {
  * transient arm, never conflated with a fault.
  */
 export type DrainBalance =
-  | { status: "ready"; spendable: number }
+  | { status: "ready"; spendable: string }
   | { status: "syncing"; detail: string };
 
 export interface TierYield {
@@ -114,11 +115,12 @@ export interface CurveTreeInfo {
 
 /**
  * One unspent staked (P-owned) funding output (`get_staking_view`).
- * Amounts are atomic units, display-only (see `DrainBalance` note).
+ * Amounts are atomic-unit decimal strings.
  */
 export interface StakedOutputView {
   gindex: number;
-  amount: number;
+  /** Atomic units, decimal string. */
+  amount: string;
   p_slot: number;
   unlock_height: number;
   confirmed: boolean;
@@ -135,9 +137,10 @@ export interface StakedOutputView {
  */
 export interface StakingView {
   staking_enabled: boolean;
-  bonded_principal_confirmed: number;
-  bonded_principal_pending: number;
-  rewards_received_unspent: number;
+  /** The three legs are atomic-unit decimal strings, never summed here. */
+  bonded_principal_confirmed: string;
+  bonded_principal_pending: string;
+  rewards_received_unspent: string;
   staked_outputs: StakedOutputView[];
   pscan_synced_height: number | null;
   /**

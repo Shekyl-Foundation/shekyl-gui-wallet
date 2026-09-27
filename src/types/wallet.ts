@@ -38,3 +38,8 @@ export interface WalletState {
   rpcReady: boolean;
   error: string | null;
 }
+
+/** `get_primary_address`: one address, no index — Shekyl has no subaddresses. */
+export interface PrimaryAddress {
+  address: string;
+}
