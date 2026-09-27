@@ -97,10 +97,6 @@ pub struct Balance {
     pub staked: AtomicUnitsString,
 }
 
-/// Transaction list / send result row for the frontend.
-///
-/// Mirrors [`TransferRow`] on the wire. Settlement is expressed only via
-/// [`crate::transfer_history::TransferState`] — there is no parallel `confirmed` bool.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PqcStatus {
     pub enabled: bool,
