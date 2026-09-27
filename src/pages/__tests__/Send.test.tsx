@@ -251,6 +251,42 @@ describe("Send page", () => {
     expect(screen.queryByTestId("review")).not.toBeInTheDocument();
   });
 
+  it("a pasted payment link fills the address and amount through parse_uri, and says so", async () => {
+    route({
+      get_default_fee_priority: () => QUOTE,
+      parse_uri: (args) => {
+        expect(args).toEqual({ uri: "shekyl:shekyl1abc123?amount=1500000000&label=Rent&rid=42" });
+        return { address: "shekyl1abc123", amount: "1500000000", label: "Rent", rid: "42" };
+      },
+      build_pending_tx: () => BUILT,
+    });
+    const u = user();
+    render(<Send />);
+    await u.click(screen.getByPlaceholderText("shekyl1..."));
+    await u.paste("shekyl:shekyl1abc123?amount=1500000000&label=Rent&rid=42");
+    await waitFor(() => expect(screen.getByPlaceholderText("shekyl1...")).toHaveValue("shekyl1abc123"));
+    expect(screen.getByPlaceholderText("0.0000")).toHaveValue("1.500000000");
+    expect(screen.getByTestId("link-notice")).toHaveTextContent(/"Rent".*request 42/);
+    await u.click(screen.getByRole("button", { name: /review/i }));
+    await screen.findByTestId("review");
+    expect(calls("build_pending_tx")[0][1]).toMatchObject({ address: "shekyl1abc123", amount: "1500000000" });
+  });
+
+  it("a malformed payment link is refused and the field keeps what was typed", async () => {
+    route({
+      get_default_fee_priority: () => QUOTE,
+      parse_uri: () => {
+        throw "invalid payment URI: missing or empty address in payment URI";
+      },
+    });
+    const u = user();
+    render(<Send />);
+    await u.click(screen.getByPlaceholderText("shekyl1..."));
+    await u.paste("shekyl:");
+    expect(await screen.findByRole("alert")).toHaveTextContent(/invalid payment URI/);
+    expect(screen.getByPlaceholderText("shekyl1...")).toHaveValue("shekyl:");
+  });
+
   it("a retained reservation is never discarded by the page", async () => {
     route({
       get_default_fee_priority: () => QUOTE,

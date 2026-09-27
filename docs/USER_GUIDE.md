@@ -272,6 +272,21 @@ Getting SKL sent to you is the easiest part:
 A QR code will also be displayed, which is handy if someone wants to scan it
 from their phone.
 
+### Asking for a specific amount: payment requests
+
+Shekyl has one address and no sub-addresses. To tell payments apart, you make
+a **payment request**: below your address, enter the **amount**, an optional
+**label** for your own records (it is never sent to the payer), and how long
+the request stays open, then click **Create payment link**. The wallet stores
+the request and shows a `shekyl:` **payment link** as a QR code and text.
+Send the link to whoever is paying you. When their payment arrives, the
+request flips from **Awaiting payment** to **Paid** in the list on the same
+page; you can reopen a pending request's link from that list.
+
+If someone sends *you* a payment link, paste it into the **Recipient Address**
+field on the Send page: the wallet fills in the address and amount and shows
+the link's label so you can check it before you review.
+
 **Privacy note:** Shekyl uses **stealth addresses**, which means every
 transaction to you creates a unique one-time destination on the blockchain.
 Even if you give the same address to two different people, an outside observer

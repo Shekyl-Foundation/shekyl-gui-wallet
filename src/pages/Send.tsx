@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Send as SendIcon, AlertCircle, ShieldCheck, Loader2, Info } from "lucide-react";
 import { FeeTierPicker, ReviewCard } from "../components/send";
-import { atomicAmount, parseSkl, SKL_AMOUNT_PATTERN } from "../lib/format";
+import { atomicAmount, formatSkl, parseSkl, SKL_AMOUNT_PATTERN, SKL_DECIMALS } from "../lib/format";
 import type {
   BuiltPendingTx,
   FeePriorityTier,
@@ -10,6 +10,7 @@ import type {
   SubmitResult,
 } from "../types/send";
 import { isSendError, sendErrorMessage } from "../types/send";
+import { PAYMENT_URI_SCHEME, type ParsedPaymentUri } from "../types/receiving";
 
 /**
  * One built transaction per user intent, and the fee the user confirms is the
@@ -67,6 +68,8 @@ export default function Send() {
   const [sent, setSent] = useState<SubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The payment link the recipient field was filled from, if any (shown, never trusted). */
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
   /** A discard is in flight: the review buttons are held so nothing can act on a reservation being released. */
   const [releasing, setReleasing] = useState(false);
   const owned = useRef<string | null>(null);
@@ -134,6 +137,33 @@ export default function Send() {
       return false;
     }
   }, [address, amountText, priority]);
+
+  /**
+   * A `shekyl:` payment link pasted into the recipient field is parsed by
+   * Rust (`parse_uri`) and fills the address and amount. Its label is shown
+   * as text from the payer's counterparty — never trusted, never sent.
+   */
+  async function handleAddressChange(value: string) {
+    if (!value.trim().toLowerCase().startsWith(PAYMENT_URI_SCHEME)) {
+      setAddress(value);
+      setLinkNotice(null); // edited by hand: the link no longer describes the field
+      return;
+    }
+    try {
+      const link = await invoke<ParsedPaymentUri>("parse_uri", { uri: value.trim() });
+      setAddress(link.address);
+      if (link.amount !== undefined) setAmountText(formatSkl(link.amount, SKL_DECIMALS));
+      setLinkNotice(
+        `Filled from a payment link${link.label ? ` — "${link.label}"` : ""}${
+          link.rid ? ` (request ${link.rid})` : ""
+        }. Check the address and amount before you review.`,
+      );
+      setError(null);
+    } catch (e) {
+      setAddress(value);
+      setError(sendErrorMessage(e));
+    }
+  }
 
   async function handleReview(e: React.FormEvent) {
     e.preventDefault();
@@ -204,6 +234,7 @@ export default function Send() {
     setBuilt(null);
     setAddress("");
     setAmountText("");
+    setLinkNotice(null);
     setError(null);
     setNotice(null);
     setPhase("compose");
@@ -236,10 +267,15 @@ export default function Send() {
               className="input font-mono text-sm"
               placeholder="shekyl1..."
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
+              onChange={(e) => void handleAddressChange(e.target.value)}
               required
               disabled={locked}
             />
+            {linkNotice && (
+              <p className="text-[11px] text-purple-300" data-testid="link-notice">
+                {linkNotice}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

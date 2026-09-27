@@ -56,7 +56,8 @@ This prevents:
 Capabilities are defined in `capabilities/default.json`:
 - Scoped to `"windows": ["main"]` only
 - Permissions: `core:default`, `opener:default`
-- Sensitive commands (`build_pending_tx` / `submit_pending_tx`, `restore_wallet`, `stake`, `copy_to_clipboard`) are only callable from the main window context
+- Sensitive commands (`build_pending_tx` / `submit_pending_tx`, `restore_wallet`, `stake`, `create_payment_request`, `copy_to_clipboard`) are only callable from the main window context
+- A pasted `shekyl:` payment link is counterparty-controlled text: `parse_uri` runs in Rust, the Send page only prefills the address and amount from it and shows the label as text, and nothing from the link is trusted, stored or sent
 - The command surface itself is gated: `scripts/ci/check_command_surface.sh` holds `generate_handler![...]` to the wallet contract (every command is a contract adapter or declared in `scripts/ci/command_surface.conf`), to its callers (no registered command without a page that invokes it, no invoke without a command), and to honesty (no registered command whose body is an unconditional refusal)
 
 ## Input Validation

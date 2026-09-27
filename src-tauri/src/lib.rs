@@ -43,6 +43,7 @@ mod features;
 mod gui_config;
 #[cfg(feature = "multisig")]
 mod multisig;
+mod receiving;
 mod send;
 mod shard_coverage;
 mod shard_visual;
@@ -114,6 +115,11 @@ pub fn run() {
             send::submit_pending_tx,
             send::discard_pending_tx,
             commands::get_transfers,
+            // Receiving: payment requests and the shekyl: URI (contract names)
+            receiving::create_payment_request,
+            receiving::list_payment_requests,
+            receiving::make_uri,
+            receiving::parse_uri,
             // Shard identity preview (pre-archival beta)
             shard_visual::list_shard_preview_fixtures,
             shard_visual::render_shard_preview,

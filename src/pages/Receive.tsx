@@ -2,7 +2,9 @@ import { useEffect, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Copy, Check, ChevronDown, ChevronUp, ShieldCheck } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { PaymentLinkCard, PaymentRequestList, RequestPaymentForm } from "../components/receive";
 import type { PrimaryAddress } from "../types/wallet";
+import type { CreatedPaymentRequest, PaymentRequest } from "../types/receiving";
 
 const BECH32M_PREFIX = "shekyl1";
 const CLASSICAL_SEGMENT_LEN = 95;
@@ -23,10 +25,27 @@ function splitAddress(full: string): {
   };
 }
 
+/**
+ * Receive: the wallet's one address, and payment requests — the contract's
+ * receive-attribution surface (no subaddresses). Creating a request stores
+ * it in the wallet and yields a `shekyl:` link whose reference lets the scan
+ * match the payment when it arrives; the list shows each request's state.
+ */
 export default function Receive() {
   const [address, setAddress] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const [showFull, setShowFull] = useState(false);
+  const [link, setLink] = useState<{ title: string; uri: string } | null>(null);
+  const [requestsVersion, setRequestsVersion] = useState(0);
+
+  function onCreated(created: CreatedPaymentRequest) {
+    setLink({ title: "Payment link created", uri: created.uri });
+    setRequestsVersion((v) => v + 1);
+  }
+
+  function onShowLink(request: PaymentRequest, uri: string) {
+    setLink({ title: request.label ? `Payment link — ${request.label}` : `Payment link — request ${request.id}`, uri });
+  }
 
   useEffect(() => {
     invoke<PrimaryAddress>("get_primary_address")
@@ -139,6 +158,14 @@ export default function Receive() {
           )}
         </div>
       </div>
+
+      {address && (
+        <>
+          {link && <PaymentLinkCard uri={link.uri} title={link.title} onDismiss={() => setLink(null)} />}
+          <RequestPaymentForm onCreated={onCreated} />
+          <PaymentRequestList version={requestsVersion} onShowLink={onShowLink} />
+        </>
+      )}
     </div>
   );
 }

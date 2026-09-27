@@ -356,6 +356,29 @@ existed to answer is settled.
 
 ---
 
+## Payer side of a payment request is not wired in the Engine — target: pre-genesis (shekyl-core)
+
+The receive side is complete: a request's `rid` rides the `shekyl:` link and
+`shekyl_engine_core::attribution::match_inbound_attribution` matches an
+inbound output whose `enc_label` plaintext carries that `rid` (plus the
+amount). The **send** side has the mechanism but no caller:
+`shekyl_engine_core::label_plaintext_for_payment_uri` derives the label
+plaintext from a parsed link, but `TxRequest` / `TxRecipient` carry no
+`rid` or label, so neither wallet-rpc's `build_pending_tx`, the CLI, nor
+this wallet's Send page can attach it — a payment made from a link arrives
+at the payee **unattributed** and the request never flips to Paid. This
+wallet's Send page therefore prefills address and amount from a link and
+says so, and promises no more.
+
+**Named blocker:** a shekyl-core change — an outbound label (`rid`) on
+`TxRecipient`, threaded to `construct_output`, exposed on the contract's
+`TxRecipient` schema — reviewed as a contract change. Not a GUI item.
+
+**Falsifier:** `grep -rn label_plaintext_for_payment_uri rust/` in
+shekyl-core showing a caller under `engine/pending.rs` or the tx builder.
+
+---
+
 ## Atomic amounts serialized as JS `number` — RESOLVED 2026-09-27
 
 Every atomic amount on the Tauri edge is now `wire::AtomicUnitsString`, a
