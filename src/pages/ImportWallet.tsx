@@ -2,15 +2,22 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Eye, EyeOff, Loader2, Check } from "lucide-react";
 import { useWallet } from "../context/useWallet";
-import { BIP39_RECOVERY_PHRASE_WORD_COUNT } from "../constants/wallet";
+import {
+  BIP39_RECOVERY_PHRASE_WORD_COUNT,
+  RAW_SEED_HEX_LENGTH,
+  seedBackupShape,
+} from "../constants/wallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
 
 /**
- * Restore a wallet from its 24-word recovery phrase — the contract's
- * `restore_wallet` (name, password, mnemonic, restore_height). That is the
- * only restore path a Shekyl wallet has: hybrid post-quantum keys are derived
- * from the seed, so there is no separate spend/view key pair to import, and
- * the seed takes no BIP-39 passphrase.
+ * Restore a wallet from its seed backup — the contract's `restore_wallet`
+ * (name, password, mnemonic, restore_height). That is the only restore path
+ * a Shekyl wallet has: hybrid post-quantum keys are derived from the seed, so
+ * there is no separate spend/view key pair to import, and the seed takes no
+ * BIP-39 passphrase. The backup's encoding is network-governed, as
+ * `create_wallet` handed it out: 24 words on mainnet/stagenet, the 64-hex raw
+ * seed on testnet. The page accepts either shape; Rust refuses the one the
+ * running network does not use.
  */
 type Restore = "idle" | "restoring" | "complete";
 
@@ -61,11 +68,16 @@ export default function ImportWallet() {
     }
   }, [importFromSeed, name, seed, password, restoreHeight, navigate, setPhase]);
 
-  const seedWordCount = seed.trim().split(/\s+/).filter(Boolean).length;
+  const seedTrimmed = seed.trim();
+  const seedWordCount = seedTrimmed.split(/\s+/).filter(Boolean).length;
+  const looksHex = seedWordCount === 1 && /^[0-9a-fA-F]+$/.test(seedTrimmed);
+  const seedProgress = looksHex
+    ? `${seedTrimmed.length}/${RAW_SEED_HEX_LENGTH} hex characters (testnet seed)`
+    : `${seedWordCount}/${BIP39_RECOVERY_PHRASE_WORD_COUNT} words`;
   const canSubmit =
     name.trim().length > 0 &&
     password.length >= MIN_PASSWORD_LENGTH &&
-    seedWordCount === BIP39_RECOVERY_PHRASE_WORD_COUNT;
+    seedBackupShape(seed) !== null;
   const busy = restore !== "idle";
 
   return (
@@ -131,9 +143,7 @@ export default function ImportWallet() {
 
               {/* Recovery phrase */}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-purple-200">
-                  24-Word Recovery Phrase
-                </label>
+                <label className="text-xs font-medium text-purple-200">Recovery Phrase</label>
                 <textarea
                   className="input min-h-[100px] resize-none font-mono text-sm"
                   value={seed}
@@ -142,8 +152,10 @@ export default function ImportWallet() {
                   spellCheck={false}
                   autoComplete="off"
                 />
+                <p className="text-[10px] text-purple-400">{seedProgress}</p>
                 <p className="text-[10px] text-purple-400">
-                  {seedWordCount}/{BIP39_RECOVERY_PHRASE_WORD_COUNT} words
+                  Your {BIP39_RECOVERY_PHRASE_WORD_COUNT} words — or, for a testnet wallet, the{" "}
+                  {RAW_SEED_HEX_LENGTH}-character hex seed shown when it was created.
                 </p>
               </div>
 

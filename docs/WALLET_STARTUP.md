@@ -238,12 +238,15 @@ classical segment by default; the PQC segment is handled internally.
 ### From Recovery Phrase
 
 The only restore path. `import_wallet_from_seed(name, seed, password,
-restore_height)` validates the 24-word phrase and calls the Engine's
-`restore_from_bip39`; the hybrid post-quantum keys are derived from the
-phrase, so nothing is "generated for" a restored wallet and no passphrase
-or mnemonic language is taken. `restore_height` defaults to 0 (full scan).
-On success the page shows "Restore complete" and transitions to
-`phase: "ready"`.
+restore_height)` validates the backup in the encoding the running network
+hands out at creation (`validate_seed_backup`: a 24-word phrase on
+mainnet/stagenet, the 32-byte raw seed as 64 hex characters on testnet —
+the contract's `restore_wallet`) and calls `EngineSession::restore_from_backup`,
+whose `master_seed_from_backup` is the inverse of the create path's
+`generate_seed_material`. The hybrid post-quantum keys are derived from the
+seed, so nothing is "generated for" a restored wallet and no passphrase or
+mnemonic language is taken. `restore_height` defaults to 0 (full scan). On
+success the page shows "Restore complete" and transitions to `phase: "ready"`.
 
 There is no import from raw spend/view keys: that was a Wallet2 path whose
 GUI command had become an unconditional refusal, and the command-surface

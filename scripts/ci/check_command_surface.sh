@@ -127,8 +127,13 @@ fi
 # is the generic, so (?1) walks nested angle brackets. An invoke whose first
 # argument is not a string literal cannot be read here and fails closed.
 # Group 1 must stay the generic: (?1) is that group.
-readonly INVOKE_LITERAL='\binvoke(<(?:[^<>]++|(?1))*>)?\(\s*"[a-z0-9_]+"'
+#
+# Every double-quoted literal is read, whatever it contains; the name grammar
+# is checked afterwards, so a literal that can never be a registered command
+# (`"get-balance"`) is an UNREG finding rather than a call the scan skipped.
+readonly INVOKE_LITERAL='\binvoke(<(?:[^<>]++|(?1))*>)?\(\s*"[^"]*"'
 readonly INVOKE_UNREADABLE='\binvoke(<(?:[^<>]++|(?1))*>)?\(\s*[^"\s)]'
+readonly COMMAND_NAME='^[a-z0-9_]+$'
 invoke_scan() {
   grep -rPzo --include='*.ts' --include='*.tsx' \
     --exclude-dir=__tests__ --exclude-dir=test \
@@ -145,7 +150,7 @@ fi
 declare -A INVOKED=()
 while IFS= read -r name; do
   [[ -n $name ]] && INVOKED[$name]=1
-done < <(invoke_scan "$INVOKE_LITERAL" | grep -oP '"[a-z0-9_]+"' | tr -d '"' | sort -u)
+done < <(invoke_scan "$INVOKE_LITERAL" | grep -oP '"[^"]*"$' | tr -d '"' | sort -u)
 if [[ ${#INVOKED[@]} -eq 0 ]]; then
   echo "FAIL: no invoke(\"...\") found under $FRONTEND — the consumer leg has no subject."; exit 2
 fi
@@ -229,7 +234,11 @@ for name in "${ORDER[@]}"; do
   fi
 done
 for name in "${!INVOKED[@]}"; do
-  [[ -n ${REGISTERED[$name]:-} ]] || flag UNREG "$name" "invoked from the frontend but not registered"
+  if [[ ! $name =~ $COMMAND_NAME ]]; then
+    flag UNREG "$name" "invoked from the frontend but not a command name (a-z, 0-9, _): the call can only fail"
+  elif [[ -z ${REGISTERED[$name]:-} ]]; then
+    flag UNREG "$name" "invoked from the frontend but not registered"
+  fi
 done
 
 # ── Leg 3: stub ────────────────────────────────────────────────────────────
@@ -239,10 +248,16 @@ for name in "${ORDER[@]}"; do
     flag NOBODY "$name" "cannot locate exactly one 'pub [async] fn $name(' under src-tauri/src"
     continue
   fi
-  # The tail, not a named constant. `^}` is the fn's own close; an
-  # indented `}` stays, so a match whose last arm is `Err` is not a tail.
-  last=$(printf '%s\n' "$body" | grep -v '^[[:space:]]*$' | grep -v '^}' | tail -n 1)
-  if [[ $last =~ ^[[:space:]]*(return[[:space:]]+)?Err\( ]]; then
+  # The tail expression, not its last physical line: rustfmt wraps a long
+  # `Err(format!(...))` so it ends in `))`. A fn's top-level statements open
+  # at exactly four spaces of indent; their continuation lines are deeper and
+  # their closing brackets (`)`, `]`, `}`) sit back at four. The tail is the
+  # last statement that opens at four spaces. `^}` is the fn's own close; a
+  # match whose last arm is `Err` opens with `match`, so it is not a tail.
+  # No named constant.
+  tail_head=$(printf '%s\n' "$body" | grep -v '^[[:space:]]*$' | grep -v '^}' \
+                | awk '/^    [^ )\]}]/ { head = $0 } END { print head }')
+  if [[ $tail_head =~ ^[[:space:]]*(return[[:space:]]+)?Err\( ]]; then
     flag STUB "$name" "tail is an unconditional refusal; an absent feature is absent from the UI"
   fi
 done

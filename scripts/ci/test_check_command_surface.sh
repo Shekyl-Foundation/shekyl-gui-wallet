@@ -104,6 +104,34 @@ expect "keep a stub behind a live command" 1 "STUB    get_wallet_dir"
 fresh
 replace_body get_wallet_dir '    return Err("stubbed".into());'
 expect "a live command whose tail is return Err" 1 "STUB    get_wallet_dir"
+# The shape rustfmt gives a long refusal: the tail ends in `))`, not `Err(`.
+fresh
+replace_body get_wallet_dir '    Err(format!(
+        "not available on the Engine backend yet: {}",
+        "stubbed"
+    ))'
+expect "a multi-line Err(format!(...)) tail" 1 "STUB    get_wallet_dir"
+fresh
+replace_body get_wallet_dir '    return Err(format!(
+        "not available: {}",
+        "stubbed"
+    ));'
+expect "a multi-line return Err(...) tail" 1 "STUB    get_wallet_dir"
+# A real tail after an early refusal is not a stub.
+fresh
+replace_body get_wallet_dir '    if false {
+        return Err("closed".into());
+    }
+    Ok(shekyl_wallet::WalletDirResponse {
+        dir: String::new(),
+        fallback_from: None,
+    })'
+expect "an early return Err guarding a real multi-line tail" 0 "three legs hold"
+
+# Leg 2: a literal that can never be a command name is a call that can only
+# fail — read and flagged, not skipped for failing the name grammar.
+fresh; invoke_from_page get-balance
+expect "an invoke of a literal that is not a command name" 1 "UNREG   get-balance"
 
 # Leg 1: a name the contract REJECTED, even with a caller and a row.
 fresh; register claim '    Ok(())'; invoke_from_page claim; allow claim

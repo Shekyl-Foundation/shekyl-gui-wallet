@@ -43,7 +43,7 @@ describe("restore through the real provider", () => {
         </WalletProvider>
       </MemoryRouter>,
     );
-    await screen.findByText("24-Word Recovery Phrase");
+    await screen.findByText("Recovery Phrase");
     fireEvent.change(screen.getByPlaceholderText(/24-word recovery phrase/i), { target: { value: SEED } });
     fireEvent.change(screen.getByPlaceholderText(/at least 8 characters/i), {
       target: { value: "correct horse battery" },

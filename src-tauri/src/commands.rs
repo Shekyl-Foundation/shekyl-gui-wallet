@@ -542,11 +542,11 @@ pub async fn import_wallet_from_seed(
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
     let sanitized = wallet_name::sanitize(&name);
+    let network = *state.network.read().await;
     validate::validate_wallet_name(&sanitized)?;
-    validate::validate_recovery_phrase(&seed)?;
+    validate::validate_seed_backup(&seed, network)?;
     validate::validate_password(&password)?;
 
-    let network = *state.network.read().await;
     let height = restore_height.unwrap_or(0);
 
     let wallet_dir = state.wallet_dir.read().await.clone();
@@ -555,12 +555,11 @@ pub async fn import_wallet_from_seed(
     let daemon = state.daemon_http_base().await;
     let mut eng = state.engine.lock().await;
     let address = eng
-        .restore_from_bip39(
+        .restore_from_backup(
             &wallet_dir,
             &sanitized,
             &seed,
             &password,
-            "",
             height,
             network,
             &daemon,

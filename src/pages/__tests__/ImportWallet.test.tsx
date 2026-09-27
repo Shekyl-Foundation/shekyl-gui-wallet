@@ -39,7 +39,7 @@ function fill({ seed = SEED, password = "correct horse battery", height = "" } =
 describe("ImportWallet", () => {
   it("offers exactly one restore path: the recovery phrase", () => {
     renderPage();
-    expect(screen.getByText("24-Word Recovery Phrase")).toBeInTheDocument();
+    expect(screen.getByText("Recovery Phrase")).toBeInTheDocument();
     expect(screen.queryByText(/private keys/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/spend key|view key/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/passphrase/i)).not.toBeInTheDocument();
@@ -63,6 +63,22 @@ describe("ImportWallet", () => {
     fill({ seed: SEED.split(" ").slice(0, 23).join(" ") });
     expect(screen.getByRole("button", { name: /restore from recovery phrase/i })).toBeDisabled();
     expect(screen.getByText("23/24 words")).toBeInTheDocument();
+  });
+
+  it("accepts a testnet wallet's 64-hex raw seed and sends it verbatim", () => {
+    const hex = "ab".repeat(32);
+    renderPage();
+    fill({ seed: hex });
+    expect(screen.getByText("64/64 hex characters (testnet seed)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /restore from recovery phrase/i }));
+    expect(importFromSeed).toHaveBeenCalledWith("Restored Wallet", hex, "correct horse battery", 0);
+  });
+
+  it("refuses a hex seed that is not exactly 64 characters", () => {
+    renderPage();
+    fill({ seed: "ab".repeat(31) });
+    expect(screen.getByText("62/64 hex characters (testnet seed)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /restore from recovery phrase/i })).toBeDisabled();
   });
 
   it("shows the engine's refusal and returns to the form", async () => {

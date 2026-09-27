@@ -195,7 +195,8 @@ backup, or the CLI tools -- you can import it instead of creating a new one.
 
 1. On the Welcome screen, click **Import Existing Wallet**.
 2. Enter your **24 words** in the text area. The wallet checks the word count
-   before restore.
+   before restore. A **testnet** wallet has no words: enter the 64-character
+   hex seed it showed when it was created.
 3. Choose a **password** for the wallet file.
 4. Set a **restore height** (optional but recommended). This is the block
    height at which your wallet was first created. If you know it, enter it --
@@ -205,9 +206,11 @@ backup, or the CLI tools -- you can import it instead of creating a new one.
 5. Click **Restore from Recovery Phrase**. The wallet derives your keys and
    scans the chain from your restore height, then opens.
 
-The recovery phrase is the only restore path. Shekyl's quantum-resistant keys
+The seed backup is the only restore path. Shekyl's quantum-resistant keys
 are all derived from it, so there is no separate spend key or view key to
-import, and the phrase takes no extra passphrase.
+import, and the phrase takes no extra passphrase. A backup restores on the
+network it was created for: the wallet refuses a phrase on testnet and a hex
+seed on mainnet, and says which it expects.
 
 ### Why restore height matters
 

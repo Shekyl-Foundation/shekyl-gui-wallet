@@ -181,15 +181,17 @@ impl EngineSession {
         Ok(CreateOutcome { address, seed })
     }
 
-    /// Restore an Engine wallet from a BIP-39 mnemonic (mainnet/stagenet).
+    /// Restore an Engine wallet from its seed backup. The backup's encoding is
+    /// network-governed, exactly as `generate_seed_material` chose it at
+    /// creation: a BIP-39 mnemonic on mainnet/stagenet, the 32-byte raw seed
+    /// as hex on testnet (the contract's `restore_wallet`).
     #[allow(clippy::too_many_arguments)]
-    pub async fn restore_from_bip39(
+    pub async fn restore_from_backup(
         &mut self,
         wallet_dir: &Path,
         name: &str,
-        mnemonic: &str,
+        backup: &str,
         password: &str,
-        passphrase: &str,
         restore_height: u64,
         network: NetworkType,
         daemon_http_base: &str,
@@ -198,9 +200,6 @@ impl EngineSession {
             return Err("A wallet is already open".into());
         }
         let engine_net = map_network(network);
-        if matches!(engine_net, Network::Testnet) {
-            return Err("BIP-39 restore is for mainnet/stagenet; testnet uses raw seeds".into());
-        }
 
         let base = engine_wallet_base(wallet_dir, name);
         if keys_path_from(&base).exists() {
@@ -209,9 +208,7 @@ impl EngineSession {
         std::fs::create_dir_all(wallet_dir)
             .map_err(|e| format!("Failed to create wallet directory: {e}"))?;
 
-        let derivation = network_to_derivation(engine_net);
-        let (master_seed, _blob) = generate_account_from_bip39(mnemonic, passphrase, derivation)
-            .map_err(|e| format!("BIP-39 restore failed: {e}"))?;
+        let (master_seed, seed_format) = master_seed_from_backup(backup, engine_net)?;
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let daemon = make_daemon(daemon_http_base, engine_net).await?;
@@ -227,7 +224,7 @@ impl EngineSession {
             network: engine_net,
             capability: shekyl_engine_core::CapabilityInput::Full {
                 master_seed_64: &master_seed,
-                seed_format: SeedFormat::Bip39,
+                seed_format,
             },
             creation_timestamp,
             restore_height_hint: u32::try_from(restore_height).unwrap_or(u32::MAX),
@@ -791,6 +788,39 @@ fn network_to_derivation(network: Network) -> DerivationNetwork {
 enum SeedBackup {
     Mnemonic(String),
     RawHex(String),
+}
+
+/// The inverse of `generate_seed_material`: derive the master seed from the
+/// backup the user kept, in the encoding that network's create handed out.
+/// Messages name the failure class only — the backup is key material and is
+/// never reflected (rule 30).
+fn master_seed_from_backup(
+    backup: &str,
+    network: Network,
+) -> Result<(Zeroizing<[u8; MASTER_SEED_BYTES]>, SeedFormat), String> {
+    let derivation = network_to_derivation(network);
+    match network {
+        Network::Mainnet | Network::Stagenet => {
+            let (master, _blob) = generate_account_from_bip39(backup, "", derivation)
+                .map_err(|_| "Invalid recovery phrase".to_string())?;
+            Ok((master, SeedFormat::Bip39))
+        }
+        Network::Testnet => {
+            const EXPECTED: &str = "Testnet wallets back up as a 64-character hex seed";
+            let decoded =
+                Zeroizing::new(hex::decode(backup.trim()).map_err(|_| EXPECTED.to_string())?);
+            if decoded.len() != RAW_SEED_BYTES {
+                return Err(EXPECTED.into());
+            }
+            let mut raw = [0u8; RAW_SEED_BYTES];
+            raw.copy_from_slice(&decoded);
+            let derived = generate_account_from_raw_seed(&raw, derivation)
+                .map_err(|_| "Invalid testnet seed".to_string());
+            raw.zeroize();
+            let (master, _blob) = derived?;
+            Ok((master, SeedFormat::Raw32))
+        }
+    }
 }
 
 fn generate_seed_material(

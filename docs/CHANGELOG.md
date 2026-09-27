@@ -34,6 +34,23 @@
 
 ### Fixed
 
+- **A testnet wallet could not be restored.** `create_wallet` hands a testnet
+  wallet its 32-byte raw seed as hex (`seed_language: "raw32"`), but the
+  Import page accepted only 24 words and the session's restore called the
+  BIP-39 path, which refuses testnet outright. Restore is now network-governed
+  exactly as creation is: `validate_seed_backup` and
+  `EngineSession::restore_from_backup` (`master_seed_from_backup`, the inverse
+  of `generate_seed_material`) take the phrase on mainnet/stagenet and the
+  64-hex seed on testnet — the contract's `restore_wallet` — and the page
+  accepts either shape, leaving the network's choice to Rust. Covered in
+  `validate.rs` and `ImportWallet.test.tsx`.
+- **The command-surface gate's two blind spots** (Copilot on #27): a string
+  literal that is not a command name (`invoke("get-balance")`) was invisible
+  to the consumer leg — every literal is now read and one that fails the name
+  grammar is an `UNREG` finding; and the stub leg judged the last physical
+  line, so a rustfmt-wrapped `Err(format!(...))` ending in `))` passed — it
+  now judges the last statement that opens at the fn's top-level indent.
+  Both have negative controls.
 - **The Send flow built a full transaction on every keystroke pause, and the
   fee the user saw was never the fee that shipped.** `estimate_fee` ran the
   complete build — selection, `AssembleTx`, FCMP++ proving, signing,
