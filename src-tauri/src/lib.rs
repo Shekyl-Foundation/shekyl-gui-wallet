@@ -43,6 +43,7 @@ mod features;
 mod gui_config;
 #[cfg(feature = "multisig")]
 mod multisig;
+mod send;
 mod shard_coverage;
 mod shard_visual;
 mod staking_view;
@@ -50,6 +51,7 @@ mod state;
 mod transfer_history;
 mod validate;
 mod wallet_name;
+mod wire;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -108,8 +110,10 @@ pub fn run() {
             commands::get_drain_balance,
             commands::get_staking_view,
             commands::get_address,
-            commands::transfer,
-            commands::estimate_fee,
+            send::get_default_fee_priority,
+            send::build_pending_tx,
+            send::submit_pending_tx,
+            send::discard_pending_tx,
             commands::get_transactions,
             // Shard identity preview (pre-archival beta)
             shard_visual::list_shard_preview_fixtures,

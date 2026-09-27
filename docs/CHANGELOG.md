@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Send flow built a full transaction on every keystroke pause, and the
+  fee the user saw was never the fee that shipped.** `estimate_fee` ran the
+  complete build — selection, `AssembleTx`, FCMP++ proving, signing,
+  reservation — on a 500 ms typing debounce, then discarded it; on the Pi 4
+  floor that is seconds of proving per pause, holding the engine lock against
+  balance polling. `transfer` then built *again*, so the confirmed fee belonged
+  to a discarded transaction, and a submit-time `ContentChanged` was resubmitted
+  with nobody re-consenting. Replaced by the contract's own three-step shape
+  and names in `send.rs`: `get_default_fee_priority` (the daemon's tier quote
+  for the canonical shape, fetched once per page — weight × rate, never a
+  proof), `build_pending_tx` (Review: built once, exact fee shown),
+  `submit_pending_tx` (Confirm, with the reviewed `content_gen`) and
+  `discard_pending_tx` (Cancel, leaving the page, closing the window). A
+  content change discards and rebuilds so the user re-confirms figures they can
+  read; ambiguous or still-pending submits keep their reservation and are never
+  discarded by the page, and a failed discard keeps the reservation owned and
+  visible rather than forgotten. The three fee tiers (FL-R17) are
+  user-selectable. Every atomic amount on this boundary is a decimal string
+  (`AtomicUnitsString`), parsed losslessly with `parseSkl` and rendered on the
+  review card at full 9-decimal precision, so a fee or amount above 2^53 is
+  never rounded at the Tauri edge and two reservations one atomic unit apart
+  never display alike. The page composes `FeeTierPicker` and `ReviewCard`
+  panels (rule 27).
+  `transfer`, `estimate_fee` and the dead `transfer_stage` progress UI (no
+  Rust emitter existed) are deleted.
+
 ### Security
 
 - **No resident copy of the recovery phrase.** `EngineSession` kept a second,

@@ -56,7 +56,7 @@ This prevents:
 Capabilities are defined in `capabilities/default.json`:
 - Scoped to `"windows": ["main"]` only
 - Permissions: `core:default`, `opener:default`
-- Sensitive commands (`transfer`, `import_wallet_from_seed`, `import_wallet_from_keys`, `query_key`) are only callable from the main window context
+- Sensitive commands (`build_pending_tx` / `submit_pending_tx`, `import_wallet_from_seed`, `import_wallet_from_keys`, `query_key`) are only callable from the main window context
 
 ## Input Validation
 
@@ -65,7 +65,7 @@ Every Tauri command that accepts user input validates before reaching the C++ FF
 | Input | Validation |
 |-------|-----------|
 | Address | Bech32m decode via `shekyl-address` crate |
-| Amount | Non-zero u64 |
+| Amount | Non-zero u64, carried across the Tauri edge as a decimal string (`AtomicUnitsString`, `src-tauri/src/wire.rs`) — never a JS `number` |
 | Wallet name | No path separators, no dots prefix, max 255 chars |
 | Password | No null bytes, max 1024 chars |
 | Seed phrase | ASCII, 1-30 words, no null bytes |
@@ -75,15 +75,19 @@ Every Tauri command that accepts user input validates before reaching the C++ FF
 
 Malformed inputs are rejected at the Rust bridge layer with a human-readable error. No malformed data reaches C++.
 
-## Transfer Flow Security
+## Send Flow
 
-The transfer uses a three-phase native-sign path:
+The GUI drives the wallet engine's own reservation lifecycle under the contract's names (`src-tauri/src/send.rs`): `get_default_fee_priority` → `build_pending_tx` → `submit_pending_tx` / `discard_pending_tx`. The wallet2 prepare/finalize path this section used to describe no longer exists.
 
-1. **C++ Prepare**: wallet2 selects UTXOs, builds tx prefix, returns structured JSON
-2. **Rust Sign**: `shekyl-tx-builder` generates FCMP++ proof, BP+ proof, PQC auth
-3. **C++ Finalize**: wallet2 inserts proofs, broadcasts to daemon
+- **Nothing is built while the user types.** The fee shown in the form is the daemon's tier quote for the canonical 2-in/2-out shape (weight × rate), fetched once per page. The previous page ran a full FCMP++ build — selection, proving, signing, reservation — on every 500 ms typing pause and discarded it.
+- **One built transaction per intent.** Review builds once and shows the exact fee; Confirm submits that reservation with the `content_gen` it was reviewed at. The engine refuses a stale generation, so the user can never broadcast content they did not see.
+- **A content change is never resubmitted silently.** If the realized fee or change moved on re-anchor, the reservation is discarded and rebuilt, and the user re-confirms figures they can read.
+- **Retained reservations are never discarded by the page.** An ambiguous or still-pending submit may already be on the network; the engine keeps the reservation so a retry cannot double-spend, and the page leaves it alone.
+- **Cancel, leaving the page, or closing the window discards** the reservation and releases the funds.
+- **Every atomic amount crosses the Tauri edge as a decimal string** (`AtomicUnitsString`), parsed with `BigInt` and shown on the review card at full 9-decimal precision. A JS `number` is lossy above 2^53; a fee rounded at the edge would break the invariant that the fee the user confirms is the fee that ships, and two reservations one atomic unit apart must never display alike.
+- **A failed discard keeps the reservation owned.** The page releases ownership only when a submit succeeds, a discard succeeds, or the engine reports it has retained the reservation; a discard that fails is shown, review stays, and a rebuild is never stacked on a reservation that is still live.
 
-No optimistic spent-marking is performed on the scanner side. The scanner's sync loop is the sole authority for marking outputs as spent — it does so only when key images appear on-chain. If signing succeeds but finalize fails (daemon unreachable, relay rejected), the scanner's `(LedgerBlock, LedgerIndexes)` state is unaffected and no rollback is needed. Outputs remain spendable for a retry.
+Spent-marking is unchanged: the engine's refresh is the sole settlement authority, and a submit verdict is display metadata only.
 
 ## Secret Key Handling
 

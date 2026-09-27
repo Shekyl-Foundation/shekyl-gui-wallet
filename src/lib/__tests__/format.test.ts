@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   atomicAmount,
   formatSkl,
+  parseSkl,
+  SKL_AMOUNT_PATTERN,
   formatSklCompact,
   formatPercent,
   formatMultiplier,
@@ -113,5 +115,48 @@ describe("emissionProgress", () => {
 
   it("returns 0 for empty input", () => {
     expect(emissionProgress("")).toBe(0);
+  });
+});
+
+describe("parseSkl", () => {
+  it("is exact at and beyond 2^53 atomic units", () => {
+    // 2^53 + 1 atomic: the first value a JS number cannot hold.
+    expect(parseSkl("9007199.254740993")).toBe(9007199254740993n);
+    expect(parseSkl("4294967296")).toBe(4294967296n * 1_000_000_000n);
+  });
+
+  it("pads short fractions and accepts a bare integer", () => {
+    expect(parseSkl("1.5")).toBe(1_500_000_000n);
+    expect(parseSkl("12")).toBe(12_000_000_000n);
+    expect(parseSkl("12.")).toBe(12_000_000_000n);
+    expect(parseSkl("0.000000001")).toBe(1n);
+  });
+
+  it("refuses what it cannot represent rather than truncating", () => {
+    for (const bad of ["0.0000000001", "", "abc", "-1", ".5", "1e9", "1,5"]) {
+      expect(() => parseSkl(bad), bad).toThrow(RangeError);
+    }
+  });
+
+  it("round-trips through formatSkl at full precision", () => {
+    for (const s of ["0.000000001", "1.5", "9007199.254740993"]) {
+      expect(formatSkl(parseSkl(s), 9)).toBe(
+        s.includes(".") ? s.padEnd(s.indexOf(".") + 1 + 9, "0") : `${s}.000000000`,
+      );
+    }
+  });
+});
+
+describe("SKL_AMOUNT_PATTERN", () => {
+  it("is the same grammar parseSkl accepts", () => {
+    const pattern = new RegExp(`^(?:${SKL_AMOUNT_PATTERN})$`);
+    for (const s of ["12", "12.", "1.5", "0.000000001", "9007199.254740993"]) {
+      expect(pattern.test(s), s).toBe(true);
+      expect(() => parseSkl(s), s).not.toThrow();
+    }
+    for (const s of ["0.0000000001", ".5", "-1", "1e9", "1,5", ""]) {
+      expect(pattern.test(s), s).toBe(false);
+      expect(() => parseSkl(s), s).toThrow(RangeError);
+    }
   });
 });
