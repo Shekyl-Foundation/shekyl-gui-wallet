@@ -144,11 +144,13 @@ almost all cases.
 
 The Dashboard is your home screen. Here's what you'll find:
 
-- **Balance Card** -- Shows what you can spend right now, what is pending
-  (committed to a send that is still confirming), what is staked, and the
-  staking rewards you have received and not yet spent. If the wallet cannot
-  read its staking state, those two figures say **Unavailable** rather than
-  showing a zero that would be wrong.
+- **Balance Card** -- Shows your balance, what you can spend right now
+  (**Available**), what is pending (committed to a send that is still
+  confirming), what is staked, and the staking rewards you have received and
+  not yet spent. If the wallet cannot read its staking state, those two
+  figures say **Unavailable** rather than showing a zero that would be wrong.
+  If the balance itself cannot be read, the card says so and offers
+  **Try again**.
 
 - **Quick Actions** -- Four buttons that take you to the most common tasks:
   Send, Receive, Staking, and History.

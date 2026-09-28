@@ -13,9 +13,11 @@
   session's dual-truth `balance()` (a `staked` hard-wired to zero) is gone;
   the engine's reviewed sum of the two bonded legs replaces it, and the
   Staking page still shows the legs. A closed wallet is an error the card
-  renders as dashes, not a fabricated zero balance. The Balance Card shows
-  Available / Pending / Staked / Rewards, an Unspendable line only when
-  there is one, and **Unavailable** for absent staking figures.
+  renders as dashes with the engine's message and a retry, not a fabricated
+  zero balance. The Balance Card headlines `liquid`, binds **Available** to
+  `unlocked`, shows Pending / Staked / Rewards, an Unspendable line (at
+  dust precision) only when there is one, and **Unavailable** for absent
+  staking figures.
   `commands.rs` ceiling locked at 600.
 - **Review round on #30.** `createdWalletFromWire` fails closed by presence
   and by network: an arm that is present but empty is a contract violation,

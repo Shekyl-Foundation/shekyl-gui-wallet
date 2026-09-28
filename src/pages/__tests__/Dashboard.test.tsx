@@ -42,6 +42,6 @@ describe("Dashboard", () => {
 
     renderDashboard();
 
-    expect(screen.getByText("Available")).toBeInTheDocument();
+    expect(screen.getByText("Balance")).toBeInTheDocument();
   });
 });

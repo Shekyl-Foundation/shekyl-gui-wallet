@@ -51,8 +51,9 @@ export interface WalletStatus {
  * the card must render "unavailable", not "nothing staked".
  */
 export interface Balance {
-  /** Spendable now. */
+  /** The one-glance figure; the engine assigns it and `unlocked` from the same ledger figure today. */
   liquid: string;
+  /** Spendable right now. */
   unlocked: string;
   /** Committed to a send awaiting confirmation: counted, never spendable. */
   pending: string;

@@ -24,9 +24,11 @@ use crate::wire::AtomicUnitsString;
 /// The contract's `GetBalanceResult`.
 #[derive(Debug, Serialize)]
 pub struct Balance {
-    /// Spendable now (the contract carries it beside `unlocked`; today the
-    /// engine maps it from `unlocked`, and the split is the engine's to make).
+    /// The one-glance figure. Engine-core's `project_balance` assigns it
+    /// and `unlocked` from the same ledger figure today; the contract carries
+    /// both so the engine can split them without a wire change.
     pub liquid: AtomicUnitsString,
+    /// Spendable right now.
     pub unlocked: AtomicUnitsString,
     /// Committed to a send awaiting confirmation: counted, never spendable.
     pub pending: AtomicUnitsString,
