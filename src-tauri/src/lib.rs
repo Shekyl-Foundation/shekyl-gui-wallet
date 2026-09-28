@@ -30,6 +30,7 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
+mod balance;
 mod clipboard;
 mod commands;
 mod daemon_connection;

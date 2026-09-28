@@ -4,6 +4,19 @@
 
 ### Changed
 
+- **`get_balance` is the contract's `GetBalanceResult`.** The DTO
+  (`src-tauri/src/balance.rs`) is a projection of engine-core's
+  `BalanceView` (`StakeFacade::balance_view`, shekyl-core #894), the same
+  view wallet-rpc serializes: `liquid`, `unlocked`, `pending`,
+  `unspendable`, and `staked` / `claimable_rewards`, which are absent — never
+  `"0"` — when the wallet's sealed staking state cannot be read. The
+  session's dual-truth `balance()` (a `staked` hard-wired to zero) is gone;
+  the engine's reviewed sum of the two bonded legs replaces it, and the
+  Staking page still shows the legs. A closed wallet is an error the card
+  renders as dashes, not a fabricated zero balance. The Balance Card shows
+  Available / Pending / Staked / Rewards, an Unspendable line only when
+  there is one, and **Unavailable** for absent staking figures.
+  `commands.rs` ceiling locked at 600.
 - **Review round on #30.** `createdWalletFromWire` fails closed by presence
   and by network: an arm that is present but empty is a contract violation,
   not a missing arm, and the handle's network chooses the one encoding

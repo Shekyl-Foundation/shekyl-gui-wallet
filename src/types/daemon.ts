@@ -42,11 +42,26 @@ export interface WalletStatus {
   daemon_height: number;
 }
 
-/** Atomic amounts are decimal strings on the wire (`AtomicUnitsString`); format with `formatSkl`. */
+/**
+ * The contract's `GetBalanceResult` (`get_balance`), projected once in
+ * engine-core for this wallet and wallet-rpc alike. Atomic amounts are decimal
+ * strings; format with `formatSkl`. `staked` and `claimable_rewards` are
+ * **absent, never `"0"`,** when the wallet's staking state could not be read:
+ * the liquid fields stay authoritative while the staking figures degrade, and
+ * the card must render "unavailable", not "nothing staked".
+ */
 export interface Balance {
-  total: string;
+  /** Spendable now. */
+  liquid: string;
   unlocked: string;
-  staked: string;
+  /** Committed to a send awaiting confirmation: counted, never spendable. */
+  pending: string;
+  /** Received but never spendable by this wallet; counted nowhere else. */
+  unspendable: string;
+  /** Bond principal under confirmed and in-flight bonds. */
+  staked?: string;
+  /** Emission rewards received and still unspent. Absent exactly when `staked` is. */
+  claimable_rewards?: string;
 }
 
 /**

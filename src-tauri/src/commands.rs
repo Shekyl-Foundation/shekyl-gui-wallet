@@ -41,6 +41,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::balance::Balance;
 use crate::daemon_rpc;
 use crate::drain_balance::DrainBalance;
 use crate::gui_config;
@@ -70,13 +71,6 @@ pub struct WalletFileInfo {
     pub name: String,
     pub path: String,
     pub modified: u64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Balance {
-    pub total: AtomicUnitsString,
-    pub unlocked: AtomicUnitsString,
-    pub staked: AtomicUnitsString,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -378,33 +372,18 @@ pub async fn stake(state: State<'_, AppState>, password: String) -> Result<Stake
 
 // ─── Wallet data commands ────────────────────────────────────────────────────
 
+/// The contract's `get_balance`. A closed wallet is a non-value — an error
+/// the card renders as "—" — never a fabricated zero balance (rule 82).
 #[tauri::command]
 pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> {
     if !*state.wallet_open.read().await {
-        return Ok(Balance {
-            total: 0.into(),
-            unlocked: 0.into(),
-            staked: 0.into(),
-        });
+        return Err("No wallet is open".into());
     }
-
     let eng = state.engine.lock().await;
     if !eng.is_open() {
-        return Ok(Balance {
-            total: 0.into(),
-            unlocked: 0.into(),
-            staked: 0.into(),
-        });
+        return Err("No wallet is open".into());
     }
-    // `staked` is reported as 0 by design: personal archival stake is shown
-    // only on the Staking page (WI-RPC-1 three-leg view), not as a single
-    // dashboard total. See `EngineSession::balance` dual-truth note.
-    let (total, unlocked, staked) = eng.balance().await?;
-    Ok(Balance {
-        total: total.into(),
-        unlocked: unlocked.into(),
-        staked: staked.into(),
-    })
+    Ok(Balance::from(eng.balance_view().await?))
 }
 
 /// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B). Staker-only figure.

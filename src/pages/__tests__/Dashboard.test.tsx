@@ -35,13 +35,13 @@ describe("Dashboard", () => {
   it("renders the BalanceCard", () => {
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "get_balance") {
-        return { total: "0", unlocked: "0", staked: "0" };
+        return { liquid: "0", unlocked: "0", pending: "0", unspendable: "0", staked: "0", claimable_rewards: "0" };
       }
       throw new Error(`unexpected: ${cmd}`);
     });
 
     renderDashboard();
 
-    expect(screen.getByText("Total Balance")).toBeInTheDocument();
+    expect(screen.getByText("Available")).toBeInTheDocument();
   });
 });
