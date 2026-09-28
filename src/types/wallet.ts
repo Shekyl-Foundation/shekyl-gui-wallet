@@ -31,7 +31,8 @@ export interface OpenedWallet {
 
 /**
  * Wire object `create_wallet` returns. The contract carries exactly one of
- * `mnemonic` and `raw_seed_hex`. [`createdWalletFromWire`] is what the app holds.
+ * `mnemonic` and `raw_seed_hex`, chosen by the handle's network.
+ * [`createdWalletFromWire`] is what the app holds.
  */
 export interface CreatedWalletWire {
   wallet: WalletHandle;
@@ -51,12 +52,6 @@ export type CreatedWallet =
 export const CREATED_WALLET_BACKUP_UNUSABLE =
   "The new wallet did not return a usable backup. Do not continue — without the backup the funds cannot be recovered.";
 
-function nonempty(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? undefined : trimmed;
-}
-
 function isRawSeedHex(value: string): boolean {
   return value.length === RAW_SEED_HEX_LENGTH && /^[0-9a-fA-F]+$/.test(value);
 }
@@ -65,28 +60,37 @@ function isRecoveryPhrase(value: string): boolean {
   return value.split(" ").filter(Boolean).length === BIP39_RECOVERY_PHRASE_WORD_COUNT;
 }
 
+/** The backup encoding the contract hands out on each network. */
+export function backupEncodingFor(network: WalletNetwork): CreatedWallet["encoding"] {
+  return network === "TESTNET" ? "raw_seed_hex" : "mnemonic";
+}
+
 /**
- * Accept the contract object only when exactly one backup is present and
- * well-formed. Both, neither, an empty string, a short phrase, and a
- * non-hex seed are refused.
+ * Accept the contract object only when the one backup arm the handle's
+ * network calls for is present and well-formed, and the other is absent.
+ * Presence is the field being on the object: an arm that is present but
+ * empty is a contract violation, not a missing arm. Both arms, neither, the
+ * wrong arm for the network, a short phrase and a non-hex seed are refused.
  */
 export function createdWalletFromWire(wire: CreatedWalletWire): CreatedWallet {
-  const mnemonic = nonempty(wire.mnemonic);
-  const rawSeedHex = nonempty(wire.raw_seed_hex);
-  if (mnemonic !== undefined && rawSeedHex !== undefined) {
+  const hasMnemonic = wire.mnemonic !== undefined;
+  const hasRawSeedHex = wire.raw_seed_hex !== undefined;
+  if (hasMnemonic === hasRawSeedHex) {
     throw new Error(CREATED_WALLET_BACKUP_UNUSABLE);
   }
-  if (mnemonic !== undefined && isRecoveryPhrase(mnemonic)) {
-    return { wallet: wire.wallet, encoding: "mnemonic", mnemonic };
+  const encoding = backupEncodingFor(wire.wallet.network);
+  if (encoding === "mnemonic") {
+    const mnemonic = wire.mnemonic?.trim() ?? "";
+    if (!hasMnemonic || !isRecoveryPhrase(mnemonic)) {
+      throw new Error(CREATED_WALLET_BACKUP_UNUSABLE);
+    }
+    return { wallet: wire.wallet, encoding, mnemonic };
   }
-  if (rawSeedHex !== undefined && mnemonic === undefined && isRawSeedHex(rawSeedHex)) {
-    return {
-      wallet: wire.wallet,
-      encoding: "raw_seed_hex",
-      raw_seed_hex: rawSeedHex.toLowerCase(),
-    };
+  const rawSeedHex = wire.raw_seed_hex?.trim() ?? "";
+  if (!hasRawSeedHex || !isRawSeedHex(rawSeedHex)) {
+    throw new Error(CREATED_WALLET_BACKUP_UNUSABLE);
   }
-  throw new Error(CREATED_WALLET_BACKUP_UNUSABLE);
+  return { wallet: wire.wallet, encoding, raw_seed_hex: rawSeedHex.toLowerCase() };
 }
 
 /** The one backup string a created wallet handed out. */

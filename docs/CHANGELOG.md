@@ -4,6 +4,14 @@
 
 ### Changed
 
+- **Review round on #30.** `createdWalletFromWire` fails closed by presence
+  and by network: an arm that is present but empty is a contract violation,
+  not a missing arm, and the handle's network chooses the one encoding
+  allowed (`mnemonic` on mainnet/stagenet, `raw_seed_hex` on testnet). The
+  new wallet's address read (`components/wallet/CreatedWalletAddress`) and
+  the transfer history's fetch / poll / retry / fail-closed rendering
+  (`components/transactions/TransactionHistory`) are panels the pages
+  compose (rule 27); `Transactions.tsx` is the filter controls.
 - **The lifecycle results are the contract's.** `create_wallet`,
   `open_wallet` and `restore_wallet` return the contract's `WalletHandle`
   (name, the envelope's own capability `FULL`, network as

@@ -11,8 +11,9 @@ import {
   EyeOff,
 } from "lucide-react";
 import { useWallet } from "../context/useWallet";
-import { seedBackupOf, type CreatedWallet, type PrimaryAddress } from "../types/wallet";
+import { seedBackupOf, type CreatedWallet } from "../types/wallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
+import CreatedWalletAddress from "../components/wallet/CreatedWalletAddress";
 
 type Step = "setup" | "seed" | "confirm" | "done";
 
@@ -28,14 +29,6 @@ interface ClipboardPlacement {
 const COPY_FAILED =
   "The backup could not be copied. Write it down from the screen.";
 
-const ADDRESS_UNREAD =
-  "The address could not be read. The wallet was created — open it, then copy the address from Receive.";
-
-type AddressRead =
-  | { kind: "loading" }
-  | { kind: "ready"; address: string }
-  | { kind: "fault" };
-
 export default function CreateWallet() {
   const navigate = useNavigate();
   const { createWallet, setPhase } = useWallet();
@@ -48,9 +41,6 @@ export default function CreateWallet() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CreatedWallet | null>(null);
-  /** `get_primary_address` once the wallet is open. Failure is its own state, not a blank address. */
-  const [addressRead, setAddressRead] = useState<AddressRead>({ kind: "loading" });
-  const addressGen = useRef(0);
   /** Re-entry of a testnet hex seed. Phrase confirmation uses `confirmValues`. */
   const [rawConfirm, setRawConfirm] = useState("");
   const [copied, setCopied] = useState(false);
@@ -67,28 +57,6 @@ export default function CreateWallet() {
     if (!result || result.encoding !== "mnemonic") return [];
     return result.mnemonic.split(" ").filter(Boolean);
   }, [result]);
-
-  const readAddress = useCallback(() => {
-    const gen = ++addressGen.current;
-    setAddressRead({ kind: "loading" });
-    invoke<PrimaryAddress>("get_primary_address")
-      .then((response) => {
-        if (gen === addressGen.current) {
-          setAddressRead({ kind: "ready", address: response.address });
-        }
-      })
-      .catch(() => {
-        if (gen === addressGen.current) setAddressRead({ kind: "fault" });
-      });
-  }, []);
-
-  useEffect(() => {
-    if (step !== "done") return;
-    readAddress();
-    return () => {
-      addressGen.current += 1;
-    };
-  }, [step, readAddress]);
 
   const challengeIndices = useMemo(() => {
     if (phraseWords.length === 0) return [];
@@ -476,27 +444,7 @@ export default function CreateWallet() {
             <h2 className="text-lg font-bold text-white">
               Your wallet is ready
             </h2>
-            <div className="space-y-2">
-              <p className="text-xs text-purple-300">Address</p>
-              {addressRead.kind === "ready" ? (
-                <p className="break-all rounded-lg bg-purple-800/80 px-3 py-2 font-mono text-[10px] text-gold-400">
-                  {addressRead.address}
-                </p>
-              ) : addressRead.kind === "fault" ? (
-                <div className="space-y-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
-                  <p className="text-xs text-red-200">{ADDRESS_UNREAD}</p>
-                  <button
-                    type="button"
-                    onClick={readAddress}
-                    className="text-xs font-medium text-purple-200 underline underline-offset-2 hover:text-white"
-                  >
-                    Try again
-                  </button>
-                </div>
-              ) : (
-                <p className="text-xs text-purple-400">Reading your address…</p>
-              )}
-            </div>
+            <CreatedWalletAddress />
             <p className="text-xs text-purple-300">
               Protected by hybrid Ed25519 + ML-DSA-65 signatures.
             </p>
