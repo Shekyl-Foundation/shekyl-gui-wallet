@@ -36,6 +36,21 @@
 
 ### Added
 
+- **Payment requests — the contract's receiving surface** (`create_payment_request`,
+  `list_payment_requests`, `parse_uri`; `src-tauri/src/receiving.rs`, over the
+  same Engine calls as wallet-rpc). Shekyl has no subaddresses; a request is
+  local bookkeeping with an opaque `rid` on the `shekyl:` link. The label is
+  written onto that link. Create and the list both return the URI
+  `format_request_uri` builds from the stored row, so showing the link again
+  does not reassemble it. The contract's freeform `make_uri` is not registered:
+  nothing in the GUI composes a link from loose fields. The Receive page
+  composes a request form (amount, label, optional expiry as a duration), the
+  created link as QR and text, and the request list with its states (Awaiting
+  payment / Paid / Expired / Cancelled). Paying the link does not yet mark the
+  request paid. On the Send page a pasted `shekyl:` link is parsed in Rust
+  (`parse_uri`) and fills the address and amount; Review waits until that
+  parse settles. Amounts are decimal strings throughout, shown at full
+  precision on the request list. Tests on both pages.
 - **The command surface is gated** (`scripts/ci/check_command_surface.sh`,
   with its own negative controls in `test_check_command_surface.sh`, both in
   CI). Three legs, mirroring shekyl-core's wallet-RPC liveness gate at the

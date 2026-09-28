@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -249,6 +249,95 @@ describe("Send page", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(calls("build_pending_tx")).toHaveLength(0);
     expect(screen.queryByTestId("review")).not.toBeInTheDocument();
+  });
+
+  it("a pasted payment link fills the address and amount through parse_uri, and says so", async () => {
+    route({
+      get_default_fee_priority: () => QUOTE,
+      parse_uri: (args) => {
+        expect(args).toEqual({ uri: "shekyl:shekyl1abc123?amount=1500000000&label=Rent&rid=42" });
+        return { address: "shekyl1abc123", amount: "1500000000", label: "Rent", rid: "42" };
+      },
+      build_pending_tx: () => BUILT,
+    });
+    const u = user();
+    render(<Send />);
+    await u.click(screen.getByPlaceholderText("shekyl1..."));
+    await u.paste("shekyl:shekyl1abc123?amount=1500000000&label=Rent&rid=42");
+    await waitFor(() => expect(screen.getByPlaceholderText("shekyl1...")).toHaveValue("shekyl1abc123"));
+    expect(screen.getByPlaceholderText("0.0000")).toHaveValue("1.500000000");
+    expect(screen.getByTestId("link-notice")).toHaveTextContent(/"Rent".*request 42/);
+    await u.click(screen.getByRole("button", { name: /review/i }));
+    await screen.findByTestId("review");
+    expect(calls("build_pending_tx")[0][1]).toMatchObject({ address: "shekyl1abc123", amount: "1500000000" });
+  });
+
+  it("review waits until the payment link has been read, then builds that address and amount", async () => {
+    let resolveParse: (value: unknown) => void = () => {};
+    route({
+      get_default_fee_priority: () => QUOTE,
+      parse_uri: () => new Promise((resolve) => (resolveParse = resolve)),
+      build_pending_tx: () => BUILT,
+    });
+    const u = user();
+    render(<Send />);
+    const field = screen.getByPlaceholderText("shekyl1...");
+    await u.click(field);
+    await u.type(field, "shekyl1old");
+    await u.type(screen.getByPlaceholderText("0.0000"), "1");
+    await u.clear(field);
+    await u.paste("shekyl:shekyl1new?amount=2000000000");
+    expect(field).toHaveValue("shekyl:shekyl1new?amount=2000000000");
+    expect(screen.getByRole("button", { name: /reading link/i })).toBeDisabled();
+    fireEvent.submit(field.closest("form")!);
+    expect(calls("build_pending_tx")).toHaveLength(0);
+    resolveParse({ address: "shekyl1new", amount: "2000000000", label: "Rent" });
+    await waitFor(() => expect(field).toHaveValue("shekyl1new"));
+    expect(screen.getByPlaceholderText("0.0000")).toHaveValue("2.000000000");
+    await u.click(screen.getByRole("button", { name: /^review$/i }));
+    await screen.findByTestId("review");
+    expect(calls("build_pending_tx")[0][1]).toMatchObject({ address: "shekyl1new", amount: "2000000000" });
+  });
+
+  it("a parse that resolves for an older paste never overwrites a newer one", async () => {
+    let resolveFirst: (v: unknown) => void = () => {};
+    let parses = 0;
+    route({
+      get_default_fee_priority: () => QUOTE,
+      parse_uri: () => {
+        parses += 1;
+        if (parses === 1) return new Promise((resolve) => (resolveFirst = resolve));
+        return { address: "shekyl1second", amount: "2000000000" };
+      },
+    });
+    const u = user();
+    render(<Send />);
+    const field = screen.getByPlaceholderText("shekyl1...");
+    await u.click(field);
+    await u.paste("shekyl:shekyl1first?amount=1000000000");
+    await u.clear(field);
+    await u.paste("shekyl:shekyl1second?amount=2000000000");
+    await waitFor(() => expect(field).toHaveValue("shekyl1second"));
+    resolveFirst({ address: "shekyl1first", amount: "1000000000" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(field).toHaveValue("shekyl1second");
+    expect(screen.getByPlaceholderText("0.0000")).toHaveValue("2.000000000");
+  });
+
+  it("a malformed payment link is refused and the field keeps what was typed", async () => {
+    route({
+      get_default_fee_priority: () => QUOTE,
+      parse_uri: () => {
+        throw "invalid payment URI: missing or empty address in payment URI";
+      },
+    });
+    const u = user();
+    render(<Send />);
+    await u.click(screen.getByPlaceholderText("shekyl1..."));
+    await u.paste("shekyl:");
+    expect(await screen.findByRole("alert")).toHaveTextContent(/invalid payment URI/);
+    expect(screen.getByPlaceholderText("shekyl1...")).toHaveValue("shekyl:");
+    expect(screen.queryByTestId("link-notice")).not.toBeInTheDocument();
   });
 
   it("a retained reservation is never discarded by the page", async () => {
