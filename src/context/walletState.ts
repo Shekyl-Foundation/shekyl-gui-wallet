@@ -2,19 +2,18 @@ import { createContext } from "react";
 import type {
   WalletPhase,
   WalletFileInfo,
-  WalletInfo,
-  CreateWalletResult,
+  OpenedWallet,
+  CreatedWallet,
 } from "../types/wallet";
 
 export interface WalletContextValue {
   phase: WalletPhase;
   walletFiles: WalletFileInfo[];
   walletName: string | null;
-  walletAddress: string | null;
   error: string | null;
 
-  openWallet: (filename: string, password: string) => Promise<WalletInfo>;
-  createWallet: (name: string, password: string) => Promise<CreateWalletResult>;
+  openWallet: (filename: string, password: string) => Promise<OpenedWallet>;
+  createWallet: (name: string, password: string) => Promise<CreatedWallet>;
   /**
    * The contract's `restore_wallet(name, password, mnemonic, restore_height)`.
    * `mnemonic` is the seed backup in the network's encoding.
@@ -24,7 +23,7 @@ export interface WalletContextValue {
     password: string,
     mnemonic: string,
     restoreHeight?: number,
-  ) => Promise<WalletInfo>;
+  ) => Promise<OpenedWallet>;
   lockWallet: () => Promise<void>;
   setPhase: (phase: WalletPhase) => void;
   refreshFiles: () => Promise<WalletFileInfo[]>;
@@ -68,7 +67,6 @@ export const WalletContext = createContext<WalletContextValue>({
   phase: "loading",
   walletFiles: [],
   walletName: null,
-  walletAddress: null,
   error: null,
 
   openWallet: () => Promise.reject("Not initialized"),

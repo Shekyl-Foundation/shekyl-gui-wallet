@@ -95,7 +95,7 @@ pub fn validate_password(password: &str) -> Result<(), String> {
 }
 
 /// Hex characters in a testnet seed backup: the 32-byte raw seed, as
-/// `create_wallet` hands it out (`CreateWalletResult.seed_language == "raw32"`).
+/// `create_wallet` hands it out (`CreateWalletResult.raw_seed_hex`).
 pub const RAW_SEED_HEX_LENGTH: usize = 64;
 
 /// Validate a seed backup for restore in the encoding `network` hands out at

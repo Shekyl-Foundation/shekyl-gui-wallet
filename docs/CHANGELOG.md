@@ -4,6 +4,29 @@
 
 ### Changed
 
+- **The lifecycle results are the contract's.** `create_wallet`,
+  `open_wallet` and `restore_wallet` return the contract's `WalletHandle`
+  (name, the envelope's own capability `FULL`, network as
+  `MAINNET | TESTNET | STAGENET`, the file's `restore_height_hint`) under
+  `wallet`; `create_wallet` adds the backup exactly once in the network's
+  encoding — `mnemonic` or `raw_seed_hex`, never both — and nothing else.
+  The GUI's `WalletInfo` / `CreateWalletResult` (address, `seed_language`,
+  lowercase network) are gone: the address comes from `get_primary_address`,
+  its one source, and the Create page reads it there; the context's unused
+  `walletAddress` is deleted. The lifecycle commands and handle types live
+  in `src-tauri/src/lifecycle.rs` (rule 27; `commands.rs` 800 → 640,
+  locked).
+- **`get_transfers` takes the contract's filters and projects attribution.**
+  `direction`, `state` and `since_height` travel to Rust (a row not on chain
+  is always returned, so `since_height` works as a watermark); the
+  Transactions page offers direction tabs and a state select and never
+  filters a list it then shows as partial. Incoming rows carry the
+  contract's `attribution` (`MATCHED` / `MANUAL_MATCH` with the request id,
+  `LABEL_UNKNOWN`, `DISPUTED`; outgoing rows omit it), rendered as a badge
+  naming the payment request a receive arrived against.
+
+### Changed
+
 - **The command surface speaks the wallet contract's vocabulary.** The
   four `RENAME` rows the command-surface gate ledgered are retired by
   renaming, with the contract's parameters and result shapes:

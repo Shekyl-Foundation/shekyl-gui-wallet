@@ -23,15 +23,13 @@ beforeEach(() => {
       return Promise.resolve({ clear_after_ms: REPORTED_CLEAR_AFTER_MS });
     }
     if (cmd === "clear_clipboard") return Promise.resolve(false);
+    if (cmd === "get_primary_address") return Promise.resolve({ address: "shekyl1test" });
     return Promise.resolve(undefined);
   });
   createWallet.mockReset();
   createWallet.mockResolvedValue({
-    name: "My Wallet",
-    address: "shekyl1test",
-    seed: SEED,
-    seed_language: "English",
-    network: "mainnet",
+    wallet: { name: "My_Wallet", capability: "FULL", network: "MAINNET" },
+    mnemonic: SEED,
   });
 });
 

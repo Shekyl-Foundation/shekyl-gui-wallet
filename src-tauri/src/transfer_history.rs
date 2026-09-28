@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 use shekyl_engine_state::{
-    InFlightSpendLocks, SendRecord, SendState, TransferDetails,
+    DisputeReason, InFlightSpendLocks, ReceiveAttribution, SendRecord, SendState, TransferDetails,
     UnspendableReason as LedgerUnspendableReason,
 };
 use shekyl_types::{BlockHeight, OutputIndexInTx, TxHash};
@@ -108,6 +108,93 @@ pub struct TransferRow {
     /// Present exactly when [`Self::state`] is [`TransferState::Unspendable`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unspendable_reason: Option<UnspendableReason>,
+    /// Present on incoming rows only: which payment request this receive
+    /// arrived against (the contract's `Transfer.attribution`). An outgoing
+    /// row omits it rather than carrying an invented `UNATTRIBUTED`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<ReceiveAttributionView>,
+}
+
+/// The contract's `ReceiveAttribution`, spelled as wallet-rpc spells it:
+/// bookkeeping facts, no cleartext labels.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReceiveAttributionView {
+    pub kind: ReceiveAttributionKind,
+    /// Decimal `rid` when `MATCHED` / `MANUAL_MATCH`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Lowercase hex of the echoed label hash when `LABEL_UNKNOWN`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub echoed_label_hash: Option<String>,
+    /// `WrongLabel` / `WrongAmount` / `Other(..)` when `DISPUTED`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispute_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReceiveAttributionKind {
+    Unattributed,
+    Matched,
+    LabelUnknown,
+    ManualMatch,
+    Disputed,
+}
+
+impl From<&ReceiveAttribution> for ReceiveAttributionView {
+    fn from(attr: &ReceiveAttribution) -> Self {
+        let mut view = Self {
+            kind: ReceiveAttributionKind::Unattributed,
+            request_id: None,
+            echoed_label_hash: None,
+            dispute_reason: None,
+        };
+        match attr {
+            ReceiveAttribution::Unattributed => {}
+            ReceiveAttribution::Matched(id) => {
+                view.kind = ReceiveAttributionKind::Matched;
+                view.request_id = Some(id.as_u64().to_string());
+            }
+            ReceiveAttribution::LabelUnknown { echoed_label_hash } => {
+                view.kind = ReceiveAttributionKind::LabelUnknown;
+                view.echoed_label_hash = Some(hex::encode(echoed_label_hash));
+            }
+            ReceiveAttribution::ManualMatch(id) => {
+                view.kind = ReceiveAttributionKind::ManualMatch;
+                view.request_id = Some(id.as_u64().to_string());
+            }
+            ReceiveAttribution::Disputed { reason } => {
+                view.kind = ReceiveAttributionKind::Disputed;
+                view.dispute_reason = Some(match reason {
+                    DisputeReason::WrongLabel => "WrongLabel".to_owned(),
+                    DisputeReason::WrongAmount => "WrongAmount".to_owned(),
+                    DisputeReason::Other(s) => format!("Other({s})"),
+                });
+            }
+        }
+        view
+    }
+}
+
+/// The contract's `GetTransfersParams`, applied to projected rows. A row with
+/// no `block_height` (a send not on chain) has nothing to compare against
+/// `since_height` and is always returned — the property that makes the
+/// filter usable as a polling watermark.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TransferFilter {
+    pub direction: Option<TransferDirection>,
+    pub state: Option<TransferState>,
+    pub since_height: Option<u64>,
+}
+
+impl TransferFilter {
+    pub fn keeps(&self, row: &TransferRow) -> bool {
+        self.direction.is_none_or(|d| d == row.direction)
+            && self.state.is_none_or(|s| s == row.state)
+            && self
+                .since_height
+                .is_none_or(|floor| row.block_height.is_none_or(|h| h >= floor))
+    }
 }
 
 /// Narrow receive facts so projection tests need no full `TransferDetails`
@@ -124,6 +211,8 @@ pub struct IncomingFact {
     /// Ledger classification. Converted to the wire enum in
     /// [`project_incoming_row`]; `None` when the output opened to this wallet.
     pub unspendable: Option<LedgerUnspendableReason>,
+    /// Which payment request this receive arrived against, per the scan.
+    pub attribution: ReceiveAttribution,
 }
 
 impl IncomingFact {
@@ -142,6 +231,7 @@ impl IncomingFact {
             spent: td.spent,
             awaiting_confirmation: spend_locks.contains(td.global_output_index),
             unspendable: td.unspendable,
+            attribution: td.receive_attribution.clone(),
         }
     }
 }
@@ -222,6 +312,7 @@ fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
         direction: TransferDirection::Incoming,
         state,
         unspendable_reason,
+        attribution: Some(ReceiveAttributionView::from(&fact.attribution)),
     }
 }
 
@@ -250,6 +341,7 @@ fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<Transfer
         direction: TransferDirection::Outgoing,
         state,
         unspendable_reason: None,
+        attribution: None,
     })
 }
 
@@ -335,6 +427,7 @@ mod tests {
             spent,
             awaiting_confirmation: awaiting,
             unspendable: None,
+            attribution: ReceiveAttribution::Unattributed,
         }
     }
 

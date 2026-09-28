@@ -116,7 +116,7 @@ impl EngineSession {
         password: &str,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<CreateOutcome, String> {
+    ) -> Result<SeedBackup, String> {
         if self.engine.is_some() {
             return Err("A wallet is already open".into());
         }
@@ -159,26 +159,15 @@ impl EngineSession {
                 .map_err(map_open_err)?;
         drop(master_seed);
 
-        let address = engine
-            .primary_address()
-            .encode()
-            .map_err(|e| format!("encode address: {e}"))?;
-
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.catch_up_after_open().await?;
 
-        // The seed goes out ONCE, in the create response, and nothing here
+        // The backup goes out ONCE, in the create response, and nothing here
         // keeps a copy: a resident duplicate of the master secret held for
         // the whole session was a rule-35 defect (it was a plain `String`,
         // never zeroized, and its only reader was a command nothing called).
-        let seed = match backup {
-            SeedBackup::Mnemonic(m) => m,
-            // Testnet raw seed: surface as hex for backup; not BIP-39.
-            SeedBackup::RawHex(h) => h,
-        };
-
-        Ok(CreateOutcome { address, seed })
+        Ok(backup)
     }
 
     /// Restore an Engine wallet from its seed backup. The backup's encoding is
@@ -195,7 +184,7 @@ impl EngineSession {
         restore_height: u64,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<String, String> {
+    ) -> Result<(), String> {
         if self.engine.is_some() {
             return Err("A wallet is already open".into());
         }
@@ -238,16 +227,11 @@ impl EngineSession {
                 .map_err(map_open_err)?;
         drop(master_seed);
 
-        let address = engine
-            .primary_address()
-            .encode()
-            .map_err(|e| format!("encode address: {e}"))?;
-
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.catch_up_after_open().await?;
 
-        Ok(address)
+        Ok(())
     }
 
     /// Open an existing Engine wallet.
@@ -258,7 +242,7 @@ impl EngineSession {
         password: &str,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<String, String> {
+    ) -> Result<(), String> {
         if self.engine.is_some() {
             return Err("A wallet is already open".into());
         }
@@ -289,16 +273,11 @@ impl EngineSession {
             OpenedEngine::Restored { wallet, .. } => wallet,
         };
 
-        let address = engine
-            .primary_address()
-            .encode()
-            .map_err(|e| format!("encode address: {e}"))?;
-
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
 
         self.catch_up_after_open().await?;
-        Ok(address)
+        Ok(())
     }
 
     /// Persist and close the open Engine wallet.
@@ -690,6 +669,18 @@ impl EngineSession {
         Ok(StakingView::from(view))
     }
 
+    /// The engine's own facts for the contract's `WalletHandle`: the envelope
+    /// capability (never inferred by a client) and the restore-height hint
+    /// the wallet file carries.
+    pub async fn handle_facts(&self) -> Result<(Capability, u32), String> {
+        let shared = self
+            .engine
+            .as_ref()
+            .ok_or_else(|| "No wallet is open".to_string())?;
+        let g = shared.read().await;
+        Ok((g.capability(), g.file().restore_height_hint()))
+    }
+
     /// Project receive ledger + send journal into a transaction list.
     ///
     /// See [`transfer_history`] for the PR-SJ-2 projection rules.
@@ -748,11 +739,6 @@ impl Default for EngineSession {
     }
 }
 
-pub struct CreateOutcome {
-    pub address: String,
-    pub seed: String,
-}
-
 /// Base path `{wallet_dir}/{name}.wallet` for Engine file envelope.
 pub fn engine_wallet_base(wallet_dir: &Path, name: &str) -> PathBuf {
     wallet_dir.join(format!("{name}.wallet"))
@@ -779,7 +765,11 @@ fn network_to_derivation(network: Network) -> DerivationNetwork {
     }
 }
 
-enum SeedBackup {
+/// The backup handed out exactly once at creation, in the network's
+/// encoding — the contract's `CreateWalletResult.mnemonic` (mainnet /
+/// stagenet) or `raw_seed_hex` (testnet). Held only until the create
+/// response is built; never stored.
+pub enum SeedBackup {
     Mnemonic(String),
     RawHex(String),
 }

@@ -209,10 +209,13 @@ When a wallet is closed (`close_wallet`) or the window is destroyed:
 ## Create Wallet Flow
 
 `create_wallet(name, password)` creates the wallet through the Engine and
-returns `CreateWalletResult` — name, address, the 24-word recovery phrase,
-`seed_language`, network. `seed_language` reports the encoding the Engine
-chose (BIP-39 English, or raw 32-byte hex on testnet). There is no
-mnemonic-language argument: the Engine picks the encoding.
+returns the contract's `CreateWalletResult` — `wallet` (the `WalletHandle`:
+name, capability `FULL`, network) and the backup exactly once, in the
+network's encoding: `mnemonic` (24 words) on mainnet/stagenet or
+`raw_seed_hex` on testnet. The address is not on the result; the page reads
+it from `get_primary_address` once the wallet is open. There is no
+`seed_language` and no mnemonic-language argument: the field present says
+which encoding the Engine chose.
 
 1. **setup** — name, password and confirmation.
 2. **seed** — the phrase in a numbered grid; "Copy to clipboard" hands it to

@@ -35,7 +35,6 @@ const walletStub: WalletContextValue = {
   phase: "select_wallet",
   walletFiles: [],
   walletName: null,
-  walletAddress: null,
   error: null,
   openWallet: () => Promise.reject("stub"),
   createWallet: () => Promise.reject("stub"),

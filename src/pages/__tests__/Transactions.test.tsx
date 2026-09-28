@@ -1,9 +1,15 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { statusLabel, statusTitle } from "../../lib/transactionStatus";
-import type { Transfer, TransferState, Transfers, UnspendableReason } from "../../types/transfers";
+import type {
+  ReceiveAttribution,
+  Transfer,
+  TransferState,
+  Transfers,
+  UnspendableReason,
+} from "../../types/transfers";
 import Transactions from "../Transactions";
 
 beforeEach(() => {
@@ -25,6 +31,7 @@ function sampleTx(
     direction?: Transfer["direction"];
     state?: TransferState;
     unspendable_reason?: UnspendableReason;
+    attribution?: ReceiveAttribution;
   } = {},
 ): Transfer {
   const tx_hash =
@@ -34,6 +41,7 @@ function sampleTx(
     tx_hash,
     amount: overrides.amount ?? "1000000000",
     fee: overrides.fee ?? "10000",
+    attribution: overrides.attribution,
     block_height: overrides.block_height,
     direction: overrides.direction ?? "OUTGOING",
   };
@@ -101,17 +109,70 @@ describe("Transactions", () => {
 
     render(<Transactions />);
 
+    const rows = () => within(screen.getByTestId("transfers"));
     await waitFor(() => {
-      expect(screen.getByText("Pending")).toBeInTheDocument();
+      expect(rows().getByText("Pending")).toBeInTheDocument();
     });
-    expect(screen.getByText("Failed")).toBeInTheDocument();
-    expect(screen.getByText("Dropped")).toBeInTheDocument();
-    expect(screen.getByText("Confirmed")).toBeInTheDocument();
-    expect(screen.getByText("Spent")).toBeInTheDocument();
-    expect(screen.getByText("Block 42")).toBeInTheDocument();
+    expect(rows().getByText("Failed")).toBeInTheDocument();
+    expect(rows().getByText("Dropped")).toBeInTheDocument();
+    expect(rows().getByText("Confirmed")).toBeInTheDocument();
+    expect(rows().getByText("Spent")).toBeInTheDocument();
+    expect(rows().getByText("Block 42")).toBeInTheDocument();
     expect(screen.getByTitle(/never mined/i)).toBeInTheDocument();
     expect(screen.getByTitle(/spendable again/i)).toBeInTheDocument();
-    expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_transfers");
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_transfers", {
+      direction: undefined,
+      stateFilter: undefined,
+    });
+  });
+
+  it("sends the contract's direction and state filters to Rust, never filtering a shown list itself", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockResolvedValue(transfers([sampleTx({ state: "PENDING" })]));
+    render(<Transactions />);
+    await waitFor(() => expect(within(screen.getByTestId("transfers")).getByText("Pending")).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Received" }));
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "INCOMING",
+        stateFilter: undefined,
+      }),
+    );
+    await user.selectOptions(screen.getByLabelText("State"), "CONFIRMED");
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "INCOMING",
+        stateFilter: "CONFIRMED",
+      }),
+    );
+  });
+
+  it("shows which payment request a receive arrived against", async () => {
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([
+        sampleTx({
+          id: `${"55".repeat(32)}:0`,
+          tx_hash: "55".repeat(32),
+          direction: "INCOMING",
+          state: "CONFIRMED",
+          block_height: 7,
+          fee: "0",
+          attribution: { kind: "MATCHED", request_id: "42" },
+        }),
+        sampleTx({
+          id: `${"66".repeat(32)}:0`,
+          tx_hash: "66".repeat(32),
+          direction: "INCOMING",
+          state: "CONFIRMED",
+          block_height: 8,
+          fee: "0",
+          attribution: { kind: "UNATTRIBUTED" },
+        }),
+      ]),
+    );
+    render(<Transactions />);
+    expect(await screen.findByText("Request 42")).toBeInTheDocument();
+    expect(screen.getAllByTestId("attribution")).toHaveLength(1);
   });
 
   it("renders an unspendable receive with the reason the projection named", async () => {
@@ -178,18 +239,19 @@ describe("Transactions", () => {
       await Promise.resolve();
     });
 
+    const rows = () => within(screen.getByTestId("transfers"));
     await waitFor(() => {
-      expect(screen.getByText("Confirmed")).toBeInTheDocument();
+      expect(rows().getByText("Confirmed")).toBeInTheDocument();
     });
-    expect(screen.getByText("Block 9")).toBeInTheDocument();
+    expect(rows().getByText("Block 9")).toBeInTheDocument();
 
     // Stale first response resolves later with pending — must not clobber.
     await act(async () => {
       resolveSlow(transfers([sampleTx({ state: "PENDING" })]));
       await Promise.resolve();
     });
-    expect(screen.getByText("Confirmed")).toBeInTheDocument();
-    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+    expect(rows().getByText("Confirmed")).toBeInTheDocument();
+    expect(rows().queryByText("Pending")).not.toBeInTheDocument();
   });
 
   it("polls get_transfers so state can advance without remount", async () => {
@@ -202,15 +264,16 @@ describe("Transactions", () => {
 
     // Flush the initial invoke microtask under fake timers (no waitFor —
     // waitFor advances real time and races the 5s test timeout).
+    const rows = () => within(screen.getByTestId("transfers"));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(rows().getByText("Pending")).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15_000);
     });
-    expect(screen.getByText("Confirmed")).toBeInTheDocument();
-    expect(screen.getByText("Block 9")).toBeInTheDocument();
+    expect(rows().getByText("Confirmed")).toBeInTheDocument();
+    expect(rows().getByText("Block 9")).toBeInTheDocument();
   });
 });

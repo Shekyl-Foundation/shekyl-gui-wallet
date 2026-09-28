@@ -41,6 +41,7 @@ mod engine_errors;
 mod engine_session;
 mod features;
 mod gui_config;
+mod lifecycle;
 #[cfg(feature = "multisig")]
 mod multisig;
 mod receiving;
@@ -99,10 +100,10 @@ pub fn run() {
             commands::reset_wallet_dir,
             commands::get_wallet_dir,
             // Wallet lifecycle
-            commands::create_wallet,
-            commands::open_wallet,
-            commands::close_wallet,
-            commands::restore_wallet,
+            lifecycle::create_wallet,
+            lifecycle::open_wallet,
+            lifecycle::close_wallet,
+            lifecycle::restore_wallet,
             commands::get_staker_status,
             commands::stake,
             // Wallet data

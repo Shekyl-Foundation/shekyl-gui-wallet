@@ -3,8 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   WalletPhase,
   WalletFileInfo,
-  WalletInfo,
-  CreateWalletResult,
+  OpenedWallet,
+  CreatedWallet,
 } from "../types/wallet";
 import { WalletContext, type WalletDirResponse } from "./walletState";
 
@@ -12,7 +12,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<WalletPhase>("loading");
   const [walletFiles, setWalletFiles] = useState<WalletFileInfo[]>([]);
   const [walletName, setWalletName] = useState<string | null>(null);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [walletDir, setWalletDir] = useState<string | null>(null);
   const [walletDirFallbackFrom, setWalletDirFallbackFrom] = useState<
@@ -106,14 +105,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const openWallet = useCallback(
     async (filename: string, password: string) => {
       setError(null);
-      const info = await invoke<WalletInfo>("open_wallet", {
+      const opened = await invoke<OpenedWallet>("open_wallet", {
         filename,
         password,
       });
-      setWalletName(info.name);
-      setWalletAddress(info.address);
+      setWalletName(opened.wallet.name);
       setPhase("ready");
-      return info;
+      return opened;
     },
     [],
   );
@@ -121,13 +119,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const createWallet = useCallback(
     async (name: string, password: string) => {
       setError(null);
-      const result = await invoke<CreateWalletResult>("create_wallet", {
+      const created = await invoke<CreatedWallet>("create_wallet", {
         name,
         password,
       });
-      setWalletName(result.name);
-      setWalletAddress(result.address);
-      return result;
+      setWalletName(created.wallet.name);
+      return created;
     },
     [],
   );
@@ -135,19 +132,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const restoreWallet = useCallback(
     async (name: string, password: string, mnemonic: string, restoreHeight?: number) => {
       setError(null);
-      const info = await invoke<WalletInfo>("restore_wallet", {
+      const opened = await invoke<OpenedWallet>("restore_wallet", {
         name,
         password,
         mnemonic,
         restoreHeight: restoreHeight ?? 0,
       });
-      setWalletName(info.name);
-      setWalletAddress(info.address);
+      setWalletName(opened.wallet.name);
       // The phase stays put, as with createWallet: the Import page owns the
       // transition (show completion, navigate off /import, then "ready"),
       // because the ready-phase routes have no /import entry — flipping here
       // would unmount the page mid-flow into a blank route.
-      return info;
+      return opened;
     },
     [],
   );
@@ -159,7 +155,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // ignore close errors
     }
     setWalletName(null);
-    setWalletAddress(null);
     const files = await refreshFiles();
     setPhase(files.length > 0 ? "unlock" : "no_wallet");
   }, [refreshFiles]);
@@ -170,7 +165,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         phase,
         walletFiles,
         walletName,
-        walletAddress,
         error,
         openWallet,
         createWallet,

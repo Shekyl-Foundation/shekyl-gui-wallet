@@ -19,6 +19,30 @@ export type TransferState =
 /** `Transfer.unspendable_reason`. Present exactly when `state` is `UNSPENDABLE`. */
 export type UnspendableReason = "PQC_LEAF_MISMATCH" | "PQC_LEAF_ENTRY_ABSENT";
 
+/** `ReceiveAttribution.kind`: which payment request an incoming transfer arrived against. */
+export type ReceiveAttributionKind =
+  | "UNATTRIBUTED"
+  | "MATCHED"
+  | "LABEL_UNKNOWN"
+  | "MANUAL_MATCH"
+  | "DISPUTED";
+
+/** Present on INCOMING rows only. Bookkeeping facts; no cleartext labels. */
+export interface ReceiveAttribution {
+  kind: ReceiveAttributionKind;
+  /** Decimal `rid` when `MATCHED` / `MANUAL_MATCH`. */
+  request_id?: string;
+  echoed_label_hash?: string;
+  dispute_reason?: string;
+}
+
+/** The contract's `GetTransfersParams`, as the page sends them (all optional). */
+export interface TransferFilter {
+  direction?: TransferDirection;
+  state?: TransferState;
+  since_height?: number;
+}
+
 interface TransferCommon {
   /** Unique per wallet: `{tx_hash}:{output_index}` incoming, bare `{tx_hash}` outgoing. */
   id: string;
@@ -29,6 +53,8 @@ interface TransferCommon {
   /** Inclusion height; absent exactly when the transaction is not on chain. */
   block_height?: number;
   direction: TransferDirection;
+  /** Present on INCOMING rows only. */
+  attribution?: ReceiveAttribution;
 }
 
 /** A row the projection can emit. The reason exists only on `UNSPENDABLE`. */

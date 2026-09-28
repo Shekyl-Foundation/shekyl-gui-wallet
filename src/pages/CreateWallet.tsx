@@ -11,7 +11,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { useWallet } from "../context/useWallet";
-import type { CreateWalletResult } from "../types/wallet";
+import { seedBackupOf, type CreatedWallet, type PrimaryAddress } from "../types/wallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
 
 type Step = "setup" | "seed" | "confirm" | "done";
@@ -39,7 +39,9 @@ export default function CreateWallet() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<CreateWalletResult | null>(null);
+  const [result, setResult] = useState<CreatedWallet | null>(null);
+  /** Fetched from `get_primary_address` once the wallet is open — never carried on the create result. */
+  const [address, setAddress] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [clearAfterMs, setClearAfterMs] = useState<number | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -49,10 +51,19 @@ export default function CreateWallet() {
     {},
   );
 
-  const seedWords = useMemo(
-    () => result?.seed.split(" ").filter(Boolean) ?? [],
-    [result],
-  );
+  /** The backup as words: 24 on mainnet/stagenet; on testnet the one 64-hex seed. */
+  const seedWords = useMemo(() => (result ? seedBackupOf(result).split(" ").filter(Boolean) : []), [result]);
+
+  useEffect(() => {
+    if (step !== "done") return;
+    let live = true;
+    invoke<PrimaryAddress>("get_primary_address")
+      .then((r) => live && setAddress(r.address))
+      .catch(() => live && setAddress(null));
+    return () => {
+      live = false;
+    };
+  }, [step]);
 
   const challengeIndices = useMemo(() => {
     if (seedWords.length === 0) return [];
@@ -106,10 +117,10 @@ export default function CreateWallet() {
   }, [createWallet, name, password]);
 
   const handleCopySeed = useCallback(async () => {
-    if (!result?.seed) return;
+    if (!result) return;
     try {
       const placed = await invoke<ClipboardPlacement>("copy_to_clipboard", {
-        text: result.seed,
+        text: seedBackupOf(result),
       });
       setClearAfterMs(placed.clear_after_ms);
       setCopied(true);
@@ -392,7 +403,7 @@ export default function CreateWallet() {
             <div className="space-y-2">
               <p className="text-xs text-purple-300">Address</p>
               <p className="break-all rounded-lg bg-purple-800/80 px-3 py-2 font-mono text-[10px] text-gold-400">
-                {result.address}
+                {address ?? "…"}
               </p>
             </div>
             <p className="text-xs text-purple-300">
