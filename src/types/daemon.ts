@@ -51,7 +51,7 @@ export interface WalletStatus {
  * the card must render "unavailable", not "nothing staked".
  */
 export interface Balance {
-  /** The one-glance figure; the engine assigns it and `unlocked` from the same ledger figure today. */
+  /** The one-glance figure (engine-core `project_balance`, shekyl-core `48d515145`, assigns it and `unlocked` alike). */
   liquid: string;
   /** Spendable right now. */
   unlocked: string;

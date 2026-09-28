@@ -18,7 +18,7 @@
   `unlocked`, shows Pending / Staked / Rewards, an Unspendable line (at
   dust precision) only when there is one, and **Unavailable** for absent
   staking figures.
-  `commands.rs` ceiling locked at 600.
+  `commands.rs` ceiling locked at 586.
 - **Review round on #30.** `createdWalletFromWire` fails closed by presence
   and by network: an arm that is present but empty is a contract violation,
   not a missing arm, and the handle's network chooses the one encoding
