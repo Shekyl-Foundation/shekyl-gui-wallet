@@ -1,4 +1,4 @@
-import type { TransferState } from "../types/transfers";
+import type { TransferState, UnspendableReason } from "../types/transfers";
 
 /** How each contract `Transfer.state` reads on the Transactions page (rule 82: no arm collapsed). */
 const STATE_META: Record<TransferState, { label: string; className: string; title?: string }> = {
@@ -28,14 +28,26 @@ const STATE_META: Record<TransferState, { label: string; className: string; titl
   },
 };
 
-export function statusLabel(state: string): string {
-  return STATE_META[state as TransferState]?.label ?? state;
+/** Which half of a received-but-unspendable output failed, in ordinary language. */
+const UNSPENDABLE_TITLE: Record<UnspendableReason, string> = {
+  PQC_LEAF_MISMATCH:
+    "Received on chain, but it was not created for this wallet, so it can never be spent. It is counted in no balance.",
+  PQC_LEAF_ENTRY_ABSENT:
+    "Received on chain, but the transaction is missing what a spend needs, so this wallet can never spend it. It is counted in no balance.",
+};
+
+export function statusLabel(state: TransferState): string {
+  return STATE_META[state].label;
 }
 
-export function statusClass(state: string): string {
-  return STATE_META[state as TransferState]?.className ?? "text-purple-400";
+export function statusClass(state: TransferState): string {
+  return STATE_META[state].className;
 }
 
-export function statusTitle(state: string): string | undefined {
-  return STATE_META[state as TransferState]?.title;
+/** `reason` selects the unspendable sentence. Other states ignore it. */
+export function statusTitle(state: TransferState, reason?: UnspendableReason): string | undefined {
+  if (state === "UNSPENDABLE" && reason !== undefined) {
+    return UNSPENDABLE_TITLE[reason];
+  }
+  return STATE_META[state].title;
 }

@@ -51,8 +51,8 @@ export default function ImportWallet() {
     try {
       await restoreWallet(
         name.trim(),
-        seed.trim(),
         password,
+        seed.trim(),
         restoreHeight ? parseInt(restoreHeight, 10) : 0,
       );
       setRestore("complete");

@@ -5,28 +5,31 @@
 
 //! Project Engine receive-ledger + send-journal rows for the Transactions list.
 //!
-//! Mirrors the PR-SJ-2 merge in `shekyl-wallet-rpc` (`collect_transfers` /
-//! `outgoing_transfer_view` / `transfer_state`) without depending on the RPC
-//! crate. Divergences are intentional and narrow:
+//! Mirrors the wallet-rpc merge (`collect_transfers` / `outgoing_transfer_view`
+//! / `transfer_state`) without depending on the RPC crate. This module is the
+//! GUI's projection; the session calls it and does not own the DTO.
 //!
-//! - **No filters / attribution** — the GUI always shows the full list.
-//! - **Newest-first display** — same order key as wallet-rpc (ascending
-//!   inclusion height, incoming before outgoing, never-mined last), then
-//!   reversed for the Transactions UI.
-//! - **Flat Tauri DTO** — [`TransferRow`] is the JSON edge (raw `u64`,
-//!   snake_case enums). Receive facts and the merge key stay domain-typed
-//!   (`TxHash`, `OutputIndexInTx`, `AtomicUnits`, `BlockHeight`) until that
-//!   unwrap, same cut as wallet-rpc `project.rs` / [`crate::staking_view`].
+//! Divergences from the contract's `Transfer`:
 //!
-//! A future shared crate (or engine-core helper) should own this once; until
-//! then this module is the single GUI home for the projection so it does not
-//! live inside the Engine session type.
+//! - No filters, receive attribution, per-txid notes, or `spent_height` — the
+//!   Transactions page does not render them.
+//! - Newest-first display — same order key as wallet-rpc (ascending inclusion
+//!   height, incoming before outgoing, never-mined last), then reversed.
+//!
+//! The JSON edge is [`TransferRow`]: amounts are [`crate::wire::AtomicUnitsString`]
+//! (decimal strings), and `direction` / `state` / `unspendable_reason` use the
+//! contract's `SCREAMING_SNAKE_CASE` spelling. Receive facts and the merge key
+//! stay domain-typed (`TxHash`, `OutputIndexInTx`, `AtomicUnits`, `BlockHeight`,
+//! the ledger's unspendable reason) until [`project_incoming_row`].
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use serde::Serialize;
-use shekyl_engine_state::{InFlightSpendLocks, SendRecord, SendState, TransferDetails};
+use shekyl_engine_state::{
+    InFlightSpendLocks, SendRecord, SendState, TransferDetails,
+    UnspendableReason as LedgerUnspendableReason,
+};
 use shekyl_types::{BlockHeight, OutputIndexInTx, TxHash};
 use shekyl_units::AtomicUnits;
 
@@ -35,10 +38,9 @@ use crate::wire::AtomicUnitsString;
 /// Lifecycle state on a projected history row (rule 82 — never collapse arms),
 /// spelled as the contract's `Transfer.state` enum.
 ///
-/// Outgoing arms map 1:1 from [`SendState`]. Incoming arms match wallet-rpc's
-/// projection: spent / awaiting confirmation / confirmed. `UNSPENDABLE` is in
-/// the contract's enum but not projected here yet: the GUI's incoming facts
-/// carry no unspendable reason.
+/// Outgoing arms map 1:1 from [`SendState`]. Incoming arms follow wallet-rpc
+/// `transfer_state`: spent, then received-but-unspendable, then awaiting
+/// confirmation, then confirmed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TransferState {
@@ -46,13 +48,37 @@ pub enum TransferState {
     Pending,
     Failed,
     Dropped,
-    /// User-abandoned send (`abandon_tx`, PR-SJ-3; outgoing only). Distinct
-    /// from [`Self::Dropped`]: the release came from user intent, not
+    /// User-abandoned send (`abandon_tx`; outgoing only). Distinct from
+    /// [`Self::Dropped`]: the release came from user intent, not
     /// confirmed-absent evidence, and a late confirmation still flips the
-    /// row to [`Self::Confirmed`] loudly rather than staying wrong.
+    /// row to [`Self::Confirmed`].
     Abandoned,
     /// Receive-side output already spent on chain (incoming only).
     Spent,
+    /// Receive-side output whose chain leaf can never be spent (incoming only).
+    /// [`TransferRow::unspendable_reason`] names which half failed.
+    Unspendable,
+}
+
+/// Why an incoming row can never be spent. Spelled as the contract's
+/// `Transfer.unspendable_reason`. The ledger enum stays on [`IncomingFact`];
+/// this is the wire spelling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum UnspendableReason {
+    /// The published leaf does not open to this wallet's derivation.
+    PqcLeafMismatch,
+    /// The transaction carries no leaf entry for this output.
+    PqcLeafEntryAbsent,
+}
+
+impl From<LedgerUnspendableReason> for UnspendableReason {
+    fn from(reason: LedgerUnspendableReason) -> Self {
+        match reason {
+            LedgerUnspendableReason::PqcLeafMismatch => Self::PqcLeafMismatch,
+            LedgerUnspendableReason::PqcLeafEntryAbsent => Self::PqcLeafEntryAbsent,
+        }
+    }
 }
 
 /// Direction of a projected history row, spelled as the contract's
@@ -64,9 +90,7 @@ pub enum TransferDirection {
     Outgoing,
 }
 
-/// One row in the Transactions list (receive ledger or send journal): the
-/// contract's `Transfer`, plus two GUI-only display facts (`timestamp`,
-/// `pqc_protected`) the contract does not carry.
+/// One row in the Transactions list: the contract fields the page renders.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TransferRow {
     /// Stable list key: `{tx_hash}:{output_index}` (incoming) or bare
@@ -79,10 +103,11 @@ pub struct TransferRow {
     /// failed / dropped / abandoned sends), as the contract specifies.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_height: Option<u64>,
-    pub timestamp: u64,
     pub direction: TransferDirection,
     pub state: TransferState,
-    pub pqc_protected: bool,
+    /// Present exactly when [`Self::state`] is [`TransferState::Unspendable`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unspendable_reason: Option<UnspendableReason>,
 }
 
 /// Narrow receive facts so projection tests need no full `TransferDetails`
@@ -96,6 +121,9 @@ pub struct IncomingFact {
     pub block_height: BlockHeight,
     pub spent: bool,
     pub awaiting_confirmation: bool,
+    /// Ledger classification. Converted to the wire enum in
+    /// [`project_incoming_row`]; `None` when the output opened to this wallet.
+    pub unspendable: Option<LedgerUnspendableReason>,
 }
 
 impl IncomingFact {
@@ -113,6 +141,7 @@ impl IncomingFact {
             block_height: td.block_height,
             spent: td.spent,
             awaiting_confirmation: spend_locks.contains(td.global_output_index),
+            unspendable: td.unspendable,
         }
     }
 }
@@ -160,14 +189,29 @@ pub fn merge_transfer_history(
 
 /// Project one ledger receive output (no folding — one row per output, like
 /// wallet-rpc).
-fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
-    let state = if fact.spent {
-        TransferState::Spent
+/// Incoming settlement, in wallet-rpc order.
+///
+/// Spent wins, then the scan-time unspendable verdict (it outranks a lock
+/// and `CONFIRMED`, which promises spendability), then awaiting confirmation.
+/// The reason is returned only for [`TransferState::Unspendable`]: the
+/// contract field is present exactly then, so a spent row omits it.
+fn incoming_settlement(fact: &IncomingFact) -> (TransferState, Option<UnspendableReason>) {
+    if fact.spent {
+        (TransferState::Spent, None)
+    } else if let Some(reason) = fact.unspendable {
+        (
+            TransferState::Unspendable,
+            Some(UnspendableReason::from(reason)),
+        )
     } else if fact.awaiting_confirmation {
-        TransferState::Pending
+        (TransferState::Pending, None)
     } else {
-        TransferState::Confirmed
-    };
+        (TransferState::Confirmed, None)
+    }
+}
+
+fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
+    let (state, unspendable_reason) = incoming_settlement(fact);
     let tx_hash = fact.tx_hash.to_string();
     TransferRow {
         id: format!("{tx_hash}:{}", fact.output_index.to_raw()),
@@ -175,10 +219,9 @@ fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
         amount: fact.amount.into(),
         fee: 0.into(),
         block_height: Some(fact.block_height.to_raw()),
-        timestamp: 0,
         direction: TransferDirection::Incoming,
         state,
-        pqc_protected: true,
+        unspendable_reason,
     }
 }
 
@@ -204,10 +247,9 @@ fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<Transfer
         amount: sent.into(),
         fee: record.fee.into(),
         block_height,
-        timestamp: 0,
         direction: TransferDirection::Outgoing,
         state,
-        pqc_protected: true,
+        unspendable_reason: None,
     })
 }
 
@@ -292,6 +334,7 @@ mod tests {
             block_height: BlockHeight::from_raw(height),
             spent,
             awaiting_confirmation: awaiting,
+            unspendable: None,
         }
     }
 
@@ -307,6 +350,7 @@ mod tests {
         assert_eq!(row.fee.to_raw(), 100);
         assert_eq!(row.tx_hash, hex::encode(txid));
         assert_eq!(row.id, row.tx_hash);
+        assert_eq!(row.unspendable_reason, None);
     }
 
     #[test]
@@ -390,6 +434,53 @@ mod tests {
 
         let spent = project_incoming_row(&incoming(1, 10, 100, 2, true, false));
         assert_eq!(spent.state, TransferState::Spent);
+        assert_eq!(spent.unspendable_reason, None);
+    }
+
+    /// The scan-time verdict outranks a lock and `CONFIRMED`. Spent still
+    /// wins, and then the reason is omitted: the contract field is present
+    /// exactly when the state is `UNSPENDABLE`.
+    #[test]
+    fn incoming_unspendable_names_the_reason_and_spent_omits_it() {
+        let mut mismatch = incoming(1, 10, 100, 0, false, true);
+        mismatch.unspendable = Some(LedgerUnspendableReason::PqcLeafMismatch);
+        let row = project_incoming_row(&mismatch);
+        assert_eq!(row.state, TransferState::Unspendable);
+        assert_eq!(
+            row.unspendable_reason,
+            Some(UnspendableReason::PqcLeafMismatch)
+        );
+        let json = serde_json::to_value(&row).expect("serialize");
+        assert_eq!(json["state"], "UNSPENDABLE");
+        assert_eq!(json["unspendable_reason"], "PQC_LEAF_MISMATCH");
+
+        let mut absent = incoming(2, 10, 100, 0, false, false);
+        absent.unspendable = Some(LedgerUnspendableReason::PqcLeafEntryAbsent);
+        let row = project_incoming_row(&absent);
+        assert_eq!(
+            row.unspendable_reason,
+            Some(UnspendableReason::PqcLeafEntryAbsent)
+        );
+        assert_eq!(
+            serde_json::to_value(&row).expect("serialize")["unspendable_reason"],
+            "PQC_LEAF_ENTRY_ABSENT"
+        );
+
+        let mut spent = incoming(3, 10, 100, 0, true, true);
+        spent.unspendable = Some(LedgerUnspendableReason::PqcLeafMismatch);
+        let row = project_incoming_row(&spent);
+        assert_eq!(row.state, TransferState::Spent);
+        assert_eq!(row.unspendable_reason, None);
+        assert!(serde_json::to_value(&row)
+            .expect("serialize")
+            .get("unspendable_reason")
+            .is_none());
+
+        let confirmed = project_incoming_row(&incoming(4, 10, 100, 0, false, false));
+        assert!(serde_json::to_value(&confirmed)
+            .expect("serialize")
+            .get("unspendable_reason")
+            .is_none());
     }
 
     #[test]
