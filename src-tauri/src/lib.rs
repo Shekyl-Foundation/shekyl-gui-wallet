@@ -115,10 +115,11 @@ pub fn run() {
             send::submit_pending_tx,
             send::discard_pending_tx,
             commands::get_transfers,
-            // Receiving: payment requests and the shekyl: URI (contract names)
+            // Receiving: payment requests and the shekyl: URI (contract names).
+            // `make_uri` is the contract's freeform composer; this GUI shows
+            // the stored link from the list instead, so it is not registered.
             receiving::create_payment_request,
             receiving::list_payment_requests,
-            receiving::make_uri,
             receiving::parse_uri,
             // Shard identity preview (pre-archival beta)
             shard_visual::list_shard_preview_fixtures,

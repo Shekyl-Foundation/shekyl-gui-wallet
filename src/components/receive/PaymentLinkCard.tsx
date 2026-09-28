@@ -53,8 +53,8 @@ export default function PaymentLinkCard({ uri, title, onDismiss }: PaymentLinkCa
         </p>
       )}
       <p className="text-[10px] text-purple-400">
-        Anyone who pays this link sends to your address; the link's reference lets this wallet
-        match the payment to the request when it arrives.
+        Send this link to whoever is paying you. It carries the amount and the label. Pasting it
+        fills in their address and amount. That payment does not mark this request paid yet.
       </p>
     </div>
   );

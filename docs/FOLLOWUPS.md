@@ -366,9 +366,11 @@ amount). The **send** side has the mechanism but no caller:
 plaintext from a parsed link, but `TxRequest` / `TxRecipient` carry no
 `rid` or label, so neither wallet-rpc's `build_pending_tx`, the CLI, nor
 this wallet's Send page can attach it — a payment made from a link arrives
-at the payee **unattributed** and the request never flips to Paid. This
-wallet's Send page therefore prefills address and amount from a link and
-says so, and promises no more.
+at the payee **unattributed** and the request never flips to Paid. The
+Receive page says so, and its list shows the link
+`format_request_uri` built from the stored row rather than a second
+composer. The Send page prefills address and amount from a link and
+promises no more.
 
 **Named blocker:** a shekyl-core change — an outbound label (`rid`) on
 `TxRecipient`, threaded to `construct_output`, exposed on the contract's

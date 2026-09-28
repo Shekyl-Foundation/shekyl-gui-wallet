@@ -5,13 +5,25 @@ import { parseSkl, SKL_AMOUNT_PATTERN } from "../../lib/format";
 import { describeError } from "../../lib/errors";
 import type { CreatedPaymentRequest } from "../../types/receiving";
 
-/** Expiry choices, as durations from now; `null` is "no expiry". */
-const EXPIRY_CHOICES: readonly { label: string; seconds: number | null }[] = [
-  { label: "No expiry", seconds: null },
-  { label: "1 hour", seconds: 60 * 60 },
-  { label: "24 hours", seconds: 24 * 60 * 60 },
-  { label: "7 days", seconds: 7 * 24 * 60 * 60 },
-];
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+const DAYS_PER_WEEK = 7;
+const SECONDS_PER_HOUR = MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
+const SECONDS_PER_DAY = HOURS_PER_DAY * SECONDS_PER_HOUR;
+const SECONDS_PER_WEEK = DAYS_PER_WEEK * SECONDS_PER_DAY;
+
+/** Expiry choices, as durations from now. `none` does not expire. */
+const EXPIRY_CHOICES = [
+  { id: "none", label: "No expiry", seconds: null },
+  { id: "1h", label: "1 hour", seconds: SECONDS_PER_HOUR },
+  { id: "24h", label: "24 hours", seconds: SECONDS_PER_DAY },
+  { id: "7d", label: "7 days", seconds: SECONDS_PER_WEEK },
+] as const;
+
+type ExpiryChoiceId = (typeof EXPIRY_CHOICES)[number]["id"];
+
+/** Same character bound as `MAX_LABEL_CHARS` in `receiving.rs`. The label is written onto the link. */
 const MAX_LABEL_CHARS = 256;
 
 interface RequestPaymentFormProps {
@@ -20,15 +32,15 @@ interface RequestPaymentFormProps {
 }
 
 /**
- * The contract's `create_payment_request`: amount, a label for your own
- * bookkeeping, optional expiry. The request is stored in the wallet and the
- * returned `shekyl:` link carries its reference, so a payment made from the
- * link is matched to it when it arrives.
+ * The contract's `create_payment_request`: amount, a label, optional
+ * expiry. The label is stored and copied onto the `shekyl:` link, so the
+ * payer sees it. Paying the link fills their send form; it does not yet
+ * mark this request paid.
  */
 export default function RequestPaymentForm({ onCreated }: RequestPaymentFormProps) {
   const [amountText, setAmountText] = useState("");
   const [label, setLabel] = useState("");
-  const [expiryIndex, setExpiryIndex] = useState(0);
+  const [expiryId, setExpiryId] = useState<ExpiryChoiceId>("none");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,8 +56,8 @@ export default function RequestPaymentForm({ onCreated }: RequestPaymentFormProp
       setError(describeError(err));
       return;
     }
-    const seconds = EXPIRY_CHOICES[expiryIndex].seconds;
-    const expiry = seconds === null ? undefined : Math.floor(Date.now() / 1000) + seconds;
+    const choice = EXPIRY_CHOICES.find((c) => c.id === expiryId) ?? EXPIRY_CHOICES[0];
+    const expiry = choice.seconds === null ? undefined : Math.floor(Date.now() / 1000) + choice.seconds;
     setBusy(true);
     try {
       const created = await invoke<CreatedPaymentRequest>("create_payment_request", {
@@ -55,7 +67,7 @@ export default function RequestPaymentForm({ onCreated }: RequestPaymentFormProp
       });
       setAmountText("");
       setLabel("");
-      setExpiryIndex(0);
+      setExpiryId("none");
       onCreated(created);
     } catch (err) {
       setError(describeError(err));
@@ -92,12 +104,15 @@ export default function RequestPaymentForm({ onCreated }: RequestPaymentFormProp
           <select
             id="request-expiry"
             className="input"
-            value={expiryIndex}
-            onChange={(e) => setExpiryIndex(Number(e.target.value))}
+            value={expiryId}
+            onChange={(e) => {
+              const id = e.target.value as ExpiryChoiceId;
+              if (EXPIRY_CHOICES.some((c) => c.id === id)) setExpiryId(id);
+            }}
             disabled={busy}
           >
-            {EXPIRY_CHOICES.map((c, i) => (
-              <option key={c.label} value={i}>
+            {EXPIRY_CHOICES.map((c) => (
+              <option key={c.id} value={c.id}>
                 {c.label}
               </option>
             ))}
@@ -106,7 +121,7 @@ export default function RequestPaymentForm({ onCreated }: RequestPaymentFormProp
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-purple-200" htmlFor="request-label">
-          Label <span className="text-purple-400">(for you; not sent to the payer)</span>
+          Label <span className="text-purple-400">(on the link; the payer will see it)</span>
         </label>
         <input
           id="request-label"

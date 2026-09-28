@@ -27,10 +27,10 @@ function splitAddress(full: string): {
 }
 
 /**
- * Receive: the wallet's one address, and payment requests — the contract's
- * receive-attribution surface (no subaddresses). Creating a request stores
- * it in the wallet and yields a `shekyl:` link whose reference lets the scan
- * match the payment when it arrives; the list shows each request's state.
+ * Receive: the wallet's one address, and payment requests. Creating a
+ * request stores it and yields the `shekyl:` link composed from that stored
+ * row. The list shows each request's state and can show that same link
+ * again. Paying the link does not yet mark the request paid.
  */
 export default function Receive() {
   const [address, setAddress] = useState<string>("");
@@ -44,8 +44,9 @@ export default function Receive() {
     setRequestsVersion((v) => v + 1);
   }
 
-  function onShowLink(request: PaymentRequest, uri: string) {
-    setLink({ title: request.label ? `Payment link — ${request.label}` : `Payment link — request ${request.id}`, uri });
+  function onShowLink(request: PaymentRequest) {
+    const title = request.label ? `Payment link — ${request.label}` : `Payment link — request ${request.id}`;
+    setLink({ title, uri: request.uri });
   }
 
   useEffect(() => {

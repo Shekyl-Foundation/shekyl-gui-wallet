@@ -6,6 +6,7 @@ import Receive from "../Receive";
 import type { PaymentRequest } from "../../types/receiving";
 
 const MOCK_ADDRESS = "SKL1mock_account0_subaddr0...placeholder";
+const PENDING_URI = `shekyl:${MOCK_ADDRESS}?amount=1500000000&label=Invoice%201042&rid=42&expiry=1700003600`;
 const PENDING: PaymentRequest = {
   id: "42",
   label: "Invoice 1042",
@@ -13,6 +14,7 @@ const PENDING: PaymentRequest = {
   created_at: 1_700_000_000,
   expiry: 1_700_003_600,
   state: "PENDING",
+  uri: PENDING_URI,
 };
 const PAID: PaymentRequest = {
   id: "43",
@@ -22,6 +24,7 @@ const PAID: PaymentRequest = {
   state: "MATCHED",
   matched_tx_hash: "ab".repeat(32),
   matched_output_index: 0,
+  uri: `shekyl:${MOCK_ADDRESS}?amount=9007199254740993&rid=43`,
 };
 
 type Handler = (args?: Record<string, unknown>) => unknown;
@@ -49,9 +52,12 @@ beforeEach(() => {
 });
 
 describe("Receive page", () => {
-  it("renders the page title", () => {
+  it("renders the page title", async () => {
     render(<Receive />);
     expect(screen.getByText("Receive SKL")).toBeInTheDocument();
+    // The list's read settles after the title paints. Wait for it so the
+    // update is not left hanging when the test ends.
+    expect(await screen.findByText("No payment requests yet.")).toBeInTheDocument();
   });
 
   it("displays the receiving address from the backend", async () => {
@@ -108,7 +114,7 @@ describe("Payment requests", () => {
     await screen.findByRole("form", { name: /request a payment/i });
     await u.type(screen.getByLabelText(/amount \(skl\)/i), "1.5");
     await u.type(screen.getByLabelText(/^label/i), "Invoice 1042");
-    await u.selectOptions(screen.getByLabelText(/expires/i), "2");
+    await u.selectOptions(screen.getByLabelText(/expires/i), "24h");
     const before = Math.floor(Date.now() / 1000);
     await u.click(screen.getByRole("button", { name: /create payment link/i }));
     await screen.findByTestId("payment-link");
@@ -139,7 +145,6 @@ describe("Payment requests", () => {
         listed = args;
         return { payment_requests: [PENDING, PAID] };
       },
-      make_uri: (args) => ({ uri: `shekyl:${MOCK_ADDRESS}?amount=${args?.amount}&rid=${args?.rid}` }),
     });
     render(<Receive />);
     expect(await screen.findByText("Invoice 1042")).toBeInTheDocument();
@@ -147,14 +152,46 @@ describe("Payment requests", () => {
     const pendingRow = screen.getByText("Invoice 1042").closest("li")!;
     const paidRow = screen.getByText("Request 43").closest("li")!;
     expect(within(pendingRow).getByText("Awaiting payment")).toBeInTheDocument();
-    expect(within(pendingRow).getByText("1.500000 SKL")).toBeInTheDocument();
+    expect(within(pendingRow).getByText("1.500000000 SKL")).toBeInTheDocument();
     expect(within(paidRow).getByText("Paid")).toBeInTheDocument();
-    expect(within(paidRow).getByText("9007199.254740 SKL")).toBeInTheDocument();
+    expect(within(paidRow).getByText("9007199.254740993 SKL")).toBeInTheDocument();
 
     await u.click(screen.getByRole("button", { name: /show payment link for invoice 1042/i }));
-    await screen.findByTestId("payment-link");
-    expect(calls("make_uri")[0][1]).toEqual({ amount: "1500000000", label: "Invoice 1042", rid: "42", expiry: 1_700_003_600 });
+    expect(await screen.findByTestId("payment-link")).toHaveTextContent(PENDING_URI);
+    expect(calls("make_uri")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: /show payment link for request 43/i })).not.toBeInTheDocument();
+  });
+
+  it("a failed list is a fault, not a loading line that never ends", async () => {
+    route({
+      ...BASE,
+      list_payment_requests: () => {
+        throw "could not read payment requests";
+      },
+    });
+    render(<Receive />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not read payment requests");
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+    expect(screen.queryByText("No payment requests yet.")).not.toBeInTheDocument();
+  });
+
+  it("a slow list for the previous filter cannot overwrite the one on screen", async () => {
+    let resolveAll: (value: unknown) => void = () => {};
+    route({
+      ...BASE,
+      list_payment_requests: (args) => {
+        if (args?.filter === "ALL") return new Promise((resolve) => (resolveAll = resolve));
+        return { payment_requests: [{ ...PENDING, label: "From pending" }] };
+      },
+    });
+    const u = userEvent.setup();
+    render(<Receive />);
+    await u.click(await screen.findByRole("tab", { name: "Pending" }));
+    expect(await screen.findByText("From pending")).toBeInTheDocument();
+    resolveAll({ payment_requests: [{ ...PENDING, label: "From all" }] });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByText("From all")).not.toBeInTheDocument();
+    expect(screen.getByText("From pending")).toBeInTheDocument();
   });
 
   it("filters by the contract's names", async () => {

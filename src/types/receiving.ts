@@ -1,8 +1,10 @@
 /**
  * The wallet contract's receiving vocabulary (`docs/api/wallet_rpc.yaml`):
- * payment requests and the `shekyl:` URI. Shekyl has no subaddresses; a
- * request's opaque `rid` on the URI is how a receive is attributed.
- * Atomic amounts are decimal strings; format with `formatSkl`.
+ * payment requests and the `shekyl:` URI. Shekyl has no subaddresses. A
+ * request's opaque `rid` rides the link. Paying that link does not yet
+ * mark the request paid (`docs/FOLLOWUPS.md`); the Send page only prefills
+ * from it. Atomic amounts are decimal strings; format with `formatSkl`.
+ * `PaymentRequest.uri` is the stored link, not a contract field.
  */
 
 export type PaymentRequestState = "PENDING" | "MATCHED" | "EXPIRED" | "CANCELLED";
@@ -21,6 +23,12 @@ export interface PaymentRequest {
   state: PaymentRequestState;
   matched_tx_hash?: string;
   matched_output_index?: number;
+  /**
+   * `shekyl:` link composed from this stored request. The same string
+   * `create_payment_request` returns. The label, when the request has one,
+   * is on this link.
+   */
+  uri: string;
 }
 
 /** `create_payment_request` result: the `rid` and the URI composed from the stored request. */
@@ -31,10 +39,6 @@ export interface CreatedPaymentRequest {
 
 export interface PaymentRequests {
   payment_requests: PaymentRequest[];
-}
-
-export interface PaymentUriResult {
-  uri: string;
 }
 
 /** `parse_uri` result: the link's components, untrusted text to prefill and show. */

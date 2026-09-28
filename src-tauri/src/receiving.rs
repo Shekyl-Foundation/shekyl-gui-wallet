@@ -5,41 +5,73 @@
 
 //! Receiving — payment requests and the `shekyl:` URI, under the wallet
 //! contract's own names (WI-RPC-1): `create_payment_request`,
-//! `list_payment_requests`, `make_uri`, `parse_uri`. A feature module
-//! (rule 27), the Tauri twin of wallet-rpc's `receiving.rs` over the same
-//! Engine surface.
+//! `list_payment_requests`, `parse_uri`. A feature module (rule 27) over
+//! the same Engine calls as wallet-rpc.
 //!
-//! Shekyl has **no subaddresses and no accounts**: the receive-attribution
-//! surface is the payment request — local bookkeeping with an opaque `rid`
-//! that rides the `shekyl:` URI, matched by the wallet's normal scan. Only
+//! The contract also names `make_uri`, the freeform composer wallet-rpc and
+//! the CLI use. This GUI has no such screen. Create and the list both
+//! return the URI `Engine::format_request_uri` builds from the stored row,
+//! so the link a person shows is the stored request and not a second
+//! assembly of its fields. Registering `make_uri` with no page would fail
+//! the command-surface consumer leg; it is in flight on the contract, not
+//! a command here.
+//!
+//! Shekyl has no subaddresses and no accounts. A request is local
+//! bookkeeping; its opaque `rid` rides the `shekyl:` URI. The scan can
+//! match an inbound output whose encrypted label carries that `rid`, but
+//! no current sender attaches one (`docs/FOLLOWUPS.md`), so nothing here
+//! promises that paying the link marks the request paid. Only
 //! `create_payment_request` mutates (persisted through the ledger's
-//! crash-atomic save); the other three are reads. Every atomic amount on
-//! this edge is the contract's decimal string (`wire::AtomicUnitsString`).
+//! crash-atomic save). Every atomic amount on this edge is
+//! `wire::AtomicUnitsString`.
 
 use serde::Serialize;
-use shekyl_engine_core::{
-    format_payment_uri, parse_payment_uri, NewPaymentRequest, PaymentRequestFilter,
-};
-use shekyl_engine_state::{PaymentRequest, PaymentRequestId, PaymentRequestState};
+use shekyl_engine_core::{parse_payment_uri, NewPaymentRequest, PaymentRequestFilter};
+use shekyl_engine_state::{PaymentRequest, PaymentRequestState};
 use shekyl_types::Timestamp;
 use tauri::State;
 
 use crate::state::AppState;
 use crate::wire::AtomicUnitsString;
 
-/// The contract's names for a request's lifecycle (`PaymentRequestState`).
+/// The contract's names for a list filter. Unknown values are refused
+/// without echoing the input, which a serde enum on the command argument
+/// would put into the deserialize error.
 pub mod contract {
     pub const FILTER_ALL: &str = "ALL";
     pub const FILTER_PENDING: &str = "PENDING";
     pub const FILTER_MATCHED: &str = "MATCHED";
-
-    pub const STATE_PENDING: &str = "PENDING";
-    pub const STATE_MATCHED: &str = "MATCHED";
-    pub const STATE_EXPIRED: &str = "EXPIRED";
-    pub const STATE_CANCELLED: &str = "CANCELLED";
 }
 
-/// The contract's `PaymentRequest`: bookkeeping facts only, no key material.
+/// The contract's `PaymentRequestState`, spelled the way the wire spells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PaymentRequestStateView {
+    Pending,
+    Matched,
+    Expired,
+    Cancelled,
+}
+
+impl From<PaymentRequestState> for PaymentRequestStateView {
+    fn from(state: PaymentRequestState) -> Self {
+        match state {
+            PaymentRequestState::Pending => Self::Pending,
+            PaymentRequestState::Matched => Self::Matched,
+            PaymentRequestState::Expired => Self::Expired,
+            PaymentRequestState::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+/// The contract's `PaymentRequest`, plus the link composed from that same
+/// row. Bookkeeping facts only; no key material.
+///
+/// `uri` is not a field of the contract's `PaymentRequest`. It is the
+/// string `Engine::format_request_uri` returns for this id, the same
+/// string `create_payment_request` returns, so the client shows the stored
+/// link instead of passing the row's fields back through a freeform
+/// composer.
 #[derive(Debug, Serialize)]
 pub struct PaymentRequestView {
     /// Opaque request id (`rid`; non-zero u48, decimal string).
@@ -51,29 +83,27 @@ pub struct PaymentRequestView {
     /// Absolute expiry as Unix seconds (UTC), if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expiry: Option<u64>,
-    pub state: &'static str,
+    pub state: PaymentRequestStateView,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matched_tx_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matched_output_index: Option<u64>,
+    /// `shekyl:` link for this stored request.
+    pub uri: String,
 }
 
-impl From<&PaymentRequest> for PaymentRequestView {
-    fn from(r: &PaymentRequest) -> Self {
+impl PaymentRequestView {
+    fn from_stored(r: &PaymentRequest, uri: String) -> Self {
         Self {
             id: r.id.as_u64().to_string(),
             label: r.label.expose().as_str().to_owned(),
             amount: r.amount_atomic.into(),
             created_at: r.created_at.to_raw(),
             expiry: r.expiry.map(Timestamp::to_raw),
-            state: match r.state {
-                PaymentRequestState::Pending => contract::STATE_PENDING,
-                PaymentRequestState::Matched => contract::STATE_MATCHED,
-                PaymentRequestState::Expired => contract::STATE_EXPIRED,
-                PaymentRequestState::Cancelled => contract::STATE_CANCELLED,
-            },
+            state: r.state.into(),
             matched_tx_hash: r.matched_tx_hash.map(|h| h.to_string()),
             matched_output_index: r.matched_output_index.map(|i| i.to_raw()),
+            uri,
         }
     }
 }
@@ -89,11 +119,6 @@ pub struct CreatedPaymentRequest {
 #[derive(Debug, Serialize)]
 pub struct PaymentRequests {
     pub payment_requests: Vec<PaymentRequestView>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PaymentUriResult {
-    pub uri: String,
 }
 
 /// `parse_uri` result: the query components as written. The address is not
@@ -128,18 +153,6 @@ fn parse_filter(filter: Option<&str>) -> Result<PaymentRequestFilter, String> {
     }
 }
 
-/// A `rid`: decimal string, non-zero, u48-fitting (the on-wire encoding);
-/// anything else is refused rather than silently dropped.
-fn parse_rid(s: &str) -> Result<u64, String> {
-    let raw: u64 = s
-        .parse()
-        .map_err(|_| "rid must be a decimal integer string".to_string())?;
-    if !PaymentRequestId::rid_fits_wire(raw) {
-        return Err("rid must be non-zero and fit the u48 wire encoding".into());
-    }
-    Ok(raw)
-}
-
 /// An invoice expiry: absolute Unix seconds. Values below 1e9 are refused as
 /// height-shaped leftovers (RTN-6): invoice clocks are timestamps, not heights.
 fn parse_expiry(secs: u64) -> Result<Timestamp, String> {
@@ -157,8 +170,8 @@ fn unix_now() -> Timestamp {
     )
 }
 
-/// Longest label a request or a composed link may carry: bookkeeping text,
-/// and the one free-text component of a URI the UI renders as a QR code.
+/// Longest label a request may carry. The engine copies a non-empty label
+/// onto the `shekyl:` link, so this is also the bound on that QR's text.
 const MAX_LABEL_CHARS: usize = 256;
 
 fn validate_label(label: &str) -> Result<(), String> {
@@ -173,20 +186,10 @@ fn validate_label(label: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The bounds a stored request and a freeform link share: `create` and
-/// `make_uri` refuse the same label and the same amount, so a link the UI
-/// composes can never carry what a request could not hold.
-fn validate_link_inputs(
-    label: Option<&str>,
-    amount: Option<AtomicUnitsString>,
-) -> Result<(), String> {
-    if let Some(label) = label {
-        validate_label(label)?;
-    }
-    if let Some(amount) = amount {
-        crate::validate::validate_amount(amount.to_raw())?;
-    }
-    Ok(())
+/// What `create_payment_request` will store and then put on the link.
+fn validate_request_inputs(label: &str, amount: AtomicUnitsString) -> Result<(), String> {
+    validate_label(label)?;
+    crate::validate::validate_amount(amount.to_raw())
 }
 
 async fn shared_engine(state: &AppState) -> Result<crate::engine_session::SharedEngine, String> {
@@ -205,7 +208,7 @@ pub async fn create_payment_request(
     amount: AtomicUnitsString,
     expiry: Option<u64>,
 ) -> Result<CreatedPaymentRequest, String> {
-    validate_link_inputs(Some(&label), Some(amount))?;
+    validate_request_inputs(&label, amount)?;
     let expiry = expiry.map(parse_expiry).transpose()?;
     let shared = shared_engine(&state).await?;
     // Write guard: the one receiving method that mutates (local
@@ -247,49 +250,23 @@ pub async fn list_payment_requests(
     let filter = parse_filter(filter.as_deref())?;
     let shared = shared_engine(&state).await?;
     let engine = shared.read().await;
+    let address = engine
+        .primary_address()
+        .encode()
+        .map_err(|e| format!("encode address: {e}"))?;
+    // Same composer as create, under this read guard: the id came from the
+    // list just read, so a missing URI is an engine invariant break.
     let payment_requests = engine
         .list_payment_requests(filter)
         .iter()
-        .map(PaymentRequestView::from)
-        .collect();
+        .map(|request| {
+            let uri = engine
+                .format_request_uri(&address, request.id)
+                .ok_or_else(|| "payment request not found".to_string())?;
+            Ok(PaymentRequestView::from_stored(request, uri))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     Ok(PaymentRequests { payment_requests })
-}
-
-/// Freeform composition; `address` defaults to the open wallet's primary
-/// address. The Receive page uses it to show a listed request's QR again.
-#[tauri::command]
-pub async fn make_uri(
-    state: State<'_, AppState>,
-    address: Option<String>,
-    amount: Option<AtomicUnitsString>,
-    label: Option<String>,
-    rid: Option<String>,
-    expiry: Option<u64>,
-) -> Result<PaymentUriResult, String> {
-    validate_link_inputs(label.as_deref(), amount)?;
-    let rid = rid.as_deref().map(parse_rid).transpose()?;
-    let expiry = expiry.map(parse_expiry).transpose()?.map(Timestamp::to_raw);
-    let address = match address {
-        // Refuse, never trim-and-repair: whitespace would embed into the URI.
-        Some(a) if !a.is_empty() && !a.chars().any(char::is_whitespace) => a,
-        Some(_) => return Err("address must be non-empty and contain no whitespace".into()),
-        None => {
-            let shared = shared_engine(&state).await?;
-            let engine = shared.read().await;
-            engine
-                .primary_address()
-                .encode()
-                .map_err(|e| format!("encode address: {e}"))?
-        }
-    };
-    let uri = format_payment_uri(
-        &address,
-        amount.map(AtomicUnitsString::to_raw),
-        label.as_deref(),
-        rid,
-        expiry,
-    );
-    Ok(PaymentUriResult { uri })
 }
 
 /// Pure: needs no wallet. The URI is counterparty-controlled text.
@@ -307,6 +284,8 @@ pub fn parse_uri(uri: String) -> Result<ParsedPaymentUri, String> {
 
 #[cfg(test)]
 mod tests {
+    use shekyl_engine_core::format_payment_uri;
+
     use super::*;
 
     #[test]
@@ -334,24 +313,14 @@ mod tests {
     }
 
     #[test]
-    fn rid_is_non_zero_and_fits_the_wire() {
-        assert_eq!(parse_rid("1").unwrap(), 1);
-        assert_eq!(parse_rid("281474976710655").unwrap(), (1u64 << 48) - 1);
-        for bad in ["0", "281474976710656", "-1", "x", ""] {
-            assert!(parse_rid(bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn link_inputs_are_bounded_the_same_way_for_create_and_make_uri() {
-        assert!(validate_link_inputs(None, None).is_ok());
-        assert!(validate_link_inputs(Some("rent"), Some(1.into())).is_ok());
-        assert!(validate_link_inputs(Some(&"x".repeat(MAX_LABEL_CHARS)), None).is_ok());
-        assert!(validate_link_inputs(Some(&"x".repeat(MAX_LABEL_CHARS + 1)), None).is_err());
-        assert!(validate_link_inputs(Some("a\0b"), None).is_err());
+    fn request_inputs_are_bounded() {
+        assert!(validate_request_inputs("rent", 1.into()).is_ok());
+        assert!(validate_request_inputs(&"x".repeat(MAX_LABEL_CHARS), 1.into()).is_ok());
+        assert!(validate_request_inputs(&"x".repeat(MAX_LABEL_CHARS + 1), 1.into()).is_err());
+        assert!(validate_request_inputs("a\0b", 1.into()).is_err());
         assert!(
-            validate_link_inputs(None, Some(0.into())).is_err(),
-            "a zero-amount link asks for nothing"
+            validate_request_inputs("rent", 0.into()).is_err(),
+            "a zero amount asks for nothing"
         );
     }
 
@@ -362,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_uri_round_trips_what_make_uri_composes() {
+    fn parse_uri_round_trips_a_composed_link() {
         let uri = format_payment_uri(
             "shekyl1abc",
             Some((1u64 << 53) + 1),
@@ -387,13 +356,15 @@ mod tests {
             amount: ((1u64 << 53) + 1).into(),
             created_at: 1_700_000_000,
             expiry: None,
-            state: contract::STATE_PENDING,
+            state: PaymentRequestStateView::Pending,
             matched_tx_hash: None,
             matched_output_index: None,
+            uri: "shekyl:shekyl1abc?rid=42".into(),
         })
         .unwrap();
         assert_eq!(v["amount"], "9007199254740993");
         assert_eq!(v["state"], "PENDING");
+        assert_eq!(v["uri"], "shekyl:shekyl1abc?rid=42");
         assert!(v.get("expiry").is_none() && v.get("matched_tx_hash").is_none());
     }
 }

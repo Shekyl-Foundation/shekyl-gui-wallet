@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -270,6 +270,33 @@ describe("Send page", () => {
     await u.click(screen.getByRole("button", { name: /review/i }));
     await screen.findByTestId("review");
     expect(calls("build_pending_tx")[0][1]).toMatchObject({ address: "shekyl1abc123", amount: "1500000000" });
+  });
+
+  it("review waits until the payment link has been read, then builds that address and amount", async () => {
+    let resolveParse: (value: unknown) => void = () => {};
+    route({
+      get_default_fee_priority: () => QUOTE,
+      parse_uri: () => new Promise((resolve) => (resolveParse = resolve)),
+      build_pending_tx: () => BUILT,
+    });
+    const u = user();
+    render(<Send />);
+    const field = screen.getByPlaceholderText("shekyl1...");
+    await u.click(field);
+    await u.type(field, "shekyl1old");
+    await u.type(screen.getByPlaceholderText("0.0000"), "1");
+    await u.clear(field);
+    await u.paste("shekyl:shekyl1new?amount=2000000000");
+    expect(field).toHaveValue("shekyl:shekyl1new?amount=2000000000");
+    expect(screen.getByRole("button", { name: /reading link/i })).toBeDisabled();
+    fireEvent.submit(field.closest("form")!);
+    expect(calls("build_pending_tx")).toHaveLength(0);
+    resolveParse({ address: "shekyl1new", amount: "2000000000", label: "Rent" });
+    await waitFor(() => expect(field).toHaveValue("shekyl1new"));
+    expect(screen.getByPlaceholderText("0.0000")).toHaveValue("2.000000000");
+    await u.click(screen.getByRole("button", { name: /^review$/i }));
+    await screen.findByTestId("review");
+    expect(calls("build_pending_tx")[0][1]).toMatchObject({ address: "shekyl1new", amount: "2000000000" });
   });
 
   it("a parse that resolves for an older paste never overwrites a newer one", async () => {
