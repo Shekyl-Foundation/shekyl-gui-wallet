@@ -11,8 +11,9 @@ import {
   EyeOff,
 } from "lucide-react";
 import { useWallet } from "../context/useWallet";
-import type { CreateWalletResult } from "../types/wallet";
+import { seedBackupOf, type CreatedWallet } from "../types/wallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
+import CreatedWalletAddress from "../components/wallet/CreatedWalletAddress";
 
 type Step = "setup" | "seed" | "confirm" | "done";
 
@@ -26,7 +27,7 @@ interface ClipboardPlacement {
 }
 
 const COPY_FAILED =
-  "The recovery phrase could not be copied. Write it down from the screen.";
+  "The backup could not be copied. Write it down from the screen.";
 
 export default function CreateWallet() {
   const navigate = useNavigate();
@@ -39,7 +40,9 @@ export default function CreateWallet() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<CreateWalletResult | null>(null);
+  const [result, setResult] = useState<CreatedWallet | null>(null);
+  /** Re-entry of a testnet hex seed. Phrase confirmation uses `confirmValues`. */
+  const [rawConfirm, setRawConfirm] = useState("");
   const [copied, setCopied] = useState(false);
   const [clearAfterMs, setClearAfterMs] = useState<number | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -49,19 +52,20 @@ export default function CreateWallet() {
     {},
   );
 
-  const seedWords = useMemo(
-    () => result?.seed.split(" ").filter(Boolean) ?? [],
-    [result],
-  );
+  /** Phrase words. Empty unless this create returned a mnemonic. */
+  const phraseWords = useMemo(() => {
+    if (!result || result.encoding !== "mnemonic") return [];
+    return result.mnemonic.split(" ").filter(Boolean);
+  }, [result]);
 
   const challengeIndices = useMemo(() => {
-    if (seedWords.length === 0) return [];
+    if (phraseWords.length === 0) return [];
     const indices = new Set<number>();
-    while (indices.size < 4 && indices.size < seedWords.length) {
-      indices.add(Math.floor(Math.random() * seedWords.length));
+    while (indices.size < 4 && indices.size < phraseWords.length) {
+      indices.add(Math.floor(Math.random() * phraseWords.length));
     }
     return Array.from(indices).sort((a, b) => a - b);
-  }, [seedWords.length]);
+  }, [phraseWords.length]);
 
   const passwordStrength = useMemo(() => {
     if (password.length === 0) return { label: "", color: "" };
@@ -84,12 +88,18 @@ export default function CreateWallet() {
     password === confirmPassword;
 
   const confirmCorrect = useMemo(() => {
-    return challengeIndices.every(
-      (i) =>
-        confirmValues[i]?.toLowerCase().trim() ===
-        seedWords[i]?.toLowerCase(),
+    if (!result) return false;
+    if (result.encoding === "raw_seed_hex") {
+      return rawConfirm.trim().toLowerCase() === result.raw_seed_hex;
+    }
+    return (
+      phraseWords.length > 0 &&
+      challengeIndices.length > 0 &&
+      challengeIndices.every(
+        (i) => confirmValues[i]?.toLowerCase().trim() === phraseWords[i]?.toLowerCase(),
+      )
     );
-  }, [challengeIndices, confirmValues, seedWords]);
+  }, [result, rawConfirm, phraseWords, challengeIndices, confirmValues]);
 
   const handleCreate = useCallback(async () => {
     setError(null);
@@ -99,17 +109,17 @@ export default function CreateWallet() {
       setResult(res);
       setStep("seed");
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }, [createWallet, name, password]);
 
   const handleCopySeed = useCallback(async () => {
-    if (!result?.seed) return;
+    if (!result) return;
     try {
       const placed = await invoke<ClipboardPlacement>("copy_to_clipboard", {
-        text: result.seed,
+        text: seedBackupOf(result),
       });
       setClearAfterMs(placed.clear_after_ms);
       setCopied(true);
@@ -273,30 +283,54 @@ export default function CreateWallet() {
         {/* Step: Seed display */}
         {step === "seed" && result && (
           <div className="card space-y-5">
-            <div className="flex items-start gap-3 rounded-lg border border-orange-500/40 bg-orange-900/20 p-4">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-400" />
-              <div className="text-xs text-orange-200">
-                <p className="font-semibold">Write these words down now.</p>
-                <p className="mt-1">
-                  This 24-word recovery phrase is your only backup. If you lose
-                  it, your funds cannot be recovered. Never share it with anyone.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-5 gap-2">
-              {seedWords.map((word, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg bg-purple-800/80 px-2 py-2 text-center"
-                >
-                  <span className="block text-[9px] text-purple-400">
-                    {i + 1}
-                  </span>
-                  <span className="text-xs font-medium text-white">{word}</span>
+            {result.encoding === "mnemonic" ? (
+              <>
+                <div className="flex items-start gap-3 rounded-lg border border-orange-500/40 bg-orange-900/20 p-4">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-400" />
+                  <div className="text-xs text-orange-200">
+                    <p className="font-semibold">Write these words down now.</p>
+                    <p className="mt-1">
+                      This 24-word recovery phrase is your only backup. If you lose
+                      it, your funds cannot be recovered. Never share it with anyone.
+                    </p>
+                  </div>
                 </div>
-              ))}
-            </div>
+                <div className="grid grid-cols-5 gap-2">
+                  {phraseWords.map((word, i) => (
+                    <div
+                      key={i}
+                      className="rounded-lg bg-purple-800/80 px-2 py-2 text-center"
+                    >
+                      <span className="block text-[9px] text-purple-400">
+                        {i + 1}
+                      </span>
+                      <span className="text-xs font-medium text-white">{word}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start gap-3 rounded-lg border border-orange-500/40 bg-orange-900/20 p-4">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-400" />
+                  <div className="text-xs text-orange-200">
+                    <p className="font-semibold">Write this hex seed down now.</p>
+                    <p className="mt-1">
+                      A testnet wallet backs up as 64 hex characters, not a recovery
+                      phrase. If you lose it, the funds cannot be recovered. Never
+                      share it with anyone.
+                    </p>
+                  </div>
+                </div>
+                <p
+                  className="break-all rounded-lg bg-purple-800/80 px-3 py-3 font-mono text-xs text-white"
+                  data-testid="raw-seed"
+                >
+                  {result.raw_seed_hex}
+                </p>
+                <p className="text-[11px] text-purple-400">64 hex characters</p>
+              </>
+            )}
 
             <button
               onClick={handleCopySeed}
@@ -324,42 +358,63 @@ export default function CreateWallet() {
               onClick={() => setStep("confirm")}
               className="btn btn-primary w-full"
             >
-              I've saved my seed phrase
+              {result.encoding === "mnemonic"
+                ? "I've saved my seed phrase"
+                : "I've saved this hex seed"}
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         )}
 
         {/* Step: Confirm seed */}
-        {step === "confirm" && (
+        {step === "confirm" && result && (
           <div className="card space-y-5">
-            <p className="text-xs text-purple-200">
-              Verify you saved your seed correctly by entering these words:
-            </p>
-
-            <div className="space-y-3">
-              {challengeIndices.map((idx) => (
-                <div key={idx} className="space-y-1">
-                  <label className="text-xs text-purple-300">
-                    Word #{idx + 1}
-                  </label>
-                  <input
-                    type="text"
-                    className="input"
-                    value={confirmValues[idx] ?? ""}
-                    onChange={(e) =>
-                      setConfirmValues((prev) => ({
-                        ...prev,
-                        [idx]: e.target.value,
-                      }))
-                    }
-                    placeholder={`Enter word #${idx + 1}`}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
+            {result.encoding === "mnemonic" ? (
+              <>
+                <p className="text-xs text-purple-200">
+                  Verify you saved your seed correctly by entering these words:
+                </p>
+                <div className="space-y-3">
+                  {challengeIndices.map((idx) => (
+                    <div key={idx} className="space-y-1">
+                      <label className="text-xs text-purple-300">
+                        Word #{idx + 1}
+                      </label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={confirmValues[idx] ?? ""}
+                        onChange={(e) =>
+                          setConfirmValues((prev) => ({
+                            ...prev,
+                            [idx]: e.target.value,
+                          }))
+                        }
+                        placeholder={`Enter word #${idx + 1}`}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            ) : (
+              <div className="space-y-1">
+                <label className="text-xs text-purple-300" htmlFor="raw-seed-confirm">
+                  Re-enter the 64-character hex seed
+                </label>
+                <input
+                  id="raw-seed-confirm"
+                  type="text"
+                  className="input font-mono"
+                  value={rawConfirm}
+                  onChange={(e) => setRawConfirm(e.target.value)}
+                  placeholder="64 hex characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            )}
 
             <button
               onClick={() => setStep("done")}
@@ -375,7 +430,7 @@ export default function CreateWallet() {
               className="btn btn-ghost w-full text-xs"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              Back to seed phrase
+              {result.encoding === "mnemonic" ? "Back to seed phrase" : "Back to hex seed"}
             </button>
           </div>
         )}
@@ -389,12 +444,7 @@ export default function CreateWallet() {
             <h2 className="text-lg font-bold text-white">
               Your wallet is ready
             </h2>
-            <div className="space-y-2">
-              <p className="text-xs text-purple-300">Address</p>
-              <p className="break-all rounded-lg bg-purple-800/80 px-3 py-2 font-mono text-[10px] text-gold-400">
-                {result.address}
-              </p>
-            </div>
+            <CreatedWalletAddress />
             <p className="text-xs text-purple-300">
               Protected by hybrid Ed25519 + ML-DSA-65 signatures.
             </p>

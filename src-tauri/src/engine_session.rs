@@ -116,7 +116,7 @@ impl EngineSession {
         password: &str,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<CreateOutcome, String> {
+    ) -> Result<CreatedSession, String> {
         if self.engine.is_some() {
             return Err("A wallet is already open".into());
         }
@@ -159,26 +159,18 @@ impl EngineSession {
                 .map_err(map_open_err)?;
         drop(master_seed);
 
-        let address = engine
-            .primary_address()
-            .encode()
-            .map_err(|e| format!("encode address: {e}"))?;
-
+        // Create always omits `restore_height_hint`. Read the capability off
+        // the engine before it moves into the session lock.
+        let facts = WalletFacts::created(engine.capability());
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.catch_up_after_open().await?;
 
-        // The seed goes out ONCE, in the create response, and nothing here
+        // The backup goes out ONCE, in the create response, and nothing here
         // keeps a copy: a resident duplicate of the master secret held for
         // the whole session was a rule-35 defect (it was a plain `String`,
         // never zeroized, and its only reader was a command nothing called).
-        let seed = match backup {
-            SeedBackup::Mnemonic(m) => m,
-            // Testnet raw seed: surface as hex for backup; not BIP-39.
-            SeedBackup::RawHex(h) => h,
-        };
-
-        Ok(CreateOutcome { address, seed })
+        Ok(CreatedSession { backup, facts })
     }
 
     /// Restore an Engine wallet from its seed backup. The backup's encoding is
@@ -192,10 +184,10 @@ impl EngineSession {
         name: &str,
         backup: &str,
         password: &str,
-        restore_height: u64,
+        restore_height: u32,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<String, String> {
+    ) -> Result<WalletFacts, String> {
         if self.engine.is_some() {
             return Err("A wallet is already open".into());
         }
@@ -227,7 +219,7 @@ impl EngineSession {
                 seed_format,
             },
             creation_timestamp,
-            restore_height_hint: u32::try_from(restore_height).unwrap_or(u32::MAX),
+            restore_height_hint: restore_height,
             kdf: KdfParams::default(),
             overrides: SafetyOverrides::none(),
             prefs: WalletPrefs::default(),
@@ -238,16 +230,12 @@ impl EngineSession {
                 .map_err(map_open_err)?;
         drop(master_seed);
 
-        let address = engine
-            .primary_address()
-            .encode()
-            .map_err(|e| format!("encode address: {e}"))?;
-
+        let facts = WalletFacts::restored(engine.capability(), restore_height);
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.catch_up_after_open().await?;
 
-        Ok(address)
+        Ok(facts)
     }
 
     /// Open an existing Engine wallet.
@@ -258,7 +246,7 @@ impl EngineSession {
         password: &str,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<String, String> {
+    ) -> Result<WalletFacts, String> {
         if self.engine.is_some() {
             return Err("A wallet is already open".into());
         }
@@ -284,21 +272,21 @@ impl EngineSession {
         })
         .map_err(map_open_err)?;
 
-        let engine = match opened {
-            OpenedEngine::Loaded(w) => w,
-            OpenedEngine::Restored { wallet, .. } => wallet,
+        // Loaded omits the hint. Restored reports `from_height`, including zero.
+        let (engine, ledger) = match opened {
+            OpenedEngine::Loaded(engine) => (engine, OpenedLedger::Loaded),
+            OpenedEngine::Restored {
+                wallet,
+                from_height,
+            } => (wallet, OpenedLedger::Rebuilt { from_height }),
         };
-
-        let address = engine
-            .primary_address()
-            .encode()
-            .map_err(|e| format!("encode address: {e}"))?;
+        let facts = WalletFacts::opened(engine.capability(), ledger);
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
 
         self.catch_up_after_open().await?;
-        Ok(address)
+        Ok(facts)
     }
 
     /// Persist and close the open Engine wallet.
@@ -748,11 +736,6 @@ impl Default for EngineSession {
     }
 }
 
-pub struct CreateOutcome {
-    pub address: String,
-    pub seed: String,
-}
-
 /// Base path `{wallet_dir}/{name}.wallet` for Engine file envelope.
 pub fn engine_wallet_base(wallet_dir: &Path, name: &str) -> PathBuf {
     wallet_dir.join(format!("{name}.wallet"))
@@ -779,9 +762,72 @@ fn network_to_derivation(network: Network) -> DerivationNetwork {
     }
 }
 
-enum SeedBackup {
+/// The backup handed out exactly once at creation, in the network's
+/// encoding — the contract's `CreateWalletResult.mnemonic` (mainnet /
+/// stagenet) or `raw_seed_hex` (testnet). Held only until the create
+/// response is built; never stored.
+pub enum SeedBackup {
     Mnemonic(String),
     RawHex(String),
+}
+
+/// How `open` found the ledger. Decides whether the contract's
+/// `WalletHandle.restore_height_hint` is present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenedLedger {
+    /// The state file decoded. The hint is omitted even when the keys file stores one.
+    Loaded,
+    /// The state file was missing. `from_height` is the keys-file hint, widened.
+    /// Zero is still reported: a rebuild from genesis is a rebuild.
+    Rebuilt { from_height: u64 },
+}
+
+/// Capability and restore-hint presence for a lifecycle call that left a wallet open.
+///
+/// The hint's presence is the contract's, matching wallet-rpc: omitted on create,
+/// omitted when a restore starts at genesis, omitted on a cache-hit open, and
+/// present for a higher restore floor or a ledger rebuild.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalletFacts {
+    pub capability: Capability,
+    pub restore_height_hint: Option<u64>,
+}
+
+impl WalletFacts {
+    /// A fresh wallet. The contract omits the hint.
+    pub fn created(capability: Capability) -> Self {
+        Self {
+            capability,
+            restore_height_hint: None,
+        }
+    }
+
+    /// A restore. Genesis (`0`) omits the hint; every higher floor is reported.
+    pub fn restored(capability: Capability, height: u32) -> Self {
+        Self {
+            capability,
+            restore_height_hint: (height > 0).then_some(u64::from(height)),
+        }
+    }
+
+    /// An open. The hint is present only when the ledger was rebuilt.
+    pub fn opened(capability: Capability, ledger: OpenedLedger) -> Self {
+        let restore_height_hint = match ledger {
+            OpenedLedger::Loaded => None,
+            OpenedLedger::Rebuilt { from_height } => Some(from_height),
+        };
+        Self {
+            capability,
+            restore_height_hint,
+        }
+    }
+}
+
+/// Backup plus the facts `create_wallet` puts on the handle. The backup is
+/// moved onto the response and not stored on the session.
+pub struct CreatedSession {
+    pub backup: SeedBackup,
+    pub facts: WalletFacts,
 }
 
 /// The inverse of `generate_seed_material`: derive the master seed from the

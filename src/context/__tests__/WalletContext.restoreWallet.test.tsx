@@ -27,7 +27,7 @@ beforeEach(() => {
       case "check_wallet_files":
         return Promise.resolve([]);
       case "restore_wallet":
-        return Promise.resolve({ name: "Restored_Wallet", address: "shekyl1test" });
+        return Promise.resolve({ wallet: { name: "Restored_Wallet", capability: "FULL", network: "MAINNET" } });
       default:
         return Promise.reject(new Error(`unrouted invoke ${String(cmd)}`));
     }

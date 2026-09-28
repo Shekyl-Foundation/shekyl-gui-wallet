@@ -2,9 +2,9 @@
 export const BIP39_RECOVERY_PHRASE_WORD_COUNT = 24;
 
 /**
- * A testnet wallet backs up as its 32-byte raw seed in hex — the `seed`
- * `create_wallet` returns when `seed_language` is `"raw32"` — and restores
- * from the same string. Mainnet and stagenet use the phrase.
+ * A testnet wallet backs up as its 32-byte raw seed in hex — the
+ * `raw_seed_hex` `create_wallet` returns on testnet — and restores from the
+ * same string. Mainnet and stagenet use the phrase (`mnemonic`).
  */
 export const RAW_SEED_HEX_LENGTH = 64;
 

@@ -4,6 +4,38 @@
 
 ### Changed
 
+- **Review round on #30.** `createdWalletFromWire` fails closed by presence
+  and by network: an arm that is present but empty is a contract violation,
+  not a missing arm, and the handle's network chooses the one encoding
+  allowed (`mnemonic` on mainnet/stagenet, `raw_seed_hex` on testnet). The
+  new wallet's address read (`components/wallet/CreatedWalletAddress`) and
+  the transfer history's fetch / poll / retry / fail-closed rendering
+  (`components/transactions/TransactionHistory`) are panels the pages
+  compose (rule 27); `Transactions.tsx` is the filter controls.
+- **The lifecycle results are the contract's.** `create_wallet`,
+  `open_wallet` and `restore_wallet` return the contract's `WalletHandle`
+  (name, the envelope's own capability `FULL`, network as
+  `MAINNET | TESTNET | STAGENET`) under `wallet`. `restore_height_hint`
+  follows wallet-rpc: omitted on create, on a restore from genesis, and on
+  a cache-hit open; present for a higher restore floor and when open
+  rebuilt the ledger (`OpenedEngine::Restored`, including a zero floor).
+  A restore height that does not fit the keys file's `u32` is refused.
+  `create_wallet` adds the backup exactly once — `mnemonic` or
+  `raw_seed_hex`, never both. The page treats those as two arms: a 24-word
+  phrase, or a 64-character hex seed confirmed by re-entry. The address
+  comes from `get_primary_address`; a failed read is shown, not a blank
+  address. The lifecycle commands live in `src-tauri/src/lifecycle.rs`
+  (rule 27; `commands.rs` ceiling locked at 640).
+- **`get_transfers` takes the contract's filters and projects attribution.**
+  `direction` and `state` deserialize as the contract enums (the
+  `since_height` watermark and the attribution filter have no page here
+  and are not taken). The Transactions page keeps each list with the query
+  that produced it, so a new filter shows loading rather than the previous
+  rows, and an empty filter says nothing matched. Incoming rows carry
+  `attribution` as one arm per kind; outgoing rows omit it.
+
+### Changed
+
 - **The command surface speaks the wallet contract's vocabulary.** The
   four `RENAME` rows the command-surface gate ledgered are retired by
   renaming, with the contract's parameters and result shapes:

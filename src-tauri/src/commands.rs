@@ -43,11 +43,10 @@ use tauri::State;
 
 use crate::daemon_rpc;
 use crate::drain_balance::DrainBalance;
-use crate::engine_session;
 use crate::gui_config;
 use crate::staking_view::StakingView;
-use crate::state::{self, AppState, NetworkType};
-use crate::transfer_history::TransferRow;
+use crate::state::{self, AppState};
+use crate::transfer_history::{TransferDirection, TransferFilter, TransferRow, TransferState};
 use crate::validate;
 use crate::wallet_name;
 use crate::wire::AtomicUnitsString;
@@ -64,23 +63,6 @@ pub struct WalletStatus {
     pub synced: bool,
     pub sync_height: u64,
     pub daemon_height: u64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WalletInfo {
-    pub name: String,
-    pub address: String,
-    pub seed_language: String,
-    pub network: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CreateWalletResult {
-    pub name: String,
-    pub address: String,
-    pub seed: String,
-    pub seed_language: String,
-    pub network: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -394,151 +376,6 @@ pub async fn stake(state: State<'_, AppState>, password: String) -> Result<Stake
     })
 }
 
-// ─── Wallet lifecycle commands ───────────────────────────────────────────────
-
-#[tauri::command]
-pub async fn create_wallet(
-    state: State<'_, AppState>,
-    name: String,
-    password: String,
-) -> Result<CreateWalletResult, String> {
-    // Sanitize first (collapses whitespace, replaces spaces with '_') so
-    // the on-disk name is filesystem-friendly regardless of what the
-    // user typed.
-    let sanitized = wallet_name::sanitize(&name);
-    validate::validate_wallet_name(&sanitized)?;
-    validate::validate_password(&password)?;
-
-    let network = *state.network.read().await;
-
-    let wallet_dir = state.wallet_dir.read().await.clone();
-    wallet_name::ensure_dir_exists(&wallet_dir)?;
-
-    let daemon = state.daemon_http_base().await;
-    let mut eng = state.engine.lock().await;
-    let outcome = eng
-        .create(&wallet_dir, &sanitized, &password, network, &daemon)
-        .await?;
-    *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(sanitized.clone());
-    Ok(CreateWalletResult {
-        name: sanitized,
-        address: outcome.address,
-        seed: outcome.seed,
-        seed_language: seed_language_for(network),
-        network: network.as_str().into(),
-    })
-}
-
-/// The recovery-phrase encoding the Engine uses for a freshly created or
-/// opened wallet on `network`: BIP-39 English everywhere except testnet,
-/// which uses a raw 32-byte hex seed.
-fn seed_language_for(network: NetworkType) -> String {
-    if network == NetworkType::Testnet {
-        "raw32".into()
-    } else {
-        "BIP-39 English".into()
-    }
-}
-
-#[tauri::command]
-pub async fn open_wallet(
-    state: State<'_, AppState>,
-    filename: String,
-    password: String,
-) -> Result<WalletInfo, String> {
-    validate::validate_password(&password)?;
-
-    let network = *state.network.read().await;
-    let wallet_dir = state.wallet_dir.read().await.clone();
-    wallet_name::ensure_dir_exists(&wallet_dir)?;
-
-    let sanitized = wallet_name::sanitize(&filename);
-    validate::validate_wallet_name(&sanitized)?;
-
-    if !engine_session::engine_wallet_exists(&wallet_dir, &sanitized) {
-        return Err(format!(
-            "no wallet found for '{sanitized}' (expected {sanitized}.wallet.keys)"
-        ));
-    }
-
-    let daemon = state.daemon_http_base().await;
-    let mut eng = state.engine.lock().await;
-    let address = eng
-        .open(&wallet_dir, &sanitized, &password, network, &daemon)
-        .await?;
-    *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(sanitized.clone());
-    Ok(WalletInfo {
-        name: sanitized,
-        address,
-        seed_language: seed_language_for(network),
-        network: network.as_str().into(),
-    })
-}
-
-#[tauri::command]
-pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
-    let close_result = {
-        let mut eng = state.engine.lock().await;
-        if eng.is_open() {
-            eng.close().await
-        } else {
-            Ok(())
-        }
-    };
-    // Clear the open flags even if close errored, so the UI reflects the
-    // teardown; the close error is then surfaced rather than swallowed.
-    *state.wallet_open.write().await = false;
-    *state.wallet_name.write().await = None;
-    close_result?;
-    Ok(true)
-}
-
-/// The contract's `restore_wallet` (`mnemonic` is the seed backup in the
-/// network's encoding — see `validate_seed_backup`).
-#[tauri::command]
-pub async fn restore_wallet(
-    state: State<'_, AppState>,
-    name: String,
-    password: String,
-    mnemonic: String,
-    restore_height: Option<u64>,
-) -> Result<WalletInfo, String> {
-    let sanitized = wallet_name::sanitize(&name);
-    let network = *state.network.read().await;
-    validate::validate_wallet_name(&sanitized)?;
-    validate::validate_seed_backup(&mnemonic, network)?;
-    validate::validate_password(&password)?;
-
-    let height = restore_height.unwrap_or(0);
-
-    let wallet_dir = state.wallet_dir.read().await.clone();
-    wallet_name::ensure_dir_exists(&wallet_dir)?;
-
-    let daemon = state.daemon_http_base().await;
-    let mut eng = state.engine.lock().await;
-    let address = eng
-        .restore_from_backup(
-            &wallet_dir,
-            &sanitized,
-            &mnemonic,
-            &password,
-            height,
-            network,
-            &daemon,
-        )
-        .await?;
-    *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(sanitized.clone());
-    Ok(WalletInfo {
-        name: sanitized,
-        address,
-        seed_language: seed_language_for(network),
-        network: network.as_str().into(),
-    })
-}
-
 // ─── Wallet data commands ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -636,16 +473,31 @@ pub struct Transfers {
     pub transfers: Vec<TransferRow>,
 }
 
+/// The contract's `get_transfers`, with the optional filters this wallet
+/// offers (`direction`, `state`); unfiltered returns full history. The
+/// enums deserialize the contract's spellings, so an unknown one fails
+/// before this body runs. The contract's `since_height` watermark and
+/// `attribution` filter have no page here and are not taken.
 #[tauri::command]
-pub async fn get_transfers(state: State<'_, AppState>) -> Result<Transfers, String> {
-    if !*state.wallet_open.read().await {
+pub async fn get_transfers(
+    app: State<'_, AppState>,
+    direction: Option<TransferDirection>,
+    state: Option<TransferState>,
+) -> Result<Transfers, String> {
+    let filter = TransferFilter { direction, state };
+    if !*app.wallet_open.read().await {
         return Ok(Transfers { transfers: vec![] });
     }
-    let eng = state.engine.lock().await;
+    let eng = app.engine.lock().await;
     if !eng.is_open() {
         return Ok(Transfers { transfers: vec![] });
     }
-    let transfers = eng.list_transfers().await?;
+    let transfers = eng
+        .list_transfers()
+        .await?
+        .into_iter()
+        .filter(|row| filter.keeps(row))
+        .collect();
     Ok(Transfers { transfers })
 }
 
