@@ -474,20 +474,17 @@ pub struct Transfers {
 }
 
 /// The contract's `get_transfers`, with the optional filters this wallet
-/// offers (`direction`, `state`); unfiltered returns full history. Filter
-/// values are the contract's spellings; an unknown one is refused without
-/// echo. The contract's `since_height` watermark has no page here and is
-/// not taken: a parameter nothing sends is a knob nothing turns.
+/// offers (`direction`, `state`); unfiltered returns full history. The
+/// enums deserialize the contract's spellings, so an unknown one fails
+/// before this body runs. The contract's `since_height` watermark and
+/// `attribution` filter have no page here and are not taken.
 #[tauri::command]
 pub async fn get_transfers(
     app: State<'_, AppState>,
-    direction: Option<String>,
-    state: Option<String>,
+    direction: Option<TransferDirection>,
+    state: Option<TransferState>,
 ) -> Result<Transfers, String> {
-    let filter = TransferFilter {
-        direction: direction.as_deref().map(parse_direction).transpose()?,
-        state: state.as_deref().map(parse_transfer_state).transpose()?,
-    };
+    let filter = TransferFilter { direction, state };
     if !*app.wallet_open.read().await {
         return Ok(Transfers { transfers: vec![] });
     }
@@ -502,33 +499,6 @@ pub async fn get_transfers(
         .filter(|row| filter.keeps(row))
         .collect();
     Ok(Transfers { transfers })
-}
-
-fn parse_direction(s: &str) -> Result<TransferDirection, String> {
-    match s {
-        "INCOMING" => Ok(TransferDirection::Incoming),
-        "OUTGOING" => Ok(TransferDirection::Outgoing),
-        _ => Err("direction must be INCOMING or OUTGOING".into()),
-    }
-}
-
-fn parse_transfer_state(s: &str) -> Result<TransferState, String> {
-    Ok(match s {
-        "PENDING" => TransferState::Pending,
-        "CONFIRMED" => TransferState::Confirmed,
-        "SPENT" => TransferState::Spent,
-        "UNSPENDABLE" => TransferState::Unspendable,
-        "FAILED" => TransferState::Failed,
-        "DROPPED" => TransferState::Dropped,
-        "ABANDONED" => TransferState::Abandoned,
-        _ => {
-            return Err(
-                "state must be one of PENDING, CONFIRMED, SPENT, UNSPENDABLE, FAILED, \
-                        DROPPED, ABANDONED"
-                    .into(),
-            )
-        }
-    })
 }
 
 #[tauri::command]

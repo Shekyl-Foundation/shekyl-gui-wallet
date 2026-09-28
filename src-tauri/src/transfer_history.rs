@@ -9,10 +9,14 @@
 //! / `transfer_state`) without depending on the RPC crate. This module is the
 //! GUI's projection; the session calls it and does not own the DTO.
 //!
-//! Divergences from the contract's `Transfer`:
+//! Divergences from the contract's `Transfer` / `get_transfers`:
 //!
-//! - No filters, receive attribution, per-txid notes, or `spent_height` — the
-//!   Transactions page does not render them.
+//! - No `since_height` watermark, no attribution filter, no per-txid notes,
+//!   and no `spent_height`. Nothing in the GUI sends or renders them.
+//! - `direction` and `state` are optional filters on the projected rows.
+//!   Unknown spellings fail serde deserialization of those enums.
+//! - Incoming rows carry `attribution` (the contract's `ReceiveAttribution`).
+//!   Outgoing rows omit the field.
 //! - Newest-first display — same order key as wallet-rpc (ascending inclusion
 //!   height, incoming before outgoing, never-mined last), then reversed.
 //!
@@ -25,7 +29,7 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use shekyl_engine_state::{
     DisputeReason, InFlightSpendLocks, ReceiveAttribution, SendRecord, SendState, TransferDetails,
     UnspendableReason as LedgerUnspendableReason,
@@ -41,7 +45,7 @@ use crate::wire::AtomicUnitsString;
 /// Outgoing arms map 1:1 from [`SendState`]. Incoming arms follow wallet-rpc
 /// `transfer_state`: spent, then received-but-unspendable, then awaiting
 /// confirmation, then confirmed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TransferState {
     Confirmed,
@@ -83,7 +87,7 @@ impl From<LedgerUnspendableReason> for UnspendableReason {
 
 /// Direction of a projected history row, spelled as the contract's
 /// `Transfer.direction` enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TransferDirection {
     Incoming,
@@ -115,64 +119,56 @@ pub struct TransferRow {
     pub attribution: Option<ReceiveAttributionView>,
 }
 
-/// The contract's `ReceiveAttribution`, spelled as wallet-rpc spells it:
-/// bookkeeping facts, no cleartext labels.
+/// The contract's `ReceiveAttribution`. One arm per kind, so a matched row
+/// cannot omit `request_id` and an unattributed row cannot carry one.
+/// Serde's internal tag is the contract's `kind` field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ReceiveAttributionView {
-    pub kind: ReceiveAttributionKind,
-    /// Decimal `rid` when `MATCHED` / `MANUAL_MATCH`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<String>,
-    /// Lowercase hex of the echoed label hash when `LABEL_UNKNOWN`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub echoed_label_hash: Option<String>,
-    /// `WrongLabel` / `WrongAmount` / `Other(..)` when `DISPUTED`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dispute_reason: Option<String>,
+#[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReceiveAttributionView {
+    Unattributed,
+    /// Decimal `rid`.
+    Matched {
+        request_id: String,
+    },
+    /// Lowercase hex of the echoed label hash.
+    LabelUnknown {
+        echoed_label_hash: String,
+    },
+    /// Decimal `rid` the user linked by hand.
+    ManualMatch {
+        request_id: String,
+    },
+    /// `WrongLabel` / `WrongAmount` / `Other(..)`.
+    Disputed {
+        dispute_reason: String,
+    },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ReceiveAttributionKind {
-    Unattributed,
-    Matched,
-    LabelUnknown,
-    ManualMatch,
-    Disputed,
+fn dispute_reason_wire(reason: &DisputeReason) -> String {
+    match reason {
+        DisputeReason::WrongLabel => "WrongLabel".to_owned(),
+        DisputeReason::WrongAmount => "WrongAmount".to_owned(),
+        DisputeReason::Other(text) => format!("Other({text})"),
+    }
 }
 
 impl From<&ReceiveAttribution> for ReceiveAttributionView {
     fn from(attr: &ReceiveAttribution) -> Self {
-        let mut view = Self {
-            kind: ReceiveAttributionKind::Unattributed,
-            request_id: None,
-            echoed_label_hash: None,
-            dispute_reason: None,
-        };
         match attr {
-            ReceiveAttribution::Unattributed => {}
-            ReceiveAttribution::Matched(id) => {
-                view.kind = ReceiveAttributionKind::Matched;
-                view.request_id = Some(id.as_u64().to_string());
-            }
-            ReceiveAttribution::LabelUnknown { echoed_label_hash } => {
-                view.kind = ReceiveAttributionKind::LabelUnknown;
-                view.echoed_label_hash = Some(hex::encode(echoed_label_hash));
-            }
-            ReceiveAttribution::ManualMatch(id) => {
-                view.kind = ReceiveAttributionKind::ManualMatch;
-                view.request_id = Some(id.as_u64().to_string());
-            }
-            ReceiveAttribution::Disputed { reason } => {
-                view.kind = ReceiveAttributionKind::Disputed;
-                view.dispute_reason = Some(match reason {
-                    DisputeReason::WrongLabel => "WrongLabel".to_owned(),
-                    DisputeReason::WrongAmount => "WrongAmount".to_owned(),
-                    DisputeReason::Other(s) => format!("Other({s})"),
-                });
-            }
+            ReceiveAttribution::Unattributed => Self::Unattributed,
+            ReceiveAttribution::Matched(id) => Self::Matched {
+                request_id: id.as_u64().to_string(),
+            },
+            ReceiveAttribution::LabelUnknown { echoed_label_hash } => Self::LabelUnknown {
+                echoed_label_hash: hex::encode(echoed_label_hash),
+            },
+            ReceiveAttribution::ManualMatch(id) => Self::ManualMatch {
+                request_id: id.as_u64().to_string(),
+            },
+            ReceiveAttribution::Disputed { reason } => Self::Disputed {
+                dispute_reason: dispute_reason_wire(reason),
+            },
         }
-        view
     }
 }
 
@@ -458,6 +454,43 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(none, serde_json::json!({ "kind": "UNATTRIBUTED" }));
+        let manual = serde_json::to_value(ReceiveAttributionView::from(
+            &ReceiveAttribution::ManualMatch(PaymentRequestId(7)),
+        ))
+        .unwrap();
+        assert_eq!(
+            manual,
+            serde_json::json!({ "kind": "MANUAL_MATCH", "request_id": "7" })
+        );
+        let other = serde_json::to_value(ReceiveAttributionView::from(
+            &ReceiveAttribution::Disputed {
+                reason: DisputeReason::Other("late".into()),
+            },
+        ))
+        .unwrap();
+        assert_eq!(other["dispute_reason"], "Other(late)");
+    }
+
+    #[test]
+    fn filter_spellings_deserialize_and_an_unknown_spelling_does_not() {
+        assert_eq!(
+            serde_json::from_str::<TransferDirection>("\"INCOMING\"").unwrap(),
+            TransferDirection::Incoming
+        );
+        assert_eq!(
+            serde_json::from_str::<TransferDirection>("\"OUTGOING\"").unwrap(),
+            TransferDirection::Outgoing
+        );
+        assert!(serde_json::from_str::<TransferDirection>("\"SIDEWAYS\"").is_err());
+        assert_eq!(
+            serde_json::from_str::<TransferState>("\"UNSPENDABLE\"").unwrap(),
+            TransferState::Unspendable
+        );
+        assert_eq!(
+            serde_json::from_str::<TransferState>("\"ABANDONED\"").unwrap(),
+            TransferState::Abandoned
+        );
+        assert!(serde_json::from_str::<TransferState>("\"GHOST\"").is_err());
     }
 
     #[test]

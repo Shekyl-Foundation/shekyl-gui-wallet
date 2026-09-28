@@ -8,12 +8,14 @@
 //! A feature module (rule 27) over `EngineSession`, which does the opening.
 //!
 //! Every call that leaves a wallet open returns the contract's
-//! `WalletHandle` (name, the envelope's own capability, network, the
-//! restore-height hint the file carries) and nothing else: the address is
-//! read from `get_primary_address`, its one source. `create_wallet` adds the
-//! backup exactly once, in the network's encoding — `mnemonic` on
-//! mainnet/stagenet, `raw_seed_hex` on testnet — and the session keeps no
-//! copy of it.
+//! `WalletHandle` and nothing else: the address is read from
+//! `get_primary_address`, its one source. `restore_height_hint` follows
+//! wallet-rpc — omitted on create, on a restore from genesis, and on a
+//! cache-hit open; present for a higher restore floor and for an open that
+//! rebuilt the ledger (`OpenedEngine::Restored`, including a zero floor).
+//! `create_wallet` adds the backup exactly once, in the network's encoding
+//! — `mnemonic` on mainnet/stagenet, `raw_seed_hex` on testnet — and the
+//! session keeps no copy of it.
 
 use serde::Serialize;
 use shekyl_engine_core::Capability;
@@ -26,7 +28,7 @@ use crate::wallet_name;
 
 /// The contract's `WalletHandle`: returned by every lifecycle call that
 /// leaves a wallet open. Informational, not a bearer token.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct WalletHandle {
     /// Wallet file stem within the wallet directory.
     pub name: String,
@@ -34,7 +36,8 @@ pub struct WalletHandle {
     pub capability: &'static str,
     /// `MAINNET | TESTNET | STAGENET`.
     pub network: &'static str,
-    /// The rescan floor the wallet file carries; absent when it scans from genesis.
+    /// Present when a restore used a floor above genesis, or when open rebuilt
+    /// the ledger. Omitted on create, on a genesis restore, and on a cache-hit open.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restore_height_hint: Option<u64>,
 }
@@ -81,20 +84,32 @@ fn capability_str(capability: Capability) -> &'static str {
     }
 }
 
-/// Build the handle for the wallet the session just opened, from the
-/// engine's own facts.
-async fn wallet_handle(
-    eng: &engine_session::EngineSession,
+/// The handle for a wallet the session just opened. Infallible: the facts
+/// were taken from the engine before it was published as open.
+fn wallet_handle(
     name: String,
     network: NetworkType,
-) -> Result<WalletHandle, String> {
-    let (capability, restore_height_hint) = eng.handle_facts().await?;
-    Ok(WalletHandle {
+    facts: &engine_session::WalletFacts,
+) -> WalletHandle {
+    WalletHandle {
         name,
-        capability: capability_str(capability),
+        capability: capability_str(facts.capability),
         network: network_str(network),
-        restore_height_hint: (restore_height_hint > 0).then_some(u64::from(restore_height_hint)),
-    })
+        restore_height_hint: facts.restore_height_hint,
+    }
+}
+
+/// `restore_wallet`'s floor, as the keys file stores it (`u32`).
+///
+/// Omitted and `0` both scan from genesis. A height above `u32::MAX` is
+/// refused, matching wallet-rpc, so the file never stores a truncated floor.
+fn restore_floor(restore_height: Option<u64>) -> Result<u32, String> {
+    match restore_height {
+        None => Ok(0),
+        Some(height) => u32::try_from(height).map_err(|_| {
+            "Restore height is outside the range the wallet file can store".to_owned()
+        }),
+    }
 }
 
 #[tauri::command]
@@ -117,13 +132,13 @@ pub async fn create_wallet(
 
     let daemon = state.daemon_http_base().await;
     let mut eng = state.engine.lock().await;
-    let backup = eng
+    let created = eng
         .create(&wallet_dir, &sanitized, &password, network, &daemon)
         .await?;
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
-    let wallet = wallet_handle(&eng, sanitized, network).await?;
-    let (mnemonic, raw_seed_hex) = match backup {
+    let wallet = wallet_handle(sanitized, network, &created.facts);
+    let (mnemonic, raw_seed_hex) = match created.backup {
         engine_session::SeedBackup::Mnemonic(m) => (Some(m), None),
         engine_session::SeedBackup::RawHex(h) => (None, Some(h)),
     };
@@ -157,12 +172,13 @@ pub async fn open_wallet(
 
     let daemon = state.daemon_http_base().await;
     let mut eng = state.engine.lock().await;
-    eng.open(&wallet_dir, &sanitized, &password, network, &daemon)
+    let facts = eng
+        .open(&wallet_dir, &sanitized, &password, network, &daemon)
         .await?;
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
     Ok(OpenedWallet {
-        wallet: wallet_handle(&eng, sanitized, network).await?,
+        wallet: wallet_handle(sanitized, network, &facts),
     })
 }
 
@@ -200,27 +216,28 @@ pub async fn restore_wallet(
     validate::validate_seed_backup(&mnemonic, network)?;
     validate::validate_password(&password)?;
 
-    let height = restore_height.unwrap_or(0);
+    let height = restore_floor(restore_height)?;
 
     let wallet_dir = state.wallet_dir.read().await.clone();
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
     let daemon = state.daemon_http_base().await;
     let mut eng = state.engine.lock().await;
-    eng.restore_from_backup(
-        &wallet_dir,
-        &sanitized,
-        &mnemonic,
-        &password,
-        height,
-        network,
-        &daemon,
-    )
-    .await?;
+    let facts = eng
+        .restore_from_backup(
+            &wallet_dir,
+            &sanitized,
+            &mnemonic,
+            &password,
+            height,
+            network,
+            &daemon,
+        )
+        .await?;
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
     Ok(OpenedWallet {
-        wallet: wallet_handle(&eng, sanitized, network).await?,
+        wallet: wallet_handle(sanitized, network, &facts),
     })
 }
 
@@ -228,48 +245,83 @@ pub async fn restore_wallet(
 mod tests {
     use super::*;
 
-    fn handle(hint: Option<u64>) -> WalletHandle {
-        WalletHandle {
-            name: "alice".into(),
-            capability: capability_str(Capability::Full),
-            network: network_str(NetworkType::Testnet),
-            restore_height_hint: hint,
-        }
+    fn handle_from(facts: engine_session::WalletFacts) -> WalletHandle {
+        wallet_handle("alice".into(), NetworkType::Testnet, &facts)
     }
 
     #[test]
-    fn handle_spells_the_contract_and_omits_a_genesis_hint() {
-        let v = serde_json::to_value(handle(None)).unwrap();
+    fn handle_spells_the_contract_and_reports_the_hint_only_when_wallet_rpc_does() {
+        use engine_session::{OpenedLedger, WalletFacts};
+
+        let created =
+            serde_json::to_value(handle_from(WalletFacts::created(Capability::Full))).unwrap();
         assert_eq!(
-            v,
+            created,
             serde_json::json!({ "name": "alice", "capability": "FULL", "network": "TESTNET" })
         );
-        let v = serde_json::to_value(handle(Some(1200))).unwrap();
-        assert_eq!(v["restore_height_hint"], 1200);
+        assert!(created.get("restore_height_hint").is_none());
+
+        let genesis =
+            serde_json::to_value(handle_from(WalletFacts::restored(Capability::Full, 0))).unwrap();
+        assert!(genesis.get("restore_height_hint").is_none());
+        let restored =
+            serde_json::to_value(handle_from(WalletFacts::restored(Capability::Full, 1200)))
+                .unwrap();
+        assert_eq!(restored["restore_height_hint"], 1200);
+
+        // A later unlock of that same wallet loaded the state file: the hint
+        // is omitted, even though the keys file still stores 1200.
+        let loaded = serde_json::to_value(handle_from(WalletFacts::opened(
+            Capability::Full,
+            OpenedLedger::Loaded,
+        )))
+        .unwrap();
+        assert!(loaded.get("restore_height_hint").is_none());
+
+        // Rebuilding after the state file is lost reports the floor, including zero.
+        let rebuilt_genesis = serde_json::to_value(handle_from(WalletFacts::opened(
+            Capability::Full,
+            OpenedLedger::Rebuilt { from_height: 0 },
+        )))
+        .unwrap();
+        assert_eq!(rebuilt_genesis["restore_height_hint"], 0);
+        let rebuilt = serde_json::to_value(handle_from(WalletFacts::opened(
+            Capability::Full,
+            OpenedLedger::Rebuilt { from_height: 1200 },
+        )))
+        .unwrap();
+        assert_eq!(rebuilt["restore_height_hint"], 1200);
+
         assert_eq!(network_str(NetworkType::Mainnet), "MAINNET");
         assert_eq!(network_str(NetworkType::Stagenet), "STAGENET");
     }
 
     #[test]
+    fn restore_floor_rejects_a_height_the_keys_file_cannot_store() {
+        assert_eq!(restore_floor(None).unwrap(), 0);
+        assert_eq!(restore_floor(Some(0)).unwrap(), 0);
+        assert_eq!(restore_floor(Some(1200)).unwrap(), 1200);
+        assert!(restore_floor(Some(u64::from(u32::MAX) + 1)).is_err());
+    }
+
+    #[test]
     fn created_wallet_carries_exactly_one_backup_encoding() {
+        let wallet = handle_from(engine_session::WalletFacts::created(Capability::Full));
         let mainnet = serde_json::to_value(CreatedWallet {
-            wallet: handle(None),
+            wallet: wallet.clone(),
             mnemonic: Some("word ".repeat(24).trim().into()),
             raw_seed_hex: None,
         })
         .unwrap();
         assert!(mainnet.get("mnemonic").is_some() && mainnet.get("raw_seed_hex").is_none());
         let testnet = serde_json::to_value(CreatedWallet {
-            wallet: handle(None),
+            wallet: wallet.clone(),
             mnemonic: None,
             raw_seed_hex: Some("ab".repeat(32)),
         })
         .unwrap();
         assert!(testnet.get("mnemonic").is_none() && testnet.get("raw_seed_hex").is_some());
-        let opened = serde_json::to_value(OpenedWallet {
-            wallet: handle(None),
-        })
-        .unwrap();
+        let opened = serde_json::to_value(OpenedWallet { wallet }).unwrap();
         assert_eq!(opened["wallet"]["name"], "alice");
         assert!(
             opened.get("address").is_none(),

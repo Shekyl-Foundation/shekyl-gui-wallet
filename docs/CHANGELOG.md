@@ -7,23 +7,24 @@
 - **The lifecycle results are the contract's.** `create_wallet`,
   `open_wallet` and `restore_wallet` return the contract's `WalletHandle`
   (name, the envelope's own capability `FULL`, network as
-  `MAINNET | TESTNET | STAGENET`, the file's `restore_height_hint`) under
-  `wallet`; `create_wallet` adds the backup exactly once in the network's
-  encoding — `mnemonic` or `raw_seed_hex`, never both — and nothing else.
-  The GUI's `WalletInfo` / `CreateWalletResult` (address, `seed_language`,
-  lowercase network) are gone: the address comes from `get_primary_address`,
-  its one source, and the Create page reads it there; the context's unused
-  `walletAddress` is deleted. The lifecycle commands and handle types live
-  in `src-tauri/src/lifecycle.rs` (rule 27; `commands.rs` 800 → 640,
-  locked).
+  `MAINNET | TESTNET | STAGENET`) under `wallet`. `restore_height_hint`
+  follows wallet-rpc: omitted on create, on a restore from genesis, and on
+  a cache-hit open; present for a higher restore floor and when open
+  rebuilt the ledger (`OpenedEngine::Restored`, including a zero floor).
+  A restore height that does not fit the keys file's `u32` is refused.
+  `create_wallet` adds the backup exactly once — `mnemonic` or
+  `raw_seed_hex`, never both. The page treats those as two arms: a 24-word
+  phrase, or a 64-character hex seed confirmed by re-entry. The address
+  comes from `get_primary_address`; a failed read is shown, not a blank
+  address. The lifecycle commands live in `src-tauri/src/lifecycle.rs`
+  (rule 27; `commands.rs` ceiling locked at 640).
 - **`get_transfers` takes the contract's filters and projects attribution.**
-  `direction` and `state` travel to Rust under the contract's names (the
-  contract's `since_height` watermark has no page here and is not taken);
-  the Transactions page offers direction tabs and a state select and never
-  filters a list it then shows as partial. Incoming rows carry the
-  contract's `attribution` (`MATCHED` / `MANUAL_MATCH` with the request id,
-  `LABEL_UNKNOWN`, `DISPUTED`; outgoing rows omit it), rendered as a badge
-  naming the payment request a receive arrived against.
+  `direction` and `state` deserialize as the contract enums (the
+  `since_height` watermark and the attribution filter have no page here
+  and are not taken). The Transactions page keeps each list with the query
+  that produced it, so a new filter shows loading rather than the previous
+  rows, and an empty filter says nothing matched. Incoming rows carry
+  `attribution` as one arm per kind; outgoing rows omit it.
 
 ### Changed
 

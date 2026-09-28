@@ -26,7 +26,15 @@ interface ClipboardPlacement {
 }
 
 const COPY_FAILED =
-  "The recovery phrase could not be copied. Write it down from the screen.";
+  "The backup could not be copied. Write it down from the screen.";
+
+const ADDRESS_UNREAD =
+  "The address could not be read. The wallet was created — open it, then copy the address from Receive.";
+
+type AddressRead =
+  | { kind: "loading" }
+  | { kind: "ready"; address: string }
+  | { kind: "fault" };
 
 export default function CreateWallet() {
   const navigate = useNavigate();
@@ -40,8 +48,11 @@ export default function CreateWallet() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CreatedWallet | null>(null);
-  /** Fetched from `get_primary_address` once the wallet is open — never carried on the create result. */
-  const [address, setAddress] = useState<string | null>(null);
+  /** `get_primary_address` once the wallet is open. Failure is its own state, not a blank address. */
+  const [addressRead, setAddressRead] = useState<AddressRead>({ kind: "loading" });
+  const addressGen = useRef(0);
+  /** Re-entry of a testnet hex seed. Phrase confirmation uses `confirmValues`. */
+  const [rawConfirm, setRawConfirm] = useState("");
   const [copied, setCopied] = useState(false);
   const [clearAfterMs, setClearAfterMs] = useState<number | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -51,28 +62,42 @@ export default function CreateWallet() {
     {},
   );
 
-  /** The backup as words: 24 on mainnet/stagenet; on testnet the one 64-hex seed. */
-  const seedWords = useMemo(() => (result ? seedBackupOf(result).split(" ").filter(Boolean) : []), [result]);
+  /** Phrase words. Empty unless this create returned a mnemonic. */
+  const phraseWords = useMemo(() => {
+    if (!result || result.encoding !== "mnemonic") return [];
+    return result.mnemonic.split(" ").filter(Boolean);
+  }, [result]);
+
+  const readAddress = useCallback(() => {
+    const gen = ++addressGen.current;
+    setAddressRead({ kind: "loading" });
+    invoke<PrimaryAddress>("get_primary_address")
+      .then((response) => {
+        if (gen === addressGen.current) {
+          setAddressRead({ kind: "ready", address: response.address });
+        }
+      })
+      .catch(() => {
+        if (gen === addressGen.current) setAddressRead({ kind: "fault" });
+      });
+  }, []);
 
   useEffect(() => {
     if (step !== "done") return;
-    let live = true;
-    invoke<PrimaryAddress>("get_primary_address")
-      .then((r) => live && setAddress(r.address))
-      .catch(() => live && setAddress(null));
+    readAddress();
     return () => {
-      live = false;
+      addressGen.current += 1;
     };
-  }, [step]);
+  }, [step, readAddress]);
 
   const challengeIndices = useMemo(() => {
-    if (seedWords.length === 0) return [];
+    if (phraseWords.length === 0) return [];
     const indices = new Set<number>();
-    while (indices.size < 4 && indices.size < seedWords.length) {
-      indices.add(Math.floor(Math.random() * seedWords.length));
+    while (indices.size < 4 && indices.size < phraseWords.length) {
+      indices.add(Math.floor(Math.random() * phraseWords.length));
     }
     return Array.from(indices).sort((a, b) => a - b);
-  }, [seedWords.length]);
+  }, [phraseWords.length]);
 
   const passwordStrength = useMemo(() => {
     if (password.length === 0) return { label: "", color: "" };
@@ -95,12 +120,18 @@ export default function CreateWallet() {
     password === confirmPassword;
 
   const confirmCorrect = useMemo(() => {
-    return challengeIndices.every(
-      (i) =>
-        confirmValues[i]?.toLowerCase().trim() ===
-        seedWords[i]?.toLowerCase(),
+    if (!result) return false;
+    if (result.encoding === "raw_seed_hex") {
+      return rawConfirm.trim().toLowerCase() === result.raw_seed_hex;
+    }
+    return (
+      phraseWords.length > 0 &&
+      challengeIndices.length > 0 &&
+      challengeIndices.every(
+        (i) => confirmValues[i]?.toLowerCase().trim() === phraseWords[i]?.toLowerCase(),
+      )
     );
-  }, [challengeIndices, confirmValues, seedWords]);
+  }, [result, rawConfirm, phraseWords, challengeIndices, confirmValues]);
 
   const handleCreate = useCallback(async () => {
     setError(null);
@@ -110,7 +141,7 @@ export default function CreateWallet() {
       setResult(res);
       setStep("seed");
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -284,30 +315,54 @@ export default function CreateWallet() {
         {/* Step: Seed display */}
         {step === "seed" && result && (
           <div className="card space-y-5">
-            <div className="flex items-start gap-3 rounded-lg border border-orange-500/40 bg-orange-900/20 p-4">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-400" />
-              <div className="text-xs text-orange-200">
-                <p className="font-semibold">Write these words down now.</p>
-                <p className="mt-1">
-                  This 24-word recovery phrase is your only backup. If you lose
-                  it, your funds cannot be recovered. Never share it with anyone.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-5 gap-2">
-              {seedWords.map((word, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg bg-purple-800/80 px-2 py-2 text-center"
-                >
-                  <span className="block text-[9px] text-purple-400">
-                    {i + 1}
-                  </span>
-                  <span className="text-xs font-medium text-white">{word}</span>
+            {result.encoding === "mnemonic" ? (
+              <>
+                <div className="flex items-start gap-3 rounded-lg border border-orange-500/40 bg-orange-900/20 p-4">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-400" />
+                  <div className="text-xs text-orange-200">
+                    <p className="font-semibold">Write these words down now.</p>
+                    <p className="mt-1">
+                      This 24-word recovery phrase is your only backup. If you lose
+                      it, your funds cannot be recovered. Never share it with anyone.
+                    </p>
+                  </div>
                 </div>
-              ))}
-            </div>
+                <div className="grid grid-cols-5 gap-2">
+                  {phraseWords.map((word, i) => (
+                    <div
+                      key={i}
+                      className="rounded-lg bg-purple-800/80 px-2 py-2 text-center"
+                    >
+                      <span className="block text-[9px] text-purple-400">
+                        {i + 1}
+                      </span>
+                      <span className="text-xs font-medium text-white">{word}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start gap-3 rounded-lg border border-orange-500/40 bg-orange-900/20 p-4">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-400" />
+                  <div className="text-xs text-orange-200">
+                    <p className="font-semibold">Write this hex seed down now.</p>
+                    <p className="mt-1">
+                      A testnet wallet backs up as 64 hex characters, not a recovery
+                      phrase. If you lose it, the funds cannot be recovered. Never
+                      share it with anyone.
+                    </p>
+                  </div>
+                </div>
+                <p
+                  className="break-all rounded-lg bg-purple-800/80 px-3 py-3 font-mono text-xs text-white"
+                  data-testid="raw-seed"
+                >
+                  {result.raw_seed_hex}
+                </p>
+                <p className="text-[11px] text-purple-400">64 hex characters</p>
+              </>
+            )}
 
             <button
               onClick={handleCopySeed}
@@ -335,42 +390,63 @@ export default function CreateWallet() {
               onClick={() => setStep("confirm")}
               className="btn btn-primary w-full"
             >
-              I've saved my seed phrase
+              {result.encoding === "mnemonic"
+                ? "I've saved my seed phrase"
+                : "I've saved this hex seed"}
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         )}
 
         {/* Step: Confirm seed */}
-        {step === "confirm" && (
+        {step === "confirm" && result && (
           <div className="card space-y-5">
-            <p className="text-xs text-purple-200">
-              Verify you saved your seed correctly by entering these words:
-            </p>
-
-            <div className="space-y-3">
-              {challengeIndices.map((idx) => (
-                <div key={idx} className="space-y-1">
-                  <label className="text-xs text-purple-300">
-                    Word #{idx + 1}
-                  </label>
-                  <input
-                    type="text"
-                    className="input"
-                    value={confirmValues[idx] ?? ""}
-                    onChange={(e) =>
-                      setConfirmValues((prev) => ({
-                        ...prev,
-                        [idx]: e.target.value,
-                      }))
-                    }
-                    placeholder={`Enter word #${idx + 1}`}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
+            {result.encoding === "mnemonic" ? (
+              <>
+                <p className="text-xs text-purple-200">
+                  Verify you saved your seed correctly by entering these words:
+                </p>
+                <div className="space-y-3">
+                  {challengeIndices.map((idx) => (
+                    <div key={idx} className="space-y-1">
+                      <label className="text-xs text-purple-300">
+                        Word #{idx + 1}
+                      </label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={confirmValues[idx] ?? ""}
+                        onChange={(e) =>
+                          setConfirmValues((prev) => ({
+                            ...prev,
+                            [idx]: e.target.value,
+                          }))
+                        }
+                        placeholder={`Enter word #${idx + 1}`}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            ) : (
+              <div className="space-y-1">
+                <label className="text-xs text-purple-300" htmlFor="raw-seed-confirm">
+                  Re-enter the 64-character hex seed
+                </label>
+                <input
+                  id="raw-seed-confirm"
+                  type="text"
+                  className="input font-mono"
+                  value={rawConfirm}
+                  onChange={(e) => setRawConfirm(e.target.value)}
+                  placeholder="64 hex characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            )}
 
             <button
               onClick={() => setStep("done")}
@@ -386,7 +462,7 @@ export default function CreateWallet() {
               className="btn btn-ghost w-full text-xs"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              Back to seed phrase
+              {result.encoding === "mnemonic" ? "Back to seed phrase" : "Back to hex seed"}
             </button>
           </div>
         )}
@@ -402,9 +478,24 @@ export default function CreateWallet() {
             </h2>
             <div className="space-y-2">
               <p className="text-xs text-purple-300">Address</p>
-              <p className="break-all rounded-lg bg-purple-800/80 px-3 py-2 font-mono text-[10px] text-gold-400">
-                {address ?? "…"}
-              </p>
+              {addressRead.kind === "ready" ? (
+                <p className="break-all rounded-lg bg-purple-800/80 px-3 py-2 font-mono text-[10px] text-gold-400">
+                  {addressRead.address}
+                </p>
+              ) : addressRead.kind === "fault" ? (
+                <div className="space-y-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
+                  <p className="text-xs text-red-200">{ADDRESS_UNREAD}</p>
+                  <button
+                    type="button"
+                    onClick={readAddress}
+                    className="text-xs font-medium text-purple-200 underline underline-offset-2 hover:text-white"
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-purple-400">Reading your address…</p>
+              )}
             </div>
             <p className="text-xs text-purple-300">
               Protected by hybrid Ed25519 + ML-DSA-65 signatures.

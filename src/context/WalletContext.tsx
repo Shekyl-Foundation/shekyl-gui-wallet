@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type {
-  WalletPhase,
-  WalletFileInfo,
-  OpenedWallet,
-  CreatedWallet,
+import {
+  createdWalletFromWire,
+  type WalletPhase,
+  type WalletFileInfo,
+  type OpenedWallet,
+  type CreatedWalletWire,
 } from "../types/wallet";
 import { WalletContext, type WalletDirResponse } from "./walletState";
 
@@ -119,10 +120,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const createWallet = useCallback(
     async (name: string, password: string) => {
       setError(null);
-      const created = await invoke<CreatedWallet>("create_wallet", {
-        name,
-        password,
-      });
+      const created = createdWalletFromWire(
+        await invoke<CreatedWalletWire>("create_wallet", {
+          name,
+          password,
+        }),
+      );
       setWalletName(created.wallet.name);
       return created;
     },

@@ -168,18 +168,21 @@ If this is your first time, you'll see the Welcome screen. Click
    This password encrypts your wallet file. If someone steals your
    computer, they can't open the wallet without it.
 
-2. **Recovery phrase.** The wallet generates a **24-word BIP-39 English recovery
-   phrase** and displays it in a numbered grid. This is the most important thing
-   you'll encounter. Read the next section carefully. You can also copy it to
-   your clipboard, but **write it down on paper immediately**.
+2. **Recovery phrase.** On mainnet and stagenet the wallet generates a
+   **24-word BIP-39 English recovery phrase** and displays it in a numbered
+   grid. On testnet the backup is one **64-character hex seed**, not a phrase.
+   Either way this is the most important thing you'll encounter. Read the next
+   section carefully. You can also copy it to your clipboard, but **write it
+   down on paper immediately**.
 
-3. **Phrase confirmation.** To make sure you actually saved your phrase, the wallet
-   asks you to enter 4 randomly chosen words (e.g., "Enter word #3, #8, #17,
-   #22"). This prevents accidentally clicking through without saving.
+3. **Confirmation.** To make sure you actually saved the backup, the wallet
+   asks you to enter 4 randomly chosen words, or — on testnet — to type the
+   hex seed back. This prevents accidentally clicking through without saving.
 
 4. **Done.** Your wallet is created and ready to use. You'll see your address
-   and a confirmation that it's protected by hybrid PQC signatures. Click
-   "Open Wallet" to enter the main app.
+   and a confirmation that it's protected by hybrid PQC signatures. If the
+   address cannot be read, the wallet still exists: open it and copy the
+   address from Receive. Click "Open Wallet" to enter the main app.
 
 Your wallet is automatically a **v3 wallet** with full post-quantum key
 material (Ed25519 + ML-DSA-65). No extra steps are needed for PQC protection.
@@ -334,7 +337,9 @@ been mined on top of it (typically 10 confirmations for full assurance).
 Click **Transactions** in the sidebar to see a list of all your past
 transactions -- both sent and received. The tabs above the list narrow it
 to **Received** or **Sent**, and the state menu to one state (Pending,
-Confirmed, Spent, …). A receive that arrived against one of your payment
+Confirmed, Spent, …). Changing a filter loads that view on its own; an
+empty result means nothing matched, which is different from a wallet that
+has no history yet. A receive that arrived against one of your payment
 requests names the request on its row.
 
 Each entry shows:

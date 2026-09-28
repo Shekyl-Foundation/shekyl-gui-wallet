@@ -36,23 +36,37 @@ function sampleTx(
 ): Transfer {
   const tx_hash =
     overrides.tx_hash ?? "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
-  const common = {
+  const shared = {
     id: overrides.id ?? tx_hash,
     tx_hash,
     amount: overrides.amount ?? "1000000000",
     fee: overrides.fee ?? "10000",
-    attribution: overrides.attribution,
     block_height: overrides.block_height,
-    direction: overrides.direction ?? "OUTGOING",
   };
-  if (overrides.state === "UNSPENDABLE") {
+  const direction = overrides.direction ?? "OUTGOING";
+  if (direction === "INCOMING") {
+    const attribution = overrides.attribution ?? { kind: "UNATTRIBUTED" as const };
+    if (overrides.state === "UNSPENDABLE") {
+      return {
+        ...shared,
+        direction,
+        attribution,
+        state: "UNSPENDABLE",
+        unspendable_reason: overrides.unspendable_reason ?? "PQC_LEAF_MISMATCH",
+      };
+    }
     return {
-      ...common,
-      state: "UNSPENDABLE",
-      unspendable_reason: overrides.unspendable_reason ?? "PQC_LEAF_MISMATCH",
+      ...shared,
+      direction,
+      attribution,
+      state: overrides.state ?? "CONFIRMED",
     };
   }
-  return { ...common, state: overrides.state ?? "PENDING" };
+  return {
+    ...shared,
+    direction: "OUTGOING",
+    state: overrides.state && overrides.state !== "UNSPENDABLE" ? overrides.state : "PENDING",
+  };
 }
 
 const transfers = (rows: Transfer[]): Transfers => ({ transfers: rows });
@@ -145,6 +159,31 @@ describe("Transactions", () => {
         state: "CONFIRMED",
       }),
     );
+  });
+
+  it("hides the previous rows while a new filter is in flight, then says when nothing matches", async () => {
+    const user = userEvent.setup();
+    let resolveFiltered: (value: unknown) => void = () => {};
+    const filtered = new Promise((resolve) => {
+      resolveFiltered = resolve;
+    });
+    vi.mocked(invoke)
+      .mockResolvedValueOnce(transfers([sampleTx({ state: "PENDING" })]))
+      .mockImplementationOnce(() => filtered);
+
+    render(<Transactions />);
+    expect(await screen.findByText("Pending")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Received" }));
+    expect(screen.queryByTestId("transfers")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading transactions…")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFiltered(transfers([]));
+      await Promise.resolve();
+    });
+    expect(await screen.findByText("No matching transactions")).toBeInTheDocument();
+    expect(screen.queryByText("No transactions yet")).not.toBeInTheDocument();
   });
 
   it("shows which payment request a receive arrived against", async () => {

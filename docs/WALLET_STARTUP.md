@@ -210,18 +210,20 @@ When a wallet is closed (`close_wallet`) or the window is destroyed:
 
 `create_wallet(name, password)` creates the wallet through the Engine and
 returns the contract's `CreateWalletResult` — `wallet` (the `WalletHandle`:
-name, capability `FULL`, network) and the backup exactly once, in the
-network's encoding: `mnemonic` (24 words) on mainnet/stagenet or
-`raw_seed_hex` on testnet. The address is not on the result; the page reads
-it from `get_primary_address` once the wallet is open. There is no
-`seed_language` and no mnemonic-language argument: the field present says
-which encoding the Engine chose.
+name, capability `FULL`, network, and `restore_height_hint` only when the
+contract reports one) and the backup exactly once, in the network's
+encoding: `mnemonic` (24 words) on mainnet/stagenet or `raw_seed_hex` on
+testnet. The address is not on the result; the page reads it from
+`get_primary_address` once the wallet is open, and a failed read is shown
+rather than a blank address. There is no `seed_language` and no
+mnemonic-language argument: which backup field is present says which
+encoding the Engine chose.
 
 1. **setup** — name, password and confirmation.
-2. **seed** — the phrase in a numbered grid; "Copy to clipboard" hands it to
-   Rust, which owns the clipboard's timed, hash-checked clear
-   (`GUI_SECURITY.md` "Recovery phrase").
-3. **confirm** — the user is challenged for 4 randomly chosen words.
+2. **seed** — the phrase in a numbered grid, or the testnet hex seed on its
+   own. "Copy to clipboard" hands that backup to Rust, which owns the
+   clipboard's timed, hash-checked clear (`GUI_SECURITY.md` "Recovery phrase").
+3. **confirm** — four randomly chosen words, or a re-entry of the hex seed.
 4. **done** — transitions to `phase: "ready"`.
 
 Every new wallet is a v3 wallet. The Engine derives hybrid Ed25519 + ML-DSA-65
