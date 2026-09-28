@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Copy, Check, ChevronDown, ChevronUp, ShieldCheck } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import type { PrimaryAddress } from "../types/wallet";
 
 const BECH32M_PREFIX = "shekyl1";
 const CLASSICAL_SEGMENT_LEN = 95;
@@ -28,8 +29,8 @@ export default function Receive() {
   const [showFull, setShowFull] = useState(false);
 
   useEffect(() => {
-    invoke<string>("get_address", { account: 0, index: 0 })
-      .then(setAddress)
+    invoke<PrimaryAddress>("get_primary_address")
+      .then((r) => setAddress(r.address))
       .catch(() => {});
   }, []);
 

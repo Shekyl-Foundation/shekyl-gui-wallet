@@ -168,10 +168,10 @@ most recently modified.
 
 ### Initialization
 
-`init_wallet_rpc` (Tauri command -- name retained for IPC compatibility)
-initializes the wallet bridge with the network type, daemon address, and
-wallet directory. No external process is started; this is a synchronous
-in-process FFI initialization.
+`ensure_wallet_dir` (Tauri command) guarantees the configured wallet
+directory exists before any create/open flow runs. Nothing else is
+initialised at startup: the Engine connects to the daemon per wallet-open,
+and no external process is started.
 
 ### Open / Close
 
@@ -237,8 +237,8 @@ classical segment by default; the PQC segment is handled internally.
 
 ### From Recovery Phrase
 
-The only restore path. `import_wallet_from_seed(name, seed, password,
-restore_height)` validates the backup in the encoding the running network
+The only restore path. `restore_wallet(name, password, mnemonic,
+restore_height)` — the contract's method and parameters — validates the backup in the encoding the running network
 hands out at creation (`validate_seed_backup`: a 24-word phrase on
 mainnet/stagenet, the 32-byte raw seed as 64 hex characters on testnet —
 the contract's `restore_wallet`) and calls `EngineSession::restore_from_backup`,

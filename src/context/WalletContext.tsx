@@ -13,7 +13,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [walletFiles, setWalletFiles] = useState<WalletFileInfo[]>([]);
   const [walletName, setWalletName] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [rpcReady, setRpcReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [walletDir, setWalletDir] = useState<string | null>(null);
   const [walletDirFallbackFrom, setWalletDirFallbackFrom] = useState<
@@ -63,9 +62,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     async function bootstrap() {
       try {
-        await invoke<boolean>("init_wallet_rpc");
+        await invoke<void>("ensure_wallet_dir");
         if (cancelled) return;
-        setRpcReady(true);
         try {
           const resp = await invoke<WalletDirResponse>("get_wallet_dir");
           if (!cancelled) {
@@ -134,13 +132,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const importFromSeed = useCallback(
-    async (name: string, seed: string, password: string, restoreHeight?: number) => {
+  const restoreWallet = useCallback(
+    async (name: string, password: string, mnemonic: string, restoreHeight?: number) => {
       setError(null);
-      const info = await invoke<WalletInfo>("import_wallet_from_seed", {
+      const info = await invoke<WalletInfo>("restore_wallet", {
         name,
-        seed,
         password,
+        mnemonic,
         restoreHeight: restoreHeight ?? 0,
       });
       setWalletName(info.name);
@@ -173,11 +171,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         walletFiles,
         walletName,
         walletAddress,
-        rpcReady,
         error,
         openWallet,
         createWallet,
-        importFromSeed,
+        restoreWallet,
         lockWallet,
         setPhase,
         refreshFiles,

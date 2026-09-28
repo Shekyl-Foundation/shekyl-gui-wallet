@@ -1,12 +1,8 @@
-import { useEffect } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DaemonProvider } from "../../context/DaemonContext";
-import { ShardPickerProvider } from "../../context/ShardPickerContext";
-import { useShardPicker } from "../../context/useShardPicker";
 import { WalletContext } from "../../context/walletState";
 import type { WalletContextValue } from "../../context/walletState";
 import Staking from "../Staking";
@@ -40,11 +36,10 @@ const walletStub: WalletContextValue = {
   walletFiles: [],
   walletName: null,
   walletAddress: null,
-  rpcReady: false,
   error: null,
   openWallet: () => Promise.reject("stub"),
   createWallet: () => Promise.reject("stub"),
-  importFromSeed: () => Promise.reject("stub"),
+  restoreWallet: () => Promise.reject("stub"),
   lockWallet: () => Promise.resolve(),
   setPhase: () => {},
   refreshFiles: async () => [],
@@ -55,39 +50,13 @@ const walletStub: WalletContextValue = {
   refreshWalletDir: async () => "",
 };
 
-function SeedSelection({
-  shardId,
-  profit,
-}: {
-  shardId: number;
-  profit: string;
-}) {
-  const { toggle, isSelected } = useShardPicker();
-  useEffect(() => {
-    if (!isSelected(shardId)) {
-      toggle(shardId, profit);
-    }
-  }, [isSelected, shardId, profit, toggle]);
-  return null;
-}
-
-function renderStaking(
-  wallet: Partial<WalletContextValue> = {},
-  seed?: { shardId: number; profit: string },
-) {
+function renderStaking(wallet: Partial<WalletContextValue> = {}) {
   return render(
-    <MemoryRouter>
-      <ShardPickerProvider>
-        {seed ? (
-          <SeedSelection shardId={seed.shardId} profit={seed.profit} />
-        ) : null}
-        <WalletContext.Provider value={{ ...walletStub, ...wallet }}>
-          <DaemonProvider>
-            <Staking />
-          </DaemonProvider>
-        </WalletContext.Provider>
-      </ShardPickerProvider>
-    </MemoryRouter>,
+    <WalletContext.Provider value={{ ...walletStub, ...wallet }}>
+      <DaemonProvider>
+        <Staking />
+      </DaemonProvider>
+    </WalletContext.Provider>,
   );
 }
 
@@ -131,13 +100,12 @@ describe("Staking (archival activation)", () => {
       await screen.findByPlaceholderText("Wallet password"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Activate staker/i })).toBeInTheDocument();
-    expect(screen.getByText(/No archives selected/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Pick archives on the Shards page/),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/No archives selected/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pick archives on the Shards page/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/you choose them/)).not.toBeInTheDocument();
   });
 
-  it("shows this-session copy and passes selectedShardCount on activate", async () => {
+  it("sends stake with only the password", async () => {
     const user = userEvent.setup();
     let captured: unknown;
     vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
@@ -152,7 +120,7 @@ describe("Staking (archival activation)", () => {
           has_pscan: false,
         };
       }
-      if (cmd === "activate_staker") {
+      if (cmd === "stake") {
         captured = args;
         return {
           slot: 0,
@@ -163,20 +131,11 @@ describe("Staking (archival activation)", () => {
       }
       return null;
     });
-    renderStaking(
-      { phase: "ready", walletName: "alice" },
-      { shardId: 2, profit: "1" },
-    );
-    expect(
-      await screen.findByText(/1 archive selected this session/),
-    ).toBeInTheDocument();
-    await user.type(screen.getByPlaceholderText("Wallet password"), "pw");
+    renderStaking({ phase: "ready", walletName: "alice" });
+    await user.type(await screen.findByPlaceholderText("Wallet password"), "pw");
     await user.click(screen.getByRole("button", { name: /Activate staker/i }));
     await waitFor(() => {
-      expect(captured).toEqual({
-        password: "pw",
-        selectedShardCount: 1,
-      });
+      expect(captured).toEqual({ password: "pw" });
     });
   });
 });
@@ -209,9 +168,9 @@ describe("Staking drainable-P (DS-PR-3 PR-B)", () => {
       if (cmd === "get_staking_view") {
         return {
           staking_enabled: true,
-          bonded_principal_confirmed: 0,
-          bonded_principal_pending: 0,
-          rewards_received_unspent: 0,
+          bonded_principal_confirmed: "0",
+          bonded_principal_pending: "0",
+          rewards_received_unspent: "0",
           staked_outputs: [],
           pscan_synced_height: null,
           recovery_pending_reopen: false,
@@ -222,7 +181,7 @@ describe("Staking drainable-P (DS-PR-3 PR-B)", () => {
   }
 
   it("renders the anchored drainable figure for an active staker", async () => {
-    mockStakerWithDrain({ status: "ready", spendable: 1_500_000_000 });
+    mockStakerWithDrain({ status: "ready", spendable: "1500000000" });
     renderStaking({ phase: "ready", walletName: "alice" });
     const line = await screen.findByText(/Drainable \(P\)/);
     await waitFor(() => expect(line.textContent).toContain("1.500000 SKL"));
@@ -267,7 +226,7 @@ describe("Staking view panel (GUI-PR3b)", () => {
         };
       }
       if (cmd === "get_drain_balance") {
-        return { status: "ready", spendable: 0 };
+        return { status: "ready", spendable: "0" };
       }
       if (cmd === "get_staking_view") {
         return typeof view === "function"
@@ -281,13 +240,13 @@ describe("Staking view panel (GUI-PR3b)", () => {
   it("renders the three balance legs distinctly and the output rows", async () => {
     mockStakerWithView({
       staking_enabled: true,
-      bonded_principal_confirmed: 1_000_000_000,
-      bonded_principal_pending: 2_000_000_000,
-      rewards_received_unspent: 3_000_000_000,
+      bonded_principal_confirmed: "1000000000",
+      bonded_principal_pending: "2000000000",
+      rewards_received_unspent: "3000000000",
       staked_outputs: [
         {
           gindex: 42,
-          amount: 4_000_000_000,
+          amount: "4000000000",
           p_slot: 3,
           unlock_height: 12345,
           confirmed: true,
@@ -328,9 +287,9 @@ describe("Staking view panel (GUI-PR3b)", () => {
   it("says a recovered stake needs a reopen before it can be used", async () => {
     mockStakerWithView({
       staking_enabled: true,
-      bonded_principal_confirmed: 1_000_000_000,
-      bonded_principal_pending: 0,
-      rewards_received_unspent: 0,
+      bonded_principal_confirmed: "1000000000",
+      bonded_principal_pending: "0",
+      rewards_received_unspent: "0",
       staked_outputs: [],
       pscan_synced_height: 99000,
       recovery_pending_reopen: true,
@@ -345,9 +304,9 @@ describe("Staking view panel (GUI-PR3b)", () => {
   it("does not mention a reopen when nothing was recovered", async () => {
     mockStakerWithView({
       staking_enabled: true,
-      bonded_principal_confirmed: 1_000_000_000,
-      bonded_principal_pending: 0,
-      rewards_received_unspent: 0,
+      bonded_principal_confirmed: "1000000000",
+      bonded_principal_pending: "0",
+      rewards_received_unspent: "0",
       staked_outputs: [],
       pscan_synced_height: 99000,
       recovery_pending_reopen: false,
@@ -361,9 +320,9 @@ describe("Staking view panel (GUI-PR3b)", () => {
   it("shows an honest empty state when a staker has no staked outputs", async () => {
     mockStakerWithView({
       staking_enabled: true,
-      bonded_principal_confirmed: 1_000_000_000,
-      bonded_principal_pending: 0,
-      rewards_received_unspent: 0,
+      bonded_principal_confirmed: "1000000000",
+      bonded_principal_pending: "0",
+      rewards_received_unspent: "0",
       staked_outputs: [],
       pscan_synced_height: null,
       recovery_pending_reopen: false,

@@ -30,7 +30,7 @@ function mockMiningStatus(active: boolean) {
         pow_algorithm: "RandomX",
         is_background_mining_enabled: false,
         block_target: 120,
-        block_reward: 5_000_000_000,
+        block_reward: "5000000000",
         difficulty: 100000,
       };
     }

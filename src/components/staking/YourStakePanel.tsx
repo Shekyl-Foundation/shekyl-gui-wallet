@@ -170,7 +170,7 @@ function Leg({
   label,
   title,
 }: {
-  amount: number;
+  amount: string;
   label: string;
   title: string;
 }) {

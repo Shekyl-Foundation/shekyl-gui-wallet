@@ -47,9 +47,10 @@ use crate::engine_session;
 use crate::gui_config;
 use crate::staking_view::StakingView;
 use crate::state::{self, AppState, NetworkType};
-use crate::transfer_history::{TransferDirection, TransferRow, TransferStatus};
+use crate::transfer_history::TransferRow;
 use crate::validate;
 use crate::wallet_name;
+use crate::wire::AtomicUnitsString;
 
 // ─── Data types ──────────────────────────────────────────────────────────────
 
@@ -91,44 +92,9 @@ pub struct WalletFileInfo {
 
 #[derive(Debug, Serialize)]
 pub struct Balance {
-    pub total: u64,
-    pub unlocked: u64,
-    pub staked: u64,
-}
-
-/// Transaction list / send result row for the frontend.
-///
-/// Mirrors [`TransferRow`] on the wire. Settlement is expressed only via
-/// [`TransferStatus`] — there is no parallel `confirmed` bool.
-#[derive(Debug, Serialize)]
-pub struct TxInfo {
-    /// Stable list key (`hash:index` for receives, bare hash for sends).
-    pub id: String,
-    pub hash: String,
-    pub amount: u64,
-    pub fee: u64,
-    /// Inclusion height, or `null` when the tx is not on chain.
-    pub height: Option<u64>,
-    pub timestamp: u64,
-    pub direction: TransferDirection,
-    pub status: TransferStatus,
-    pub pqc_protected: bool,
-}
-
-impl From<TransferRow> for TxInfo {
-    fn from(r: TransferRow) -> Self {
-        Self {
-            id: r.id,
-            hash: r.hash,
-            amount: r.amount,
-            fee: r.fee,
-            height: r.height,
-            timestamp: r.timestamp,
-            direction: r.direction,
-            status: r.status,
-            pqc_protected: r.pqc_protected,
-        }
-    }
+    pub total: AtomicUnitsString,
+    pub unlocked: AtomicUnitsString,
+    pub staked: AtomicUnitsString,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -213,7 +179,7 @@ pub struct MiningStatus {
     pub pow_algorithm: String,
     pub is_background_mining_enabled: bool,
     pub block_target: u32,
-    pub block_reward: u64,
+    pub block_reward: AtomicUnitsString,
     pub difficulty: u64,
 }
 
@@ -229,7 +195,7 @@ pub async fn get_mining_status(state: State<'_, AppState>) -> Result<MiningStatu
         pow_algorithm: ms.pow_algorithm,
         is_background_mining_enabled: ms.is_background_mining_enabled,
         block_target: ms.block_target,
-        block_reward: ms.block_reward,
+        block_reward: ms.block_reward.into(),
         difficulty: ms.difficulty,
     })
 }
@@ -292,15 +258,14 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
     Ok(wallets)
 }
 
+/// Startup: guarantee the configured wallet directory exists before any
+/// create/open flow runs (mkdir -p semantics on POSIX and Windows). The
+/// Engine connects to the daemon per wallet-open; there is no global handle
+/// to initialise, which is why this is all the old `init_wallet_rpc` did.
 #[tauri::command]
-pub async fn init_wallet_rpc(state: State<'_, AppState>) -> Result<bool, String> {
-    // The Engine backend connects to the daemon per wallet-open (no global
-    // handle to initialise). This retains its startup contract of guaranteeing
-    // the configured wallet directory exists before any create/open flow runs
-    // (mkdir -p semantics on POSIX and Windows).
+pub async fn ensure_wallet_dir(state: State<'_, AppState>) -> Result<(), String> {
     let wallet_dir = state.wallet_dir.read().await.clone();
-    wallet_name::ensure_dir_exists(&wallet_dir)?;
-    Ok(true)
+    wallet_name::ensure_dir_exists(&wallet_dir)
 }
 
 /// Override the wallet directory with a user-chosen path (Advanced
@@ -377,9 +342,9 @@ pub struct StakerStatusInfo {
     pub has_pscan: bool,
 }
 
-/// Result of archival first-stake activation.
+/// The contract's `StakeResult`.
 #[derive(Debug, Serialize)]
-pub struct ActivateStakerResult {
+pub struct StakeResult {
     pub slot: u32,
     pub swept_inputs: usize,
     pub resumed: bool,
@@ -408,13 +373,10 @@ pub async fn get_staker_status(state: State<'_, AppState>) -> Result<StakerStatu
     })
 }
 
-/// Become an archival staker (Engine `first_stake` / password re-auth).
+/// The contract's `stake { password }`: become an archival staker (Engine
+/// `first_stake` under password re-auth). Posture is always `market`.
 #[tauri::command]
-pub async fn activate_staker(
-    state: State<'_, AppState>,
-    password: String,
-    selected_shard_count: u32,
-) -> Result<ActivateStakerResult, String> {
+pub async fn stake(state: State<'_, AppState>, password: String) -> Result<StakeResult, String> {
     validate::validate_password(&password)?;
     if !*state.wallet_open.read().await {
         return Err("No wallet is open".into());
@@ -423,8 +385,8 @@ pub async fn activate_staker(
     if !eng.is_open() {
         return Err("no wallet is open on the Engine backend".into());
     }
-    let outcome = eng.activate_staker(&password, selected_shard_count).await?;
-    Ok(ActivateStakerResult {
+    let outcome = eng.stake(&password).await?;
+    Ok(StakeResult {
         slot: outcome.slot,
         swept_inputs: outcome.swept_inputs,
         resumed: outcome.resumed,
@@ -533,18 +495,20 @@ pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(true)
 }
 
+/// The contract's `restore_wallet` (`mnemonic` is the seed backup in the
+/// network's encoding — see `validate_seed_backup`).
 #[tauri::command]
-pub async fn import_wallet_from_seed(
+pub async fn restore_wallet(
     state: State<'_, AppState>,
     name: String,
-    seed: String,
     password: String,
+    mnemonic: String,
     restore_height: Option<u64>,
 ) -> Result<WalletInfo, String> {
     let sanitized = wallet_name::sanitize(&name);
     let network = *state.network.read().await;
     validate::validate_wallet_name(&sanitized)?;
-    validate::validate_seed_backup(&seed, network)?;
+    validate::validate_seed_backup(&mnemonic, network)?;
     validate::validate_password(&password)?;
 
     let height = restore_height.unwrap_or(0);
@@ -558,7 +522,7 @@ pub async fn import_wallet_from_seed(
         .restore_from_backup(
             &wallet_dir,
             &sanitized,
-            &seed,
+            &mnemonic,
             &password,
             height,
             network,
@@ -581,18 +545,18 @@ pub async fn import_wallet_from_seed(
 pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> {
     if !*state.wallet_open.read().await {
         return Ok(Balance {
-            total: 0,
-            unlocked: 0,
-            staked: 0,
+            total: 0.into(),
+            unlocked: 0.into(),
+            staked: 0.into(),
         });
     }
 
     let eng = state.engine.lock().await;
     if !eng.is_open() {
         return Ok(Balance {
-            total: 0,
-            unlocked: 0,
-            staked: 0,
+            total: 0.into(),
+            unlocked: 0.into(),
+            staked: 0.into(),
         });
     }
     // `staked` is reported as 0 by design: personal archival stake is shown
@@ -600,9 +564,9 @@ pub async fn get_balance(state: State<'_, AppState>) -> Result<Balance, String> 
     // dashboard total. See `EngineSession::balance` dual-truth note.
     let (total, unlocked, staked) = eng.balance().await?;
     Ok(Balance {
-        total,
-        unlocked,
-        staked,
+        total: total.into(),
+        unlocked: unlocked.into(),
+        staked: staked.into(),
     })
 }
 
@@ -646,40 +610,43 @@ pub async fn get_staking_view(state: State<'_, AppState>) -> Result<StakingView,
     eng.staking_view().await
 }
 
-#[tauri::command]
-pub async fn get_address(
-    state: State<'_, AppState>,
-    account: u32,
-    _index: u32,
-) -> Result<String, String> {
-    if !*state.wallet_open.read().await {
-        return Err("No wallet is open".into());
-    }
-    if account != 0 {
-        return Err("Engine backend: only the primary account is supported".into());
-    }
-    let eng = state.engine.lock().await;
-    if !eng.is_open() {
-        return Err("No wallet is open".into());
-    }
-    eng.primary_address().await
+/// The contract's `GetPrimaryAddressResult`: one address, no index — Shekyl
+/// has no subaddresses; payment requests are the receive-attribution surface.
+#[derive(Debug, Serialize)]
+pub struct PrimaryAddress {
+    pub address: String,
 }
 
 #[tauri::command]
-pub async fn get_transactions(
-    state: State<'_, AppState>,
-    _offset: u32,
-    _limit: u32,
-) -> Result<Vec<TxInfo>, String> {
+pub async fn get_primary_address(state: State<'_, AppState>) -> Result<PrimaryAddress, String> {
     if !*state.wallet_open.read().await {
-        return Ok(vec![]);
+        return Err("No wallet is open".into());
     }
     let eng = state.engine.lock().await;
     if !eng.is_open() {
-        return Ok(vec![]);
+        return Err("No wallet is open".into());
     }
-    let rows = eng.list_transfers().await?;
-    Ok(rows.into_iter().map(TxInfo::from).collect())
+    let address = eng.primary_address().await?;
+    Ok(PrimaryAddress { address })
+}
+
+/// The contract's `GetTransfersResult`.
+#[derive(Debug, Serialize)]
+pub struct Transfers {
+    pub transfers: Vec<TransferRow>,
+}
+
+#[tauri::command]
+pub async fn get_transfers(state: State<'_, AppState>) -> Result<Transfers, String> {
+    if !*state.wallet_open.read().await {
+        return Ok(Transfers { transfers: vec![] });
+    }
+    let eng = state.engine.lock().await;
+    if !eng.is_open() {
+        return Ok(Transfers { transfers: vec![] });
+    }
+    let transfers = eng.list_transfers().await?;
+    Ok(Transfers { transfers })
 }
 
 #[tauri::command]

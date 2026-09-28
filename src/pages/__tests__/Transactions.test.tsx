@@ -2,11 +2,8 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  statusLabel,
-  statusTitle,
-  type TxStatus,
-} from "../../lib/transactionStatus";
+import { statusLabel, statusTitle } from "../../lib/transactionStatus";
+import type { Transfer, TransferState, Transfers, UnspendableReason } from "../../types/transfers";
 import Transactions from "../Transactions";
 
 beforeEach(() => {
@@ -17,85 +14,90 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** One projected `Transfer` row; amounts are decimal strings on the wire. */
 function sampleTx(
-  overrides: Partial<{
-    id: string;
-    hash: string;
-    amount: number;
-    fee: number;
-    height: number | null;
-    direction: "in" | "out";
-    status: TxStatus;
-  }> = {},
-) {
-  const hash =
-    overrides.hash ??
-    "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
-  return {
-    id: overrides.id ?? hash,
-    hash,
-    amount: 1_000_000_000,
-    fee: 10_000,
-    height: null as number | null,
-    timestamp: 0,
-    direction: "out" as const,
-    status: "pending" as TxStatus,
-    pqc_protected: true,
-    ...overrides,
+  overrides: {
+    id?: string;
+    tx_hash?: string;
+    amount?: string;
+    fee?: string;
+    block_height?: number;
+    direction?: Transfer["direction"];
+    state?: TransferState;
+    unspendable_reason?: UnspendableReason;
+  } = {},
+): Transfer {
+  const tx_hash =
+    overrides.tx_hash ?? "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
+  const common = {
+    id: overrides.id ?? tx_hash,
+    tx_hash,
+    amount: overrides.amount ?? "1000000000",
+    fee: overrides.fee ?? "10000",
+    block_height: overrides.block_height,
+    direction: overrides.direction ?? "OUTGOING",
   };
+  if (overrides.state === "UNSPENDABLE") {
+    return {
+      ...common,
+      state: "UNSPENDABLE",
+      unspendable_reason: overrides.unspendable_reason ?? "PQC_LEAF_MISMATCH",
+    };
+  }
+  return { ...common, state: overrides.state ?? "PENDING" };
 }
 
-describe("status helpers", () => {
-  it("labels every lifecycle arm distinctly", () => {
-    expect(statusLabel("confirmed")).toBe("Confirmed");
-    expect(statusLabel("pending")).toBe("Pending");
-    expect(statusLabel("failed")).toBe("Failed");
-    expect(statusLabel("dropped")).toBe("Dropped");
-    expect(statusLabel("abandoned")).toBe("Abandoned");
-    expect(statusLabel("spent")).toBe("Spent");
+const transfers = (rows: Transfer[]): Transfers => ({ transfers: rows });
+
+describe("state helpers", () => {
+  it("labels every contract state distinctly", () => {
+    expect(statusLabel("CONFIRMED")).toBe("Confirmed");
+    expect(statusLabel("PENDING")).toBe("Pending");
+    expect(statusLabel("FAILED")).toBe("Failed");
+    expect(statusLabel("DROPPED")).toBe("Dropped");
+    expect(statusLabel("ABANDONED")).toBe("Abandoned");
+    expect(statusLabel("SPENT")).toBe("Spent");
+    expect(statusLabel("UNSPENDABLE")).toBe("Unspendable");
   });
 
-  it("gives failed, dropped, and abandoned actionable titles (rule 82)", () => {
-    expect(statusTitle("failed")).toMatch(/never mined/i);
-    expect(statusTitle("dropped")).toMatch(/spendable again/i);
-    expect(statusTitle("abandoned")).toMatch(/stop tracking/i);
-    expect(statusTitle("pending")).toBeUndefined();
-    expect(statusTitle("confirmed")).toBeUndefined();
-    expect(statusTitle("spent")).toBeUndefined();
+  it("gives failed, dropped, abandoned and unspendable actionable titles (rule 82)", () => {
+    expect(statusTitle("FAILED")).toMatch(/never mined/i);
+    expect(statusTitle("DROPPED")).toMatch(/spendable again/i);
+    expect(statusTitle("ABANDONED")).toMatch(/stop tracking/i);
+    expect(statusTitle("UNSPENDABLE", "PQC_LEAF_MISMATCH")).toMatch(/not created for this wallet/i);
+    expect(statusTitle("UNSPENDABLE", "PQC_LEAF_ENTRY_ABSENT")).toMatch(/missing what a spend needs/i);
+    expect(statusTitle("UNSPENDABLE")).toMatch(/never spend/i);
+    expect(statusTitle("PENDING")).toBeUndefined();
+    expect(statusTitle("CONFIRMED")).toBeUndefined();
+    expect(statusTitle("SPENT")).toBeUndefined();
   });
 });
 
 describe("Transactions", () => {
-  it("renders outgoing pending and failed/dropped without collapsing status", async () => {
-    vi.mocked(invoke).mockResolvedValue([
-      sampleTx({ status: "pending", height: null }),
-      sampleTx({
-        hash: "11".repeat(32),
-        status: "failed",
-        height: null,
-      }),
-      sampleTx({
-        hash: "22".repeat(32),
-        status: "dropped",
-        height: null,
-      }),
-      sampleTx({
-        id: `${"33".repeat(32)}:0`,
-        hash: "33".repeat(32),
-        status: "confirmed",
-        height: 42,
-        direction: "in",
-        fee: 0,
-      }),
-      sampleTx({
-        id: `${"44".repeat(32)}:0`,
-        hash: "44".repeat(32),
-        status: "spent",
-        height: 40,
-        direction: "in",
-        fee: 0,
-      }),
-    ]);
+  it("renders outgoing pending and failed/dropped without collapsing state", async () => {
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([
+        sampleTx({ state: "PENDING" }),
+        sampleTx({ tx_hash: "11".repeat(32), state: "FAILED" }),
+        sampleTx({ tx_hash: "22".repeat(32), state: "DROPPED" }),
+        sampleTx({
+          id: `${"33".repeat(32)}:0`,
+          tx_hash: "33".repeat(32),
+          state: "CONFIRMED",
+          block_height: 42,
+          direction: "INCOMING",
+          fee: "0",
+        }),
+        sampleTx({
+          id: `${"44".repeat(32)}:0`,
+          tx_hash: "44".repeat(32),
+          state: "SPENT",
+          block_height: 40,
+          direction: "INCOMING",
+          fee: "0",
+        }),
+      ]),
+    );
 
     render(<Transactions />);
 
@@ -109,13 +111,38 @@ describe("Transactions", () => {
     expect(screen.getByText("Block 42")).toBeInTheDocument();
     expect(screen.getByTitle(/never mined/i)).toBeInTheDocument();
     expect(screen.getByTitle(/spendable again/i)).toBeInTheDocument();
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_transfers");
+  });
+
+  it("renders an unspendable receive with the reason the projection named", async () => {
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([
+        sampleTx({
+          direction: "INCOMING",
+          state: "UNSPENDABLE",
+          unspendable_reason: "PQC_LEAF_ENTRY_ABSENT",
+          block_height: 7,
+          fee: "0",
+        }),
+      ]),
+    );
+    render(<Transactions />);
+    expect(await screen.findByText("Unspendable")).toBeInTheDocument();
+    expect(screen.getByText("Block 7")).toBeInTheDocument();
+    expect(screen.getByTitle(/missing what a spend needs/i)).toBeInTheDocument();
+  });
+
+  it("renders amounts above 2^53 atomic units exactly", async () => {
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([sampleTx({ amount: "9007199254740993", fee: "1", state: "CONFIRMED", block_height: 1 })]),
+    );
+    render(<Transactions />);
+    expect(await screen.findByText("-9007199.254740 SKL")).toBeInTheDocument();
   });
 
   it("surfaces a load failure with retry instead of an empty list", async () => {
     const user = userEvent.setup();
-    vi.mocked(invoke)
-      .mockRejectedValueOnce("wallet not open")
-      .mockResolvedValueOnce([]);
+    vi.mocked(invoke).mockRejectedValueOnce("wallet not open").mockResolvedValueOnce(transfers([]));
 
     render(<Transactions />);
 
@@ -132,7 +159,7 @@ describe("Transactions", () => {
     expect(screen.queryByText("wallet not open")).not.toBeInTheDocument();
   });
 
-  it("discards a slower older response so status is not overwritten", async () => {
+  it("discards a slower older response so state is not overwritten", async () => {
     let resolveSlow: (value: unknown) => void = () => {};
     const slow = new Promise((resolve) => {
       resolveSlow = resolve;
@@ -140,9 +167,7 @@ describe("Transactions", () => {
 
     vi.mocked(invoke)
       .mockImplementationOnce(() => slow as Promise<unknown>)
-      .mockResolvedValueOnce([
-        sampleTx({ status: "confirmed", height: 9 }),
-      ]);
+      .mockResolvedValueOnce(transfers([sampleTx({ state: "CONFIRMED", block_height: 9 })]));
 
     render(<Transactions />);
 
@@ -160,18 +185,18 @@ describe("Transactions", () => {
 
     // Stale first response resolves later with pending — must not clobber.
     await act(async () => {
-      resolveSlow([sampleTx({ status: "pending", height: null })]);
+      resolveSlow(transfers([sampleTx({ state: "PENDING" })]));
       await Promise.resolve();
     });
     expect(screen.getByText("Confirmed")).toBeInTheDocument();
     expect(screen.queryByText("Pending")).not.toBeInTheDocument();
   });
 
-  it("polls get_transactions so status can advance without remount", async () => {
+  it("polls get_transfers so state can advance without remount", async () => {
     vi.useFakeTimers();
     vi.mocked(invoke)
-      .mockResolvedValueOnce([sampleTx({ status: "pending" })])
-      .mockResolvedValueOnce([sampleTx({ status: "confirmed", height: 9 })]);
+      .mockResolvedValueOnce(transfers([sampleTx({ state: "PENDING" })]))
+      .mockResolvedValueOnce(transfers([sampleTx({ state: "CONFIRMED", block_height: 9 })]));
 
     render(<Transactions />);
 

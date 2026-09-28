@@ -17,6 +17,8 @@
 
 use serde::Serialize;
 
+use crate::wire::AtomicUnitsString;
+
 /// Drainable-`P` read result on the wire (and session boundary).
 ///
 /// Internally tagged so the frontend matches on `status`. No `Clone`: no
@@ -24,15 +26,11 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum DrainBalance {
-    /// Anchored aggregate spendable `P`, atomic units. Display-only: the
-    /// figure is rendered, never fed to transaction arithmetic (a real drain
-    /// computes its amounts in core Rust `u64`), and the SKL formatter is
-    /// coarser than the JS `number` ULP across the whole supply range, so the
-    /// `u64` > 2^53 serialization gap is not observable in the rendered
-    /// value. Sibling of `Balance` fields for the same reason. If this figure
-    /// ever seeds a tx amount, the whole balance pipeline migrates to
-    /// string+BigInt (FOLLOWUPS: "Atomic amounts serialized as JS number").
-    Ready { spendable: u64 },
+    /// Anchored aggregate spendable `P`, atomic units — a decimal string on
+    /// the wire like every atomic amount (`wire::AtomicUnitsString`), so the
+    /// figure a `stake return` is sized against is never rounded by a JS
+    /// `number`.
+    Ready { spendable: AtomicUnitsString },
     /// Transient: send-path reference not yet anchorable. `detail` is static
     /// operator text — no amount, no gindex.
     Syncing { detail: String },

@@ -11,15 +11,18 @@ export interface WalletContextValue {
   walletFiles: WalletFileInfo[];
   walletName: string | null;
   walletAddress: string | null;
-  rpcReady: boolean;
   error: string | null;
 
   openWallet: (filename: string, password: string) => Promise<WalletInfo>;
   createWallet: (name: string, password: string) => Promise<CreateWalletResult>;
-  importFromSeed: (
+  /**
+   * The contract's `restore_wallet(name, password, mnemonic, restore_height)`.
+   * `mnemonic` is the seed backup in the network's encoding.
+   */
+  restoreWallet: (
     name: string,
-    seed: string,
     password: string,
+    mnemonic: string,
     restoreHeight?: number,
   ) => Promise<WalletInfo>;
   lockWallet: () => Promise<void>;
@@ -66,12 +69,11 @@ export const WalletContext = createContext<WalletContextValue>({
   walletFiles: [],
   walletName: null,
   walletAddress: null,
-  rpcReady: false,
   error: null,
 
   openWallet: () => Promise.reject("Not initialized"),
   createWallet: () => Promise.reject("Not initialized"),
-  importFromSeed: () => Promise.reject("Not initialized"),
+  restoreWallet: () => Promise.reject("Not initialized"),
   lockWallet: () => Promise.reject("Not initialized"),
   setPhase: () => {},
   refreshFiles: () => Promise.resolve([]),

@@ -64,7 +64,7 @@ fn is_identity_axis_sentence(msg: &str) -> bool {
         || (msg.contains("network mismatch:") && msg.contains("the daemon runs"))
 }
 
-pub(crate) fn map_first_stake_err(e: FirstStakeError, selected_shard_count: u32) -> String {
+pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
     match e {
         FirstStakeError::BondInFlight => {
             "a signed bond post is already awaiting dispatch (stake in flight)".into()
@@ -107,20 +107,16 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError, selected_shard_count: u32)
             format!("stake failed mid-flow ({d}); call activate again to resume")
         }
         FirstStakeError::NoShardsAvailable => {
-            // Engine `first_stake` still refuses Market until assignment
-            // lands. The GUI selection is session state only — it is not
-            // written, and this arm must not claim the network assigned
-            // anything. Distinct copy for empty vs non-empty selection.
-            if selected_shard_count == 0 {
-                "no archives are selected; pick archives on the Shards page \
-                 first. Nothing was written and your funds were not touched"
-                    .into()
-            } else {
-                "archival staking is not open yet: a session selection exists \
-                 but posting is not open. Nothing was written and your funds \
-                 were not touched"
-                    .into()
-            }
+            // Engine `first_stake` still refuses Market until shard
+            // assignment lands (its own round). The Shards page's selection
+            // is session state only — never written, never a parameter of
+            // `stake` (the contract takes a posture, not a shard set) — so
+            // this arm must not describe it and must not claim the network
+            // assigned anything.
+            "archival staking is not open yet: the network does not assign \
+             archives to stakers until shard assignment lands. Nothing was \
+             written and your funds were not touched"
+                .into()
         }
         FirstStakeError::RecoveredPendingReopen => {
             "staking recovered an earlier attempt in this session; close and reopen \
@@ -151,7 +147,7 @@ mod tests {
     /// if a retry imperative is ever appended to it.
     #[test]
     fn fragmented_funding_offers_neither_more_funding_nor_a_retry() {
-        let msg = map_first_stake_err(FirstStakeError::FundingFragmented { max: 7 }, 0);
+        let msg = map_first_stake_err(FirstStakeError::FundingFragmented { max: 7 });
         // Copy guard, so it reads the copy the way a person does: the
         // message is several sentences, and a retry appended as a new one
         // would arrive capitalised.
@@ -178,18 +174,22 @@ mod tests {
         }
         assert_ne!(
             msg,
-            map_first_stake_err(FirstStakeError::Funding("not enough".into()), 0),
+            map_first_stake_err(FirstStakeError::Funding("not enough".into())),
             "the two funding refusals are distinct states and read differently"
         );
     }
 
     #[test]
-    fn no_shards_empty_selection_asks_to_pick() {
-        let msg = map_first_stake_err(FirstStakeError::NoShardsAvailable, 0);
+    fn no_shards_names_assignment_not_the_picker() {
+        let msg = map_first_stake_err(FirstStakeError::NoShardsAvailable);
         let copy = msg.to_lowercase();
         assert!(
-            copy.contains("no archives are selected"),
-            "empty selection is a picker gap, not assignment: {msg}"
+            copy.contains("not open yet") && copy.contains("shard assignment"),
+            "the refusal is the network's assignment round, not a picker gap: {msg}"
+        );
+        assert!(
+            !copy.contains("selected") && !copy.contains("selection"),
+            "the Shards page selection is not a parameter of stake and must not be described: {msg}"
         );
         assert!(
             !copy.contains("assigned automatically"),
@@ -198,25 +198,6 @@ mod tests {
         assert!(
             copy.contains("nothing was written"),
             "funds-safe close: {msg}"
-        );
-    }
-
-    #[test]
-    fn no_shards_with_selection_says_posting_is_not_open() {
-        let msg = map_first_stake_err(FirstStakeError::NoShardsAvailable, 3);
-        let copy = msg.to_lowercase();
-        assert!(
-            copy.contains("session selection exists"),
-            "non-empty selection must not be described as missing: {msg}"
-        );
-        assert!(
-            copy.contains("posting is not open"),
-            "the refusal is posting, not the picker: {msg}"
-        );
-        assert_ne!(
-            msg,
-            map_first_stake_err(FirstStakeError::NoShardsAvailable, 0),
-            "empty and non-empty selection are distinct copy"
         );
     }
 

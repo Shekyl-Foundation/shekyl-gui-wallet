@@ -27,7 +27,7 @@ const MIN_PASSWORD_LENGTH = 8;
 
 export default function ImportWallet() {
   const navigate = useNavigate();
-  const { importFromSeed, setPhase } = useWallet();
+  const { restoreWallet, setPhase } = useWallet();
 
   const [restore, setRestore] = useState<Restore>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -49,10 +49,10 @@ export default function ImportWallet() {
     setError(null);
     setRestore("restoring");
     try {
-      await importFromSeed(
+      await restoreWallet(
         name.trim(),
-        seed.trim(),
         password,
+        seed.trim(),
         restoreHeight ? parseInt(restoreHeight, 10) : 0,
       );
       setRestore("complete");
@@ -66,7 +66,7 @@ export default function ImportWallet() {
       setRestore("idle");
       setError(String(e));
     }
-  }, [importFromSeed, name, seed, password, restoreHeight, navigate, setPhase]);
+  }, [restoreWallet, name, seed, password, restoreHeight, navigate, setPhase]);
 
   const seedTrimmed = seed.trim();
   const seedWordCount = seedTrimmed.split(/\s+/).filter(Boolean).length;

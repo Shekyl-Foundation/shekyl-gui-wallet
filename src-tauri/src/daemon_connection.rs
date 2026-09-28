@@ -18,6 +18,7 @@ use tauri::State;
 
 use crate::daemon_rpc;
 use crate::state::{AppState, NetworkType};
+use crate::wire::AtomicUnitsString;
 
 /// What setting a daemon URL exposes, returned to the panel that set it.
 ///
@@ -103,15 +104,15 @@ pub struct ChainHealth {
     pub release_multiplier: u64,
     pub burn_pct: u64,
     pub stake_ratio: u64,
-    pub total_burned: u64,
-    pub staker_pool_balance: u64,
+    pub total_burned: AtomicUnitsString,
+    pub staker_pool_balance: AtomicUnitsString,
     pub staker_emission_share_effective: u64,
     pub emission_era: String,
-    pub last_block_reward: u64,
+    pub last_block_reward: AtomicUnitsString,
     pub last_block_timestamp: u64,
     pub last_block_hash: String,
     pub last_block_size: u64,
-    pub total_staked: u64,
+    pub total_staked: AtomicUnitsString,
     pub tier_0_lock_blocks: u64,
     pub tier_1_lock_blocks: u64,
     pub tier_2_lock_blocks: u64,
@@ -149,15 +150,15 @@ pub async fn get_chain_health(state: State<'_, AppState>) -> Result<ChainHealth,
         release_multiplier: info.release_multiplier,
         burn_pct: info.burn_pct,
         stake_ratio: info.stake_ratio,
-        total_burned: info.total_burned,
-        staker_pool_balance: info.staker_pool_balance,
+        total_burned: info.total_burned.into(),
+        staker_pool_balance: info.staker_pool_balance.into(),
         staker_emission_share_effective: info.staker_emission_share_effective,
         emission_era: info.emission_era,
-        last_block_reward: block.as_ref().map_or(0, |b| b.reward),
+        last_block_reward: block.as_ref().map_or(0, |b| b.reward).into(),
         last_block_timestamp: block.as_ref().map_or(0, |b| b.timestamp),
         last_block_hash: block.as_ref().map_or_else(String::new, |b| b.hash.clone()),
         last_block_size: block.as_ref().map_or(0, |b| b.block_size),
-        total_staked: staking.as_ref().map_or(0, |s| s.total_staked),
+        total_staked: staking.as_ref().map_or(0, |s| s.total_staked).into(),
         tier_0_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_0_lock_blocks),
         tier_1_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_1_lock_blocks),
         tier_2_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_2_lock_blocks),

@@ -356,7 +356,22 @@ existed to answer is settled.
 
 ---
 
-## Atomic amounts serialized as JS `number` — target: post-genesis
+## Atomic amounts serialized as JS `number` — RESOLVED 2026-09-27
+
+Every atomic amount on the Tauri edge is now `wire::AtomicUnitsString`, a
+decimal string parsed with BigInt on the frontend: the send edge (#26),
+shard profit (#26), and — closing this entry — `Balance`, `DrainBalance`,
+`StakingView` / `StakedOutputView.amount`, the transfer rows' `amount` /
+`fee`, and the daemon-facing SKL figures (`ChainHealth`'s `total_burned`,
+`staker_pool_balance`, `last_block_reward`, `total_staked`;
+`MiningStatus.block_reward`; `ShardCoverageList.budget_atomic`). No JS
+`number` carries a `u64` of atomic units anywhere on the wire; `src/types/*`
+type them `string`, and `formatSkl` renders them. The daemon's own JSON
+still delivers numbers (`daemon_rpc.rs` deserializes them as `u64`); the
+conversion happens once, at the Tauri edge.
+The history below is kept for the reasoning; the residue is gone.
+
+<details><summary>History</summary>
 
 UPDATE 2026-09-17: shared `formatSkl` / `formatSklCompact` take
 `bigint | string | number`. Gallery `list_shards` `expected_profit_atomic`
@@ -410,6 +425,7 @@ pipeline.
 3. The daemon RPC contract migrates its own amount fields to strings and
    the GUI should follow in lockstep.
 
+</details>
 ---
 
 ## npm / toolchain holds from the 2026-08-09 refresh — target: V3.1 / next Node bump

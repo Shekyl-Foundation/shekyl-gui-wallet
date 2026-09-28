@@ -13,7 +13,7 @@ import CollapsibleSection from "./CollapsibleSection";
  *
  * The missing-directory case is handled invisibly by the backend —
  * `set_wallet_dir` runs mkdir -p on the chosen path and the default
- * `init_wallet_rpc` does the same for the platform default on startup.
+ * `ensure_wallet_dir` does the same for the platform default on startup.
  */
 export default function WalletDirAdvanced() {
   const {

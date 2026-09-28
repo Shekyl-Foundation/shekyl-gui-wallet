@@ -12,15 +12,16 @@ export interface ChainHealth {
   release_multiplier: number;
   burn_pct: number;
   stake_ratio: number;
-  total_burned: number;
-  staker_pool_balance: number;
+  /** Atomic units, decimal string (`AtomicUnitsString`). */
+  total_burned: string;
+  staker_pool_balance: string;
   staker_emission_share_effective: number;
   emission_era: string;
-  last_block_reward: number;
+  last_block_reward: string;
   last_block_timestamp: number;
   last_block_hash: string;
   last_block_size: number;
-  total_staked: number;
+  total_staked: string;
   tier_0_lock_blocks: number;
   tier_1_lock_blocks: number;
   tier_2_lock_blocks: number;
@@ -41,10 +42,11 @@ export interface WalletStatus {
   daemon_height: number;
 }
 
+/** Atomic amounts are decimal strings on the wire (`AtomicUnitsString`); format with `formatSkl`. */
 export interface Balance {
-  total: number;
-  unlocked: number;
-  staked: number;
+  total: string;
+  unlocked: string;
+  staked: string;
 }
 
 /**
@@ -58,7 +60,7 @@ export interface Balance {
  * transient arm, never conflated with a fault.
  */
 export type DrainBalance =
-  | { status: "ready"; spendable: number }
+  | { status: "ready"; spendable: string }
   | { status: "syncing"; detail: string };
 
 export interface TierYield {
@@ -77,7 +79,8 @@ export interface MiningStatus {
   pow_algorithm: string;
   is_background_mining_enabled: boolean;
   block_target: number;
-  block_reward: number;
+  /** Atomic units, decimal string. */
+  block_reward: string;
   difficulty: number;
 }
 
@@ -114,11 +117,12 @@ export interface CurveTreeInfo {
 
 /**
  * One unspent staked (P-owned) funding output (`get_staking_view`).
- * Amounts are atomic units, display-only (see `DrainBalance` note).
+ * Amounts are atomic-unit decimal strings.
  */
 export interface StakedOutputView {
   gindex: number;
-  amount: number;
+  /** Atomic units, decimal string. */
+  amount: string;
   p_slot: number;
   unlock_height: number;
   confirmed: boolean;
@@ -135,9 +139,10 @@ export interface StakedOutputView {
  */
 export interface StakingView {
   staking_enabled: boolean;
-  bonded_principal_confirmed: number;
-  bonded_principal_pending: number;
-  rewards_received_unspent: number;
+  /** The three legs are atomic-unit decimal strings, never summed here. */
+  bonded_principal_confirmed: string;
+  bonded_principal_pending: string;
+  rewards_received_unspent: string;
   staked_outputs: StakedOutputView[];
   pscan_synced_height: number | null;
   /**

@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The command surface speaks the wallet contract's vocabulary.** The
+  four `RENAME` rows the command-surface gate ledgered are retired by
+  renaming, with the contract's parameters and result shapes:
+  `get_address(account, index) → string` is `get_primary_address() →
+  { address }` (no index: Shekyl has no subaddresses); `get_transactions
+  (offset, limit) → rows` is `get_transfers() → { transfers }` whose rows are
+  the contract's `Transfer` (`tx_hash`, `block_height` absent when not on
+  chain, `direction: INCOMING | OUTGOING`, `state: PENDING | CONFIRMED |
+  SPENT | UNSPENDABLE | FAILED | DROPPED | ABANDONED`, with
+  `unspendable_reason` present exactly on `UNSPENDABLE`);
+  `import_wallet_from_seed(name, seed, password, restore_height)` is
+  `restore_wallet(name, password, mnemonic, restore_height)`, and the
+  context method takes that same order; `activate_staker(password,
+  selected_shard_count)` is `stake(password)` — the contract takes a
+  posture, never a shard set, so the selection neither crosses the wire
+  nor is described on the activation card, and the "not open yet"
+  refusal names shard assignment. The startup fossil
+  `init_wallet_rpc` is `ensure_wallet_dir`, which is all it ever did.
+  `scripts/ci/command_surface.conf` carries no `RENAME` row.
+- **Every atomic amount on the Tauri edge is a decimal string.**
+  `Balance`, `DrainBalance.spendable`, the three `StakingView` legs,
+  `StakedOutputView.amount`, the transfer rows' `amount` / `fee`, and the
+  daemon-facing figures the wallet renders as SKL — `ChainHealth`'s
+  `total_burned` / `staker_pool_balance` / `last_block_reward` /
+  `total_staked`, `MiningStatus.block_reward`,
+  `ShardCoverageList.budget_atomic` — join the send edge on
+  `wire::AtomicUnitsString`; the frontend types them `string` and renders
+  with `formatSkl`. The FOLLOWUPS entry "Atomic amounts serialized as JS
+  `number`" is resolved.
+
 ### Added
 
 - **The command surface is gated** (`scripts/ci/check_command_surface.sh`,

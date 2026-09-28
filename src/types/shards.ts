@@ -21,7 +21,7 @@ export interface ShardCoverageList {
   leaf_count: number;
   frozen_count: number;
   settled_epoch: number;
-  budget_atomic: number;
+  budget_atomic: string;
   sigma_work_milli: number;
   profit_estimate_available: boolean;
   shards: ShardCoverageRow[];

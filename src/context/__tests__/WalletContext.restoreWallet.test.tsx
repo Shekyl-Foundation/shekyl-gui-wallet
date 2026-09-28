@@ -20,13 +20,13 @@ beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation((cmd) => {
     switch (cmd) {
-      case "init_wallet_rpc":
-        return Promise.resolve(true);
+      case "ensure_wallet_dir":
+        return Promise.resolve(undefined);
       case "get_wallet_dir":
         return Promise.resolve({ dir: "/wallets", fallback_from: null });
       case "check_wallet_files":
         return Promise.resolve([]);
-      case "import_wallet_from_seed":
+      case "restore_wallet":
         return Promise.resolve({ name: "Restored_Wallet", address: "shekyl1test" });
       default:
         return Promise.reject(new Error(`unrouted invoke ${String(cmd)}`));
@@ -54,9 +54,9 @@ describe("restore through the real provider", () => {
     // to show completion after the engine has restored the wallet.
     expect(await screen.findByText("Restore complete")).toBeInTheDocument();
     expect(screen.queryByText("READY_APP")).not.toBeInTheDocument();
-    expect(vi.mocked(invoke)).toHaveBeenCalledWith("import_wallet_from_seed", {
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("restore_wallet", {
       name: "Restored Wallet",
-      seed: SEED,
+      mnemonic: SEED,
       password: "correct horse battery",
       restoreHeight: 0,
     });
