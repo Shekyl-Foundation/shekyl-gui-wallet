@@ -272,6 +272,31 @@ describe("Send page", () => {
     expect(calls("build_pending_tx")[0][1]).toMatchObject({ address: "shekyl1abc123", amount: "1500000000" });
   });
 
+  it("a parse that resolves for an older paste never overwrites a newer one", async () => {
+    let resolveFirst: (v: unknown) => void = () => {};
+    let parses = 0;
+    route({
+      get_default_fee_priority: () => QUOTE,
+      parse_uri: () => {
+        parses += 1;
+        if (parses === 1) return new Promise((resolve) => (resolveFirst = resolve));
+        return { address: "shekyl1second", amount: "2000000000" };
+      },
+    });
+    const u = user();
+    render(<Send />);
+    const field = screen.getByPlaceholderText("shekyl1...");
+    await u.click(field);
+    await u.paste("shekyl:shekyl1first?amount=1000000000");
+    await u.clear(field);
+    await u.paste("shekyl:shekyl1second?amount=2000000000");
+    await waitFor(() => expect(field).toHaveValue("shekyl1second"));
+    resolveFirst({ address: "shekyl1first", amount: "1000000000" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(field).toHaveValue("shekyl1second");
+    expect(screen.getByPlaceholderText("0.0000")).toHaveValue("2.000000000");
+  });
+
   it("a malformed payment link is refused and the field keeps what was typed", async () => {
     route({
       get_default_fee_priority: () => QUOTE,
@@ -285,6 +310,7 @@ describe("Send page", () => {
     await u.paste("shekyl:");
     expect(await screen.findByRole("alert")).toHaveTextContent(/invalid payment URI/);
     expect(screen.getByPlaceholderText("shekyl1...")).toHaveValue("shekyl:");
+    expect(screen.queryByTestId("link-notice")).not.toBeInTheDocument();
   });
 
   it("a retained reservation is never discarded by the page", async () => {

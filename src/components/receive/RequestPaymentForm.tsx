@@ -2,6 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2 } from "lucide-react";
 import { parseSkl, SKL_AMOUNT_PATTERN } from "../../lib/format";
+import { describeError } from "../../lib/errors";
 import type { CreatedPaymentRequest } from "../../types/receiving";
 
 /** Expiry choices, as durations from now; `null` is "no expiry". */
@@ -40,7 +41,7 @@ export default function RequestPaymentForm({ onCreated }: RequestPaymentFormProp
     try {
       amount = parseSkl(amountText);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeError(err));
       return;
     }
     const seconds = EXPIRY_CHOICES[expiryIndex].seconds;
@@ -57,7 +58,7 @@ export default function RequestPaymentForm({ onCreated }: RequestPaymentFormProp
       setExpiryIndex(0);
       onCreated(created);
     } catch (err) {
-      setError(String(err));
+      setError(describeError(err));
     } finally {
       setBusy(false);
     }

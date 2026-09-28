@@ -74,6 +74,17 @@ describe("Receive page", () => {
     });
   });
 
+  it("says so when the clipboard refuses, instead of pretending it copied", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, writable: true, configurable: true });
+    render(<Receive />);
+    await waitFor(() => {
+      expect(screen.getByText(MOCK_ADDRESS)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTitle("Copy full address"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/copy failed/i);
+  });
+
   it("shows 'No wallet open' when address is empty, and no request panels", () => {
     vi.mocked(invoke).mockImplementation(() => new Promise(() => {}));
     render(<Receive />);

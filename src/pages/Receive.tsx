@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Copy, Check, ChevronDown, ChevronUp, ShieldCheck } from "lucide-react";
+import { Copy, Check, ChevronDown, ChevronUp, ShieldCheck, AlertCircle } from "lucide-react";
+import { useCopyFeedback } from "../lib/useCopyFeedback";
 import { QRCodeSVG } from "qrcode.react";
 import { PaymentLinkCard, PaymentRequestList, RequestPaymentForm } from "../components/receive";
 import type { PrimaryAddress } from "../types/wallet";
@@ -33,7 +34,7 @@ function splitAddress(full: string): {
  */
 export default function Receive() {
   const [address, setAddress] = useState<string>("");
-  const [copied, setCopied] = useState(false);
+  const { state: copyState, copy } = useCopyFeedback();
   const [showFull, setShowFull] = useState(false);
   const [link, setLink] = useState<{ title: string; uri: string } | null>(null);
   const [requestsVersion, setRequestsVersion] = useState(0);
@@ -58,13 +59,6 @@ export default function Receive() {
     [address],
   );
   const hasPqSegment = pqSegment !== null;
-
-  function copyAddress() {
-    navigator.clipboard.writeText(address).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
@@ -117,18 +111,25 @@ export default function Receive() {
                 )}
               </code>
               <button
-                onClick={copyAddress}
+                onClick={() => copy(address)}
                 disabled={!address}
                 className="btn-ghost shrink-0 rounded-md p-1.5"
                 title="Copy full address"
               >
-                {copied ? (
+                {copyState === "copied" ? (
                   <Check className="h-4 w-4 text-emerald-400" />
+                ) : copyState === "failed" ? (
+                  <AlertCircle className="h-4 w-4 text-red-400" />
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
               </button>
             </div>
+            {copyState === "failed" && (
+              <p className="mt-2 text-[10px] text-red-300" role="alert">
+                Copy failed. Select the address above and copy it by hand.
+              </p>
+            )}
 
             {hasPqSegment && (
               <button

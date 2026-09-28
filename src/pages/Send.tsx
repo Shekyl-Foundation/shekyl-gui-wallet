@@ -70,6 +70,8 @@ export default function Send() {
   const [notice, setNotice] = useState<string | null>(null);
   /** The payment link the recipient field was filled from, if any (shown, never trusted). */
   const [linkNotice, setLinkNotice] = useState<string | null>(null);
+  /** The recipient field's latest raw input: a parse that resolves for an older value is dropped. */
+  const latestAddressInput = useRef("");
   /** A discard is in flight: the review buttons are held so nothing can act on a reservation being released. */
   const [releasing, setReleasing] = useState(false);
   const owned = useRef<string | null>(null);
@@ -144,25 +146,33 @@ export default function Send() {
    * as text from the payer's counterparty — never trusted, never sent.
    */
   async function handleAddressChange(value: string) {
+    latestAddressInput.current = value;
+    setAddress(value);
     if (!value.trim().toLowerCase().startsWith(PAYMENT_URI_SCHEME)) {
-      setAddress(value);
-      setLinkNotice(null); // edited by hand: the link no longer describes the field
+      setLinkNotice(null); // edited by hand: no link describes the field
       return;
     }
+    let link: ParsedPaymentUri;
     try {
-      const link = await invoke<ParsedPaymentUri>("parse_uri", { uri: value.trim() });
-      setAddress(link.address);
-      if (link.amount !== undefined) setAmountText(formatSkl(link.amount, SKL_DECIMALS));
-      setLinkNotice(
-        `Filled from a payment link${link.label ? ` — "${link.label}"` : ""}${
-          link.rid ? ` (request ${link.rid})` : ""
-        }. Check the address and amount before you review.`,
-      );
-      setError(null);
+      link = await invoke<ParsedPaymentUri>("parse_uri", { uri: value.trim() });
     } catch (e) {
-      setAddress(value);
+      if (latestAddressInput.current !== value) return; // superseded while parsing
+      setLinkNotice(null);
       setError(sendErrorMessage(e));
+      return;
     }
+    // Parses can resolve out of order; only the one for the field's current
+    // text may fill it, or an older paste would overwrite a newer one.
+    if (latestAddressInput.current !== value) return;
+    latestAddressInput.current = link.address;
+    setAddress(link.address);
+    if (link.amount !== undefined) setAmountText(formatSkl(link.amount, SKL_DECIMALS));
+    setLinkNotice(
+      `Filled from a payment link${link.label ? ` — "${link.label}"` : ""}${
+        link.rid ? ` (request ${link.rid})` : ""
+      }. Check the address and amount before you review.`,
+    );
+    setError(null);
   }
 
   async function handleReview(e: React.FormEvent) {

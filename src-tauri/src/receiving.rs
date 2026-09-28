@@ -157,8 +157,11 @@ fn unix_now() -> Timestamp {
     )
 }
 
+/// Longest label a request or a composed link may carry: bookkeeping text,
+/// and the one free-text component of a URI the UI renders as a QR code.
+const MAX_LABEL_CHARS: usize = 256;
+
 fn validate_label(label: &str) -> Result<(), String> {
-    const MAX_LABEL_CHARS: usize = 256;
     if label.chars().count() > MAX_LABEL_CHARS {
         return Err(format!(
             "label must be at most {MAX_LABEL_CHARS} characters"
@@ -166,6 +169,22 @@ fn validate_label(label: &str) -> Result<(), String> {
     }
     if label.contains('\0') {
         return Err("label must not contain null bytes".into());
+    }
+    Ok(())
+}
+
+/// The bounds a stored request and a freeform link share: `create` and
+/// `make_uri` refuse the same label and the same amount, so a link the UI
+/// composes can never carry what a request could not hold.
+fn validate_link_inputs(
+    label: Option<&str>,
+    amount: Option<AtomicUnitsString>,
+) -> Result<(), String> {
+    if let Some(label) = label {
+        validate_label(label)?;
+    }
+    if let Some(amount) = amount {
+        crate::validate::validate_amount(amount.to_raw())?;
     }
     Ok(())
 }
@@ -186,8 +205,7 @@ pub async fn create_payment_request(
     amount: AtomicUnitsString,
     expiry: Option<u64>,
 ) -> Result<CreatedPaymentRequest, String> {
-    validate_label(&label)?;
-    crate::validate::validate_amount(amount.to_raw())?;
+    validate_link_inputs(Some(&label), Some(amount))?;
     let expiry = expiry.map(parse_expiry).transpose()?;
     let shared = shared_engine(&state).await?;
     // Write guard: the one receiving method that mutates (local
@@ -248,6 +266,7 @@ pub async fn make_uri(
     rid: Option<String>,
     expiry: Option<u64>,
 ) -> Result<PaymentUriResult, String> {
+    validate_link_inputs(label.as_deref(), amount)?;
     let rid = rid.as_deref().map(parse_rid).transpose()?;
     let expiry = expiry.map(parse_expiry).transpose()?.map(Timestamp::to_raw);
     let address = match address {
@@ -321,6 +340,19 @@ mod tests {
         for bad in ["0", "281474976710656", "-1", "x", ""] {
             assert!(parse_rid(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn link_inputs_are_bounded_the_same_way_for_create_and_make_uri() {
+        assert!(validate_link_inputs(None, None).is_ok());
+        assert!(validate_link_inputs(Some("rent"), Some(1.into())).is_ok());
+        assert!(validate_link_inputs(Some(&"x".repeat(MAX_LABEL_CHARS)), None).is_ok());
+        assert!(validate_link_inputs(Some(&"x".repeat(MAX_LABEL_CHARS + 1)), None).is_err());
+        assert!(validate_link_inputs(Some("a\0b"), None).is_err());
+        assert!(
+            validate_link_inputs(None, Some(0.into())).is_err(),
+            "a zero-amount link asks for nothing"
+        );
     }
 
     #[test]

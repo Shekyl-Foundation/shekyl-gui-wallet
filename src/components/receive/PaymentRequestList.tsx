@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { QrCode } from "lucide-react";
 import { formatSkl } from "../../lib/format";
+import { describeError } from "../../lib/errors";
 import type {
   PaymentRequest,
   PaymentRequestFilter,
@@ -49,7 +50,7 @@ export default function PaymentRequestList({ version, onShowLink }: PaymentReque
       setRows(payment_requests);
       setError(null);
     } catch (e) {
-      setError(String(e));
+      setError(describeError(e));
     }
   }, [filter]);
 
@@ -69,7 +70,7 @@ export default function PaymentRequestList({ version, onShowLink }: PaymentReque
       });
       onShowLink(r, uri);
     } catch (e) {
-      setError(String(e));
+      setError(describeError(e));
     }
   }
 
