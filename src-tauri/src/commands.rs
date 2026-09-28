@@ -473,28 +473,25 @@ pub struct Transfers {
     pub transfers: Vec<TransferRow>,
 }
 
-/// The contract's `get_transfers`, with its optional filters (`direction`,
-/// `state`, `since_height`); unfiltered returns full history. Filter values
-/// are the contract's spellings; an unknown one is refused without echo.
+/// The contract's `get_transfers`, with the optional filters this wallet
+/// offers (`direction`, `state`); unfiltered returns full history. Filter
+/// values are the contract's spellings; an unknown one is refused without
+/// echo. The contract's `since_height` watermark has no page here and is
+/// not taken: a parameter nothing sends is a knob nothing turns.
 #[tauri::command]
 pub async fn get_transfers(
-    state: State<'_, AppState>,
+    app: State<'_, AppState>,
     direction: Option<String>,
-    state_filter: Option<String>,
-    since_height: Option<u64>,
+    state: Option<String>,
 ) -> Result<Transfers, String> {
     let filter = TransferFilter {
         direction: direction.as_deref().map(parse_direction).transpose()?,
-        state: state_filter
-            .as_deref()
-            .map(parse_transfer_state)
-            .transpose()?,
-        since_height,
+        state: state.as_deref().map(parse_transfer_state).transpose()?,
     };
-    if !*state.wallet_open.read().await {
+    if !*app.wallet_open.read().await {
         return Ok(Transfers { transfers: vec![] });
     }
-    let eng = state.engine.lock().await;
+    let eng = app.engine.lock().await;
     if !eng.is_open() {
         return Ok(Transfers { transfers: vec![] });
     }

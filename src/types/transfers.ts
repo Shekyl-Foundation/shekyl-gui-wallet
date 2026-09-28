@@ -36,11 +36,10 @@ export interface ReceiveAttribution {
   dispute_reason?: string;
 }
 
-/** The contract's `GetTransfersParams`, as the page sends them (all optional). */
+/** The contract's `GetTransfersParams` this page offers (all optional). */
 export interface TransferFilter {
   direction?: TransferDirection;
   state?: TransferState;
-  since_height?: number;
 }
 
 interface TransferCommon {

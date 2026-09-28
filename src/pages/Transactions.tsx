@@ -68,10 +68,7 @@ export default function Transactions() {
     try {
       // The contract's filters travel to Rust; the page never filters a
       // full list it then shows as partial.
-      const { transfers } = await invoke<Transfers>("get_transfers", {
-        direction,
-        stateFilter: state,
-      });
+      const { transfers } = await invoke<Transfers>("get_transfers", { direction, state });
       if (gen !== loadGen.current) return;
       setTxs(transfers);
       setError(null);

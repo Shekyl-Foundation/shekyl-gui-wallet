@@ -332,7 +332,10 @@ been mined on top of it (typically 10 confirmations for full assurance).
 ## Transaction History
 
 Click **Transactions** in the sidebar to see a list of all your past
-transactions -- both sent and received.
+transactions -- both sent and received. The tabs above the list narrow it
+to **Received** or **Sent**, and the state menu to one state (Pending,
+Confirmed, Spent, …). A receive that arrived against one of your payment
+requests names the request on its row.
 
 Each entry shows:
 

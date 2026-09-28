@@ -223,3 +223,57 @@ pub async fn restore_wallet(
         wallet: wallet_handle(&eng, sanitized, network).await?,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn handle(hint: Option<u64>) -> WalletHandle {
+        WalletHandle {
+            name: "alice".into(),
+            capability: capability_str(Capability::Full),
+            network: network_str(NetworkType::Testnet),
+            restore_height_hint: hint,
+        }
+    }
+
+    #[test]
+    fn handle_spells_the_contract_and_omits_a_genesis_hint() {
+        let v = serde_json::to_value(handle(None)).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({ "name": "alice", "capability": "FULL", "network": "TESTNET" })
+        );
+        let v = serde_json::to_value(handle(Some(1200))).unwrap();
+        assert_eq!(v["restore_height_hint"], 1200);
+        assert_eq!(network_str(NetworkType::Mainnet), "MAINNET");
+        assert_eq!(network_str(NetworkType::Stagenet), "STAGENET");
+    }
+
+    #[test]
+    fn created_wallet_carries_exactly_one_backup_encoding() {
+        let mainnet = serde_json::to_value(CreatedWallet {
+            wallet: handle(None),
+            mnemonic: Some("word ".repeat(24).trim().into()),
+            raw_seed_hex: None,
+        })
+        .unwrap();
+        assert!(mainnet.get("mnemonic").is_some() && mainnet.get("raw_seed_hex").is_none());
+        let testnet = serde_json::to_value(CreatedWallet {
+            wallet: handle(None),
+            mnemonic: None,
+            raw_seed_hex: Some("ab".repeat(32)),
+        })
+        .unwrap();
+        assert!(testnet.get("mnemonic").is_none() && testnet.get("raw_seed_hex").is_some());
+        let opened = serde_json::to_value(OpenedWallet {
+            wallet: handle(None),
+        })
+        .unwrap();
+        assert_eq!(opened["wallet"]["name"], "alice");
+        assert!(
+            opened.get("address").is_none(),
+            "the address has one source: get_primary_address"
+        );
+    }
+}

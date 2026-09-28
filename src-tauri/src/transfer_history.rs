@@ -176,24 +176,18 @@ impl From<&ReceiveAttribution> for ReceiveAttributionView {
     }
 }
 
-/// The contract's `GetTransfersParams`, applied to projected rows. A row with
-/// no `block_height` (a send not on chain) has nothing to compare against
-/// `since_height` and is always returned — the property that makes the
-/// filter usable as a polling watermark.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// The contract's `GetTransfersParams` this wallet offers, applied to
+/// projected rows. `None` on a leg means "any".
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TransferFilter {
     pub direction: Option<TransferDirection>,
     pub state: Option<TransferState>,
-    pub since_height: Option<u64>,
 }
 
 impl TransferFilter {
     pub fn keeps(&self, row: &TransferRow) -> bool {
         self.direction.is_none_or(|d| d == row.direction)
             && self.state.is_none_or(|s| s == row.state)
-            && self
-                .since_height
-                .is_none_or(|floor| row.block_height.is_none_or(|h| h >= floor))
     }
 }
 
@@ -391,6 +385,99 @@ impl PartialOrd for HistoryOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn row(direction: TransferDirection, state: TransferState) -> TransferRow {
+        TransferRow {
+            id: "id".into(),
+            tx_hash: "aa".repeat(32),
+            amount: 1.into(),
+            fee: 0.into(),
+            block_height: Some(1),
+            direction,
+            state,
+            unspendable_reason: None,
+            attribution: None,
+        }
+    }
+
+    #[test]
+    fn filter_legs_are_independent_and_none_means_any() {
+        let incoming_spent = row(TransferDirection::Incoming, TransferState::Spent);
+        let outgoing_pending = row(TransferDirection::Outgoing, TransferState::Pending);
+        assert!(TransferFilter::default().keeps(&incoming_spent));
+        assert!(TransferFilter::default().keeps(&outgoing_pending));
+        let received = TransferFilter {
+            direction: Some(TransferDirection::Incoming),
+            state: None,
+        };
+        assert!(received.keeps(&incoming_spent) && !received.keeps(&outgoing_pending));
+        let pending = TransferFilter {
+            direction: None,
+            state: Some(TransferState::Pending),
+        };
+        assert!(!pending.keeps(&incoming_spent) && pending.keeps(&outgoing_pending));
+        let both = TransferFilter {
+            direction: Some(TransferDirection::Outgoing),
+            state: Some(TransferState::Spent),
+        };
+        assert!(!both.keeps(&incoming_spent) && !both.keeps(&outgoing_pending));
+    }
+
+    #[test]
+    fn attribution_spells_the_contract_and_omits_absent_fields() {
+        use shekyl_engine_state::{DisputeReason, PaymentRequestId, ReceiveAttribution};
+        let matched = serde_json::to_value(ReceiveAttributionView::from(
+            &ReceiveAttribution::Matched(PaymentRequestId(42)),
+        ))
+        .unwrap();
+        assert_eq!(
+            matched,
+            serde_json::json!({ "kind": "MATCHED", "request_id": "42" })
+        );
+        let unknown = serde_json::to_value(ReceiveAttributionView::from(
+            &ReceiveAttribution::LabelUnknown {
+                echoed_label_hash: [0xab; 32],
+            },
+        ))
+        .unwrap();
+        assert_eq!(unknown["kind"], "LABEL_UNKNOWN");
+        assert_eq!(unknown["echoed_label_hash"], "ab".repeat(32));
+        assert!(unknown.get("request_id").is_none());
+        let disputed = serde_json::to_value(ReceiveAttributionView::from(
+            &ReceiveAttribution::Disputed {
+                reason: DisputeReason::WrongAmount,
+            },
+        ))
+        .unwrap();
+        assert_eq!(
+            disputed,
+            serde_json::json!({ "kind": "DISPUTED", "dispute_reason": "WrongAmount" })
+        );
+        let none = serde_json::to_value(ReceiveAttributionView::from(
+            &ReceiveAttribution::Unattributed,
+        ))
+        .unwrap();
+        assert_eq!(none, serde_json::json!({ "kind": "UNATTRIBUTED" }));
+    }
+
+    #[test]
+    fn outgoing_rows_carry_no_attribution_key_and_incoming_rows_do() {
+        let outgoing =
+            serde_json::to_value(row(TransferDirection::Outgoing, TransferState::Pending)).unwrap();
+        assert!(outgoing.get("attribution").is_none());
+        let fact = IncomingFact {
+            tx_hash: TxHash::from_bytes([7; 32]),
+            output_index: OutputIndexInTx::ZERO,
+            amount: AtomicUnits::from_raw(5),
+            block_height: BlockHeight::from_raw(9),
+            spent: false,
+            awaiting_confirmation: false,
+            unspendable: None,
+            attribution: shekyl_engine_state::ReceiveAttribution::Unattributed,
+        };
+        let incoming = serde_json::to_value(project_incoming_row(&fact)).unwrap();
+        assert_eq!(incoming["attribution"]["kind"], "UNATTRIBUTED");
+    }
     use shekyl_engine_state::SendRecipient;
 
     fn sample_record(state: SendState, fee: u64, amounts: &[u64]) -> SendRecord {

@@ -17,9 +17,9 @@
   in `src-tauri/src/lifecycle.rs` (rule 27; `commands.rs` 800 → 640,
   locked).
 - **`get_transfers` takes the contract's filters and projects attribution.**
-  `direction`, `state` and `since_height` travel to Rust (a row not on chain
-  is always returned, so `since_height` works as a watermark); the
-  Transactions page offers direction tabs and a state select and never
+  `direction` and `state` travel to Rust under the contract's names (the
+  contract's `since_height` watermark has no page here and is not taken);
+  the Transactions page offers direction tabs and a state select and never
   filters a list it then shows as partial. Incoming rows carry the
   contract's `attribution` (`MATCHED` / `MANUAL_MATCH` with the request id,
   `LABEL_UNKNOWN`, `DISPUTED`; outgoing rows omit it), rendered as a badge

@@ -122,7 +122,7 @@ describe("Transactions", () => {
     expect(screen.getByTitle(/spendable again/i)).toBeInTheDocument();
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_transfers", {
       direction: undefined,
-      stateFilter: undefined,
+      state: undefined,
     });
   });
 
@@ -135,14 +135,14 @@ describe("Transactions", () => {
     await waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
         direction: "INCOMING",
-        stateFilter: undefined,
+        state: undefined,
       }),
     );
     await user.selectOptions(screen.getByLabelText("State"), "CONFIRMED");
     await waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
         direction: "INCOMING",
-        stateFilter: "CONFIRMED",
+        state: "CONFIRMED",
       }),
     );
   });
