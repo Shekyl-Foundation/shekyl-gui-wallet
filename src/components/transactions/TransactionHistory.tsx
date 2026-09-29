@@ -5,6 +5,7 @@ import { statusClass, statusLabel, statusTitle } from "../../lib/transactionStat
 import { atomicAmount, formatSkl } from "../../lib/format";
 import type {
   ReceiveAttribution,
+  ReceiveAttributionKind,
   Transfer,
   TransferDirection,
   TransferState,
@@ -18,6 +19,10 @@ const REFRESH_MS = 15_000;
 export interface HistoryQuery {
   direction: TransferDirection | undefined;
   state: TransferState | undefined;
+  /** Inclusion-height watermark: rows mined below it are left out; unmined sends stay. */
+  sinceHeight: number | undefined;
+  /** Receives by how they matched a payment request; any value excludes sends. */
+  attribution: ReceiveAttributionKind | undefined;
 }
 
 /**
@@ -32,7 +37,12 @@ type HistoryView =
   | { kind: "retrying"; query: HistoryQuery; message: string };
 
 function sameQuery(left: HistoryQuery, right: HistoryQuery): boolean {
-  return left.direction === right.direction && left.state === right.state;
+  return (
+    left.direction === right.direction &&
+    left.state === right.state &&
+    left.sinceHeight === right.sinceHeight &&
+    left.attribution === right.attribution
+  );
 }
 
 /** How a receive's attribution reads on its row. `UNATTRIBUTED` shows nothing. */
@@ -51,8 +61,14 @@ function attributionLabel(attribution: ReceiveAttribution): string | null {
   }
 }
 
+/** An empty list under no filter is a wallet with no history; under any filter it is a miss. */
 function emptyHistoryCopy(query: HistoryQuery): { title: string; detail: string } {
-  if (query.direction === undefined && query.state === undefined) {
+  const unfiltered =
+    query.direction === undefined &&
+    query.state === undefined &&
+    query.sinceHeight === undefined &&
+    query.attribution === undefined;
+  if (unfiltered) {
     return {
       title: "No transactions yet",
       detail: "Send or receive SKL to see your transaction history.",
@@ -60,7 +76,7 @@ function emptyHistoryCopy(query: HistoryQuery): { title: string; detail: string 
   }
   return {
     title: "No matching transactions",
-    detail: "Nothing in this wallet has that direction and state.",
+    detail: "Nothing in this wallet matches these filters.",
   };
 }
 
@@ -77,7 +93,7 @@ function loadErrorMessage(err: unknown): string {
  * The page composes it beneath the filter controls (rule 27).
  */
 export default function TransactionHistory({ query }: { query: HistoryQuery }) {
-  const { direction, state } = query;
+  const { direction, state, sinceHeight, attribution } = query;
   const [view, setView] = useState<HistoryView>({ kind: "loading", query });
   /** Monotonic generation so overlapping loads discard stale results. */
   const loadGen = useRef(0);
@@ -85,7 +101,7 @@ export default function TransactionHistory({ query }: { query: HistoryQuery }) {
   const load = useCallback(
     async (reason: "query" | "refresh" | "retry") => {
       const gen = ++loadGen.current;
-      const requested: HistoryQuery = { direction, state };
+      const requested: HistoryQuery = { direction, state, sinceHeight, attribution };
       if (reason === "query") {
         setView({ kind: "loading", query: requested });
       } else if (reason === "retry") {
@@ -99,6 +115,8 @@ export default function TransactionHistory({ query }: { query: HistoryQuery }) {
         const { transfers } = await invoke<Transfers>("get_transfers", {
           direction: requested.direction,
           state: requested.state,
+          sinceHeight: requested.sinceHeight,
+          attribution: requested.attribution,
         });
         if (gen !== loadGen.current) return;
         setView({ kind: "ready", query: requested, transfers });
@@ -107,7 +125,7 @@ export default function TransactionHistory({ query }: { query: HistoryQuery }) {
         setView({ kind: "fault", query: requested, message: loadErrorMessage(err) });
       }
     },
-    [direction, state],
+    [direction, state, sinceHeight, attribution],
   );
 
   useEffect(() => {

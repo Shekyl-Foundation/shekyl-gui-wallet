@@ -7,20 +7,23 @@
 //!
 //! Mirrors the wallet-rpc merge (`collect_transfers` / `outgoing_transfer_view`
 //! / `transfer_state`) without depending on the RPC crate. This module is the
-//! GUI's projection; the session calls it and does not own the DTO.
+//! GUI's projection and the `get_transfers` command that serves it; the
+//! session reads the ledger and does not own the DTO.
 //!
 //! Divergences from the contract's `Transfer` / `get_transfers`:
 //!
-//! - No `since_height` watermark, no attribution filter, no per-txid notes,
-//!   and no `spent_height`. Nothing in the GUI sends or renders them.
-//! - `direction` and `state` are optional filters on the projected rows.
-//!   Unknown spellings fail serde deserialization of those enums.
+//! - No per-txid notes and no `spent_height`. Nothing in the GUI renders them.
+//! - `direction`, `state`, `since_height` and `attribution` are optional
+//!   filters on the projected rows, with wallet-rpc's semantics: `since_height`
+//!   bounds *inclusion* height (a never-mined send has none and stays), and an
+//!   attribution filter selects receives by kind and excludes every send.
+//!   Unknown enum spellings fail serde deserialization.
 //! - Incoming rows carry `attribution` (the contract's `ReceiveAttribution`).
 //!   Outgoing rows omit the field.
 //! - Newest-first display — same order key as wallet-rpc (ascending inclusion
 //!   height, incoming before outgoing, never-mined last), then reversed.
 //!
-//! The JSON edge is [`TransferRow`]: amounts are [`crate::wire::AtomicUnitsString`]
+//! The JSON edge is [`TransferRow`]: amounts are [`AtomicUnitsString`]
 //! (decimal strings), and `direction` / `state` / `unspendable_reason` use the
 //! contract's `SCREAMING_SNAKE_CASE` spelling. Receive facts and the merge key
 //! stay domain-typed (`TxHash`, `OutputIndexInTx`, `AtomicUnits`, `BlockHeight`,
@@ -37,7 +40,10 @@ use shekyl_engine_state::{
 use shekyl_types::{BlockHeight, OutputIndexInTx, TxHash};
 use shekyl_units::AtomicUnits;
 
-use crate::wire::AtomicUnitsString;
+use shekyl_units::AtomicUnitsString;
+use tauri::State;
+
+use crate::state::AppState;
 
 /// Lifecycle state on a projected history row (rule 82 — never collapse arms),
 /// spelled as the contract's `Transfer.state` enum.
@@ -172,18 +178,99 @@ impl From<&ReceiveAttribution> for ReceiveAttributionView {
     }
 }
 
-/// The contract's `GetTransfersParams` this wallet offers, applied to
-/// projected rows. `None` on a leg means "any".
+/// The contract's `GetTransfersResult`.
+#[derive(Debug, Serialize)]
+pub struct Transfers {
+    pub transfers: Vec<TransferRow>,
+}
+
+/// The contract's `get_transfers` with its four filters (`direction`,
+/// `state`, `since_height`, `attribution`); unfiltered returns full history.
+/// The enums deserialize the contract's spellings, so an unknown one fails
+/// before this body runs. A closed wallet has no history: an empty list.
+#[tauri::command]
+pub async fn get_transfers(
+    app: State<'_, AppState>,
+    direction: Option<TransferDirection>,
+    state: Option<TransferState>,
+    since_height: Option<u64>,
+    attribution: Option<ReceiveAttributionKind>,
+) -> Result<Transfers, String> {
+    let filter = TransferFilter {
+        direction,
+        state,
+        since_height,
+        attribution,
+    };
+    if !*app.wallet_open.read().await {
+        return Ok(Transfers { transfers: vec![] });
+    }
+    let eng = app.engine.lock().await;
+    if !eng.is_open() {
+        return Ok(Transfers { transfers: vec![] });
+    }
+    let transfers = eng
+        .list_transfers()
+        .await?
+        .into_iter()
+        .filter(|row| filter.keeps(row))
+        .collect();
+    Ok(Transfers { transfers })
+}
+
+/// The contract's `GetTransfersParams`, applied to projected rows. `None`
+/// on a leg means "any".
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TransferFilter {
     pub direction: Option<TransferDirection>,
     pub state: Option<TransferState>,
+    /// Inclusion-height watermark: rows mined below it are excluded; rows
+    /// not on chain have no height to compare and stay.
+    pub since_height: Option<u64>,
+    /// Receive attribution kind. Attribution exists on incoming rows only,
+    /// so any value excludes every send.
+    pub attribution: Option<ReceiveAttributionKind>,
 }
 
 impl TransferFilter {
     pub fn keeps(&self, row: &TransferRow) -> bool {
         self.direction.is_none_or(|d| d == row.direction)
             && self.state.is_none_or(|s| s == row.state)
+            && !self.below_since(row)
+            && self
+                .attribution
+                .is_none_or(|kind| row.attribution.as_ref().is_some_and(|a| a.kind() == kind))
+    }
+
+    /// Does `since_height` exclude this row? Same rule as wallet-rpc's
+    /// `below_since`: only a mined row can be below the watermark.
+    fn below_since(&self, row: &TransferRow) -> bool {
+        matches!((row.block_height, self.since_height), (Some(h), Some(min)) if h < min)
+    }
+}
+
+/// The contract's `GetTransfersParams.attribution`: a `ReceiveAttribution`
+/// kind without its payload, spelled as the contract's enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReceiveAttributionKind {
+    Unattributed,
+    Matched,
+    LabelUnknown,
+    ManualMatch,
+    Disputed,
+}
+
+impl ReceiveAttributionView {
+    /// The kind this view carries — the `kind` tag serde writes.
+    pub fn kind(&self) -> ReceiveAttributionKind {
+        match self {
+            Self::Unattributed => ReceiveAttributionKind::Unattributed,
+            Self::Matched { .. } => ReceiveAttributionKind::Matched,
+            Self::LabelUnknown { .. } => ReceiveAttributionKind::LabelUnknown,
+            Self::ManualMatch { .. } => ReceiveAttributionKind::ManualMatch,
+            Self::Disputed { .. } => ReceiveAttributionKind::Disputed,
+        }
     }
 }
 
@@ -297,7 +384,7 @@ fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
         id: format!("{tx_hash}:{}", fact.output_index.to_raw()),
         tx_hash,
         amount: fact.amount.into(),
-        fee: 0.into(),
+        fee: AtomicUnits::ZERO.into(),
         block_height: Some(fact.block_height.to_raw()),
         direction: TransferDirection::Incoming,
         state,
@@ -325,8 +412,8 @@ fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<Transfer
     Ok(TransferRow {
         id: tx_hash.clone(),
         tx_hash,
-        amount: sent.into(),
-        fee: record.fee.into(),
+        amount: AtomicUnits::from_raw(sent).into(),
+        fee: AtomicUnits::from_raw(record.fee).into(),
         block_height,
         direction: TransferDirection::Outgoing,
         state,
@@ -386,8 +473,8 @@ mod tests {
         TransferRow {
             id: "id".into(),
             tx_hash: "aa".repeat(32),
-            amount: 1.into(),
-            fee: 0.into(),
+            amount: AtomicUnits::from_raw(1).into(),
+            fee: AtomicUnits::ZERO.into(),
             block_height: Some(1),
             direction,
             state,
@@ -405,18 +492,73 @@ mod tests {
         let received = TransferFilter {
             direction: Some(TransferDirection::Incoming),
             state: None,
+            ..TransferFilter::default()
         };
         assert!(received.keeps(&incoming_spent) && !received.keeps(&outgoing_pending));
         let pending = TransferFilter {
             direction: None,
             state: Some(TransferState::Pending),
+            ..TransferFilter::default()
         };
         assert!(!pending.keeps(&incoming_spent) && pending.keeps(&outgoing_pending));
         let both = TransferFilter {
             direction: Some(TransferDirection::Outgoing),
             state: Some(TransferState::Spent),
+            ..TransferFilter::default()
         };
         assert!(!both.keeps(&incoming_spent) && !both.keeps(&outgoing_pending));
+    }
+
+    #[test]
+    fn since_height_bounds_inclusion_height_and_keeps_never_mined_rows() {
+        let mined_at_1 = row(TransferDirection::Incoming, TransferState::Confirmed);
+        let never_mined = TransferRow {
+            block_height: None,
+            ..row(TransferDirection::Outgoing, TransferState::Pending)
+        };
+        let since = |h: u64| TransferFilter {
+            since_height: Some(h),
+            ..TransferFilter::default()
+        };
+        assert!(since(1).keeps(&mined_at_1), "at the watermark stays");
+        assert!(!since(2).keeps(&mined_at_1), "below the watermark goes");
+        assert!(since(u64::MAX).keeps(&never_mined), "no height to compare");
+    }
+
+    #[test]
+    fn attribution_filter_selects_receives_by_kind_and_excludes_every_send() {
+        let matched = TransferRow {
+            attribution: Some(ReceiveAttributionView::Matched {
+                request_id: "42".into(),
+            }),
+            ..row(TransferDirection::Incoming, TransferState::Confirmed)
+        };
+        let unattributed = TransferRow {
+            attribution: Some(ReceiveAttributionView::Unattributed),
+            ..row(TransferDirection::Incoming, TransferState::Confirmed)
+        };
+        let sent = row(TransferDirection::Outgoing, TransferState::Confirmed);
+        let want = |kind| TransferFilter {
+            attribution: Some(kind),
+            ..TransferFilter::default()
+        };
+        assert!(want(ReceiveAttributionKind::Matched).keeps(&matched));
+        assert!(!want(ReceiveAttributionKind::Matched).keeps(&unattributed));
+        assert!(want(ReceiveAttributionKind::Unattributed).keeps(&unattributed));
+        for kind in [
+            ReceiveAttributionKind::Unattributed,
+            ReceiveAttributionKind::Matched,
+            ReceiveAttributionKind::LabelUnknown,
+            ReceiveAttributionKind::ManualMatch,
+            ReceiveAttributionKind::Disputed,
+        ] {
+            assert!(!want(kind).keeps(&sent), "{kind:?} must exclude sends");
+        }
+        assert_eq!(
+            serde_json::from_str::<ReceiveAttributionKind>("\"LABEL_UNKNOWN\"").unwrap(),
+            ReceiveAttributionKind::LabelUnknown
+        );
+        assert!(serde_json::from_str::<ReceiveAttributionKind>("\"matched\"").is_err());
     }
 
     #[test]
@@ -522,6 +664,7 @@ mod tests {
                 .map(|&amount| SendRecipient {
                     address: "SkTestAddr".into(),
                     amount,
+                    rid: None,
                 })
                 .collect(),
             change_amount: 0,
@@ -559,8 +702,8 @@ mod tests {
         assert_eq!(row.direction, TransferDirection::Outgoing);
         assert_eq!(row.state, TransferState::Pending);
         assert_eq!(row.block_height, None);
-        assert_eq!(row.amount.to_raw(), 1_000);
-        assert_eq!(row.fee.to_raw(), 100);
+        assert_eq!(row.amount.to_atomic_units().to_raw(), 1_000);
+        assert_eq!(row.fee.to_atomic_units().to_raw(), 100);
         assert_eq!(row.tx_hash, hex::encode(txid));
         assert_eq!(row.id, row.tx_hash);
         assert_eq!(row.unspendable_reason, None);
@@ -581,7 +724,7 @@ mod tests {
         .expect("project");
         assert_eq!(row.state, TransferState::Confirmed);
         assert_eq!(row.block_height, Some(42));
-        assert_eq!(row.amount.to_raw(), 750);
+        assert_eq!(row.amount.to_atomic_units().to_raw(), 750);
     }
 
     #[test]
@@ -620,10 +763,12 @@ mod tests {
                 SendRecipient {
                     address: "a".into(),
                     amount: u64::MAX,
+                    rid: None,
                 },
                 SendRecipient {
                     address: "b".into(),
                     amount: 1,
+                    rid: None,
                 },
             ],
             change_amount: 0,
@@ -704,7 +849,10 @@ mod tests {
         ];
         let rows = merge_transfer_history(facts, &BTreeMap::new()).expect("merge");
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].amount.to_raw() + rows[1].amount.to_raw(), 300);
+        assert_eq!(
+            rows[0].amount.to_atomic_units().to_raw() + rows[1].amount.to_atomic_units().to_raw(),
+            300
+        );
         assert_ne!(rows[0].id, rows[1].id);
     }
 
@@ -749,10 +897,12 @@ mod tests {
                     SendRecipient {
                         address: "a".into(),
                         amount: u64::MAX,
+                        rid: None,
                     },
                     SendRecipient {
                         address: "b".into(),
                         amount: 1,
+                        rid: None,
                     },
                 ],
                 change_amount: 0,

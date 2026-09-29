@@ -30,6 +30,7 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
+mod balance;
 mod clipboard;
 mod commands;
 mod daemon_connection;
@@ -53,7 +54,6 @@ mod state;
 mod transfer_history;
 mod validate;
 mod wallet_name;
-mod wire;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -115,7 +115,7 @@ pub fn run() {
             send::build_pending_tx,
             send::submit_pending_tx,
             send::discard_pending_tx,
-            commands::get_transfers,
+            transfer_history::get_transfers,
             // Receiving: payment requests and the shekyl: URI (contract names).
             // `make_uri` is the contract's freeform composer; this GUI shows
             // the stored link from the list instead, so it is not registered.

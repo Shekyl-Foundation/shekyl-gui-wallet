@@ -137,7 +137,66 @@ describe("Transactions", () => {
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_transfers", {
       direction: undefined,
       state: undefined,
+      sinceHeight: undefined,
+      attribution: undefined,
     });
+  });
+
+  it("sends the from-block watermark and the request filter to Rust, and drops the request filter with the Sent tab", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockResolvedValue(transfers([sampleTx({ direction: "INCOMING", state: "CONFIRMED" })]));
+    render(<Transactions />);
+    await waitFor(() => expect(within(screen.getByTestId("transfers")).getByText("Confirmed")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("From block"), "1200");
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1); // nothing per keystroke
+    await user.tab();
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: undefined,
+        state: undefined,
+        sinceHeight: 1200,
+        attribution: undefined,
+      }),
+    );
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(2);
+    await user.selectOptions(screen.getByLabelText("Request"), "MATCHED");
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: undefined,
+        state: undefined,
+        sinceHeight: 1200,
+        attribution: "MATCHED",
+      }),
+    );
+    await user.click(screen.getByRole("tab", { name: "Sent" }));
+    expect(screen.queryByLabelText("Request")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "OUTGOING",
+        state: undefined,
+        sinceHeight: 1200,
+        attribution: undefined,
+      }),
+    );
+    await user.click(screen.getByRole("tab", { name: "Received" }));
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "INCOMING",
+        state: undefined,
+        sinceHeight: 1200,
+        attribution: undefined,
+      }),
+    );
+    await user.clear(screen.getByLabelText("From block"));
+    await user.type(screen.getByLabelText("From block"), "12x{enter}");
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "INCOMING",
+        state: undefined,
+        sinceHeight: undefined,
+        attribution: undefined,
+      }),
+    );
   });
 
   it("sends the contract's direction and state filters to Rust, never filtering a shown list itself", async () => {
@@ -150,6 +209,8 @@ describe("Transactions", () => {
       expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
         direction: "INCOMING",
         state: undefined,
+        sinceHeight: undefined,
+        attribution: undefined,
       }),
     );
     await user.selectOptions(screen.getByLabelText("State"), "CONFIRMED");
@@ -157,6 +218,8 @@ describe("Transactions", () => {
       expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
         direction: "INCOMING",
         state: "CONFIRMED",
+        sinceHeight: undefined,
+        attribution: undefined,
       }),
     );
   });
@@ -184,6 +247,19 @@ describe("Transactions", () => {
     });
     expect(await screen.findByText("No matching transactions")).toBeInTheDocument();
     expect(screen.queryByText("No transactions yet")).not.toBeInTheDocument();
+  });
+
+  it("an empty result under only the request filter or the from-block watermark is a miss, not an empty wallet", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockResolvedValue(transfers([]));
+    render(<Transactions />);
+    expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Request"), "MATCHED");
+    expect(await screen.findByText("No matching transactions")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Request"), "");
+    expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("From block"), "5{enter}");
+    expect(await screen.findByText("No matching transactions")).toBeInTheDocument();
   });
 
   it("shows which payment request a receive arrived against", async () => {

@@ -4,6 +4,40 @@
 
 ### Changed
 
+- **A payment link's request id rides the send.** `build_pending_tx` takes
+  the pasted link's `rid` (the contract's new `TxRecipient.rid`, shekyl-core
+  same-named branch) and the engine echoes it in the payment's encrypted
+  label, so the payee's wallet can attribute the receive: core's tests prove
+  the label is written and recovered as `Request(rid)`, and that a recovered
+  id matches a stored request; no single test yet crosses payer to payee.
+  An address edited by hand answers no request. A `rid` the label
+  cannot carry is refused as invalid input, never dropped to a sentinel.
+- **`get_transfers` takes the contract's last two filters.** `since_height`
+  keeps rows mined at or after a height (a send not yet on chain stays), and
+  `attribution` narrows receives by how they matched a payment request and
+  excludes every send — wallet-rpc's semantics, projected in
+  `transfer_history.rs` where the command now lives beside its DTOs (rule
+  27). The Transactions page offers **From block** and a **Request** menu
+  that leaves with the Sent tab.
+- **`AtomicUnitsString` is shekyl-units'.** The Tauri edge's newtype moved to
+  `shekyl_units::AtomicUnitsString`, the same one wallet-rpc serializes;
+  `wire.rs` is deleted and bare `u64` amounts from daemon RPC enter through
+  `AtomicUnits::from_raw` at the edge.
+- **`get_balance` is the contract's `GetBalanceResult`.** The DTO
+  (`src-tauri/src/balance.rs`) is a projection of engine-core's
+  `BalanceView` (`StakeFacade::balance_view`, shekyl-core #894), the same
+  view wallet-rpc serializes: `liquid`, `unlocked`, `pending`,
+  `unspendable`, and `staked` / `claimable_rewards`, which are absent — never
+  `"0"` — when the wallet's sealed staking state cannot be read. The
+  session's dual-truth `balance()` (a `staked` hard-wired to zero) is gone;
+  the engine's reviewed sum of the two bonded legs replaces it, and the
+  Staking page still shows the legs. A closed wallet is an error the card
+  renders as dashes with the engine's message and a retry, not a fabricated
+  zero balance. The Balance Card headlines `liquid`, binds **Available** to
+  `unlocked`, shows Pending / Staked / Rewards, an Unspendable line (at
+  dust precision) only when there is one, and **Unavailable** for absent
+  staking figures.
+  `commands.rs` ceiling locked at 586.
 - **Review round on #30.** `createdWalletFromWire` fails closed by presence
   and by network: an arm that is present but empty is a contract violation,
   not a missing arm, and the handle's network chooses the one encoding

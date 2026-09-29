@@ -30,6 +30,9 @@ export type ReceiveAttribution =
   | { kind: "LABEL_UNKNOWN"; echoed_label_hash: string }
   | { kind: "DISPUTED"; dispute_reason: string };
 
+/** `GetTransfersParams.attribution`: a `ReceiveAttribution` kind without its payload. */
+export type ReceiveAttributionKind = ReceiveAttribution["kind"];
+
 interface TransferShared {
   /** Unique per wallet: `{tx_hash}:{output_index}` incoming, bare `{tx_hash}` outgoing. */
   id: string;

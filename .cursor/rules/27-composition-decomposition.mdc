@@ -123,9 +123,11 @@ convenient to reach `AppState` there.
 ### 6. Dual sources of truth stay explicit
 
 If two UI surfaces show related numbers (e.g. dashboard `Balance.staked` vs
-Staking page three-leg view), document the dual truth at the session method
-and in user-facing docs. Do **not** invent a silent summed alias that
-collapses distinct protocol legs (rule 82).
+Staking page three-leg view), the relation is the engine's to state, once,
+for every wallet front end (`StakeFacade::balance_view` sums the two bonded
+legs into `staked`; the Staking page keeps them distinct). Do **not** invent
+a summed alias in the GUI that the engine has not ratified, and never render
+an absent figure as a zero (rule 82).
 
 ## When you touch a large file
 

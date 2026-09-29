@@ -29,13 +29,13 @@ use shekyl_crypto_pq::account::{
 use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES};
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::{
-    Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams, FirstStakeOutcome,
-    Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, StakeFacade, StakePosture,
+    BalanceView, Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams,
+    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, StakeFacade,
+    StakePosture,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
-use shekyl_scanner::WalletLedgerExt;
 use tokio::sync::RwLock;
 use tracing::warn;
 use zeroize::{Zeroize, Zeroizing};
@@ -596,32 +596,22 @@ impl EngineSession {
             .map_err(|e| format!("encode address: {e}"))
     }
 
-    /// Balance as total / unlocked / staked.
+    /// The engine's one-glance balance (`StakeFacade::balance_view`): the
+    /// contract's `get_balance`, projected once in engine-core for this
+    /// wallet and wallet-rpc alike. `staking` is `None` when the sealed
+    /// staking state could not be read (the degrade arm — absence, never a
+    /// fabricated zero); a corrupt staking total is the error. The `staked`
+    /// figure is the engine's reviewed sum of the two bonded legs, which stay
+    /// distinct on [`Self::staking_view`].
     ///
-    /// PR-SJ-1b: [`WalletLedgerExt::balance`] is the only balance API — it
-    /// composes the scan-derived ledger with the journal-derived F14 spend
-    /// locks, so an in-flight send is counted in `total` but never `unlocked`.
-    ///
-    /// **Dual truth (intentional):** the third tuple element (`staked`) is
-    /// always `0` here. Personal archival stake is *not* folded into
-    /// dashboard balance — it lives only on the Staking page via
-    /// [`Self::staking_view`] / WI-RPC-1 (three distinct legs: confirmed
-    /// principal, pending principal, unspent rewards). Do not invent a
-    /// single summed "staked" figure for this field; when a dashboard total
-    /// is product-ready it must be an explicit, reviewed mapping — not a
-    /// silent alias of one of the three legs.
-    pub async fn balance(&self) -> Result<(u64, u64, u64), String> {
+    /// Small synchronous file I/O on the staking leg, hence `block_in_place`.
+    pub async fn balance_view(&self) -> Result<BalanceView, String> {
         let shared = self
             .engine
             .as_ref()
             .ok_or_else(|| "No wallet is open".to_string())?;
         let g = shared.read().await;
-        let summary = g.ledger().balance();
-        Ok((
-            summary.total.to_raw(),
-            summary.unlocked.to_raw(),
-            0, // personal stake: see dual-truth note above
-        ))
+        tokio::task::block_in_place(|| g.stake().balance_view()).map_err(|e| e.to_string())
     }
 
     /// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B; `ARCHIVAL_DRAIN_SEND_FD2.md`

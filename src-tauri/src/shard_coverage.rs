@@ -23,7 +23,7 @@ use crate::shard_visual::{
     cache_digest, recipe_for, render_cached, ShardRenderResponse, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE,
 };
 use crate::state::AppState;
-use crate::wire::AtomicUnitsString;
+use shekyl_units::{AtomicUnits, AtomicUnitsString};
 
 #[derive(Debug, Serialize)]
 pub struct ShardCoverageList {
@@ -58,7 +58,7 @@ impl From<RpcRow> for ShardCoverageRow {
             served_count: row.served_count,
             freeze_height: row.freeze_height,
             join_scarcity_micro: row.join_scarcity_micro,
-            expected_profit_atomic: row.expected_profit_atomic.into(),
+            expected_profit_atomic: AtomicUnits::from_raw(row.expected_profit_atomic).into(),
         }
     }
 }
@@ -112,7 +112,7 @@ fn coverage_list_from_rpc(res: GetArchivalShardCoverageResponse) -> ShardCoverag
         leaf_count: res.leaf_count,
         frozen_count: res.frozen_count,
         settled_epoch: res.settled_epoch,
-        budget_atomic: res.budget_atomic.into(),
+        budget_atomic: AtomicUnits::from_raw(res.budget_atomic).into(),
         sigma_work_milli: res.sigma_work_milli,
         profit_estimate_available: res.profit_estimate_available,
         shards: res.shards.into_iter().map(ShardCoverageRow::from).collect(),

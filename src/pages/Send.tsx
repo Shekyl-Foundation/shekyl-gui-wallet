@@ -49,7 +49,10 @@ function isPaymentLink(value: string): boolean {
   return value.trim().toLowerCase().startsWith(PAYMENT_URI_SCHEME);
 }
 
-/** What the payer should check. The label rides the link; nothing from it is sent. */
+/**
+ * What the payer should check. The label is shown and never sent; the
+ * request id is passed to the build so the payee's wallet can match the payment.
+ */
 function paymentLinkNotice(link: ParsedPaymentUri): string {
   const label = link.label ? ` — "${link.label}"` : "";
   const request = link.rid ? ` (request ${link.rid})` : "";
@@ -100,6 +103,8 @@ export default function Send() {
    */
   const addressRef = useRef("");
   const amountRef = useRef("");
+  /** The request id of the link the address came from; cleared by a hand edit. */
+  const ridRef = useRef<string | undefined>(undefined);
   /** A discard is in flight: the review buttons are held so nothing can act on a reservation being released. */
   const [releasing, setReleasing] = useState(false);
   const owned = useRef<string | null>(null);
@@ -163,6 +168,7 @@ export default function Send() {
         address: recipient,
         amount: amount.toString(),
         priority,
+        rid: ridRef.current,
       });
       owned.current = b.pending_tx_id;
       setBuilt(b);
@@ -186,11 +192,14 @@ export default function Send() {
    * committed immediately. The result is applied only if it is still the
    * latest edit and the page is still composing — a build already in flight
    * keeps the address and amount it captured. The label is shown as text
-   * from the counterparty and is not sent.
+   * from the counterparty and is not sent; the request id (`rid`) rides the
+   * build, echoed in the payment's encrypted label, so the payee's wallet
+   * can attribute it. An address typed by hand answers no request.
    */
   async function handleAddressChange(value: string) {
     const generation = ++parseGeneration.current;
     addressRef.current = value;
+    ridRef.current = undefined;
     setAddress(value);
     if (!isPaymentLink(value)) {
       setReading(false);
@@ -204,6 +213,7 @@ export default function Send() {
       // Refs move first, then the reading gate drops, so a submit in this
       // same turn builds the parsed address rather than the raw link.
       addressRef.current = link.address;
+      ridRef.current = link.rid;
       setAddress(link.address);
       if (link.amount !== undefined) {
         const formatted = formatSkl(link.amount, SKL_DECIMALS);
