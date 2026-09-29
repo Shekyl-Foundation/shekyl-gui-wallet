@@ -68,7 +68,15 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Shekyl-Foundation/shekyl-gui-wallet
-          ref: ${{ inputs.wallet_ref || github.ref_name }}
+          # A caller names the wallet ref; a manual dispatch builds the branch
+          # it was dispatched from; the schedule always builds `dev`. GitHub
+          # runs a scheduled workflow from the default branch, so
+          # `github.ref_name` is `main` there — and `main` is the stable
+          # branch, which is *expected* to lag core `dev`. From 2026-09-18 to
+          # 2026-09-29 the schedule built `main` against core `dev` and was red
+          # every day for that reason alone, while GUI `dev` built fine; a
+          # check that is red for a reason it does not ask about is no check.
+          ref: ${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.ref_name }}
           path: gui
 
       - name: Checkout shekyl-core
