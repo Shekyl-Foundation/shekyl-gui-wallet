@@ -249,6 +249,19 @@ describe("Transactions", () => {
     expect(screen.queryByText("No transactions yet")).not.toBeInTheDocument();
   });
 
+  it("an empty result under only the request filter or the from-block watermark is a miss, not an empty wallet", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockResolvedValue(transfers([]));
+    render(<Transactions />);
+    expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Request"), "MATCHED");
+    expect(await screen.findByText("No matching transactions")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Request"), "");
+    expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("From block"), "5{enter}");
+    expect(await screen.findByText("No matching transactions")).toBeInTheDocument();
+  });
+
   it("shows which payment request a receive arrived against", async () => {
     vi.mocked(invoke).mockResolvedValue(
       transfers([

@@ -61,8 +61,14 @@ function attributionLabel(attribution: ReceiveAttribution): string | null {
   }
 }
 
+/** An empty list under no filter is a wallet with no history; under any filter it is a miss. */
 function emptyHistoryCopy(query: HistoryQuery): { title: string; detail: string } {
-  if (query.direction === undefined && query.state === undefined) {
+  const unfiltered =
+    query.direction === undefined &&
+    query.state === undefined &&
+    query.sinceHeight === undefined &&
+    query.attribution === undefined;
+  if (unfiltered) {
     return {
       title: "No transactions yet",
       detail: "Send or receive SKL to see your transaction history.",
@@ -70,7 +76,7 @@ function emptyHistoryCopy(query: HistoryQuery): { title: string; detail: string 
   }
   return {
     title: "No matching transactions",
-    detail: "Nothing in this wallet has that direction and state.",
+    detail: "Nothing in this wallet matches these filters.",
   };
 }
 

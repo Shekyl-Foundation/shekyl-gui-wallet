@@ -9,7 +9,7 @@
 //! what "liquid" or "staked" means (`StakeFacade::balance_view` owns the
 //! projection; this module only spells it).
 //!
-//! Every amount is a decimal string (`wire::AtomicUnitsString`). The two
+//! Every amount is a decimal string (`shekyl_units::AtomicUnitsString`). The two
 //! staking fields are **absent, never `"0"`,** when the sealed staking
 //! state could not be read: the liquid fields stay authoritative while the
 //! staking projection degrades, and absence is structurally distinct from

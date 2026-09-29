@@ -273,13 +273,12 @@ pub async fn get_default_fee_priority(
 
 /// The payment request a send answers, from the `rid` of the pasted
 /// `shekyl:` link (`parse_uri`): the contract's `PaymentRequestId`, through
-/// the id type's one door. A value the label cannot echo is refused with the
-/// other invalid inputs, never dropped to a sentinel the payer did not ask for.
+/// the id type's own grammar (`^[1-9][0-9]*$`, u48). A value the label cannot
+/// echo is refused with the other invalid inputs, never dropped to a
+/// sentinel the payer did not ask for.
 fn parse_rid(rid: &str) -> Result<PaymentRequestId, SendError> {
-    rid.parse::<u64>()
-        .ok()
-        .and_then(PaymentRequestId::from_wire_rid)
-        .ok_or_else(|| SendError::invalid("The payment link's request id is not valid.".into()))
+    rid.parse::<PaymentRequestId>()
+        .map_err(|_| SendError::invalid("The payment link's request id is not valid.".into()))
 }
 
 #[tauri::command]
@@ -381,6 +380,32 @@ pub async fn discard_pending_tx(
 mod tests {
     use super::*;
     use shekyl_units::AtomicUnits;
+
+    /// The link's request id is validated at this adapter before any build:
+    /// the contract grammar and the u48 bound, refused as `INVALID_PARAMS`.
+    #[test]
+    fn a_links_request_id_is_refused_unless_the_label_can_echo_it() {
+        assert_eq!(parse_rid("1").unwrap(), PaymentRequestId(1));
+        assert_eq!(
+            parse_rid("281474976710655").unwrap(),
+            PaymentRequestId((1u64 << 48) - 1)
+        );
+        for bad in [
+            "0",
+            "01",
+            "+1",
+            "-1",
+            "abc",
+            "1.5",
+            "",
+            "281474976710656",
+            "18446744073709551616",
+        ] {
+            let err = parse_rid(bad).unwrap_err();
+            assert_eq!(err.code, contract::ERR_INVALID_PARAMS, "{bad:?}");
+            assert!(!err.reservation_retained);
+        }
+    }
 
     #[test]
     fn tiers_are_the_contracts_names_and_nothing_else() {
