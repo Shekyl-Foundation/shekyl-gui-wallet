@@ -664,6 +664,7 @@ mod tests {
                 .map(|&amount| SendRecipient {
                     address: "SkTestAddr".into(),
                     amount,
+                    rid: None,
                 })
                 .collect(),
             change_amount: 0,
@@ -762,10 +763,12 @@ mod tests {
                 SendRecipient {
                     address: "a".into(),
                     amount: u64::MAX,
+                    rid: None,
                 },
                 SendRecipient {
                     address: "b".into(),
                     amount: 1,
+                    rid: None,
                 },
             ],
             change_amount: 0,
@@ -894,10 +897,12 @@ mod tests {
                     SendRecipient {
                         address: "a".into(),
                         amount: u64::MAX,
+                        rid: None,
                     },
                     SendRecipient {
                         address: "b".into(),
                         amount: 1,
+                        rid: None,
                     },
                 ],
                 change_amount: 0,
