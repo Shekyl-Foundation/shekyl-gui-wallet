@@ -20,7 +20,7 @@
 //! bookkeeping; its opaque `rid` rides the `shekyl:` URI. The scan matches
 //! an inbound output whose encrypted label carries that `rid`, and a send
 //! composed from the link echoes it (`send::build_pending_tx`), so a payment
-//! between two of these wallets attributes on arrival. Only
+//! between two of these wallets can attribute on arrival. Only
 //! `create_payment_request` mutates (persisted through the ledger's
 //! crash-atomic save). Every atomic amount on this edge is
 //! `wire::AtomicUnitsString`.

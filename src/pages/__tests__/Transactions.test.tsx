@@ -148,6 +148,8 @@ describe("Transactions", () => {
     render(<Transactions />);
     await waitFor(() => expect(within(screen.getByTestId("transfers")).getByText("Confirmed")).toBeInTheDocument());
     await user.type(screen.getByLabelText("From block"), "1200");
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1); // nothing per keystroke
+    await user.tab();
     await waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
         direction: undefined,
@@ -156,6 +158,7 @@ describe("Transactions", () => {
         attribution: undefined,
       }),
     );
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(2);
     await user.selectOptions(screen.getByLabelText("Request"), "MATCHED");
     await waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
@@ -185,7 +188,7 @@ describe("Transactions", () => {
       }),
     );
     await user.clear(screen.getByLabelText("From block"));
-    await user.type(screen.getByLabelText("From block"), "12x");
+    await user.type(screen.getByLabelText("From block"), "12x{enter}");
     await waitFor(() =>
       expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
         direction: "INCOMING",

@@ -7,8 +7,10 @@
 - **A payment link's request id rides the send.** `build_pending_tx` takes
   the pasted link's `rid` (the contract's new `TxRecipient.rid`, shekyl-core
   same-named branch) and the engine echoes it in the payment's encrypted
-  label, so the payee's wallet attributes the receive and the request flips
-  to paid. An address edited by hand answers no request. A `rid` the label
+  label, so the payee's wallet can attribute the receive: core's tests prove
+  the label is written and recovered as `Request(rid)`, and that a recovered
+  id matches a stored request; no single test yet crosses payer to payee.
+  An address edited by hand answers no request. A `rid` the label
   cannot carry is refused as invalid input, never dropped to a sentinel.
 - **`get_transfers` takes the contract's last two filters.** `since_height`
   keeps rows mined at or after a height (a send not yet on chain stays), and

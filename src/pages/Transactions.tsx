@@ -50,6 +50,9 @@ export default function Transactions() {
   const [direction, setDirection] = useState<TransferDirection | undefined>(undefined);
   const [state, setState] = useState<TransferState | undefined>(undefined);
   const [sinceHeightText, setSinceHeightText] = useState("");
+  // Committed on blur or Enter, not per keystroke: every query lists the
+  // whole ledger, and a half-typed height is not a filter anyone asked for.
+  const [sinceHeight, setSinceHeight] = useState<number | undefined>(undefined);
   const [attribution, setAttribution] = useState<ReceiveAttributionKind | undefined>(undefined);
   // Attribution exists on receives only: the control leaves with the "Sent"
   // tab, and its value with it, so a send list is never filtered to nothing.
@@ -57,9 +60,13 @@ export default function Transactions() {
   const query: HistoryQuery = {
     direction,
     state,
-    sinceHeight: selectedHeight(sinceHeightText),
+    sinceHeight,
     attribution: attributionOffered ? attribution : undefined,
   };
+
+  function commitSinceHeight() {
+    setSinceHeight(selectedHeight(sinceHeightText));
+  }
 
   function chooseDirection(next: TransferDirection | undefined) {
     setDirection(next);
@@ -131,6 +138,10 @@ export default function Transactions() {
             className="input w-28 py-1 text-[11px]"
             value={sinceHeightText}
             onChange={(e) => setSinceHeightText(e.target.value.trim())}
+            onBlur={commitSinceHeight}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitSinceHeight();
+            }}
           />
         </div>
       </div>

@@ -2,7 +2,7 @@
  * The wallet contract's receiving vocabulary (`docs/api/wallet_rpc.yaml`):
  * payment requests and the `shekyl:` URI. Shekyl has no subaddresses. A
  * request's opaque `rid` rides the link; a payment built from that link
- * echoes it in its encrypted label, so the payee's wallet attributes the
+ * echoes it in its encrypted label, so the payee's wallet can attribute the
  * receive. Atomic amounts are decimal strings; format with `formatSkl`.
  * `PaymentRequest.uri` is the stored link, not a contract field.
  */
