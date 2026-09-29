@@ -19,7 +19,7 @@
 use serde::Serialize;
 use shekyl_engine_core::BalanceView;
 
-use crate::wire::AtomicUnitsString;
+use shekyl_units::AtomicUnitsString;
 
 /// The contract's `GetBalanceResult`.
 #[derive(Debug, Serialize)]

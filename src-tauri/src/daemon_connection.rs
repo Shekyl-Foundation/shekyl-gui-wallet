@@ -18,7 +18,7 @@ use tauri::State;
 
 use crate::daemon_rpc;
 use crate::state::{AppState, NetworkType};
-use crate::wire::AtomicUnitsString;
+use shekyl_units::{AtomicUnits, AtomicUnitsString};
 
 /// What setting a daemon URL exposes, returned to the panel that set it.
 ///
@@ -150,15 +150,15 @@ pub async fn get_chain_health(state: State<'_, AppState>) -> Result<ChainHealth,
         release_multiplier: info.release_multiplier,
         burn_pct: info.burn_pct,
         stake_ratio: info.stake_ratio,
-        total_burned: info.total_burned.into(),
-        staker_pool_balance: info.staker_pool_balance.into(),
+        total_burned: AtomicUnits::from_raw(info.total_burned).into(),
+        staker_pool_balance: AtomicUnits::from_raw(info.staker_pool_balance).into(),
         staker_emission_share_effective: info.staker_emission_share_effective,
         emission_era: info.emission_era,
-        last_block_reward: block.as_ref().map_or(0, |b| b.reward).into(),
+        last_block_reward: AtomicUnits::from_raw(block.as_ref().map_or(0, |b| b.reward)).into(),
         last_block_timestamp: block.as_ref().map_or(0, |b| b.timestamp),
         last_block_hash: block.as_ref().map_or_else(String::new, |b| b.hash.clone()),
         last_block_size: block.as_ref().map_or(0, |b| b.block_size),
-        total_staked: staking.as_ref().map_or(0, |s| s.total_staked).into(),
+        total_staked: AtomicUnits::from_raw(staking.as_ref().map_or(0, |s| s.total_staked)).into(),
         tier_0_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_0_lock_blocks),
         tier_1_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_1_lock_blocks),
         tier_2_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_2_lock_blocks),

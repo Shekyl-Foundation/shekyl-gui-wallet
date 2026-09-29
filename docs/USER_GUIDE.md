@@ -342,10 +342,16 @@ been mined on top of it (typically 10 confirmations for full assurance).
 Click **Transactions** in the sidebar to see a list of all your past
 transactions -- both sent and received. The tabs above the list narrow it
 to **Received** or **Sent**, and the state menu to one state (Pending,
-Confirmed, Spent, …). Changing a filter loads that view on its own; an
-empty result means nothing matched, which is different from a wallet that
-has no history yet. A receive that arrived against one of your payment
-requests names the request on its row.
+Confirmed, Spent, …). **From block** keeps only transactions confirmed at
+or after a block height (sends not yet on chain stay listed), and the
+**Request** menu narrows receives by how they matched your payment
+requests; it applies to receives only, so it goes away on the Sent tab.
+Changing a filter loads that view on its own; an empty result means
+nothing matched, which is different from a wallet that has no history
+yet. A receive that arrived against one of your payment requests names
+the request on its row. Paying a payment link from the Send page carries
+the request's id inside the payment, encrypted, so the payee's wallet can
+match it.
 
 Each entry shows:
 

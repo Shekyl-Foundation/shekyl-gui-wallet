@@ -17,7 +17,7 @@
 
 use serde::Serialize;
 
-use crate::wire::AtomicUnitsString;
+use shekyl_units::AtomicUnitsString;
 
 /// Drainable-`P` read result on the wire (and session boundary).
 ///

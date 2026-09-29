@@ -269,7 +269,25 @@ describe("Send page", () => {
     expect(screen.getByTestId("link-notice")).toHaveTextContent(/"Rent".*request 42/);
     await u.click(screen.getByRole("button", { name: /review/i }));
     await screen.findByTestId("review");
-    expect(calls("build_pending_tx")[0][1]).toMatchObject({ address: "shekyl1abc123", amount: "1500000000" });
+    expect(calls("build_pending_tx")[0][1]).toMatchObject({ address: "shekyl1abc123", amount: "1500000000", rid: "42" });
+  });
+
+  it("an address edited by hand after a link answers no request", async () => {
+    route({
+      get_default_fee_priority: () => QUOTE,
+      parse_uri: () => ({ address: "shekyl1abc123", amount: "1500000000", rid: "42" }),
+      build_pending_tx: () => BUILT,
+    });
+    const u = user();
+    render(<Send />);
+    const field = screen.getByPlaceholderText("shekyl1...");
+    await u.click(field);
+    await u.paste("shekyl:shekyl1abc123?amount=1500000000&rid=42");
+    await waitFor(() => expect(field).toHaveValue("shekyl1abc123"));
+    await u.type(field, "4");
+    await u.click(screen.getByRole("button", { name: /review/i }));
+    await screen.findByTestId("review");
+    expect(calls("build_pending_tx")[0][1]).toMatchObject({ address: "shekyl1abc1234", rid: undefined });
   });
 
   it("review waits until the payment link has been read, then builds that address and amount", async () => {

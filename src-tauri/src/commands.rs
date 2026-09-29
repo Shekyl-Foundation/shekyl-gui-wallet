@@ -47,10 +47,9 @@ use crate::drain_balance::DrainBalance;
 use crate::gui_config;
 use crate::staking_view::StakingView;
 use crate::state::{self, AppState};
-use crate::transfer_history::{TransferDirection, TransferFilter, TransferRow, TransferState};
 use crate::validate;
 use crate::wallet_name;
-use crate::wire::AtomicUnitsString;
+use shekyl_units::{AtomicUnits, AtomicUnitsString};
 
 // ─── Data types ──────────────────────────────────────────────────────────────
 
@@ -171,7 +170,7 @@ pub async fn get_mining_status(state: State<'_, AppState>) -> Result<MiningStatu
         pow_algorithm: ms.pow_algorithm,
         is_background_mining_enabled: ms.is_background_mining_enabled,
         block_target: ms.block_target,
-        block_reward: ms.block_reward.into(),
+        block_reward: AtomicUnits::from_raw(ms.block_reward).into(),
         difficulty: ms.difficulty,
     })
 }
@@ -444,40 +443,6 @@ pub async fn get_primary_address(state: State<'_, AppState>) -> Result<PrimaryAd
     }
     let address = eng.primary_address().await?;
     Ok(PrimaryAddress { address })
-}
-
-/// The contract's `GetTransfersResult`.
-#[derive(Debug, Serialize)]
-pub struct Transfers {
-    pub transfers: Vec<TransferRow>,
-}
-
-/// The contract's `get_transfers`, with the optional filters this wallet
-/// offers (`direction`, `state`); unfiltered returns full history. The
-/// enums deserialize the contract's spellings, so an unknown one fails
-/// before this body runs. The contract's `since_height` watermark and
-/// `attribution` filter have no page here and are not taken.
-#[tauri::command]
-pub async fn get_transfers(
-    app: State<'_, AppState>,
-    direction: Option<TransferDirection>,
-    state: Option<TransferState>,
-) -> Result<Transfers, String> {
-    let filter = TransferFilter { direction, state };
-    if !*app.wallet_open.read().await {
-        return Ok(Transfers { transfers: vec![] });
-    }
-    let eng = app.engine.lock().await;
-    if !eng.is_open() {
-        return Ok(Transfers { transfers: vec![] });
-    }
-    let transfers = eng
-        .list_transfers()
-        .await?
-        .into_iter()
-        .filter(|row| filter.keeps(row))
-        .collect();
-    Ok(Transfers { transfers })
 }
 
 #[tauri::command]

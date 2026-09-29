@@ -17,10 +17,10 @@
 //! a command here.
 //!
 //! Shekyl has no subaddresses and no accounts. A request is local
-//! bookkeeping; its opaque `rid` rides the `shekyl:` URI. The scan can
-//! match an inbound output whose encrypted label carries that `rid`, but
-//! no current sender attaches one (`docs/FOLLOWUPS.md`), so nothing here
-//! promises that paying the link marks the request paid. Only
+//! bookkeeping; its opaque `rid` rides the `shekyl:` URI. The scan matches
+//! an inbound output whose encrypted label carries that `rid`, and a send
+//! composed from the link echoes it (`send::build_pending_tx`), so a payment
+//! between two of these wallets attributes on arrival. Only
 //! `create_payment_request` mutates (persisted through the ledger's
 //! crash-atomic save). Every atomic amount on this edge is
 //! `wire::AtomicUnitsString`.
@@ -32,7 +32,7 @@ use shekyl_types::Timestamp;
 use tauri::State;
 
 use crate::state::AppState;
-use crate::wire::AtomicUnitsString;
+use shekyl_units::{AtomicUnits, AtomicUnitsString};
 
 /// The contract's names for a list filter. Unknown values are refused
 /// without echoing the input, which a serde enum on the command argument
@@ -189,7 +189,7 @@ fn validate_label(label: &str) -> Result<(), String> {
 /// What `create_payment_request` will store and then put on the link.
 fn validate_request_inputs(label: &str, amount: AtomicUnitsString) -> Result<(), String> {
     validate_label(label)?;
-    crate::validate::validate_amount(amount.to_raw())
+    crate::validate::validate_amount(amount.to_atomic_units().to_raw())
 }
 
 async fn shared_engine(state: &AppState) -> Result<crate::engine_session::SharedEngine, String> {
@@ -275,7 +275,9 @@ pub fn parse_uri(uri: String) -> Result<ParsedPaymentUri, String> {
     let parsed = parse_payment_uri(&uri).map_err(|e| format!("invalid payment URI: {e}"))?;
     Ok(ParsedPaymentUri {
         address: parsed.address,
-        amount: parsed.amount_atomic.map(AtomicUnitsString::from),
+        amount: parsed
+            .amount_atomic
+            .map(|a| AtomicUnits::from_raw(a).into()),
         label: parsed.label,
         rid: parsed.rid.map(|r| r.to_string()),
         expiry: parsed.expiry,
@@ -314,12 +316,20 @@ mod tests {
 
     #[test]
     fn request_inputs_are_bounded() {
-        assert!(validate_request_inputs("rent", 1.into()).is_ok());
-        assert!(validate_request_inputs(&"x".repeat(MAX_LABEL_CHARS), 1.into()).is_ok());
-        assert!(validate_request_inputs(&"x".repeat(MAX_LABEL_CHARS + 1), 1.into()).is_err());
-        assert!(validate_request_inputs("a\0b", 1.into()).is_err());
+        assert!(validate_request_inputs("rent", AtomicUnits::from_raw(1).into()).is_ok());
+        assert!(validate_request_inputs(
+            &"x".repeat(MAX_LABEL_CHARS),
+            AtomicUnits::from_raw(1).into()
+        )
+        .is_ok());
+        assert!(validate_request_inputs(
+            &"x".repeat(MAX_LABEL_CHARS + 1),
+            AtomicUnits::from_raw(1).into()
+        )
+        .is_err());
+        assert!(validate_request_inputs("a\0b", AtomicUnits::from_raw(1).into()).is_err());
         assert!(
-            validate_request_inputs("rent", 0.into()).is_err(),
+            validate_request_inputs("rent", AtomicUnits::from_raw(0).into()).is_err(),
             "a zero amount asks for nothing"
         );
     }
@@ -341,7 +351,10 @@ mod tests {
         );
         let parsed = parse_uri(uri).unwrap();
         assert_eq!(parsed.address, "shekyl1abc");
-        assert_eq!(parsed.amount.unwrap().to_raw(), (1u64 << 53) + 1);
+        assert_eq!(
+            parsed.amount.unwrap().to_atomic_units().to_raw(),
+            (1u64 << 53) + 1
+        );
         assert_eq!(parsed.label.as_deref(), Some("rent"));
         assert_eq!(parsed.rid.as_deref(), Some("42"));
         assert_eq!(parsed.expiry, Some(1_700_000_000));
@@ -353,7 +366,7 @@ mod tests {
         let v = serde_json::to_value(PaymentRequestView {
             id: "42".into(),
             label: "rent".into(),
-            amount: ((1u64 << 53) + 1).into(),
+            amount: AtomicUnits::from_raw((1u64 << 53) + 1).into(),
             created_at: 1_700_000_000,
             expiry: None,
             state: PaymentRequestStateView::Pending,

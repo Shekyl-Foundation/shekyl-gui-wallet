@@ -69,7 +69,8 @@ use tauri::State;
 use crate::engine_session::SharedEngine;
 use crate::state::AppState;
 use crate::validate;
-use crate::wire::AtomicUnitsString;
+use shekyl_engine_state::PaymentRequestId;
+use shekyl_units::AtomicUnitsString;
 
 /// The wallet contract's vocabulary (`wallet_rpc.yaml`), so the page branches
 /// on the same names the CLI and RPC clients see. Strings, not an enum, because
@@ -270,21 +271,34 @@ pub async fn get_default_fee_priority(
     })
 }
 
+/// The payment request a send answers, from the `rid` of the pasted
+/// `shekyl:` link (`parse_uri`): the contract's `PaymentRequestId`, through
+/// the id type's one door. A value the label cannot echo is refused with the
+/// other invalid inputs, never dropped to a sentinel the payer did not ask for.
+fn parse_rid(rid: &str) -> Result<PaymentRequestId, SendError> {
+    rid.parse::<u64>()
+        .ok()
+        .and_then(PaymentRequestId::from_wire_rid)
+        .ok_or_else(|| SendError::invalid("The payment link's request id is not valid.".into()))
+}
+
 #[tauri::command]
 pub async fn build_pending_tx(
     state: State<'_, AppState>,
     address: String,
     amount: AtomicUnitsString,
     priority: String,
+    rid: Option<String>,
 ) -> Result<BuiltPendingTx, SendError> {
     validate::validate_address(&address).map_err(SendError::invalid)?;
-    validate::validate_amount(amount.to_raw()).map_err(SendError::invalid)?;
+    validate::validate_amount(amount.to_atomic_units().to_raw()).map_err(SendError::invalid)?;
     let priority = parse_priority(&priority)?;
     let shared = shared_engine(&state).await?;
     let request = TxRequest {
         recipients: vec![TxRecipient {
             address,
             amount_atomic_units: amount.to_atomic_units(),
+            rid: rid.as_deref().map(parse_rid).transpose()?,
         }],
         priority,
     };
@@ -366,6 +380,7 @@ pub async fn discard_pending_tx(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shekyl_units::AtomicUnits;
 
     #[test]
     fn tiers_are_the_contracts_names_and_nothing_else() {
@@ -395,7 +410,7 @@ mod tests {
         const BEYOND_DOUBLE: u64 = (1u64 << 53) + 1;
         let built = serde_json::to_value(BuiltPendingTx {
             pending_tx_id: "42".into(),
-            fee: BEYOND_DOUBLE.into(),
+            fee: AtomicUnits::from_raw(BEYOND_DOUBLE).into(),
             content_gen: 0,
         })
         .unwrap();
@@ -405,9 +420,9 @@ mod tests {
 
         let quote = serde_json::to_value(FeeTierQuote {
             default_priority: contract::DEFAULT_TIER,
-            economy_fee: 1.into(),
-            standard_fee: 2.into(),
-            priority_fee: BEYOND_DOUBLE.into(),
+            economy_fee: AtomicUnits::from_raw(1).into(),
+            standard_fee: AtomicUnits::from_raw(2).into(),
+            priority_fee: AtomicUnits::from_raw(BEYOND_DOUBLE).into(),
             tree_depth: 6,
         })
         .unwrap();

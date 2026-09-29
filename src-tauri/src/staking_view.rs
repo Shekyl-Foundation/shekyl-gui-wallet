@@ -13,14 +13,14 @@
 //! The three balance legs stay distinct: confirmed bond principal, pending
 //! (in-flight post) principal, and received-unspent rewards. Each of those
 //! amounts, and each staked output's amount, is
-//! [`crate::wire::AtomicUnitsString`] (a decimal string). Heights, slots, and
+//! [`AtomicUnitsString`] (a decimal string). Heights, slots, and
 //! gindexes stay raw integers. A corrupt or version-mismatched seal is an
 //! `Err(String)` from the session method, never an empty view.
 
 use serde::Serialize;
 use shekyl_engine_core::{StakedOutput, StakingReadView};
 
-use crate::wire::AtomicUnitsString;
+use shekyl_units::AtomicUnitsString;
 
 /// Wire projection of core [`StakingReadView`] (WI-RPC-1; GUI-PR3b).
 ///
@@ -122,9 +122,18 @@ mod tests {
         };
         let read = StakingView::from(view);
         assert!(read.staking_enabled);
-        assert_eq!(read.bonded_principal_confirmed.to_raw(), 1_000);
-        assert_eq!(read.bonded_principal_pending.to_raw(), 2_000);
-        assert_eq!(read.rewards_received_unspent.to_raw(), 3_000);
+        assert_eq!(
+            read.bonded_principal_confirmed.to_atomic_units().to_raw(),
+            1_000
+        );
+        assert_eq!(
+            read.bonded_principal_pending.to_atomic_units().to_raw(),
+            2_000
+        );
+        assert_eq!(
+            read.rewards_received_unspent.to_atomic_units().to_raw(),
+            3_000
+        );
         assert!(read.staked_outputs.is_empty());
         assert_eq!(read.pscan_synced_height, None);
     }
@@ -147,7 +156,7 @@ mod tests {
             read.staked_outputs,
             vec![StakedOutputView {
                 gindex: 42,
-                amount: 5_000_000_000.into(),
+                amount: AtomicUnits::from_raw(5_000_000_000).into(),
                 p_slot: 3,
                 unlock_height: 12_345,
                 confirmed: true,

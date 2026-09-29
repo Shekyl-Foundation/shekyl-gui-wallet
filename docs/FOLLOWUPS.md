@@ -356,7 +356,15 @@ existed to answer is settled.
 
 ---
 
-## Payer side of a payment request is not wired in the Engine — target: pre-genesis (shekyl-core)
+## Payer side of a payment request is not wired in the Engine — RESOLVED 2026-09-28
+
+**Resolved in shekyl-core (branch `feat/gui-balance-view`, the same name as this wallet's):** `TxRecipient::rid`
+is threaded through `OutputDestination` to `outbound_label::label_plaintext_for_recipient`
+and `construct_output_with_label_plaintext`, exposed as the contract's
+`TxRecipient.rid`; `build_pending_tx` here passes a pasted link's `rid`
+through. The falsifier below now finds its caller in `sign_bridge.rs`. The
+entry is kept for its record of the gap.
+
 
 The receive side is complete: a request's `rid` rides the `shekyl:` link and
 `shekyl_engine_core::attribution::match_inbound_attribution` matches an
