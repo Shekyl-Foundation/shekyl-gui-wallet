@@ -1,0 +1,42 @@
+---
+description: Foundation hosts are shared by concurrent agents. Claim a host in shekyl-dev's usage ledger before using it, probe it before trusting the ledger, and never disturb another agent's claimed work — a long-running test is a quiet claim. Copy of shekyl-core's rule 38, which is canonical.
+alwaysApply: true
+---
+
+# Shared-estate coordination
+
+**This is a copy.** The canonical rule is `shekyl-core`'s
+`.cursor/rules/38-shared-estate-coordination.mdc`, and where the two differ that
+one wins. The copy exists because an agent working in this repository loads this
+repository's rules, not `shekyl-core`'s, and the rule binds every agent that uses
+a Foundation host, whichever repository it works in.
+
+The Foundation's machines are used by several agents at once, each in its own
+lane, and no lane sees another's terminal. One agent's install, restart or
+background load on a box that is running another agent's long measurement fails
+nothing and alerts nothing. The data is just wrong.
+
+Which hosts exist, their addresses and what they run are internal, so the
+shared record lives in the private `shekyl-dev` repository, under
+`infrastructure/`:
+
+- **`INVENTORY.md`** — what exists, how to reach it, and its known defects.
+- **`USAGE.md`** — who holds which host, for what, until when. **Its head
+  carries the protocol; follow it as written.**
+
+## The rule
+
+1. **Before any work on a Foundation host, read `USAGE.md`.** That includes a
+   probe: on some hosts a login is not read-only (the inventory says which).
+2. **The ledger is the claim; the host is the truth.** Check what is actually
+   running before you start, and record anything the ledger does not list.
+3. **Claim before you start, release when you finish.** Put your own row in
+   before the work begins. Take it out when the work ends, and say in your
+   report what you left on the host.
+4. **A long-running test is a `quiet` claim.** Other agents' new work on that
+   host waits: no package installs, no service restarts, no extra `tor`, no
+   reboots, no heavy builds.
+5. **Never stop, restart, reconfigure or delete what another owner claimed**,
+   and never edit their row. If you need the host, ask the owner or Rick.
+6. **Address hosts by ssh alias or IP, never by the hostname a host reports.**
+   Reported names are not unique in the estate.
