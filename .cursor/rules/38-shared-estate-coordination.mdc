@@ -40,4 +40,5 @@ shared record lives in the private `shekyl-dev` repository, under
 5. **Never stop, restart, reconfigure or delete what another owner claimed**,
    and never edit their row. If you need the host, ask the owner or Rick.
 6. **Address hosts by ssh alias or IP, never by the hostname a host reports.**
-   Reported names are not unique in the estate.
+   The alias is the estate's record; a reported name is whatever the host was
+   last set to, and two once collided.
