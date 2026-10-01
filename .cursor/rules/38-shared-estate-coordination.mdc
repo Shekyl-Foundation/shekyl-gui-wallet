@@ -6,22 +6,31 @@ alwaysApply: true
 # Shared-estate coordination
 
 **This is a copy.** The canonical rule is `shekyl-core`'s
-`.cursor/rules/38-shared-estate-coordination.mdc`, and where the two differ that
-one wins. The copy exists because an agent working in this repository loads this
-repository's rules, not `shekyl-core`'s, and the rule binds every agent that uses
-a Foundation host, whichever repository it works in.
+`.cursor/rules/38-shared-estate-coordination.mdc`, and where the two differ
+that one wins. The copy exists because an agent working in this repository
+loads this repository's rules, not `shekyl-core`'s. Its text is the canonical
+text verbatim, except that rule 37 is named rather than linked: this
+repository has no copy of it.
 
-The Foundation's machines are used by several agents at once, each in its own
-lane, and no lane sees another's terminal. One agent's install, restart or
-background load on a box that is running another agent's long measurement fails
-nothing and alerts nothing. The data is just wrong.
+The Foundation's machines — build and measurement boxes, miners, stakers, the
+floor device, seeds — are used by several agents at once, each in its own
+lane. Lanes do not see each other's terminals. Without a shared record, one
+agent's install, restart or background load lands in the middle of another
+agent's 24-hour measurement. Nothing fails and nothing alerts; the data is just
+wrong. This rule is the shared record's contract.
 
-Which hosts exist, their addresses and what they run are internal, so the
-shared record lives in the private `shekyl-dev` repository, under
-`infrastructure/`:
+It is a sibling of `shekyl-core`'s `37-internal-information-boundary`:
+which hosts exist, their addresses and what they run are internal, so the
+record lives in the private `shekyl-dev` repository, not here.
 
-- **`INVENTORY.md`** — what exists, how to reach it, and its known defects.
-- **`USAGE.md`** — who holds which host, for what, until when. **Its head
+## The two files
+
+In `shekyl-dev`, `infrastructure/`:
+
+- **`INVENTORY.md`** — what exists: every host, how to reach it, its role, what
+  it runs, and known defects. Read it before your first use of a host.
+- **`USAGE.md`** — who holds what, right now: one row per active claim (host,
+  owner, kind, resource, since, until, purpose, where to look). **Its head
   carries the protocol; follow it as written.**
 
 ## The rule
@@ -35,10 +44,23 @@ shared record lives in the private `shekyl-dev` repository, under
    before the work begins. Take it out when the work ends, and say in your
    report what you left on the host.
 4. **A long-running test is a `quiet` claim.** Other agents' new work on that
-   host waits: no package installs, no service restarts, no extra `tor`, no
-   reboots, no heavy builds.
+   host waits, however small it looks: no package installs, no service
+   restarts, no extra `tor`, no reboots, no heavy builds.
 5. **Never stop, restart, reconfigure or delete what another owner claimed**,
-   and never edit their row. If you need the host, ask the owner or Rick.
+   and never edit their row. If you need the host, ask the owner (a Claude
+   named in the claim) or the shared-estate coordinator named in `USAGE.md`.
+   Escalate a claim past its end with nothing running; it is not yours to delete.
 6. **Address hosts by ssh alias or IP, never by the hostname a host reports.**
    The alias is the estate's record; a reported name is whatever the host was
    last set to, and two once collided.
+
+This binds any agent that uses a Foundation host, whichever repository it is
+working in.
+
+## Why a rule and not a habit
+
+"Check before using a shared box" had no surface to check against, so it was
+only as good as each agent's memory, and memory does not carry across
+sessions. A ledger that every lane reads and writes is something a lane can
+follow. A long test that silently absorbs another lane's load is the costliest
+failure here, because it is found only after the numbers have been used.
