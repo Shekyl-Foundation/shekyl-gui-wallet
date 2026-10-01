@@ -30,8 +30,8 @@ use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES}
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::{
     BalanceView, Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams,
-    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, StakeFacade,
-    StakePosture,
+    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshError, RefreshOptions,
+    SoloSigner, StakeFacade, StakePosture,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
@@ -558,24 +558,18 @@ impl EngineSession {
         }
     }
 
-    /// Run a one-shot refresh (blocks until complete).
-    pub async fn refresh(&self) -> Result<(), String> {
-        let shared = self
-            .engine
-            .clone()
-            .ok_or_else(|| "No wallet is open".to_string())?;
-        let handle = Engine::start_refresh(shared, RefreshOptions::default())
-            .await
-            .map_err(map_refresh_err)?;
-        handle.join().await.map_err(map_refresh_err)?;
-        Ok(())
-    }
-
+    /// Catch the newly opened wallet up. A daemon that refuses on identity
+    /// closes the wallet again — it must not be read from — while any other
+    /// failure leaves it open for the next refresh to retry.
     async fn catch_up_after_open(&mut self) -> Result<(), String> {
-        match self.refresh().await {
+        let Some(shared) = self.engine.clone() else {
+            warn!("engine refresh after open skipped: no wallet is open");
+            return Ok(());
+        };
+        match run_refresh(shared).await {
             Err(e) if is_identity_refusal(&e) => {
                 let _ = self.close().await;
-                Err(e)
+                Err(map_refresh_err(e))
             }
             Err(e) => {
                 warn!(error = %e, "engine refresh after open failed");
@@ -907,6 +901,16 @@ async fn restart_pscan(shared: &SharedEngine) -> Option<PScanHandle> {
             None
         }
     }
+}
+
+/// One refresh to completion, keeping the engine's typed error so a caller
+/// can branch on what failed before it is rendered.
+async fn run_refresh(shared: SharedEngine) -> Result<(), RefreshError> {
+    Engine::start_refresh(shared, RefreshOptions::default())
+        .await?
+        .join()
+        .await
+        .map(drop)
 }
 
 #[cfg(test)]

@@ -12,56 +12,35 @@
 //! nothing was written, because an error a user cannot act on is a failure
 //! of the wallet, not of the user (rule 82).
 
-use shekyl_engine_core::{FirstStakeError, RefreshError};
+use shekyl_engine_core::{FirstStakeError, IoError, OpenError, RefreshError};
+use shekyl_rpc_client::DaemonFault;
+use shekyl_wallet_contract::error::WalletRpcError;
 
-pub(crate) fn map_open_err(e: shekyl_engine_core::OpenError) -> String {
-    format!("wallet error: {e}")
+/// Open, create and close failures as operator text: the wallet contract's
+/// message for the cause (`shekyl-wallet-contract`), the same words the
+/// wallet RPC answers with. It names the remedy and carries no local path —
+/// the engine's own rendering can ("lock held on {path}").
+pub(crate) fn map_open_err(e: OpenError) -> String {
+    WalletRpcError::from(e).message()
 }
 
-/// Refresh failures as operator text.
-///
-/// A VC-4 identity refusal is already written for the person at the wallet
-/// (`wallet_identity_message`); wrapping it in `refresh: daemon RPC failure:
-/// invalid node (…)` would hide the axis and the remedy (rule 82). Other
-/// refresh faults keep the `refresh:` prefix so they stay a sync problem.
+/// Refresh failures as operator text, by the same contract mapping: a
+/// daemon that refuses on identity reads as its axis and remedy (another
+/// network, version or chain), an outage as an outage.
 pub(crate) fn map_refresh_err(e: RefreshError) -> String {
-    let rendered = e.to_string();
-    identity_refusal_message(&rendered).unwrap_or_else(|| format!("refresh: {e}"))
+    WalletRpcError::from(e).message()
 }
 
-/// True when `err` is a VC-4 identity refusal, wrapped or already unwrapped.
-pub(crate) fn is_identity_refusal(err: &str) -> bool {
-    identity_refusal_message(err).is_some()
-}
-
-/// Pull the VC-4 operator sentence out of an `RpcError::InvalidNode` wrap.
-///
-/// `IoError::Daemon` stringifies as `daemon RPC failure: invalid node (MSG)`
-/// and `RefreshError::Io` prefixes that. Other `InvalidNode` uses
-/// ("invalid block", hex parse) never carry an identity-axis marker.
-pub(crate) fn identity_refusal_message(err: &str) -> Option<String> {
-    const PREFIX: &str = "invalid node (";
-    let body = if let Some(start) = err.find(PREFIX) {
-        let rest = &err[start + PREFIX.len()..];
-        let end = rest.rfind(')')?;
-        rest[..end].to_string()
-    } else {
-        err.to_string()
-    };
-    if is_identity_axis_sentence(&body) {
-        Some(body)
-    } else {
-        None
-    }
-}
-
-fn is_identity_axis_sentence(msg: &str) -> bool {
-    msg.contains("RPC contract mismatch:")
-        || msg.contains("consensus constants mismatch:")
-        || msg.contains("genesis block mismatch:")
-        || msg.contains("does not match the RPC contract")
-        // VC-4 network axis, not `OpenError::NetworkMismatch` ("wallet file is").
-        || (msg.contains("network mismatch:") && msg.contains("the daemon runs"))
+/// Whether a refresh failed because the daemon is not one this wallet can use
+/// (`VC-4`). Read from the typed verdict the engine carries, never from text.
+pub(crate) const fn is_identity_refusal(e: &RefreshError) -> bool {
+    matches!(
+        e,
+        RefreshError::Io(IoError::Daemon {
+            fault: DaemonFault::Identity(_),
+            ..
+        })
+    )
 }
 
 pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
@@ -93,9 +72,9 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
                  balance, keep it to at most {max} transfers"
             )
         }
-        FirstStakeError::FeeEstimate(_) => {
-            "fee estimation failed; check the daemon connection and retry".into()
-        }
+        // The failed fee query's own cause, in the contract's words: no
+        // answer, a daemon this wallet cannot use, or a reply it cannot read.
+        FirstStakeError::FeeEstimate(e) => WalletRpcError::from(e).message(),
         FirstStakeError::NoStakeEngine => {
             "stake engine not ready after intent open; retry activation".into()
         }
@@ -201,62 +180,64 @@ mod tests {
         );
     }
 
-    /// VC-4 identity refusals must be recognised through the refresh wrap
-    /// (`daemon/scan IO failure: daemon RPC failure: invalid node (…)`),
-    /// and must not match other `InvalidNode` uses or the file-level
-    /// `OpenError::NetworkMismatch` sentence (same "network mismatch:" stem,
-    /// different subject).
+    use shekyl_rpc_client::{DaemonNetwork, IdentityMismatch};
+
+    fn daemon_failure(fault: DaemonFault) -> RefreshError {
+        RefreshError::Io(IoError::Daemon {
+            fault,
+            detail: "reply from /home/user/.shekyl: missing field".into(),
+        })
+    }
+
+    /// A VC-4 refusal is recognised by its type, and reads as the axis and
+    /// the remedy — both networks named — rather than as a refresh failure.
     #[test]
-    fn identity_refusal_is_recognised_through_the_refresh_wrap() {
-        let network = "refresh: daemon/scan IO failure: daemon RPC failure: invalid node \
-             (network mismatch: this wallet is a mainnet wallet, the daemon runs \
-             testnet. This is the case cross-cutting lock 5 names — a wallet \
-             pointed at a daemon on another network — so it refuses rather than \
-             scanning it.)";
-        assert!(is_identity_refusal(network));
+    fn an_identity_refusal_is_recognised_by_type_and_names_its_remedy() {
+        let refused = daemon_failure(DaemonFault::Identity(IdentityMismatch::Network {
+            ours: DaemonNetwork::Stagenet,
+            theirs: DaemonNetwork::Mainnet,
+        }));
+        assert!(is_identity_refusal(&refused));
+        let msg = map_refresh_err(refused);
         assert!(
-            map_refresh_err_from_display(network).starts_with("network mismatch:"),
-            "the wrap is stripped so the person sees the axis first"
-        );
-
-        let unreadable = "daemon/scan IO failure: daemon RPC failure: invalid node \
-             (this daemon's `get_version` does not match the RPC contract this \
-             wallet was built against, so the two are on different RPC versions. \
-             This wallet is 3.29. The reply could not be read, so the daemon's \
-             version cannot be named here; align the two builds. (evidence: \
-             missing field))";
-        assert!(is_identity_refusal(unreadable));
-
-        // RpcError::InvalidNode Display — the wrap `make_daemon`'s
-        // handshake probe sees before any refresh prefix is applied.
-        let rpc_wrap = "invalid node (network mismatch: this wallet is a mainnet wallet, \
-             the daemon runs testnet. This is the case cross-cutting lock 5 names \
-             — a wallet pointed at a daemon on another network — so it refuses \
-             rather than scanning it.)";
-        assert!(is_identity_refusal(rpc_wrap));
-        assert!(
-            identity_refusal_message(rpc_wrap)
-                .as_deref()
-                .is_some_and(|s| s.starts_with("network mismatch:")),
-            "the probe wrap is stripped so create/restore see the axis first"
-        );
-
-        let other_invalid_node =
-            "refresh: daemon/scan IO failure: daemon RPC failure: invalid node (invalid block)";
-        assert!(
-            !is_identity_refusal(other_invalid_node),
-            "protocol InvalidNode is not an identity refusal: {other_invalid_node}"
-        );
-
-        let file_network = "wallet error: network mismatch: wallet file is mainnet, \
-             daemon/caller expected testnet";
-        assert!(
-            !is_identity_refusal(file_network),
-            "the envelope network check is a different refusal: {file_network}"
+            msg.contains("mainnet") && msg.contains("stagenet"),
+            "the person sees which daemon to use instead: {msg}"
         );
     }
 
-    fn map_refresh_err_from_display(rendered: &str) -> String {
-        identity_refusal_message(rendered).unwrap_or_else(|| rendered.to_string())
+    /// Only an identity verdict is a refusal: a daemon that did not answer,
+    /// or answered badly, is not a reason to close the wallet.
+    #[test]
+    fn an_outage_or_bad_reply_is_not_an_identity_refusal() {
+        for fault in [DaemonFault::Unreachable, DaemonFault::Protocol] {
+            let err = daemon_failure(fault);
+            assert!(!is_identity_refusal(&err), "{fault:?}");
+            let msg = map_refresh_err(err);
+            assert!(
+                !msg.contains("/home/user") && !msg.contains("missing field"),
+                "the daemon's text and local paths stay in the log: {msg}"
+            );
+        }
+    }
+
+    /// An open failure reads as the contract's remedy for its cause, not the
+    /// engine's rendering, which names the local path ("lock held on …").
+    #[test]
+    fn an_open_failure_names_its_remedy_without_a_path() {
+        let locked = OpenError::Io(IoError::WalletFile(
+            shekyl_engine_file::WalletFileError::AlreadyLocked {
+                path: "/home/user/wallets/main.wallet.keys".into(),
+            },
+        ));
+        assert!(
+            locked.to_string().contains("/home/user"),
+            "the engine's rendering is the leak this mapping closes"
+        );
+        let msg = map_open_err(locked);
+        assert!(!msg.contains("/home/user"), "{msg}");
+        assert!(
+            msg.contains("another process"),
+            "the remedy names the cause: {msg}"
+        );
     }
 }
