@@ -64,6 +64,7 @@ use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
     FeePriority, InputCount, OutputCount, ReservationId, SubmitOutcome, TxRecipient, TxRequest,
 };
+use shekyl_wallet_contract::error::{WalletRpcError, WalletRpcErrorCode};
 use tauri::State;
 
 use crate::engine_session::SharedEngine;
@@ -88,18 +89,9 @@ pub mod contract {
     pub const VERDICT_ALREADY_IN_POOL: &str = "ALREADY_IN_POOL";
     pub const VERDICT_ALREADY_IN_CHAIN: &str = "ALREADY_IN_CHAIN";
 
-    /// Error names (the contract's -29xxx / -32602 codes, by name).
-    pub const ERR_INVALID_PARAMS: &str = "INVALID_PARAMS";
-    pub const ERR_WALLET_NOT_OPEN: &str = "WALLET_NOT_OPEN";
-    pub const ERR_INSUFFICIENT_FUNDS: &str = "INSUFFICIENT_FUNDS";
-    pub const ERR_FEE_ESTIMATION_FAILED: &str = "FEE_ESTIMATION_FAILED";
-    pub const ERR_RESERVATION_NOT_FOUND: &str = "RESERVATION_NOT_FOUND";
-    pub const ERR_SNAPSHOT_INVALIDATED: &str = "SNAPSHOT_INVALIDATED";
-    pub const ERR_CONTENT_GEN_MISMATCH: &str = "CONTENT_GEN_MISMATCH";
-    pub const ERR_SUBMIT_REJECTED: &str = "SUBMIT_REJECTED";
-    pub const ERR_SUBMIT_AMBIGUOUS: &str = "SUBMIT_AMBIGUOUS";
-    /// The arms the contract leaves unnamed.
-    pub const ERR_INTERNAL: &str = "INTERNAL_ERROR";
+    // Error names are not listed here: every one comes from
+    // `shekyl_wallet_contract`, which owns the code table and the mapping of
+    // each engine error onto it.
 }
 
 /// The shape the typing-time tier quote is priced for: one payment output and
@@ -160,9 +152,10 @@ pub struct SubmitResult {
     pub confirmed_height: Option<u64>,
 }
 
-/// The typed error the send commands reject with. `code` is the contract's
-/// error name (`wallet_rpc.yaml`), so the page branches on the same vocabulary
-/// the CLI and RPC clients see. `reservation_retained` tells the page whether
+/// The typed error the send commands reject with. `code` and `message` are
+/// the wallet contract's (`shekyl_wallet_contract`: the same mapping the
+/// wallet RPC answers with), so the page branches on the same vocabulary the
+/// CLI and RPC clients see, and every cause has its own code. `reservation_retained` tells the page whether
 /// the engine still holds the reservation — when it does, the page must not
 /// discard it: an ambiguous or still-pending submit may already be on the
 /// network, and releasing the funds would open a double-spend path.
@@ -174,19 +167,27 @@ pub struct SendError {
 }
 
 impl SendError {
+    /// A request the page itself got wrong: the contract's code, with the
+    /// GUI's own wording of what to fix.
     fn invalid(message: String) -> Self {
         Self {
-            code: contract::ERR_INVALID_PARAMS,
+            code: WalletRpcErrorCode::InvalidParams.name(),
             message,
             reservation_retained: false,
         }
     }
 
     fn wallet_closed() -> Self {
+        Self::from_contract(WalletRpcError::WalletNotOpen, false)
+    }
+
+    /// The contract's answer for a failure, with whether the engine still
+    /// holds the reservation.
+    fn from_contract(err: WalletRpcError, reservation_retained: bool) -> Self {
         Self {
-            code: contract::ERR_WALLET_NOT_OPEN,
-            message: "No wallet is open".into(),
-            reservation_retained: false,
+            code: err.code().name(),
+            message: err.message(),
+            reservation_retained,
         }
     }
 
@@ -207,24 +208,7 @@ impl SendError {
 
     fn from_submit(err: SubmitError) -> Self {
         let retained = Self::reservation_retained_after(&err);
-        // The contract's names (`wallet_rpc.yaml` -29103..-29107), folded the
-        // way wallet-rpc folds them: both daemon-rejection arms are
-        // SUBMIT_REJECTED, and the arms the contract leaves unnamed are
-        // internal. `SubmitError` is `#[non_exhaustive]`, hence the wildcard.
-        let code = match &err {
-            SubmitError::ContentChanged { .. } => contract::ERR_CONTENT_GEN_MISMATCH,
-            SubmitError::SnapshotInvalidated { .. } => contract::ERR_SNAPSHOT_INVALIDATED,
-            SubmitError::ReservationNotFound { .. } => contract::ERR_RESERVATION_NOT_FOUND,
-            SubmitError::DaemonAmbiguous { .. } => contract::ERR_SUBMIT_AMBIGUOUS,
-            SubmitError::DaemonRejectedTerminal { .. }
-            | SubmitError::DaemonRejectedRetryable { .. } => contract::ERR_SUBMIT_REJECTED,
-            _ => contract::ERR_INTERNAL,
-        };
-        Self {
-            code,
-            message: err.to_string(),
-            reservation_retained: retained,
-        }
+        Self::from_contract(err.into(), retained)
     }
 }
 
@@ -257,11 +241,7 @@ pub async fn get_default_fee_priority(
             OutputCount::clamped(CANONICAL_OUTPUT_COUNT),
         )
         .await
-        .map_err(|e| SendError {
-            code: contract::ERR_FEE_ESTIMATION_FAILED,
-            message: format!("fee quote: {e}"),
-            reservation_retained: false,
-        })?;
+        .map_err(|e| SendError::from_contract(e.into(), false))?;
     Ok(FeeTierQuote {
         default_priority: contract::DEFAULT_TIER,
         economy_fee: quote.economy_fee.into(),
@@ -305,18 +285,7 @@ pub async fn build_pending_tx(
     let pending = engine
         .build_pending_tx_async(&request)
         .await
-        .map_err(|e| SendError {
-            // The contract's build-side names; anything else is internal.
-            code: match &e {
-                shekyl_engine_core::SendError::InsufficientFunds { .. } => {
-                    contract::ERR_INSUFFICIENT_FUNDS
-                }
-                shekyl_engine_core::SendError::Fee(_) => contract::ERR_FEE_ESTIMATION_FAILED,
-                _ => contract::ERR_INTERNAL,
-            },
-            message: format!("build transaction: {e}"),
-            reservation_retained: false,
-        })?;
+        .map_err(|e| SendError::from_contract(e.into(), false))?;
     Ok(BuiltPendingTx {
         pending_tx_id: pending.id.raw().to_string(),
         fee: pending.fee_atomic_units.into(),
@@ -369,11 +338,10 @@ pub async fn discard_pending_tx(
     let id = parse_pending_tx_id(&pending_tx_id)?;
     let shared = shared_engine(&state).await?;
     let engine = shared.read().await;
-    engine.discard_pending_tx(id).map_err(|e| SendError {
-        code: contract::ERR_INTERNAL,
-        message: format!("discard transaction: {e}"),
-        reservation_retained: true,
-    })
+    // A refused discard leaves the reservation where it was.
+    engine
+        .discard_pending_tx(id)
+        .map_err(|e| SendError::from_contract(e.into(), true))
 }
 
 #[cfg(test)]
@@ -402,7 +370,11 @@ mod tests {
             "18446744073709551616",
         ] {
             let err = parse_rid(bad).unwrap_err();
-            assert_eq!(err.code, contract::ERR_INVALID_PARAMS, "{bad:?}");
+            assert_eq!(
+                err.code,
+                WalletRpcErrorCode::InvalidParams.name(),
+                "{bad:?}"
+            );
             assert!(!err.reservation_retained);
         }
     }
@@ -423,7 +395,7 @@ mod tests {
         ));
         for bad in ["standard", "Standard", "", "FAST", "2"] {
             let err = parse_priority(bad).unwrap_err();
-            assert_eq!(err.code, contract::ERR_INVALID_PARAMS, "{bad}");
+            assert_eq!(err.code, WalletRpcErrorCode::InvalidParams.name(), "{bad}");
         }
     }
 

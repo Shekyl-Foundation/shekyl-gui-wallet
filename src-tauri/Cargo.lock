@@ -5519,7 +5519,9 @@ dependencies = [
  "shekyl-archival-retention",
  "shekyl-crypto-pq",
  "shekyl-ct-balance",
+ "shekyl-types",
  "shekyl-units",
+ "shekyl-wire",
  "thiserror 2.0.18",
 ]
 
@@ -6082,6 +6084,7 @@ dependencies = [
  "postcard-schema",
  "serde",
  "serde_json",
+ "shekyl-units",
  "zeroize",
 ]
 
@@ -6122,6 +6125,7 @@ dependencies = [
  "shekyl-shard-visual",
  "shekyl-types",
  "shekyl-units",
+ "shekyl-wallet-contract",
  "shekyl-wire",
  "tauri",
  "tauri-build",
@@ -6134,6 +6138,21 @@ dependencies = [
  "tokio-util",
  "tracing",
  "zeroize",
+]
+
+[[package]]
+name = "shekyl-wallet-contract"
+version = "3.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "shekyl-engine-core",
+ "shekyl-engine-file",
+ "shekyl-engine-prefs",
+ "shekyl-engine-state",
+ "shekyl-rpc-client",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
