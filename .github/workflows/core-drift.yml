@@ -14,9 +14,18 @@
 # core ref. `workflow_call` is the important entry point: it lets
 # shekyl-core run this against a *branch*, turning "we broke the GUI" from a
 # discovery into a failing check on the pull request that would do it.
+#
+# A caller that passes `core_ref` is obeyed. When this workflow runs in
+# the wallet repository and `core_ref` is left at `dev`, a wallet branch
+# whose name also exists on shekyl-core is the core under test — the
+# same rule `ci.yml` uses. shekyl-core's `gui-drift.yml` is the other
+# direction: it passes `wallet_ref` when this repository has a branch of
+# the same name.
 name: Core drift
 
 on:
+  pull_request:
+    branches: [dev]
   schedule:
     # Daily, offset off the hour so it does not queue behind the fleet.
     - cron: "37 5 * * *"
@@ -42,7 +51,10 @@ on:
         default: dev
 
 concurrency:
-  group: core-drift-${{ inputs.core_ref || 'dev' }}
+  # The wallet ref is part of the key so a core pull request building a
+  # feature-branch wallet does not cancel the daily dev-against-dev run,
+  # or another core pull request that is still building wallet dev.
+  group: core-drift-${{ inputs.core_ref || 'dev' }}-${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -76,15 +88,35 @@ jobs:
           # 2026-09-29 the schedule built `main` against core `dev` and was red
           # every day for that reason alone, while GUI `dev` built fine; a
           # check that is red for a reason it does not ask about is no check.
-          ref: ${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.ref_name }}
+          # pull_request: `github.ref_name` is `<n>/merge`, not the branch.
+          # `head_ref` is the branch. The schedule forces dev (see above).
+          ref: ${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
           path: gui
 
       - name: Checkout shekyl-core
         env:
           CORE_REPOSITORY: ${{ inputs.core_repository || 'Shekyl-Foundation/shekyl-core' }}
           CORE_REF: ${{ inputs.core_ref || 'dev' }}
+          EVENT_NAME: ${{ github.event_name }}
+          WALLET_REF: ${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
+          # A workflow_call caller named the core ref (shekyl-core passes
+          # the pull-request merge ref). Do not replace it. Everywhere
+          # else, a wallet feature branch that also exists on shekyl-core
+          # is the core under test, matching ci.yml.
+          if [ "$EVENT_NAME" != "workflow_call" ] && [ "$CORE_REF" = "dev" ]; then
+            case "$WALLET_REF" in
+              main|dev|"") ;;
+              *)
+                hits=$(git ls-remote --heads "https://github.com/${CORE_REPOSITORY}.git" "$WALLET_REF")
+                if [ -n "$hits" ]; then
+                  CORE_REF="$WALLET_REF"
+                fi
+                ;;
+            esac
+          fi
+          echo "CORE_REF_RESOLVED=$CORE_REF" >> "$GITHUB_ENV"
           echo "Building against ${CORE_REPOSITORY}@${CORE_REF}"
           # Fetch the ref rather than `clone --branch`, which takes only a
           # branch or tag name — the input accepts a commit SHA too, and
@@ -166,7 +198,8 @@ jobs:
           {
             echo "### Core drift"
             echo
-            echo "- core: \`${{ inputs.core_repository || 'Shekyl-Foundation/shekyl-core' }}@${{ inputs.core_ref || 'dev' }}\` (\`${CORE_SHA:-unknown}\`)"
+            echo "- core: \`${{ inputs.core_repository || 'Shekyl-Foundation/shekyl-core' }}@${CORE_REF_RESOLVED:-unknown}\` (\`${CORE_SHA:-unknown}\`)"
+            echo "- wallet: \`${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}\`"
             echo "- result: **${{ job.status }}**"
             echo
             echo "A failure here means a shekyl-core change and this wallet disagree."
