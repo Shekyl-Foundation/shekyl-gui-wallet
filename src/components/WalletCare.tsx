@@ -15,6 +15,9 @@ interface RescanOut {
   synced_height: number;
 }
 
+/** Same floor as creating a wallet. The command edge still screens length and NUL. */
+const MIN_PASSWORD_LENGTH = 8;
+
 function scanSentence(
   label: string,
   result: { blocks_processed: number; transfers_detected: number; synced_height: number },
@@ -26,6 +29,7 @@ function scanSentence(
 export default function WalletCare() {
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -39,6 +43,7 @@ export default function WalletCare() {
       await invoke("change_password", { oldPassword, newPassword });
       setOldPassword("");
       setNewPassword("");
+      setConfirmPassword("");
       setNote("Password changed.");
     } catch (err) {
       setError(describeError(err));
@@ -109,11 +114,33 @@ export default function WalletCare() {
             onChange={(e) => setNewPassword(e.target.value)}
             autoComplete="new-password"
           />
+          <p className="text-[11px] text-purple-400">At least {MIN_PASSWORD_LENGTH} characters.</p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-purple-200" htmlFor="wallet-confirm-password">
+            Confirm new password
+          </label>
+          <input
+            id="wallet-confirm-password"
+            type="password"
+            className="input"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+          {confirmPassword.length > 0 && confirmPassword !== newPassword && (
+            <p className="text-[11px] text-red-300">The new passwords do not match.</p>
+          )}
         </div>
         <button
           type="button"
           className="btn btn-primary"
-          disabled={busy || oldPassword.length === 0 || newPassword.length === 0}
+          disabled={
+            busy ||
+            oldPassword.length === 0 ||
+            newPassword.length < MIN_PASSWORD_LENGTH ||
+            newPassword !== confirmPassword
+          }
           onClick={() => void changePassword()}
         >
           Change password

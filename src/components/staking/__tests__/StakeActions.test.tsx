@@ -98,6 +98,16 @@ describe("StakeActions fund reservation", () => {
     expect(screen.queryByRole("button", { name: "Fund stake" })).not.toBeInTheDocument();
   });
 
+  it("refuses a fund of zero before it reserves anything", async () => {
+    route({ stake_in: () => BUILT });
+    const user = userEvent.setup();
+    render(<StakeActions />);
+    await user.type(fundAmount(), "0");
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    expect(await screen.findByText("The amount must be greater than zero.")).toBeInTheDocument();
+    expect(calls("stake_in")).toHaveLength(0);
+  });
+
   it("discards and rebuilds when the chain moves during review", async () => {
     let builds = 0;
     route({

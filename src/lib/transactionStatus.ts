@@ -40,6 +40,12 @@ export function statusLabel(state: TransferState): string {
   return STATE_META[state].label;
 }
 
+/** The list's word for a state this page knows. Anything else stays as given. */
+export function readStatus(state: string): string {
+  if (Object.hasOwn(STATE_META, state)) return statusLabel(state as TransferState);
+  return state;
+}
+
 export function statusClass(state: TransferState): string {
   return STATE_META[state].className;
 }

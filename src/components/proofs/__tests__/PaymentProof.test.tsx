@@ -24,4 +24,22 @@ describe("PaymentProof", () => {
     expect(notice).toHaveClass("text-red-300");
     expect(notice).not.toHaveClass("text-emerald-200");
   });
+
+  it("drops a passing check when an input changes", async () => {
+    vi.mocked(invoke).mockImplementation((cmd) => {
+      if (cmd === "check_tx_proof") {
+        return Promise.resolve({ valid: true, received: "1000000000", confirmations: 1 });
+      }
+      return Promise.reject(new Error(`unrouted invoke ${String(cmd)}`));
+    });
+    const user = userEvent.setup();
+    render(<PaymentProof />);
+    await user.type(screen.getByLabelText("Transaction id"), "ab");
+    await user.type(screen.getByLabelText("Address"), "addr");
+    await user.type(screen.getByLabelText("Payment proof"), "proof");
+    await user.click(screen.getByRole("button", { name: "Check payment" }));
+    expect(await screen.findByText(/checks out/)).toHaveClass("text-emerald-200");
+    await user.type(screen.getByLabelText("Transaction id"), "c");
+    expect(screen.queryByText(/checks out/)).not.toBeInTheDocument();
+  });
 });

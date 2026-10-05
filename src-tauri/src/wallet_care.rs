@@ -18,6 +18,7 @@ use zeroize::Zeroizing;
 use crate::contract_error::{count_as_u64, open_engine, ContractError};
 use crate::engine_session::SharedEngine;
 use crate::state::AppState;
+use crate::validate;
 
 /// `refresh`. `reorg_fork_height` is present only when this refresh rewound.
 #[derive(Debug, Serialize)]
@@ -79,6 +80,7 @@ pub async fn change_password(
     old_password: String,
     new_password: String,
 ) -> Result<(), ContractError> {
+    accept_passwords(&old_password, &new_password)?;
     let shared = open_engine(&state).await?;
     let old = Zeroizing::new(old_password.into_bytes());
     let new = Zeroizing::new(new_password.into_bytes());
@@ -90,6 +92,15 @@ pub async fn change_password(
     Ok(())
 }
 
+/// The same command-edge screen create and open use: length cap and no NUL.
+/// A short password is still a password; creation's eight-character floor
+/// is the page's, so an existing shorter one can still be changed.
+fn accept_passwords(old_password: &str, new_password: &str) -> Result<(), ContractError> {
+    validate::validate_password(old_password).map_err(ContractError::invalid)?;
+    validate::validate_password(new_password).map_err(ContractError::invalid)?;
+    Ok(())
+}
+
 async fn synced_height(shared: &SharedEngine) -> u64 {
     shared.read().await.ledger().ledger.height().to_raw()
 }
@@ -97,6 +108,17 @@ async fn synced_height(shared: &SharedEngine) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_null_byte_in_either_password_is_invalid_params() {
+        let err = accept_passwords("current", "next\0").expect_err("null");
+        assert_eq!(err.code, "INVALID_PARAMS");
+        assert_eq!(
+            err.message,
+            "invalid params: Password must not contain null bytes"
+        );
+        assert!(accept_passwords("old\0", "nextpassword").is_err());
+    }
 
     #[test]
     fn refresh_omits_the_fork_when_the_scan_was_linear() {

@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { describeError } from "../lib/errors";
 
-type Notice = { kind: "ready" | "fault"; text: string };
+type Notice =
+  | { kind: "signed"; text: string }
+  | { kind: "verified"; text: string }
+  | { kind: "fault"; text: string };
 
 /** Sign a message with this wallet, or check someone else's signature. */
 export default function Sign() {
@@ -11,18 +14,25 @@ export default function Sign() {
   const [signature, setSignature] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Bumped when the message or signature changes, so a late sign cannot repaint. */
+  const signClaim = useRef(0);
+  /** Bumped when any checked field changes, so a late verify cannot repaint. */
+  const verifyClaim = useRef(0);
 
   const sign = async () => {
+    const ticket = signClaim.current;
     setBusy(true);
-    setNotice({ kind: "ready", text: "Signing takes a few seconds." });
+    setNotice({ kind: "signed", text: "Signing takes a few seconds." });
     try {
       const result = await invoke<{ signature: string }>("sign_message", { message });
+      if (ticket !== signClaim.current) return;
       setSignature(result.signature);
       setNotice({
-        kind: "ready",
+        kind: "signed",
         text: "Signed. Share the message, this signature, and your address.",
       });
     } catch (err) {
+      if (ticket !== signClaim.current) return;
       setNotice({ kind: "fault", text: describeError(err) });
     } finally {
       setBusy(false);
@@ -30,15 +40,18 @@ export default function Sign() {
   };
 
   const verify = async () => {
+    const ticket = verifyClaim.current;
     setBusy(true);
     setNotice(null);
     try {
       await invoke("verify_message", { address, message, signature });
+      if (ticket !== verifyClaim.current) return;
       setNotice({
-        kind: "ready",
+        kind: "verified",
         text: "This signature matches the address and the message.",
       });
     } catch (err) {
+      if (ticket !== verifyClaim.current) return;
       setNotice({ kind: "fault", text: describeError(err) });
     } finally {
       setBusy(false);
@@ -56,7 +69,12 @@ export default function Sign() {
           id="sign-message"
           className="input min-h-24"
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) => {
+          setMessage(e.target.value);
+          signClaim.current += 1;
+          verifyClaim.current += 1;
+          setNotice(null);
+        }}
         />
       </div>
       <div className="space-y-1.5">
@@ -68,7 +86,11 @@ export default function Sign() {
           className="input"
           placeholder="shekyl1..."
           value={address}
-          onChange={(e) => setAddress(e.target.value)}
+          onChange={(e) => {
+          setAddress(e.target.value);
+          verifyClaim.current += 1;
+          setNotice((current) => (current?.kind === "signed" ? current : null));
+        }}
         />
       </div>
       <div className="space-y-1.5">
@@ -79,7 +101,12 @@ export default function Sign() {
           id="sign-signature"
           className="input min-h-24 font-mono text-xs"
           value={signature}
-          onChange={(e) => setSignature(e.target.value)}
+          onChange={(e) => {
+          setSignature(e.target.value);
+          signClaim.current += 1;
+          verifyClaim.current += 1;
+          setNotice(null);
+        }}
         />
       </div>
       <div className="flex gap-2">
@@ -96,7 +123,7 @@ export default function Sign() {
         </button>
       </div>
       {notice && (
-        <p className={notice.kind === "ready" ? "text-xs text-emerald-200" : "text-xs text-red-300"}>
+        <p className={notice.kind === "fault" ? "text-xs text-red-300" : "text-xs text-emerald-200"}>
           {notice.text}
         </p>
       )}

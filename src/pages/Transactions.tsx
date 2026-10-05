@@ -48,6 +48,7 @@ function selectedHeight(value: string): number | undefined {
 
 /** Filter controls for the contract's `get_transfers` filters; the history panel does the rest. */
 export default function Transactions() {
+  const [lookupId, setLookupId] = useState("");
   const [direction, setDirection] = useState<TransferDirection | undefined>(undefined);
   const [state, setState] = useState<TransferState | undefined>(undefined);
   const [sinceHeightText, setSinceHeightText] = useState("");
@@ -147,8 +148,8 @@ export default function Transactions() {
         </div>
       </div>
 
-      <TxTools />
-      <TransactionHistory query={query} />
+      <TxTools lookupId={lookupId} onLookupId={setLookupId} />
+      <TransactionHistory query={query} onLookup={setLookupId} />
     </div>
   );
 }

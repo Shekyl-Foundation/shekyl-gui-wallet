@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { describeError } from "../../lib/errors";
+import { formatSkl } from "../../lib/format";
+import { readStatus } from "../../lib/transactionStatus";
 
 interface NoteOut {
   tx_hash: string;
@@ -14,14 +16,23 @@ interface TransferRow {
   state: string;
 }
 
-/** Note, abandon, and lookup by id. These sit beside the history list. */
-export default function TxTools() {
+/** How much of a pasted id to repeat in the abandon confirmation. */
+const ABANDON_ID_SHOWN = 16;
+
+/** Note, abandon, and lookup by id. The lookup id is the page's, so a history row can fill it. */
+export default function TxTools({
+  lookupId,
+  onLookupId,
+}: {
+  lookupId: string;
+  onLookupId: (id: string) => void;
+}) {
   const [txHash, setTxHash] = useState("");
   const [note, setNote] = useState("");
-  const [lookupId, setLookupId] = useState("");
   const [found, setFound] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmAbandon, setConfirmAbandon] = useState(false);
 
   const saveNote = async () => {
     setBusy(true);
@@ -55,6 +66,7 @@ export default function TxTools() {
     setError(null);
     try {
       await invoke("abandon_tx", { txHash });
+      setConfirmAbandon(false);
       setFound(
         "Send abandoned. Its funds stay locked until the network is confirmed to have dropped it.",
       );
@@ -70,7 +82,9 @@ export default function TxTools() {
     setError(null);
     try {
       const found = await invoke<{ transfer: TransferRow }>("get_transfer_by_id", { id: lookupId });
-      setFound(`${found.transfer.state}: ${found.transfer.amount} (id ${found.transfer.id})`);
+      setFound(
+        `${readStatus(found.transfer.state)}: ${formatSkl(found.transfer.amount)} SKL (id ${found.transfer.id})`,
+      );
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -90,7 +104,10 @@ export default function TxTools() {
           className="input"
           placeholder="64 hex characters"
           value={txHash}
-          onChange={(e) => setTxHash(e.target.value)}
+          onChange={(e) => {
+            setTxHash(e.target.value);
+            setConfirmAbandon(false);
+          }}
         />
       </div>
       <div className="space-y-1.5">
@@ -111,9 +128,32 @@ export default function TxTools() {
         <button type="button" className="btn btn-primary" disabled={busy || txHash.length === 0} onClick={() => void saveNote()}>
           Save note
         </button>
-        <button type="button" className="btn btn-ghost" disabled={busy || txHash.length === 0} onClick={() => void abandon()}>
-          Abandon send
-        </button>
+        {!confirmAbandon ? (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={busy || txHash.length === 0}
+            onClick={() => setConfirmAbandon(true)}
+          >
+            Abandon send
+          </button>
+        ) : (
+          <div className="space-y-2 text-xs text-amber-100">
+            <p>
+              Abandon stops tracking this send ({txHash.slice(0, ABANDON_ID_SHOWN)}
+              {txHash.length > ABANDON_ID_SHOWN ? "…" : ""}). Its funds stay locked until the
+              network is confirmed to have dropped it.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void abandon()}>
+                Abandon this send
+              </button>
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setConfirmAbandon(false)}>
+                Keep it
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1 space-y-1.5">
@@ -123,9 +163,9 @@ export default function TxTools() {
           <input
             id="tx-lookup-id"
             className="input"
-            placeholder="Transaction id, or id from the list"
+            placeholder="Paste an id, or choose Look up on a row"
             value={lookupId}
-            onChange={(e) => setLookupId(e.target.value)}
+            onChange={(e) => onLookupId(e.target.value)}
           />
         </div>
         <button type="button" className="btn btn-ghost" disabled={busy || lookupId.length === 0} onClick={() => void lookup()}>

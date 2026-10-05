@@ -134,6 +134,10 @@ export default function StakeActions() {
       setError(describeError(err));
       return;
     }
+    if (atomic === 0n) {
+      setError("The amount must be greater than zero.");
+      return;
+    }
     setBusy(true);
     try {
       const failure = await buildStake(atomic.toString());

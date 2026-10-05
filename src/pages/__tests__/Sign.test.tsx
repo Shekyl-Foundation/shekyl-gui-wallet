@@ -26,4 +26,21 @@ describe("Sign", () => {
     expect(notice).toHaveClass("text-red-300");
     expect(notice).not.toHaveClass("text-emerald-200");
   });
+
+  it("drops a match when the signature changes, and keeps a signature when only the address changes", async () => {
+    vi.mocked(invoke).mockImplementation((cmd) => {
+      if (cmd === "verify_message") return Promise.resolve(null);
+      if (cmd === "sign_message") return Promise.resolve({ signature: "sig" });
+      return Promise.reject(new Error(`unrouted invoke ${String(cmd)}`));
+    });
+    const user = userEvent.setup();
+    render(<Sign />);
+    await user.type(screen.getByLabelText("Message"), "hello");
+    await user.click(screen.getByRole("button", { name: "Sign" }));
+    expect(await screen.findByText(/Share the message/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Address/), "addr");
+    expect(screen.getByText(/Share the message/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Signature"), "x");
+    expect(screen.queryByText(/Share the message/)).not.toBeInTheDocument();
+  });
 });

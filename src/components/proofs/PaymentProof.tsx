@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { describeError } from "../../lib/errors";
 import { formatSkl, SKL_DECIMALS } from "../../lib/format";
@@ -57,13 +57,25 @@ export default function PaymentProof() {
   const [proof, setProof] = useState("");
   const [notice, setNotice] = useState<ProofNotice | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Bumped on every edit, so a check that finishes late cannot repaint. */
+  const claim = useRef(0);
+
+  const edit = (set: (value: string) => void) => (event: { target: { value: string } }) => {
+    claim.current += 1;
+    set(event.target.value);
+    setNotice(null);
+  };
 
   const run = async (work: () => Promise<ProofNotice>) => {
+    const ticket = claim.current;
     setBusy(true);
     setNotice(null);
     try {
-      setNotice(await work());
+      const next = await work();
+      if (ticket !== claim.current) return;
+      setNotice(next);
     } catch (err) {
+      if (ticket !== claim.current) return;
       setNotice({ kind: "fault", text: describeError(err) });
     } finally {
       setBusy(false);
@@ -82,7 +94,7 @@ export default function PaymentProof() {
           className="input"
           placeholder="64 hex characters"
           value={txid}
-          onChange={(e) => setTxid(e.target.value)}
+          onChange={edit(setTxid)}
         />
       </div>
       <div className="space-y-1.5">
@@ -94,7 +106,7 @@ export default function PaymentProof() {
           className="input"
           placeholder="shekyl1..."
           value={address}
-          onChange={(e) => setAddress(e.target.value)}
+          onChange={edit(setAddress)}
         />
       </div>
       <div className="space-y-1.5">
@@ -105,7 +117,7 @@ export default function PaymentProof() {
           id="payment-message"
           className="input"
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={edit(setMessage)}
         />
       </div>
       <div className="flex gap-2">
@@ -152,7 +164,7 @@ export default function PaymentProof() {
           id="payment-proof"
           className="input min-h-28 font-mono text-xs"
           value={proof}
-          onChange={(e) => setProof(e.target.value)}
+          onChange={edit(setProof)}
         />
       </div>
       <ProofNoticeLine notice={notice} />

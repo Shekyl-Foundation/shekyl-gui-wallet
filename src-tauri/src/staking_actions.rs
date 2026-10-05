@@ -15,12 +15,13 @@
 use serde::Serialize;
 use shekyl_engine_core::{CollectOutcome, DrainOutcome, StakeFacade, UnstakeOutcome};
 use shekyl_types::TxHash;
-use shekyl_units::AtomicUnitsString;
+use shekyl_units::{AtomicUnits, AtomicUnitsString};
 use tauri::State;
 
 use crate::contract_error::{open_engine, ContractError};
 use crate::send::BuiltPendingTx;
 use crate::state::AppState;
+use crate::validate;
 
 /// Dispatch verdict shared by drain and release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -60,11 +61,12 @@ pub async fn stake_in(
     state: State<'_, AppState>,
     amount: AtomicUnitsString,
 ) -> Result<BuiltPendingTx, ContractError> {
+    let payment = stake_amount(amount)?;
     let shared = open_engine(&state).await?;
     let engine = shared.read().await;
     let pending = engine
         .stake()
-        .stake_in(amount.to_atomic_units())
+        .stake_in(payment)
         .await
         .map_err(ContractError::from_engine)?;
     Ok(BuiltPendingTx {
@@ -124,6 +126,14 @@ pub async fn collect_unstaked(state: State<'_, AppState>) -> Result<CollectRecei
     })
 }
 
+/// A fund the command will reserve. Zero is invalid params, the same
+/// sentence `validate_amount` gives a send, and it never reaches the engine.
+fn stake_amount(amount: AtomicUnitsString) -> Result<AtomicUnits, ContractError> {
+    let payment = amount.to_atomic_units();
+    validate::validate_amount(payment.to_raw()).map_err(ContractError::invalid)?;
+    Ok(payment)
+}
+
 fn seal(tx_hash: TxHash, confirmed_height: Option<u64>) -> SealedReceipt {
     SealedReceipt {
         tx_hash: tx_hash.to_string(),
@@ -153,7 +163,15 @@ fn seal_unstake(outcome: UnstakeOutcome) -> SealedReceipt {
 mod tests {
     use super::*;
 
-    use shekyl_units::AtomicUnits;
+    #[test]
+    fn a_zero_fund_is_refused_before_a_reservation() {
+        let err = stake_amount(AtomicUnits::ZERO.into()).expect_err("zero");
+        assert_eq!(err.code, "INVALID_PARAMS");
+        assert_eq!(
+            err.message,
+            "invalid params: Amount must be greater than zero"
+        );
+    }
 
     #[test]
     fn a_broadcast_receipt_omits_the_height() {
