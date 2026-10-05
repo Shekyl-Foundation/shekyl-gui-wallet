@@ -1,17 +1,10 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-
-function messageOf(e: unknown): string {
-  if (e && typeof e === "object" && "message" in e) {
-    const message = (e as { message: unknown }).message;
-    if (typeof message === "string" && message.length > 0) return message;
-  }
-  return e instanceof Error ? e.message : String(e);
-}
+import { describeError } from "../../lib/errors";
 
 interface NoteOut {
   tx_hash: string;
-  note: string | null;
+  note?: string;
 }
 
 interface TransferRow {
@@ -37,7 +30,7 @@ export default function TxTools() {
       const stored = await invoke<NoteOut>("set_tx_note", { txHash, note });
       setFound(stored.note ? `Note stored on ${stored.tx_hash}.` : `Note cleared on ${stored.tx_hash}.`);
     } catch (e) {
-      setError(messageOf(e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }
@@ -51,7 +44,7 @@ export default function TxTools() {
       setNote(stored.note ?? "");
       setFound(stored.note ? "Note loaded." : "No note stored for this transaction.");
     } catch (e) {
-      setError(messageOf(e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }
@@ -66,7 +59,7 @@ export default function TxTools() {
         "Send abandoned. Its funds stay locked until the network is confirmed to have dropped it.",
       );
     } catch (e) {
-      setError(messageOf(e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }
@@ -76,10 +69,10 @@ export default function TxTools() {
     setBusy(true);
     setError(null);
     try {
-      const row = await invoke<TransferRow>("get_transfer_by_id", { id: lookupId });
-      setFound(`${row.state}: ${row.amount} (id ${row.id})`);
+      const found = await invoke<{ transfer: TransferRow }>("get_transfer_by_id", { id: lookupId });
+      setFound(`${found.transfer.state}: ${found.transfer.amount} (id ${found.transfer.id})`);
     } catch (e) {
-      setError(messageOf(e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }

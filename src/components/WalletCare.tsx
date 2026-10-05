@@ -1,18 +1,25 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { describeError } from "../lib/errors";
 
-function messageOf(e: unknown): string {
-  if (e && typeof e === "object" && "message" in e) {
-    const message = (e as { message: unknown }).message;
-    if (typeof message === "string" && message.length > 0) return message;
-  }
-  return e instanceof Error ? e.message : String(e);
-}
-
-interface ScanOut {
+interface RefreshOut {
   blocks_processed: number;
   transfers_detected: number;
   synced_height: number;
+  reorg_fork_height?: number;
+}
+
+interface RescanOut {
+  blocks_processed: number;
+  transfers_detected: number;
+  synced_height: number;
+}
+
+function scanSentence(
+  label: string,
+  result: { blocks_processed: number; transfers_detected: number; synced_height: number },
+): string {
+  return `${label} finished: ${result.blocks_processed} blocks, ${result.transfers_detected} transfers, height ${result.synced_height}.`;
 }
 
 /** Password change, and a manual refresh or rescan beside background sync. */
@@ -22,6 +29,7 @@ export default function WalletCare() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [confirmRescan, setConfirmRescan] = useState(false);
 
   const changePassword = async () => {
     setError(null);
@@ -32,17 +40,11 @@ export default function WalletCare() {
       setOldPassword("");
       setNewPassword("");
       setNote("Password changed.");
-    } catch (e) {
-      setError(messageOf(e));
+    } catch (err) {
+      setError(describeError(err));
     } finally {
       setBusy(false);
     }
-  };
-
-  const reportScan = (label: string, result: ScanOut) => {
-    setNote(
-      `${label} finished: ${result.blocks_processed} blocks, ${result.transfers_detected} transfers, height ${result.synced_height}.`,
-    );
   };
 
   const refreshNow = async () => {
@@ -50,9 +52,13 @@ export default function WalletCare() {
     setNote(null);
     setBusy(true);
     try {
-      reportScan("Refresh", await invoke<ScanOut>("refresh"));
-    } catch (e) {
-      setError(messageOf(e));
+      const result = await invoke<RefreshOut>("refresh");
+      const reorg = result.reorg_fork_height !== undefined
+        ? " The chain reorganized, and history was rebuilt from the fork."
+        : "";
+      setNote(`${scanSentence("Refresh", result)}${reorg}`);
+    } catch (err) {
+      setError(describeError(err));
     } finally {
       setBusy(false);
     }
@@ -63,9 +69,11 @@ export default function WalletCare() {
     setNote(null);
     setBusy(true);
     try {
-      reportScan("Rescan", await invoke<ScanOut>("rescan_blockchain"));
-    } catch (e) {
-      setError(messageOf(e));
+      const result = await invoke<RescanOut>("rescan_blockchain");
+      setNote(scanSentence("Rescan", result));
+      setConfirmRescan(false);
+    } catch (err) {
+      setError(describeError(err));
     } finally {
       setBusy(false);
     }
@@ -105,18 +113,27 @@ export default function WalletCare() {
         <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void refreshNow()}>
           Refresh now
         </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          disabled={busy}
-          onClick={() => void rescan()}
-        >
-          Rebuild history
-        </button>
+        {!confirmRescan ? (
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setConfirmRescan(true)}>
+            Rebuild history
+          </button>
+        ) : (
+          <div className="space-y-2 text-xs text-amber-100">
+            <p>
+              Rebuild history re-reads the chain from the start. It can take a
+              long time. Notes, payment requests, and stake records stay.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void rescan()}>
+                Rebuild now
+              </button>
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setConfirmRescan(false)}>
+                Keep history
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-      <p className="text-xs text-purple-300">
-        Rebuild history re-reads the chain. Your notes, payment requests, and stake records stay.
-      </p>
       {error && <p className="text-xs text-red-300">{error}</p>}
       {note && <p className="text-xs text-emerald-200">{note}</p>}
     </div>

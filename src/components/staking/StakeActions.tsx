@@ -1,68 +1,132 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { parseSkl, formatSkl } from "../../lib/format";
+import { describeError } from "../../lib/errors";
+import { formatSkl, parseSkl } from "../../lib/format";
+import type { BuiltPendingTx, SubmitResult } from "../../types/send";
+import {
+  CONTENT_CHANGED_NOTICE,
+  isSendError,
+  RELEASE_FAILED_ADVICE,
+  RETAINED_ADVICE,
+  sendErrorMessage,
+} from "../../types/send";
 
-interface Built {
-  pending_tx_id: string;
-  fee: string;
-  content_gen: number;
-}
-
-interface Receipt {
+interface SealedReceipt {
   tx_hash: string;
-  verdict: string;
-  confirmed_height: number | null;
+  verdict: "BROADCAST" | "ALREADY_IN_CHAIN";
+  confirmed_height?: number;
 }
 
-interface CollectReceipt {
-  kind: "swept" | "nothing_left";
-  tx_hash: string | null;
-  swept: string | null;
-  remainder: string | null;
-  another_pool_remains: boolean | null;
-}
+type CollectReceipt =
+  | {
+      status: "SWEPT";
+      tx_hash: string;
+      swept: string;
+      remainder: string;
+      another_pool_remains: boolean;
+    }
+  | { status: "NOTHING_LEFT" };
 
-function messageOf(e: unknown): string {
-  if (e && typeof e === "object" && "message" in e) {
-    const message = (e as { message: unknown }).message;
-    if (typeof message === "string" && message.length > 0) return message;
+function fundNote(result: SubmitResult): string {
+  switch (result.verdict) {
+    case "ACCEPTED":
+      return "Funds sent. They join your stake after the network confirms.";
+    case "ALREADY_IN_POOL":
+      return "These funds were already sent and are waiting to confirm.";
+    case "ALREADY_IN_CHAIN":
+      return "These funds are already confirmed. They join your stake after this wallet refreshes.";
   }
-  return e instanceof Error ? e.message : String(e);
+}
+
+function collectNote(result: CollectReceipt): string {
+  if (result.status === "NOTHING_LEFT") return "Nothing left to collect.";
+  const immature = result.remainder !== "0";
+  const another = result.another_pool_remains;
+  if (immature && another) {
+    return "This pass was sent. Some funds are not spendable yet, and released funds from another stake still remain. Collect again after this confirms.";
+  }
+  if (another) {
+    return "This pass was sent. Released funds from another stake still remain. Collect again after this confirms.";
+  }
+  if (immature) {
+    return "This pass was sent. Some funds are not spendable yet. Collect again after this confirms.";
+  }
+  return "Collection sent. Once it confirms, nothing further remains.";
 }
 
 /**
  * Fund, return, release, and collect. The buttons use those words.
  * `unstake` is the contract command behind Release.
+ *
+ * Fund owns one send reservation, the same way the Send page does. It is
+ * released on a successful discard, a successful submit, or when the engine
+ * says it has kept the reservation. A failed cancel stays here so the funds
+ * are not forgotten. Leaving the page discards as best it can.
  */
 export default function StakeActions() {
   const [amount, setAmount] = useState("");
   const [returnAmount, setReturnAmount] = useState("");
-  const [built, setBuilt] = useState<Built | null>(null);
+  const [built, setBuilt] = useState<BuiltPendingTx | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [confirmRelease, setConfirmRelease] = useState(false);
+  /** Reservation this panel holds. Null once submit, discard, or the engine takes it. */
+  const owned = useRef<string | null>(null);
+  /** Atomic amount of the reservation under review, so a rebuild uses the same one. */
+  const reviewedAmount = useRef<string | null>(null);
 
   const clear = () => {
     setError(null);
     setNote(null);
   };
 
+  const discardOwned = useCallback(async (): Promise<boolean> => {
+    const id = owned.current;
+    if (!id) return true;
+    try {
+      await invoke("discard_pending_tx", { pendingTxId: id });
+      owned.current = null;
+      return true;
+    } catch (err) {
+      setError(`${sendErrorMessage(err)} ${RELEASE_FAILED_ADVICE}`);
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const id = owned.current;
+      if (id) void invoke("discard_pending_tx", { pendingTxId: id }).catch(() => {});
+    };
+  }, []);
+
+  const buildStake = async (atomic: string): Promise<boolean> => {
+    try {
+      const pending = await invoke<BuiltPendingTx>("stake_in", { amount: atomic });
+      owned.current = pending.pending_tx_id;
+      reviewedAmount.current = atomic;
+      setBuilt(pending);
+      return true;
+    } catch (err) {
+      setError(describeError(err));
+      return false;
+    }
+  };
+
   const fund = async () => {
+    if (owned.current) return;
     clear();
     let atomic: bigint;
     try {
       atomic = parseSkl(amount);
-    } catch (e) {
-      setError(messageOf(e));
+    } catch (err) {
+      setError(describeError(err));
       return;
     }
     setBusy(true);
     try {
-      const pending = await invoke<Built>("stake_in", { amount: atomic.toString() });
-      setBuilt(pending);
-    } catch (e) {
-      setError(messageOf(e));
+      await buildStake(atomic.toString());
     } finally {
       setBusy(false);
     }
@@ -73,31 +137,48 @@ export default function StakeActions() {
     setBusy(true);
     clear();
     try {
-      const result = await invoke<Receipt>("submit_pending_tx", {
+      const result = await invoke<SubmitResult>("submit_pending_tx", {
         pendingTxId: built.pending_tx_id,
         seenGen: built.content_gen,
       });
-      setNote(`Funds sent (${result.verdict}). They join your stake after the network confirms.`);
+      owned.current = null;
+      reviewedAmount.current = null;
+      setNote(fundNote(result));
       setBuilt(null);
       setAmount("");
-    } catch (e) {
-      setError(messageOf(e));
+    } catch (err) {
+      if (isSendError(err) && err.code === "CONTENT_GEN_MISMATCH") {
+        if (!(await discardOwned())) return;
+        setBuilt(null);
+        setNote(CONTENT_CHANGED_NOTICE);
+        const atomic = reviewedAmount.current;
+        if (atomic) await buildStake(atomic);
+        return;
+      }
+      if (isSendError(err) && err.reservation_retained) {
+        owned.current = null;
+        reviewedAmount.current = null;
+        setError(`${err.message} ${RETAINED_ADVICE}`);
+        setBuilt(null);
+        return;
+      }
+      owned.current = null;
+      reviewedAmount.current = null;
+      setError(describeError(err));
+      setBuilt(null);
     } finally {
       setBusy(false);
     }
   };
 
   const cancelFund = async () => {
-    if (!built) return;
     setBusy(true);
-    try {
-      await invoke("discard_pending_tx", { pendingTxId: built.pending_tx_id });
-    } catch (e) {
-      setError(messageOf(e));
-    } finally {
-      setBuilt(null);
-      setBusy(false);
-    }
+    setError(null);
+    const released = await discardOwned();
+    setBusy(false);
+    if (!released) return;
+    reviewedAmount.current = null;
+    setBuilt(null);
   };
 
   const doReturn = async () => {
@@ -105,8 +186,8 @@ export default function StakeActions() {
     let atomic: bigint;
     try {
       atomic = parseSkl(returnAmount);
-    } catch (e) {
-      setError(messageOf(e));
+    } catch (err) {
+      setError(describeError(err));
       return;
     }
     if (atomic === 0n) {
@@ -115,15 +196,15 @@ export default function StakeActions() {
     }
     setBusy(true);
     try {
-      const result = await invoke<Receipt>("drain", { amount: atomic.toString() });
+      const result = await invoke<SealedReceipt>("drain", { amount: atomic.toString() });
       setNote(
         result.verdict === "ALREADY_IN_CHAIN"
           ? `An earlier return is already confirmed (${result.tx_hash}).`
           : `Return sent (${result.tx_hash}). It arrives in your balance after confirmation.`,
       );
       setReturnAmount("");
-    } catch (e) {
-      setError(messageOf(e));
+    } catch (err) {
+      setError(describeError(err));
     } finally {
       setBusy(false);
     }
@@ -133,15 +214,15 @@ export default function StakeActions() {
     clear();
     setBusy(true);
     try {
-      const result = await invoke<Receipt>("unstake");
+      const result = await invoke<SealedReceipt>("unstake");
       setNote(
         result.verdict === "ALREADY_IN_CHAIN"
-          ? `Release is already confirmed. Collect the funds into this wallet.`
+          ? "Release is already confirmed. Collect the funds into this wallet."
           : `Release posted (${result.tx_hash}). After it confirms, collect the funds.`,
       );
       setConfirmRelease(false);
-    } catch (e) {
-      setError(messageOf(e));
+    } catch (err) {
+      setError(describeError(err));
     } finally {
       setBusy(false);
     }
@@ -152,17 +233,9 @@ export default function StakeActions() {
     setBusy(true);
     try {
       const result = await invoke<CollectReceipt>("collect_unstaked");
-      if (result.kind === "nothing_left") {
-        setNote("Nothing left to collect.");
-      } else if (result.another_pool_remains) {
-        setNote("This pass was sent. Released funds from another stake still remain. Collect again after this confirms.");
-      } else if (result.remainder && result.remainder !== "0") {
-        setNote("This pass was sent. Some funds are not spendable yet. Collect again after this confirms.");
-      } else {
-        setNote("Collection sent. Once it confirms, nothing further remains.");
-      }
-    } catch (e) {
-      setError(messageOf(e));
+      setNote(collectNote(result));
+    } catch (err) {
+      setError(describeError(err));
     } finally {
       setBusy(false);
     }

@@ -193,13 +193,11 @@ export default function Help() {
             </p>
           </div>
           <div>
-            <h4 className="font-semibold text-white">What will ship next</h4>
+            <h4 className="font-semibold text-white">What stays outside this wallet</h4>
             <p>
-              <strong>Activate</strong> as a staker, <strong>fund</strong> the
-              stake, <strong>return</strong> funds, <strong>release</strong> the
-              bond, then <strong>collect</strong> the released collateral into
-              this wallet. Full node-operator duties (onion service, challenges)
-              are documented separately for operators.
+              Running a node for other people — an onion service, and answering
+              challenges — is an operator&apos;s job, documented separately.
+              This wallet does not run those duties.
             </p>
           </div>
           <div>

@@ -33,7 +33,7 @@ use tauri::Manager;
 mod balance;
 mod clipboard;
 mod commands;
-mod contract_commands;
+mod contract_error;
 mod daemon_connection;
 mod daemon_manager;
 mod daemon_rpc;
@@ -44,8 +44,10 @@ mod engine_session;
 mod features;
 mod gui_config;
 mod lifecycle;
+mod message_signing;
 #[cfg(feature = "multisig")]
 mod multisig;
+mod proofs;
 mod receiving;
 mod send;
 mod shard_coverage;
@@ -54,7 +56,10 @@ mod staking_actions;
 mod staking_view;
 mod state;
 mod transfer_history;
+mod transfer_lookup;
+mod tx_journal;
 mod validate;
+mod wallet_care;
 mod wallet_name;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -112,19 +117,19 @@ pub fn run() {
             staking_actions::drain,
             staking_actions::unstake,
             staking_actions::collect_unstaked,
-            contract_commands::get_tx_proof,
-            contract_commands::check_tx_proof,
-            contract_commands::get_reserve_proof,
-            contract_commands::check_reserve_proof,
-            contract_commands::sign_message,
-            contract_commands::verify_message,
-            contract_commands::refresh,
-            contract_commands::rescan_blockchain,
-            contract_commands::change_password,
-            contract_commands::set_tx_note,
-            contract_commands::get_tx_note,
-            contract_commands::abandon_tx,
-            contract_commands::get_transfer_by_id,
+            proofs::get_tx_proof,
+            proofs::check_tx_proof,
+            proofs::get_reserve_proof,
+            proofs::check_reserve_proof,
+            message_signing::sign_message,
+            message_signing::verify_message,
+            wallet_care::refresh,
+            wallet_care::rescan_blockchain,
+            wallet_care::change_password,
+            tx_journal::set_tx_note,
+            tx_journal::get_tx_note,
+            tx_journal::abandon_tx,
+            transfer_lookup::get_transfer_by_id,
             // Wallet data
             commands::get_balance,
             commands::get_drain_balance,

@@ -4,9 +4,9 @@
 
 ### Added
 
-- **Stake funding, return, release, and collect.** The Staking page can fund a stake (`stake_in`, confirmed through the existing send), return staking funds (`drain`), release the bond (the button says Release; the command is `unstake`), and collect the released collateral.
-- **Proofs and message signing.** New Proofs and Sign pages call `get_tx_proof`, `check_tx_proof`, `get_reserve_proof`, `check_reserve_proof`, `sign_message`, and `verify_message`.
-- **Wallet care.** Settings can change the password, refresh, and rebuild history. Transactions can store a note, abandon a send, and open a transfer by id.
+- **Stake funding, return, release, and collect.** The Staking page can fund a stake (`stake_in`, confirmed through the same reservation the Send page owns), return staking funds (`drain`), release the bond (the button says Release; the command is `unstake`), and collect the released collateral. Drain and release share one sealed receipt (`BROADCAST`, or `ALREADY_IN_CHAIN` with a height). Collect answers `SWEPT` — what moved, what remains, and whether another stake still holds funds — or `NOTHING_LEFT`, which carries no amounts.
+- **Proofs and message signing.** New Proofs and Sign pages call `get_tx_proof`, `check_tx_proof`, `get_reserve_proof`, `check_reserve_proof`, `sign_message`, and `verify_message`. A payment check carries each output, the received total, and the confirmation count. A proof that parses but does not check out is `valid: false` and is shown as a failure. `verify_message` succeeds only when the signature matches (`verified: true`); a mismatch, a damaged paste, and an unknown scheme are errors.
+- **Wallet care.** Settings can change the password, refresh, and rebuild history (rebuild asks first). Refresh can report that the chain reorganized; a rebuild cannot, because it is not a rewind. Transactions can store a note, abandon a send, and open one transfer by the id the history list shows.
 
 ### Changed
 

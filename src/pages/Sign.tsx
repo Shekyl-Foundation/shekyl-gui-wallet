@@ -1,34 +1,29 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { describeError } from "../lib/errors";
 
-function messageOf(e: unknown): string {
-  if (e && typeof e === "object" && "message" in e) {
-    const message = (e as { message: unknown }).message;
-    if (typeof message === "string" && message.length > 0) return message;
-  }
-  return e instanceof Error ? e.message : String(e);
-}
+type Notice = { kind: "ready" | "fault"; text: string };
 
 /** Sign a message with this wallet, or check someone else's signature. */
 export default function Sign() {
   const [message, setMessage] = useState("");
   const [address, setAddress] = useState("");
   const [signature, setSignature] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
 
   const sign = async () => {
     setBusy(true);
-    setError(null);
-    setNote("Signing takes a few seconds.");
+    setNotice({ kind: "ready", text: "Signing takes a few seconds." });
     try {
       const result = await invoke<{ signature: string }>("sign_message", { message });
       setSignature(result.signature);
-      setNote("Signed. Share the message, this signature, and your address.");
-    } catch (e) {
-      setError(messageOf(e));
-      setNote(null);
+      setNotice({
+        kind: "ready",
+        text: "Signed. Share the message, this signature, and your address.",
+      });
+    } catch (err) {
+      setNotice({ kind: "fault", text: describeError(err) });
     } finally {
       setBusy(false);
     }
@@ -36,17 +31,15 @@ export default function Sign() {
 
   const verify = async () => {
     setBusy(true);
-    setError(null);
+    setNotice(null);
     try {
-      const result = await invoke<{ valid: boolean }>("verify_message", {
-        address,
-        message,
-        signature,
+      await invoke("verify_message", { address, message, signature });
+      setNotice({
+        kind: "ready",
+        text: "This signature matches the address and the message.",
       });
-      setNote(result.valid ? "Signature is valid for this address and message." : "Signature is not valid.");
-    } catch (e) {
-      setError(messageOf(e));
-      setNote(null);
+    } catch (err) {
+      setNotice({ kind: "fault", text: describeError(err) });
     } finally {
       setBusy(false);
     }
@@ -55,9 +48,24 @@ export default function Sign() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <h1 className="text-xl font-bold text-white">Sign</h1>
-      <textarea className="input min-h-24" placeholder="Message" value={message} onChange={(e) => setMessage(e.target.value)} />
-      <input className="input" placeholder="Address, for checking" value={address} onChange={(e) => setAddress(e.target.value)} />
-      <textarea className="input min-h-24 font-mono text-xs" placeholder="Signature" value={signature} onChange={(e) => setSignature(e.target.value)} />
+      <textarea
+        className="input min-h-24"
+        placeholder="Message"
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+      />
+      <input
+        className="input"
+        placeholder="Address, for checking"
+        value={address}
+        onChange={(e) => setAddress(e.target.value)}
+      />
+      <textarea
+        className="input min-h-24 font-mono text-xs"
+        placeholder="Signature"
+        value={signature}
+        onChange={(e) => setSignature(e.target.value)}
+      />
       <div className="flex gap-2">
         <button type="button" className="btn btn-primary" disabled={busy || message.length === 0} onClick={() => void sign()}>
           Sign
@@ -71,8 +79,11 @@ export default function Sign() {
           Verify
         </button>
       </div>
-      {error && <p className="text-xs text-red-300">{error}</p>}
-      {note && <p className="text-xs text-emerald-200">{note}</p>}
+      {notice && (
+        <p className={notice.kind === "ready" ? "text-xs text-emerald-200" : "text-xs text-red-300"}>
+          {notice.text}
+        </p>
+      )}
     </div>
   );
 }
