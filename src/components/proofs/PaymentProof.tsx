@@ -73,14 +73,41 @@ export default function PaymentProof() {
   return (
     <div className="card space-y-2">
       <p className="text-xs font-semibold text-purple-200">Payment</p>
-      <input className="input" placeholder="Transaction id" value={txid} onChange={(e) => setTxid(e.target.value)} />
-      <input className="input" placeholder="Address" value={address} onChange={(e) => setAddress(e.target.value)} />
-      <input
-        className="input"
-        placeholder="Message (optional)"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-      />
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="payment-txid">
+          Transaction id
+        </label>
+        <input
+          id="payment-txid"
+          className="input"
+          placeholder="64 hex characters"
+          value={txid}
+          onChange={(e) => setTxid(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="payment-address">
+          Address
+        </label>
+        <input
+          id="payment-address"
+          className="input"
+          placeholder="shekyl1..."
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="payment-message">
+          Message <span className="text-purple-400">(optional)</span>
+        </label>
+        <input
+          id="payment-message"
+          className="input"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+      </div>
       <div className="flex gap-2">
         <button
           type="button"
@@ -117,12 +144,17 @@ export default function PaymentProof() {
           Check payment
         </button>
       </div>
-      <textarea
-        className="input min-h-28 font-mono text-xs"
-        placeholder="Payment proof"
-        value={proof}
-        onChange={(e) => setProof(e.target.value)}
-      />
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="payment-proof">
+          Payment proof
+        </label>
+        <textarea
+          id="payment-proof"
+          className="input min-h-28 font-mono text-xs"
+          value={proof}
+          onChange={(e) => setProof(e.target.value)}
+        />
+      </div>
       <ProofNoticeLine notice={notice} />
     </div>
   );

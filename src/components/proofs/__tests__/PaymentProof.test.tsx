@@ -16,9 +16,9 @@ describe("PaymentProof", () => {
     });
     const user = userEvent.setup();
     render(<PaymentProof />);
-    await user.type(screen.getByPlaceholderText("Transaction id"), "ab");
-    await user.type(screen.getByPlaceholderText("Address"), "addr");
-    await user.type(screen.getByPlaceholderText("Payment proof"), "proof");
+    await user.type(screen.getByLabelText("Transaction id"), "ab");
+    await user.type(screen.getByLabelText("Address"), "addr");
+    await user.type(screen.getByLabelText("Payment proof"), "proof");
     await user.click(screen.getByRole("button", { name: "Check payment" }));
     const notice = await screen.findByText("This payment proof does not check out.");
     expect(notice).toHaveClass("text-red-300");

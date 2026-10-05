@@ -18,9 +18,9 @@ describe("Sign", () => {
     });
     const user = userEvent.setup();
     render(<Sign />);
-    await user.type(screen.getByPlaceholderText("Message"), "hello");
-    await user.type(screen.getByPlaceholderText("Address, for checking"), "addr");
-    await user.type(screen.getByPlaceholderText("Signature"), "sig");
+    await user.type(screen.getByLabelText("Message"), "hello");
+    await user.type(screen.getByLabelText(/Address/), "addr");
+    await user.type(screen.getByLabelText("Signature"), "sig");
     await user.click(screen.getByRole("button", { name: "Verify" }));
     const notice = await screen.findByText("signature does not verify");
     expect(notice).toHaveClass("text-red-300");

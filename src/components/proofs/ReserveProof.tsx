@@ -61,24 +61,42 @@ export default function ReserveProof() {
         and lets the holder see when those outputs are spent. Share it only
         with the person who must see it.
       </p>
-      <input
-        className="input"
-        placeholder="Amount in SKL, or empty for the whole balance"
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-      />
-      <input
-        className="input"
-        placeholder="Message (optional)"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-      />
-      <input
-        className="input"
-        placeholder="Address, for checking"
-        value={address}
-        onChange={(e) => setAddress(e.target.value)}
-      />
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="reserve-amount">
+          Amount (SKL) <span className="text-purple-400">(empty proves the whole balance)</span>
+        </label>
+        <input
+          id="reserve-amount"
+          className="input"
+          inputMode="decimal"
+          placeholder="0.0000"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="reserve-message">
+          Message <span className="text-purple-400">(optional)</span>
+        </label>
+        <input
+          id="reserve-message"
+          className="input"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="reserve-address">
+          Address <span className="text-purple-400">(for checking)</span>
+        </label>
+        <input
+          id="reserve-address"
+          className="input"
+          placeholder="shekyl1..."
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+        />
+      </div>
       <div className="flex gap-2">
         <button
           type="button"
@@ -120,12 +138,17 @@ export default function ReserveProof() {
           Check reserve
         </button>
       </div>
-      <textarea
-        className="input min-h-28 font-mono text-xs"
-        placeholder="Reserve proof"
-        value={proof}
-        onChange={(e) => setProof(e.target.value)}
-      />
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="reserve-proof">
+          Reserve proof
+        </label>
+        <textarea
+          id="reserve-proof"
+          className="input min-h-28 font-mono text-xs"
+          value={proof}
+          onChange={(e) => setProof(e.target.value)}
+        />
+      </div>
       <ProofNoticeLine notice={notice} />
     </div>
   );

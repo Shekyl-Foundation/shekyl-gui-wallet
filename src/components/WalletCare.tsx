@@ -84,22 +84,32 @@ export default function WalletCare() {
       <h2 className="text-sm font-semibold text-purple-200">Wallet</h2>
       <div className="space-y-2">
         <p className="text-xs text-purple-300">Change the password that opens this wallet.</p>
-        <input
-          type="password"
-          className="input"
-          placeholder="Current password"
-          value={oldPassword}
-          onChange={(e) => setOldPassword(e.target.value)}
-          autoComplete="current-password"
-        />
-        <input
-          type="password"
-          className="input"
-          placeholder="New password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          autoComplete="new-password"
-        />
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-purple-200" htmlFor="wallet-current-password">
+            Current password
+          </label>
+          <input
+            id="wallet-current-password"
+            type="password"
+            className="input"
+            value={oldPassword}
+            onChange={(e) => setOldPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-purple-200" htmlFor="wallet-new-password">
+            New password
+          </label>
+          <input
+            id="wallet-new-password"
+            type="password"
+            className="input"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+        </div>
         <button
           type="button"
           className="btn btn-primary"

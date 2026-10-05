@@ -81,18 +81,29 @@ export default function TxTools() {
   return (
     <div className="card space-y-3">
       <h2 className="text-sm font-semibold text-purple-200">A single transaction</h2>
-      <input
-        className="input"
-        placeholder="Transaction id"
-        value={txHash}
-        onChange={(e) => setTxHash(e.target.value)}
-      />
-      <textarea
-        className="input min-h-16"
-        placeholder="Note"
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-      />
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="tx-note-hash">
+          Transaction id
+        </label>
+        <input
+          id="tx-note-hash"
+          className="input"
+          placeholder="64 hex characters"
+          value={txHash}
+          onChange={(e) => setTxHash(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="tx-note-body">
+          Note
+        </label>
+        <textarea
+          id="tx-note-body"
+          className="input min-h-16"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </div>
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn btn-ghost" disabled={busy || txHash.length === 0} onClick={() => void loadNote()}>
           Load note
@@ -104,13 +115,19 @@ export default function TxTools() {
           Abandon send
         </button>
       </div>
-      <div className="flex gap-2">
-        <input
-          className="input"
-          placeholder="Look up by id"
-          value={lookupId}
-          onChange={(e) => setLookupId(e.target.value)}
-        />
+      <div className="flex items-end gap-2">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <label className="text-xs font-medium text-purple-200" htmlFor="tx-lookup-id">
+            Look up by id
+          </label>
+          <input
+            id="tx-lookup-id"
+            className="input"
+            placeholder="Transaction id, or id from the list"
+            value={lookupId}
+            onChange={(e) => setLookupId(e.target.value)}
+          />
+        </div>
         <button type="button" className="btn btn-ghost" disabled={busy || lookupId.length === 0} onClick={() => void lookup()}>
           Open
         </button>

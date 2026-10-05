@@ -258,14 +258,21 @@ export default function StakeActions() {
           exact extra is chosen when you confirm and is not shown beforehand.
         </p>
         {!built && (
-          <div className="flex gap-2">
-            <input
-              className="input"
-              placeholder="Amount (SKL)"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={busy}
-            />
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <label className="text-xs font-medium text-purple-200" htmlFor="stake-fund-amount">
+                Amount to fund (SKL)
+              </label>
+              <input
+                id="stake-fund-amount"
+                className="input"
+                inputMode="decimal"
+                placeholder="Amount (SKL)"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                disabled={busy}
+              />
+            </div>
             <button type="button" className="btn btn-primary" disabled={busy || amount.length === 0} onClick={() => void fund()}>
               Review
             </button>
@@ -288,14 +295,21 @@ export default function StakeActions() {
 
       <div className="space-y-2">
         <p className="text-xs font-semibold text-purple-200">Return</p>
-        <div className="flex gap-2">
-          <input
-            className="input"
-            placeholder="Amount (SKL)"
-            value={returnAmount}
-            onChange={(e) => setReturnAmount(e.target.value)}
-            disabled={busy}
-          />
+        <div className="flex items-end gap-2">
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <label className="text-xs font-medium text-purple-200" htmlFor="stake-return-amount">
+              Amount to return (SKL)
+            </label>
+            <input
+              id="stake-return-amount"
+              className="input"
+              inputMode="decimal"
+              placeholder="Amount (SKL)"
+              value={returnAmount}
+              onChange={(e) => setReturnAmount(e.target.value)}
+              disabled={busy}
+            />
+          </div>
           <button type="button" className="btn btn-ghost" disabled={busy || returnAmount.length === 0} onClick={() => void doReturn()}>
             Return
           </button>

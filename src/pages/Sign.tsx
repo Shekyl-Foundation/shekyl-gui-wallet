@@ -48,24 +48,40 @@ export default function Sign() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <h1 className="text-xl font-bold text-white">Sign</h1>
-      <textarea
-        className="input min-h-24"
-        placeholder="Message"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-      />
-      <input
-        className="input"
-        placeholder="Address, for checking"
-        value={address}
-        onChange={(e) => setAddress(e.target.value)}
-      />
-      <textarea
-        className="input min-h-24 font-mono text-xs"
-        placeholder="Signature"
-        value={signature}
-        onChange={(e) => setSignature(e.target.value)}
-      />
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="sign-message">
+          Message
+        </label>
+        <textarea
+          id="sign-message"
+          className="input min-h-24"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="sign-address">
+          Address <span className="text-purple-400">(for checking)</span>
+        </label>
+        <input
+          id="sign-address"
+          className="input"
+          placeholder="shekyl1..."
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-purple-200" htmlFor="sign-signature">
+          Signature
+        </label>
+        <textarea
+          id="sign-signature"
+          className="input min-h-24 font-mono text-xs"
+          value={signature}
+          onChange={(e) => setSignature(e.target.value)}
+        />
+      </div>
       <div className="flex gap-2">
         <button type="button" className="btn btn-primary" disabled={busy || message.length === 0} onClick={() => void sign()}>
           Sign
