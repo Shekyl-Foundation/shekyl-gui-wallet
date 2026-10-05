@@ -16,6 +16,7 @@ import type { DrainBalance } from "../types/daemon";
 import EmissionGauge from "../components/EmissionGauge";
 import ShardIdentityPreview from "../components/staking/ShardIdentityPreview";
 import YourStakePanel from "../components/staking/YourStakePanel";
+import StakeActions from "../components/staking/StakeActions";
 
 interface StakerStatusInfo {
   staking_enabled: boolean;
@@ -36,9 +37,8 @@ interface StakeResult {
  * Staking page — archival participation (GUI-PR0 honesty + GUI-PR3
  * activation + GUI-PR3b staked-balance/outputs read panel).
  *
- * Page owns activation and network stats; personal stake read lives in
- * [`YourStakePanel`] (fetch + fail-closed render). Funding (stake_in) and
- * unbond land in later PRs.
+ * Page owns activation, funding, return, release, and collect. Personal
+ * stake read lives in [`YourStakePanel`].
  */
 export default function Staking() {
   const { health } = useDaemon();
@@ -140,8 +140,8 @@ export default function Staking() {
             <p className="mt-1 text-xs leading-relaxed text-emerald-200/80">
               Staking means becoming an archival participant: your wallet
               activates a staker persona, posts a bond (broadcast is scheduled,
-              not instant), and later holds shards as useful work. Principal
-              funding and reward recovery ship in follow-up releases.
+              not instant), and can fund that stake, return funds, release the
+              bond, or collect released collateral.
             </p>
           </div>
         </div>
@@ -191,9 +191,7 @@ export default function Staking() {
               )}
             </p>
             <p className="mt-1 text-emerald-100/70">
-              Bond posts may still be pending scheduled broadcast
-              (pending_dispatch). Funding the persona and holding shards land
-              in later releases.
+              Bond posts may still be pending scheduled broadcast.
             </p>
           </div>
         )}
@@ -245,6 +243,7 @@ export default function Staking() {
         )}
       </div>
 
+      {stakerActive && <StakeActions />}
       {stakerActive && <YourStakePanel refreshKey={health} />}
 
       <ShardIdentityPreview />

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Stake funding, return, release, and collect.** The Staking page can fund a stake (`stake_in`, confirmed through the existing send), return staking funds (`drain`), release the bond (the button says Release; the command is `unstake`), and collect the released collateral.
+- **Proofs and message signing.** New Proofs and Sign pages call `get_tx_proof`, `check_tx_proof`, `get_reserve_proof`, `check_reserve_proof`, `sign_message`, and `verify_message`.
+- **Wallet care.** Settings can change the password, refresh, and rebuild history. Transactions can store a note, abandon a send, and open a transfer by id.
+
 ### Changed
 
 - **A payment link's request id rides the send.** `build_pending_tx` takes

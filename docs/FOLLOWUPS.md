@@ -69,13 +69,12 @@ is gone; network stats remain. Real staking needs the Engine path.
 | GUI-PR2 | Engine transfer (build+submit) + fee estimate + ledger history | same | **done** |
 | GUI-PR3 | `activate_staker` / `stake { password }` + status + error map | PR #336 landed | **done** |
 | GUI-PR3b | Staked-balance/outputs read panel (`staking_read_view`) | WI-RPC-1 on core dev | **done** |
-| GUI-PR4 | `stake_in` funding UX | public/RPC `stake_in` (core PR-P3+) | next |
+| GUI-PR4 | `stake_in` funding UX | public/RPC `stake_in` (core PR-P3+) | **done** (Staking page Fund, 2026-10-04) |
 | GUI-PR5 | Multisig address-fingerprint cutover | group_id deleted in core | pending |
-| GUI-PR6+ | unbond / drain / live shards | PR-P4/P5/P6 + emission | pending |
+| GUI-PR6 | release / return / collect | PR-P4/P5 landed | **done** (buttons Release, Return, Collect; command `unstake` stays the contract name) |
 
-**GUI-PR3 leftovers:** activation without stake_in funding often returns
-not-ready (expected until PR4). No UI for multi-slot W2 resume detail.
-Next: GUI-PR4 `stake_in` funding.
+**GUI-PR3 leftovers:** No UI for multi-slot W2 resume detail.
+Next: GUI-PR5 multisig address-fingerprint cutover. Live shard operator duties stay out of the desktop wallet.
 
 **Deleted:** the Wallet2 backend, `wallet_bridge`, the `shekyl-ffi` /
 `shekyl-engine-rpc` deps and the C++ static linkage, the

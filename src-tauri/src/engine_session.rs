@@ -730,7 +730,7 @@ pub fn engine_wallet_exists(wallet_dir: &Path, name: &str) -> bool {
     keys_path_from(&engine_wallet_base(wallet_dir, name)).exists()
 }
 
-fn map_network(n: NetworkType) -> Network {
+pub(crate) fn map_network(n: NetworkType) -> Network {
     match n {
         NetworkType::Mainnet => Network::Mainnet,
         NetworkType::Testnet => Network::Testnet,

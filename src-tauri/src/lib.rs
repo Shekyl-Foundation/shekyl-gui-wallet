@@ -33,6 +33,7 @@ use tauri::Manager;
 mod balance;
 mod clipboard;
 mod commands;
+mod contract_commands;
 mod daemon_connection;
 mod daemon_manager;
 mod daemon_rpc;
@@ -49,6 +50,7 @@ mod receiving;
 mod send;
 mod shard_coverage;
 mod shard_visual;
+mod staking_actions;
 mod staking_view;
 mod state;
 mod transfer_history;
@@ -106,6 +108,23 @@ pub fn run() {
             lifecycle::restore_wallet,
             commands::get_staker_status,
             commands::stake,
+            staking_actions::stake_in,
+            staking_actions::drain,
+            staking_actions::unstake,
+            staking_actions::collect_unstaked,
+            contract_commands::get_tx_proof,
+            contract_commands::check_tx_proof,
+            contract_commands::get_reserve_proof,
+            contract_commands::check_reserve_proof,
+            contract_commands::sign_message,
+            contract_commands::verify_message,
+            contract_commands::refresh,
+            contract_commands::rescan_blockchain,
+            contract_commands::change_password,
+            contract_commands::set_tx_note,
+            contract_commands::get_tx_note,
+            contract_commands::abandon_tx,
+            contract_commands::get_transfer_by_id,
             // Wallet data
             commands::get_balance,
             commands::get_drain_balance,
