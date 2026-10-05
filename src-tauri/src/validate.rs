@@ -83,12 +83,16 @@ pub fn validate_wallet_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a wallet password.
-pub fn validate_password(password: &str) -> Result<(), String> {
-    if password.len() > MAX_PASSWORD_LEN {
+/// Screen untrusted password text before it becomes a credential.
+///
+/// Length cap and no NUL. A passing value is still just text: the caller
+/// wraps it in `Zeroizing` at the moment it is used. The parameter is
+/// `password_text` so this screen is not itself a use of a credential.
+pub fn validate_password(password_text: &str) -> Result<(), String> {
+    if password_text.len() > MAX_PASSWORD_LEN {
         return Err(format!("Password too long (max {MAX_PASSWORD_LEN} chars)"));
     }
-    if password.contains('\0') {
+    if password_text.contains('\0') {
         return Err("Password must not contain null bytes".into());
     }
     Ok(())

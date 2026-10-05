@@ -186,21 +186,18 @@ export default function Help() {
             <p>
               The old tier-and-claim flow was retired with the protocol
               rewrite. Staker <strong>activation</strong> is now available on
-              the Engine backend (Staking page, password re-auth). Funding,
-              unbonding, and reward recovery (drain) are still pending. The
-              Staking page also shows <strong>network-wide</strong> stats when
-              a daemon is connected.
+              the Engine backend (Staking page, password re-auth). You can
+              fund a stake, return funds to this wallet, release the bond, and
+              collect the released collateral. The Staking page also shows{" "}
+              <strong>network-wide</strong> stats when a daemon is connected.
             </p>
           </div>
           <div>
-            <h4 className="font-semibold text-white">What will ship next</h4>
+            <h4 className="font-semibold text-white">What stays outside this wallet</h4>
             <p>
-              <strong>Activate</strong> as a staker, <strong>fund</strong> your
-              archival persona, hold shards, then later <strong>unbond</strong>{" "}
-              and <strong>drain</strong> rewards to your principal wallet.
-              Desktop focus is principal-side actions first; full node-operator
-              duties (onion service, challenges) are documented separately for
-              operators.
+              Running a node for other people — an onion service, and answering
+              challenges — is an operator&apos;s job, documented separately.
+              This wallet does not run those duties.
             </p>
           </div>
           <div>

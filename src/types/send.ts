@@ -62,3 +62,18 @@ export function isSendError(e: unknown): e is SendError {
 export function sendErrorMessage(e: unknown): string {
   return isSendError(e) ? e.message : String(e);
 }
+
+/**
+ * The chain moved under a reservation the user was reviewing. Shared by
+ * Send and stake funding: both confirm one built transaction.
+ */
+export const CONTENT_CHANGED_NOTICE =
+  "The chain moved while you were reviewing and the transaction's fee or change " +
+  "would have differed. It has been rebuilt — please check the figures again before confirming.";
+
+/** A submit the engine kept. Do not discard it; discarding could spend twice. */
+export const RETAINED_ADVICE = "Refresh your balance and check Transactions before trying again.";
+
+/** Cancel could not release the reservation. It is still this page's. */
+export const RELEASE_FAILED_ADVICE =
+  "The reservation could not be released; your funds stay reserved until it is. Try Cancel again.";
