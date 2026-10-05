@@ -109,11 +109,36 @@ describe("StakeActions fund reservation", () => {
     });
     const user = await review();
     await user.click(screen.getByRole("button", { name: "Fund stake" }));
-    expect(await screen.findByText(CONTENT_CHANGED_NOTICE)).toBeInTheDocument();
+    const notice = await screen.findByText(CONTENT_CHANGED_NOTICE);
+    expect(notice).toHaveClass("text-amber-100");
+    expect(notice).not.toHaveClass("text-emerald-200");
     expect(await screen.findByText(/0\.350000 SKL/)).toBeInTheDocument();
     expect(calls("discard_pending_tx")).toHaveLength(1);
     expect(calls("stake_in")).toHaveLength(2);
     expect(calls("stake_in")[1]?.[1]).toEqual({ amount: "1000000000" });
+  });
+
+  it("does not claim the review was rebuilt when the new one fails", async () => {
+    let builds = 0;
+    route({
+      stake_in: () => {
+        builds += 1;
+        if (builds === 1) return BUILT;
+        throw new Error("stake build failed");
+      },
+      submit_pending_tx: () => {
+        throw MISMATCH;
+      },
+      discard_pending_tx: () => ({}),
+    });
+    const user = await review();
+    await user.click(screen.getByRole("button", { name: "Fund stake" }));
+    const failure = await screen.findByText(/The earlier review was released/);
+    expect(failure).toHaveClass("text-red-300");
+    expect(failure).toHaveTextContent("stake build failed");
+    expect(screen.queryByText(CONTENT_CHANGED_NOTICE)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Fund stake" })).not.toBeInTheDocument();
+    expect(calls("discard_pending_tx")).toHaveLength(1);
   });
 });
 

@@ -38,6 +38,16 @@ function fundNote(result: SubmitResult): string {
   }
 }
 
+/** A ready line finished. A caution still needs the person to look at the figures. */
+type StakeNotice = { kind: "ready" | "caution"; text: string };
+
+function ready(text: string): StakeNotice {
+  return { kind: "ready", text };
+}
+
+const REVIEW_RELEASED =
+  "The earlier review was released. Enter the amount and review it again.";
+
 function collectNote(result: CollectReceipt): string {
   if (result.status === "NOTHING_LEFT") return "Nothing left to collect.";
   const immature = result.remainder !== "0";
@@ -69,7 +79,7 @@ export default function StakeActions() {
   const [built, setBuilt] = useState<BuiltPendingTx | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [notice, setNotice] = useState<StakeNotice | null>(null);
   const [confirmRelease, setConfirmRelease] = useState(false);
   /** Reservation this panel holds. Null once submit, discard, or the engine takes it. */
   const owned = useRef<string | null>(null);
@@ -78,7 +88,7 @@ export default function StakeActions() {
 
   const clear = () => {
     setError(null);
-    setNote(null);
+    setNotice(null);
   };
 
   const discardOwned = useCallback(async (): Promise<boolean> => {
@@ -101,16 +111,16 @@ export default function StakeActions() {
     };
   }, []);
 
-  const buildStake = async (atomic: string): Promise<boolean> => {
+  /** Null when the new review is on screen. The caller decides how to say a failure. */
+  const buildStake = async (atomic: string): Promise<string | null> => {
     try {
       const pending = await invoke<BuiltPendingTx>("stake_in", { amount: atomic });
       owned.current = pending.pending_tx_id;
       reviewedAmount.current = atomic;
       setBuilt(pending);
-      return true;
+      return null;
     } catch (err) {
-      setError(describeError(err));
-      return false;
+      return describeError(err);
     }
   };
 
@@ -126,7 +136,8 @@ export default function StakeActions() {
     }
     setBusy(true);
     try {
-      await buildStake(atomic.toString());
+      const failure = await buildStake(atomic.toString());
+      if (failure) setError(failure);
     } finally {
       setBusy(false);
     }
@@ -143,16 +154,24 @@ export default function StakeActions() {
       });
       owned.current = null;
       reviewedAmount.current = null;
-      setNote(fundNote(result));
+      setNotice(ready(fundNote(result)));
       setBuilt(null);
       setAmount("");
     } catch (err) {
       if (isSendError(err) && err.code === "CONTENT_GEN_MISMATCH") {
         if (!(await discardOwned())) return;
         setBuilt(null);
-        setNote(CONTENT_CHANGED_NOTICE);
         const atomic = reviewedAmount.current;
-        if (atomic) await buildStake(atomic);
+        if (!atomic) {
+          setError(REVIEW_RELEASED);
+          return;
+        }
+        const failure = await buildStake(atomic);
+        if (failure) {
+          setError(`${failure} ${REVIEW_RELEASED}`);
+          return;
+        }
+        setNotice({ kind: "caution", text: CONTENT_CHANGED_NOTICE });
         return;
       }
       if (isSendError(err) && err.reservation_retained) {
@@ -197,10 +216,12 @@ export default function StakeActions() {
     setBusy(true);
     try {
       const result = await invoke<SealedReceipt>("drain", { amount: atomic.toString() });
-      setNote(
-        result.verdict === "ALREADY_IN_CHAIN"
-          ? `An earlier return is already confirmed (${result.tx_hash}).`
-          : `Return sent (${result.tx_hash}). It arrives in your balance after confirmation.`,
+      setNotice(
+        ready(
+          result.verdict === "ALREADY_IN_CHAIN"
+            ? `An earlier return is already confirmed (${result.tx_hash}).`
+            : `Return sent (${result.tx_hash}). It arrives in your balance after confirmation.`,
+        ),
       );
       setReturnAmount("");
     } catch (err) {
@@ -215,10 +236,12 @@ export default function StakeActions() {
     setBusy(true);
     try {
       const result = await invoke<SealedReceipt>("unstake");
-      setNote(
-        result.verdict === "ALREADY_IN_CHAIN"
-          ? "Release is already confirmed. Collect the funds into this wallet."
-          : `Release posted (${result.tx_hash}). After it confirms, collect the funds.`,
+      setNotice(
+        ready(
+          result.verdict === "ALREADY_IN_CHAIN"
+            ? "Release is already confirmed. Collect the funds into this wallet."
+            : `Release posted (${result.tx_hash}). After it confirms, collect the funds.`,
+        ),
       );
       setConfirmRelease(false);
     } catch (err) {
@@ -233,7 +256,7 @@ export default function StakeActions() {
     setBusy(true);
     try {
       const result = await invoke<CollectReceipt>("collect_unstaked");
-      setNote(collectNote(result));
+      setNotice(ready(collectNote(result)));
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -348,7 +371,8 @@ export default function StakeActions() {
       </div>
 
       {error && <p className="text-xs text-red-300">{error}</p>}
-      {note && <p className="text-xs text-emerald-200">{note}</p>}
+      {notice?.kind === "ready" && <p className="text-xs text-emerald-200">{notice.text}</p>}
+      {notice?.kind === "caution" && <p className="text-xs text-amber-100">{notice.text}</p>}
     </div>
   );
 }
