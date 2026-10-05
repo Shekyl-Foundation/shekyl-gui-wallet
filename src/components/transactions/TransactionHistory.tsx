@@ -92,7 +92,14 @@ function loadErrorMessage(err: unknown): string {
  * list filtered locally), the poll, the retry, and every fail-closed state.
  * The page composes it beneath the filter controls (rule 27).
  */
-export default function TransactionHistory({ query }: { query: HistoryQuery }) {
+export default function TransactionHistory({
+  query,
+  onLookup,
+}: {
+  query: HistoryQuery;
+  /** Puts this row's id into the lookup field. A receive id includes its output. */
+  onLookup: (id: string) => void;
+}) {
   const { direction, state, sinceHeight, attribution } = query;
   const [view, setView] = useState<HistoryView>({ kind: "loading", query });
   /** Monotonic generation so overlapping loads discard stale results. */
@@ -240,6 +247,17 @@ export default function TransactionHistory({ query }: { query: HistoryQuery }) {
                   >
                     {statusLabel(tx.state)}
                   </span>
+                  <button
+                    type="button"
+                    className="mt-1 block text-[10px] font-medium text-purple-200 underline underline-offset-2 hover:text-white"
+                    aria-label={`Look up ${tx.tx_hash.slice(0, 16)}`}
+                    onClick={() => {
+                      onLookup(tx.id);
+                      document.getElementById("tx-lookup-id")?.focus();
+                    }}
+                  >
+                    Look up
+                  </button>
                 </div>
               </div>
             );

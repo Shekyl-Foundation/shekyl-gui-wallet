@@ -308,6 +308,25 @@ describe("Transactions", () => {
     expect(screen.getByTitle(/missing what a spend needs/i)).toBeInTheDocument();
   });
 
+  it("fills the lookup from a row, including a receive id", async () => {
+    const id = `${"ab".repeat(32)}:2`;
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([
+        sampleTx({
+          id,
+          tx_hash: "ab".repeat(32),
+          direction: "INCOMING",
+          state: "CONFIRMED",
+          block_height: 3,
+        }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<Transactions />);
+    await user.click(await screen.findByRole("button", { name: /Look up abababab/ }));
+    expect(screen.getByLabelText("Look up by id")).toHaveValue(id);
+  });
+
   it("renders amounts above 2^53 atomic units exactly", async () => {
     vi.mocked(invoke).mockResolvedValue(
       transfers([sampleTx({ amount: "9007199254740993", fee: "1", state: "CONFIRMED", block_height: 1 })]),

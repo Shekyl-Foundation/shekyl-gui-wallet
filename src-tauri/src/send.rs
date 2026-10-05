@@ -221,7 +221,7 @@ fn parse_pending_tx_id(s: &str) -> Result<ReservationId, SendError> {
 
 /// Clone the shared engine out from under the session lock, so the caller can
 /// drop that lock before doing anything slow.
-async fn shared_engine(state: &AppState) -> Result<SharedEngine, SendError> {
+pub(crate) async fn shared_engine(state: &AppState) -> Result<SharedEngine, SendError> {
     if !*state.wallet_open.read().await {
         return Err(SendError::wallet_closed());
     }

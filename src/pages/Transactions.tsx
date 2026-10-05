@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { statusLabel } from "../lib/transactionStatus";
 import TransactionHistory, { type HistoryQuery } from "../components/transactions/TransactionHistory";
+import TxTools from "../components/transactions/TxTools";
 import type { ReceiveAttributionKind, TransferDirection, TransferState } from "../types/transfers";
 
 /** The contract's `direction` filter, as the page offers it. */
@@ -47,6 +48,7 @@ function selectedHeight(value: string): number | undefined {
 
 /** Filter controls for the contract's `get_transfers` filters; the history panel does the rest. */
 export default function Transactions() {
+  const [lookupId, setLookupId] = useState("");
   const [direction, setDirection] = useState<TransferDirection | undefined>(undefined);
   const [state, setState] = useState<TransferState | undefined>(undefined);
   const [sinceHeightText, setSinceHeightText] = useState("");
@@ -146,7 +148,8 @@ export default function Transactions() {
         </div>
       </div>
 
-      <TransactionHistory query={query} />
+      <TxTools lookupId={lookupId} onLookupId={setLookupId} />
+      <TransactionHistory query={query} onLookup={setLookupId} />
     </div>
   );
 }

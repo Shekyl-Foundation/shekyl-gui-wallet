@@ -87,7 +87,7 @@ describe("Help", () => {
     fireEvent.click(screen.getByText("Staking Guide"));
     expect(screen.getByText(/archival participation/)).toBeInTheDocument();
     expect(screen.getByText("Status in this wallet")).toBeInTheDocument();
-    expect(screen.getByText("What will ship next")).toBeInTheDocument();
+    expect(screen.getByText("What stays outside this wallet")).toBeInTheDocument();
   });
 
   it("does not advertise Multisig while the feature is compiled out", async () => {

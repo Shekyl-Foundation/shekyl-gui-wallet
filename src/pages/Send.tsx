@@ -9,7 +9,13 @@ import type {
   FeeTierQuote,
   SubmitResult,
 } from "../types/send";
-import { isSendError, sendErrorMessage } from "../types/send";
+import {
+  CONTENT_CHANGED_NOTICE,
+  isSendError,
+  RELEASE_FAILED_ADVICE,
+  RETAINED_ADVICE,
+  sendErrorMessage,
+} from "../types/send";
 import { PAYMENT_URI_SCHEME, type ParsedPaymentUri } from "../types/receiving";
 
 /**
@@ -37,13 +43,6 @@ import { PAYMENT_URI_SCHEME, type ParsedPaymentUri } from "../types/receiving";
  * without them.
  */
 type Phase = "compose" | "building" | "review" | "submitting" | "sent";
-
-const CONTENT_CHANGED_NOTICE =
-  "The chain moved while you were reviewing and the transaction's fee or change " +
-  "would have differed. It has been rebuilt — please check the figures again before confirming.";
-const RETAINED_ADVICE = "Refresh your balance and check Transactions before trying again.";
-const RELEASE_FAILED_ADVICE =
-  "The reservation could not be released; your funds stay reserved until it is. Try Cancel again.";
 
 function isPaymentLink(value: string): boolean {
   return value.trim().toLowerCase().startsWith(PAYMENT_URI_SCHEME);

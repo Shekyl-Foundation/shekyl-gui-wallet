@@ -377,7 +377,7 @@ fn incoming_settlement(fact: &IncomingFact) -> (TransferState, Option<Unspendabl
     }
 }
 
-fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
+pub(crate) fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
     let (state, unspendable_reason) = incoming_settlement(fact);
     let tx_hash = fact.tx_hash.to_string();
     TransferRow {
@@ -394,7 +394,10 @@ fn project_incoming_row(fact: &IncomingFact) -> TransferRow {
 }
 
 /// Project one send-journal record as an outgoing [`TransferRow`].
-fn project_outgoing_row(txid: &[u8; 32], record: &SendRecord) -> Result<TransferRow, String> {
+pub(crate) fn project_outgoing_row(
+    txid: &[u8; 32],
+    record: &SendRecord,
+) -> Result<TransferRow, String> {
     let sent = record.sent_amount().ok_or_else(|| {
         format!(
             "send journal row {} has recipient amounts that do not sum",

@@ -33,6 +33,7 @@ use tauri::Manager;
 mod balance;
 mod clipboard;
 mod commands;
+mod contract_error;
 mod daemon_connection;
 mod daemon_manager;
 mod daemon_rpc;
@@ -43,16 +44,22 @@ mod engine_session;
 mod features;
 mod gui_config;
 mod lifecycle;
+mod message_signing;
 #[cfg(feature = "multisig")]
 mod multisig;
+mod proofs;
 mod receiving;
 mod send;
 mod shard_coverage;
 mod shard_visual;
+mod staking_actions;
 mod staking_view;
 mod state;
 mod transfer_history;
+mod transfer_lookup;
+mod tx_journal;
 mod validate;
+mod wallet_care;
 mod wallet_name;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -106,6 +113,23 @@ pub fn run() {
             lifecycle::restore_wallet,
             commands::get_staker_status,
             commands::stake,
+            staking_actions::stake_in,
+            staking_actions::drain,
+            staking_actions::unstake,
+            staking_actions::collect_unstaked,
+            proofs::get_tx_proof,
+            proofs::check_tx_proof,
+            proofs::get_reserve_proof,
+            proofs::check_reserve_proof,
+            message_signing::sign_message,
+            message_signing::verify_message,
+            wallet_care::refresh,
+            wallet_care::rescan_blockchain,
+            wallet_care::change_password,
+            tx_journal::set_tx_note,
+            tx_journal::get_tx_note,
+            tx_journal::abandon_tx,
+            transfer_lookup::get_transfer_by_id,
             // Wallet data
             commands::get_balance,
             commands::get_drain_balance,

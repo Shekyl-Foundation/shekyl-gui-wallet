@@ -116,6 +116,12 @@ When extracting, cut along **what the user or protocol is doing**:
 | Drainable-P read | `drain_balance` |
 | Shard preview / list | `shard_visual` + `components/staking/` |
 | Wallet open/create/close | `engine_session` (true shell duty) |
+| Payment and reserve proofs | `proofs` + `components/proofs/` |
+| Message signing | `message_signing` |
+| Refresh, rescan, password | `wallet_care` |
+| Notes and abandon | `tx_journal` |
+| Transfer lookup by id | `transfer_lookup` (grammar in `shekyl-wallet-contract`) |
+| Stake fund / return / release / collect | `staking_actions` + `components/staking/` |
 
 Do not park new feature logic inside an unrelated busy file because it was
 convenient to reach `AppState` there.

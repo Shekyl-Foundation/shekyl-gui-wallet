@@ -27,7 +27,7 @@ shekyld-x86_64-pc-windows-msvc.exe
 ```
 
 **Pin:** `release.yml` clones shekyl-core at the matching tag
-(`SHEKYL_CORE_REF`, currently `v3.1.0-alpha.8`), not `dev`. That checkout
+(`SHEKYL_CORE_REF`, currently `v3.1.0-alpha.9`), not `dev`. That checkout
 is also the tree the wallet's `../../shekyl-core/rust/*` path-deps compile
 against, so a replay of this wallet tag rebuilds the same daemon and the
 same Engine crates. Bump `SHEKYL_CORE_REF` when pairing the next GUI tag.
