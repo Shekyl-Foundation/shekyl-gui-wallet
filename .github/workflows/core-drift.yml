@@ -51,10 +51,12 @@ on:
         default: dev
 
 concurrency:
-  # The wallet ref is part of the key so a core pull request building a
-  # feature-branch wallet does not cancel the daily dev-against-dev run,
-  # or another core pull request that is still building wallet dev.
-  group: core-drift-${{ inputs.core_ref || 'dev' }}-${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
+  # The wallet side of the key keeps a core pull request on a feature
+  # branch from cancelling the daily dev run, or another core pull request
+  # that is still building wallet dev. A pull request of this repo is named
+  # by its head repository and number: two forks can share a branch name,
+  # and a fork branch named dev must not cancel that daily run.
+  group: "core-drift-${{ inputs.core_ref || 'dev' }}-${{ github.event_name == 'pull_request' && format('{0}@{1}', github.event.pull_request.head.repo.full_name, github.event.pull_request.number) || inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}"
   cancel-in-progress: true
 
 env:
