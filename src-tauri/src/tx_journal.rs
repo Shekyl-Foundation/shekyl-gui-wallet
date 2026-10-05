@@ -44,7 +44,7 @@ pub async fn set_tx_note(
         .set_tx_note(txid, note)
         .map_err(ContractError::from_engine)?;
     Ok(NoteOut {
-        tx_hash,
+        tx_hash: txid.to_string(),
         note: stored,
     })
 }
@@ -58,7 +58,7 @@ pub async fn get_tx_note(
     let shared = open_engine(&state).await?;
     let engine = shared.read().await;
     Ok(NoteOut {
-        tx_hash,
+        tx_hash: txid.to_string(),
         note: engine.tx_note(txid),
     })
 }

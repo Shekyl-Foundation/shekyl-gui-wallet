@@ -61,9 +61,23 @@ pub(crate) fn count_as_u64(count: impl TryInto<u64>) -> u64 {
     count.try_into().unwrap_or(u64::MAX)
 }
 
+/// Fold a pasted id into the spelling the contract grammar accepts.
+///
+/// History emits lowercase hex and no surrounding space. A person pastes
+/// the case their tool showed, often with a trailing newline. The grammar
+/// stays that one spelling; this edge is where a paste becomes it.
+pub(crate) fn canonicalize_pasted_id(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
 /// A canonical tx hash, or invalid params naming `field`.
+///
+/// Case and surrounding space are folded first. A character the grammar
+/// rejects is still invalid, and the sentence still names the canonical
+/// spelling.
 pub(crate) fn require_tx_hash(value: &str, field: &str) -> Result<TxHash, ContractError> {
-    canonical_hex::parse_lowercase_hex32(value)
+    let pasted = canonicalize_pasted_id(value);
+    canonical_hex::parse_lowercase_hex32(&pasted)
         .map(TxHash::from_bytes)
         .ok_or_else(|| ContractError::invalid(canonical_hex::invalid_hex32_message(field)))
 }
@@ -73,3 +87,32 @@ pub(crate) const TXID_FIELD: &str = "txid";
 pub(crate) const TX_HASH_FIELD: &str = "tx_hash";
 
 const _: () = assert!(HEX32_BYTES == 32);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> String {
+        "ab".repeat(HEX32_BYTES)
+    }
+
+    #[test]
+    fn a_pasted_hash_folds_case_and_surrounding_space() {
+        let canonical = sample();
+        let pasted = format!("  {}\n", canonical.to_ascii_uppercase());
+        let parsed = require_tx_hash(&pasted, TX_HASH_FIELD).expect("folded paste");
+        assert_eq!(parsed.to_string(), canonical);
+    }
+
+    #[test]
+    fn a_non_hex_paste_is_still_invalid_params() {
+        let mut bad = sample();
+        bad.replace_range(0..1, "g");
+        let err = require_tx_hash(&bad, TXID_FIELD).expect_err("not hex");
+        assert_eq!(err.code, "INVALID_PARAMS");
+        assert_eq!(
+            err.message,
+            "invalid params: txid must be 64 lowercase hex characters"
+        );
+    }
+}

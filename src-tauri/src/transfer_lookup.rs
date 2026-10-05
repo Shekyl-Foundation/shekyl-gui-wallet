@@ -17,7 +17,7 @@ use shekyl_wallet_contract::error::WalletRpcError;
 use shekyl_wallet_contract::transfer_id::{self, TransferLookupId};
 use tauri::State;
 
-use crate::contract_error::{open_engine, ContractError};
+use crate::contract_error::{canonicalize_pasted_id, open_engine, ContractError};
 use crate::state::AppState;
 use crate::transfer_history::{
     project_incoming_row, project_outgoing_row, IncomingFact, TransferRow,
@@ -34,7 +34,10 @@ pub async fn get_transfer_by_id(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<TransferById, ContractError> {
-    let lookup = transfer_id::parse_lookup_id(&id)
+    // The grammar is the spelling history emits. Fold the paste first so an
+    // uppercase copy of a real id is that id, not "invalid".
+    let pasted = canonicalize_pasted_id(&id);
+    let lookup = transfer_id::parse_lookup_id(&pasted)
         .ok_or_else(|| ContractError::invalid(transfer_id::LOOKUP_ID_GRAMMAR))?;
     let shared = open_engine(&state).await?;
     let engine = shared.read().await;
@@ -69,4 +72,27 @@ pub async fn get_transfer_by_id(
     let transfer =
         transfer.ok_or_else(|| ContractError::from_rpc(WalletRpcError::UnknownTransferId))?;
     Ok(TransferById { transfer })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_uppercase_receive_paste_names_the_same_side_as_the_canonical_id() {
+        let canonical = format!("{}:3", "cd".repeat(32));
+        let pasted = format!("  {}\n", canonical.to_ascii_uppercase());
+        let folded = canonicalize_pasted_id(&pasted);
+        assert_eq!(
+            transfer_id::parse_lookup_id(&folded),
+            transfer_id::parse_lookup_id(&canonical),
+        );
+        assert!(matches!(
+            transfer_id::parse_lookup_id(&folded),
+            Some(TransferLookupId::Incoming {
+                output_index: 3,
+                ..
+            })
+        ));
+    }
 }
