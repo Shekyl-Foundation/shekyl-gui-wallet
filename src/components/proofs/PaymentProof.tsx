@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { describeError } from "../../lib/errors";
 import { formatSkl, SKL_DECIMALS } from "../../lib/format";
 import { ProofNoticeLine, type ProofNotice } from "./notice";
+import { useProofRun } from "./useProofRun";
 
 interface TxProofOutput {
   output_index: number;
@@ -55,32 +55,7 @@ export default function PaymentProof() {
   const [address, setAddress] = useState("");
   const [message, setMessage] = useState("");
   const [proof, setProof] = useState("");
-  const [notice, setNotice] = useState<ProofNotice | null>(null);
-  const [busy, setBusy] = useState(false);
-  /** Bumped on every edit, so a check that finishes late cannot repaint. */
-  const claim = useRef(0);
-
-  const edit = (set: (value: string) => void) => (event: { target: { value: string } }) => {
-    claim.current += 1;
-    set(event.target.value);
-    setNotice(null);
-  };
-
-  const run = async (work: () => Promise<ProofNotice>) => {
-    const ticket = claim.current;
-    setBusy(true);
-    setNotice(null);
-    try {
-      const next = await work();
-      if (ticket !== claim.current) return;
-      setNotice(next);
-    } catch (err) {
-      if (ticket !== claim.current) return;
-      setNotice({ kind: "fault", text: describeError(err) });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const { notice, busy, edit, run } = useProofRun(setProof);
 
   return (
     <div className="card space-y-2">
@@ -132,10 +107,12 @@ export default function PaymentProof() {
                 address,
                 message,
               });
-              setProof(result.proof);
               return {
-                kind: "ready",
-                text: `Payment proof created for ${paymentDirection(result.direction)}. Share the string below only with the person who must see it. An outbound proof also reveals the transaction key.`,
+                proof: result.proof,
+                notice: {
+                  kind: "ready",
+                  text: `Payment proof created for ${paymentDirection(result.direction)}. Share the string below only with the person who must see it. An outbound proof also reveals the transaction key.`,
+                },
               };
             })
           }
@@ -149,7 +126,7 @@ export default function PaymentProof() {
           onClick={() =>
             void run(async () => {
               const result = await invoke<TxCheck>("check_tx_proof", { txid, address, proof, message });
-              return checkedPayment(result);
+              return { notice: checkedPayment(result) };
             })
           }
         >

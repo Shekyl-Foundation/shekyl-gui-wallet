@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { describeError } from "../../lib/errors";
 import { formatSkl, parseSkl, SKL_DECIMALS } from "../../lib/format";
 import { ProofNoticeLine, type ProofNotice } from "./notice";
+import { useProofRun } from "./useProofRun";
 
 interface ReserveCheck {
   valid: boolean;
@@ -38,32 +38,7 @@ export default function ReserveProof() {
   const [address, setAddress] = useState("");
   const [message, setMessage] = useState("");
   const [proof, setProof] = useState("");
-  const [notice, setNotice] = useState<ProofNotice | null>(null);
-  const [busy, setBusy] = useState(false);
-  /** Bumped on every edit, so a check that finishes late cannot repaint. */
-  const claim = useRef(0);
-
-  const edit = (set: (value: string) => void) => (event: { target: { value: string } }) => {
-    claim.current += 1;
-    set(event.target.value);
-    setNotice(null);
-  };
-
-  const run = async (work: () => Promise<ProofNotice>) => {
-    const ticket = claim.current;
-    setBusy(true);
-    setNotice(null);
-    try {
-      const next = await work();
-      if (ticket !== claim.current) return;
-      setNotice(next);
-    } catch (err) {
-      if (ticket !== claim.current) return;
-      setNotice({ kind: "fault", text: describeError(err) });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const { notice, busy, edit, run } = useProofRun(setProof);
 
   return (
     <div className="card space-y-2">
@@ -121,11 +96,13 @@ export default function ReserveProof() {
                 "get_reserve_proof",
                 { amount: atomic, message },
               );
-              setProof(result.proof);
               const outputs = result.output_count === 1 ? "1 output" : `${result.output_count} outputs`;
               return {
-                kind: "ready",
-                text: `Reserve proof created for ${formatSkl(result.total, SKL_DECIMALS)} SKL across ${outputs}.`,
+                proof: result.proof,
+                notice: {
+                  kind: "ready",
+                  text: `Reserve proof created for ${formatSkl(result.total, SKL_DECIMALS)} SKL across ${outputs}.`,
+                },
               };
             })
           }
@@ -143,7 +120,7 @@ export default function ReserveProof() {
                 proof,
                 message,
               });
-              return checkedReserve(result);
+              return { notice: checkedReserve(result) };
             })
           }
         >
