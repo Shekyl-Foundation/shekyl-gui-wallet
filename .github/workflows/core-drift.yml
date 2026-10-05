@@ -81,16 +81,22 @@ jobs:
       - name: Checkout the wallet
         uses: actions/checkout@v5
         with:
-          # A pull request checks out the head repository at the head
-          # commit. `github.head_ref` is only a branch name, so checking
-          # that name out of Shekyl-Foundation/shekyl-gui-wallet builds the
-          # official branch (or fails) instead of a fork's commits.
-          # workflow_call, schedule, and dispatch stay on the official
-          # repository: a caller passes `wallet_ref`, and the schedule
-          # forces `dev` (GitHub runs it from `main`, which is expected to
-          # lag core `dev`).
-          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || 'Shekyl-Foundation/shekyl-gui-wallet' }}
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
+          # A pull request of *this* repository checks out the head
+          # repository at the head commit, so a fork's commits are built.
+          # `github.head_ref` is only a branch name, and checking that name
+          # out of Shekyl-Foundation/shekyl-gui-wallet builds the official
+          # branch (or fails) instead.
+          #
+          # The base repository is what makes the pull request ours.
+          # `github.event` inside a called workflow is the caller's event,
+          # so a shekyl-core pull request arrives here as `pull_request`
+          # whose head is shekyl-core. Checking that out under `gui/`
+          # leaves no wallet to build. A caller passes `wallet_ref`.
+          # Schedule and dispatch stay on the official repository too; the
+          # schedule forces `dev` (GitHub runs it from `main`, which is
+          # expected to lag core `dev`).
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.repo.full_name == 'Shekyl-Foundation/shekyl-gui-wallet' && github.event.pull_request.head.repo.full_name || 'Shekyl-Foundation/shekyl-gui-wallet' }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.repo.full_name == 'Shekyl-Foundation/shekyl-gui-wallet' && github.event.pull_request.head.sha || inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
           path: gui
 
       - name: Checkout shekyl-core
