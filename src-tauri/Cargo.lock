@@ -5854,6 +5854,7 @@ dependencies = [
 name = "shekyl-onion-v3"
 version = "3.1.0"
 dependencies = [
+ "curve25519-dalek",
  "sha3",
 ]
 
@@ -6146,11 +6147,13 @@ version = "3.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "shekyl-crypto-pq",
  "shekyl-engine-core",
  "shekyl-engine-file",
  "shekyl-engine-prefs",
  "shekyl-engine-state",
  "shekyl-rpc-client",
+ "shekyl-types",
  "thiserror 2.0.18",
  "tracing",
 ]
