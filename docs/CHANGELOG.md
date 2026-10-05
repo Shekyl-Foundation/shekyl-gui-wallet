@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.9] - 2026-10-05
+
+Paired with shekyl-core `v3.1.0-alpha.9`: `release.yml` clones that tag for
+the bundled `shekyld` and the Engine path-deps.
+
 ### Added
 
 - **Stake funding, return, release, and collect.** The Staking page can fund a stake (`stake_in`, confirmed through the same reservation the Send page owns), return staking funds (`drain`), release the bond (the button says Release; the command is `unstake`), and collect the released collateral. If the chain moves during review, the wallet releases that reservation and shows the new figures before it asks to confirm; a rebuild that fails does not claim the figures were replaced. A fund of zero is refused before a reservation is made. Drain and release share one sealed receipt (`BROADCAST`, or `ALREADY_IN_CHAIN` with a height). Collect answers `SWEPT` — what moved, what remains, and whether another stake still holds funds — or `NOTHING_LEFT`, which carries no amounts.

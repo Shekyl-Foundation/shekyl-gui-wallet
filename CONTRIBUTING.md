@@ -30,7 +30,7 @@ Policy: `.cursor/rules/06-branching.mdc`.
   dev. Version bumps and CHANGELOG cuts happen on dev.
 - **CI**: dev CI (`ci.yml`, `codeql.yml`) tracks shekyl-core `dev`.
   Release builds (`release.yml`) clone the matching shekyl-core tag
-  (`SHEKYL_CORE_REF`, currently `v3.1.0-alpha.8`).
+  (`SHEKYL_CORE_REF`, currently `v3.1.0-alpha.9`).
 - **Release flow** (same shape as shekyl-core):
   1. dev is verified.
   2. Open a PR dev → main titled `Release: vX.Y.Z` (audit trail even
