@@ -79,18 +79,16 @@ jobs:
       - name: Checkout the wallet
         uses: actions/checkout@v5
         with:
-          repository: Shekyl-Foundation/shekyl-gui-wallet
-          # A caller names the wallet ref; a manual dispatch builds the branch
-          # it was dispatched from; the schedule always builds `dev`. GitHub
-          # runs a scheduled workflow from the default branch, so
-          # `github.ref_name` is `main` there — and `main` is the stable
-          # branch, which is *expected* to lag core `dev`. From 2026-09-18 to
-          # 2026-09-29 the schedule built `main` against core `dev` and was red
-          # every day for that reason alone, while GUI `dev` built fine; a
-          # check that is red for a reason it does not ask about is no check.
-          # pull_request: `github.ref_name` is `<n>/merge`, not the branch.
-          # `head_ref` is the branch. The schedule forces dev (see above).
-          ref: ${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
+          # A pull request checks out the head repository at the head
+          # commit. `github.head_ref` is only a branch name, so checking
+          # that name out of Shekyl-Foundation/shekyl-gui-wallet builds the
+          # official branch (or fails) instead of a fork's commits.
+          # workflow_call, schedule, and dispatch stay on the official
+          # repository: a caller passes `wallet_ref`, and the schedule
+          # forces `dev` (GitHub runs it from `main`, which is expected to
+          # lag core `dev`).
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || 'Shekyl-Foundation/shekyl-gui-wallet' }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
           path: gui
 
       - name: Checkout shekyl-core
@@ -98,6 +96,10 @@ jobs:
           CORE_REPOSITORY: ${{ inputs.core_repository || 'Shekyl-Foundation/shekyl-core' }}
           CORE_REF: ${{ inputs.core_ref || 'dev' }}
           EVENT_NAME: ${{ github.event_name }}
+          # Branch name, not the checkout SHA. `git ls-remote --heads`
+          # matches a branch. A fork pull request still looks up shekyl-core
+          # by that name; the wallet commits themselves were checked out
+          # above at `head.sha`.
           WALLET_REF: ${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
