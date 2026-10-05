@@ -13,7 +13,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Matching-tag pin. Bump this when pairing the next GUI tag with a new
   # shekyl-core tag. CI (`ci.yml`, `codeql.yml`) stays on core `dev`.
-  SHEKYL_CORE_REF: v3.1.0-alpha.8
+  SHEKYL_CORE_REF: v3.1.0-alpha.9
 
 jobs:
   create-release:
