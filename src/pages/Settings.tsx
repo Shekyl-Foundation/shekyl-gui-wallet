@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Globe, Server, Shield, ShieldCheck, Settings2 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
 import SecurityPanel from "../components/SecurityPanel";
+import WalletCare from "../components/WalletCare";
 
 interface DaemonSettings {
   keep_running_on_exit: boolean;
@@ -126,6 +127,7 @@ export default function Settings() {
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-xl font-bold text-white">Settings</h1>
+      <WalletCare />
 
       {/* Network */}
       <div className="card space-y-4">

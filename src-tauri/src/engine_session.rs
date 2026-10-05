@@ -28,17 +28,14 @@ use shekyl_crypto_pq::account::{
 };
 use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES};
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
-use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams, FeePriority,
-    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshOptions, SoloSigner, StakeFacade,
-    StakePosture, TxRecipient, TxRequest,
+    BalanceView, Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams,
+    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshError, RefreshOptions,
+    SoloSigner, StakeFacade, StakePosture,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
-use shekyl_scanner::WalletLedgerExt;
-use shekyl_units::AtomicUnits;
 use tokio::sync::RwLock;
 use tracing::warn;
 use zeroize::{Zeroize, Zeroizing};
@@ -60,10 +57,6 @@ pub struct EngineSession {
     base_path: Option<PathBuf>,
     network: Option<Network>,
     daemon_http_base: Option<String>,
-    /// One-shot mnemonic retained only until the create response is
-    /// delivered (Engine drops seed material at open; mid-session
-    /// `get_seed` cannot re-materialize it without a password reopen).
-    create_mnemonic: Option<String>,
 }
 
 impl EngineSession {
@@ -75,8 +68,14 @@ impl EngineSession {
             base_path: None,
             network: None,
             daemon_http_base: None,
-            create_mnemonic: None,
         }
+    }
+
+    /// The shared engine, for work that must not hold the session's outer
+    /// mutex across a proof: callers clone this, drop the session lock, and
+    /// take the engine's own read guard (the same shape as wallet-rpc).
+    pub fn shared_engine(&self) -> Option<SharedEngine> {
+        self.engine.clone()
     }
 
     pub fn is_open(&self) -> bool {
@@ -107,7 +106,6 @@ impl EngineSession {
         self.base_path = None;
         self.network = None;
         self.daemon_http_base = None;
-        self.create_mnemonic = None;
     }
 
     /// Create a fresh Engine wallet (BIP-39 on mainnet/stagenet; raw32 on testnet).
@@ -118,7 +116,7 @@ impl EngineSession {
         password: &str,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<CreateOutcome, String> {
+    ) -> Result<CreatedSession, String> {
         if self.engine.is_some() {
             return Err("A wallet is already open".into());
         }
@@ -161,50 +159,39 @@ impl EngineSession {
                 .map_err(map_open_err)?;
         drop(master_seed);
 
-        let address = engine
-            .primary_address()
-            .encode()
-            .map_err(|e| format!("encode address: {e}"))?;
-
+        // Create always omits `restore_height_hint`. Read the capability off
+        // the engine before it moves into the session lock.
+        let facts = WalletFacts::created(engine.capability());
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
         self.catch_up_after_open().await?;
 
-        let seed = match backup {
-            SeedBackup::Mnemonic(m) => {
-                self.create_mnemonic = Some(m.clone());
-                m
-            }
-            SeedBackup::RawHex(h) => {
-                // Testnet raw seed: surface as hex for backup; not BIP-39.
-                self.create_mnemonic = None;
-                h
-            }
-        };
-
-        Ok(CreateOutcome { address, seed })
+        // The backup goes out ONCE, in the create response, and nothing here
+        // keeps a copy: a resident duplicate of the master secret held for
+        // the whole session was a rule-35 defect (it was a plain `String`,
+        // never zeroized, and its only reader was a command nothing called).
+        Ok(CreatedSession { backup, facts })
     }
 
-    /// Restore an Engine wallet from a BIP-39 mnemonic (mainnet/stagenet).
+    /// Restore an Engine wallet from its seed backup. The backup's encoding is
+    /// network-governed, exactly as `generate_seed_material` chose it at
+    /// creation: a BIP-39 mnemonic on mainnet/stagenet, the 32-byte raw seed
+    /// as hex on testnet (the contract's `restore_wallet`).
     #[allow(clippy::too_many_arguments)]
-    pub async fn restore_from_bip39(
+    pub async fn restore_from_backup(
         &mut self,
         wallet_dir: &Path,
         name: &str,
-        mnemonic: &str,
+        backup: &str,
         password: &str,
-        passphrase: &str,
-        restore_height: u64,
+        restore_height: u32,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<String, String> {
+    ) -> Result<WalletFacts, String> {
         if self.engine.is_some() {
             return Err("A wallet is already open".into());
         }
         let engine_net = map_network(network);
-        if matches!(engine_net, Network::Testnet) {
-            return Err("BIP-39 restore is for mainnet/stagenet; testnet uses raw seeds".into());
-        }
 
         let base = engine_wallet_base(wallet_dir, name);
         if keys_path_from(&base).exists() {
@@ -213,9 +200,7 @@ impl EngineSession {
         std::fs::create_dir_all(wallet_dir)
             .map_err(|e| format!("Failed to create wallet directory: {e}"))?;
 
-        let derivation = network_to_derivation(engine_net);
-        let (master_seed, _blob) = generate_account_from_bip39(mnemonic, passphrase, derivation)
-            .map_err(|e| format!("BIP-39 restore failed: {e}"))?;
+        let (master_seed, seed_format) = master_seed_from_backup(backup, engine_net)?;
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let daemon = make_daemon(daemon_http_base, engine_net).await?;
@@ -231,10 +216,10 @@ impl EngineSession {
             network: engine_net,
             capability: shekyl_engine_core::CapabilityInput::Full {
                 master_seed_64: &master_seed,
-                seed_format: SeedFormat::Bip39,
+                seed_format,
             },
             creation_timestamp,
-            restore_height_hint: u32::try_from(restore_height).unwrap_or(u32::MAX),
+            restore_height_hint: restore_height,
             kdf: KdfParams::default(),
             overrides: SafetyOverrides::none(),
             prefs: WalletPrefs::default(),
@@ -245,17 +230,12 @@ impl EngineSession {
                 .map_err(map_open_err)?;
         drop(master_seed);
 
-        let address = engine
-            .primary_address()
-            .encode()
-            .map_err(|e| format!("encode address: {e}"))?;
-
+        let facts = WalletFacts::restored(engine.capability(), restore_height);
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
-        self.create_mnemonic = None;
         self.catch_up_after_open().await?;
 
-        Ok(address)
+        Ok(facts)
     }
 
     /// Open an existing Engine wallet.
@@ -266,7 +246,7 @@ impl EngineSession {
         password: &str,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<String, String> {
+    ) -> Result<WalletFacts, String> {
         if self.engine.is_some() {
             return Err("A wallet is already open".into());
         }
@@ -292,22 +272,21 @@ impl EngineSession {
         })
         .map_err(map_open_err)?;
 
-        let engine = match opened {
-            OpenedEngine::Loaded(w) => w,
-            OpenedEngine::Restored { wallet, .. } => wallet,
+        // Loaded omits the hint. Restored reports `from_height`, including zero.
+        let (engine, ledger) = match opened {
+            OpenedEngine::Loaded(engine) => (engine, OpenedLedger::Loaded),
+            OpenedEngine::Restored {
+                wallet,
+                from_height,
+            } => (wallet, OpenedLedger::Rebuilt { from_height }),
         };
-
-        let address = engine
-            .primary_address()
-            .encode()
-            .map_err(|e| format!("encode address: {e}"))?;
+        let facts = WalletFacts::opened(engine.capability(), ledger);
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
         self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
-        self.create_mnemonic = None;
 
         self.catch_up_after_open().await?;
-        Ok(address)
+        Ok(facts)
     }
 
     /// Persist and close the open Engine wallet.
@@ -344,15 +323,12 @@ impl EngineSession {
         })
     }
 
-    /// Become a staker: credentialed first-stake activation (GUI-PR3).
-    ///
-    /// Mirrors `shekyl-wallet-rpc` `stake { password }`: verify password →
-    /// optional intent reopen → [`StakeFacade::first_stake`]. No broadcast on this
-    /// path (`state: pending_dispatch`).
-    pub async fn activate_staker(
-        &mut self,
-        password: &str,
-    ) -> Result<ActivateStakerOutcome, String> {
+    /// The contract's `stake { password }`: credentialed first-stake
+    /// activation (GUI-PR3). Verify password → optional intent reopen →
+    /// [`StakeFacade::first_stake`]. No broadcast on this path
+    /// (`state: pending_dispatch`). Posture is always `Market`; the desktop
+    /// wallet offers no path to name the foundation posture.
+    pub async fn stake(&mut self, password: &str) -> Result<StakeOutcome, String> {
         let shared = self
             .engine
             .clone()
@@ -420,7 +396,7 @@ impl EngineSession {
             .await
             .map_err(map_first_stake_err)?;
 
-        Ok(ActivateStakerOutcome::from(outcome))
+        Ok(StakeOutcome::from(outcome))
     }
 
     /// SA-R1-a: verify password, close, reopen with first-stake intent, start P-scan.
@@ -582,24 +558,18 @@ impl EngineSession {
         }
     }
 
-    /// Run a one-shot refresh (blocks until complete).
-    pub async fn refresh(&self) -> Result<(), String> {
-        let shared = self
-            .engine
-            .clone()
-            .ok_or_else(|| "No wallet is open".to_string())?;
-        let handle = Engine::start_refresh(shared, RefreshOptions::default())
-            .await
-            .map_err(map_refresh_err)?;
-        handle.join().await.map_err(map_refresh_err)?;
-        Ok(())
-    }
-
+    /// Catch the newly opened wallet up. A daemon that refuses on identity
+    /// closes the wallet again — it must not be read from — while any other
+    /// failure leaves it open for the next refresh to retry.
     async fn catch_up_after_open(&mut self) -> Result<(), String> {
-        match self.refresh().await {
+        let Some(shared) = self.engine.clone() else {
+            warn!("engine refresh after open skipped: no wallet is open");
+            return Ok(());
+        };
+        match run_refresh(shared).await {
             Err(e) if is_identity_refusal(&e) => {
                 let _ = self.close().await;
-                Err(e)
+                Err(map_refresh_err(e))
             }
             Err(e) => {
                 warn!(error = %e, "engine refresh after open failed");
@@ -620,32 +590,22 @@ impl EngineSession {
             .map_err(|e| format!("encode address: {e}"))
     }
 
-    /// Balance as total / unlocked / staked.
+    /// The engine's one-glance balance (`StakeFacade::balance_view`): the
+    /// contract's `get_balance`, projected once in engine-core for this
+    /// wallet and wallet-rpc alike. `staking` is `None` when the sealed
+    /// staking state could not be read (the degrade arm — absence, never a
+    /// fabricated zero); a corrupt staking total is the error. The `staked`
+    /// figure is the engine's reviewed sum of the two bonded legs, which stay
+    /// distinct on [`Self::staking_view`].
     ///
-    /// PR-SJ-1b: [`WalletLedgerExt::balance`] is the only balance API — it
-    /// composes the scan-derived ledger with the journal-derived F14 spend
-    /// locks, so an in-flight send is counted in `total` but never `unlocked`.
-    ///
-    /// **Dual truth (intentional):** the third tuple element (`staked`) is
-    /// always `0` here. Personal archival stake is *not* folded into
-    /// dashboard balance — it lives only on the Staking page via
-    /// [`Self::staking_view`] / WI-RPC-1 (three distinct legs: confirmed
-    /// principal, pending principal, unspent rewards). Do not invent a
-    /// single summed "staked" figure for this field; when a dashboard total
-    /// is product-ready it must be an explicit, reviewed mapping — not a
-    /// silent alias of one of the three legs.
-    pub async fn balance(&self) -> Result<(u64, u64, u64), String> {
+    /// Small synchronous file I/O on the staking leg, hence `block_in_place`.
+    pub async fn balance_view(&self) -> Result<BalanceView, String> {
         let shared = self
             .engine
             .as_ref()
             .ok_or_else(|| "No wallet is open".to_string())?;
         let g = shared.read().await;
-        let summary = g.ledger().balance();
-        Ok((
-            summary.total.to_raw(),
-            summary.unlocked.to_raw(),
-            0, // personal stake: see dual-truth note above
-        ))
+        tokio::task::block_in_place(|| g.stake().balance_view()).map_err(|e| e.to_string())
     }
 
     /// F-D2 aggregate drainable-`P` read (DS-PR-3 PR-B; `ARCHIVAL_DRAIN_SEND_FD2.md`
@@ -665,7 +625,7 @@ impl EngineSession {
             .ok_or_else(|| "No wallet is open".to_string())?;
         match StakeFacade::drain_balance_aggregate(shared).await {
             Ok(spendable) => Ok(DrainBalance::Ready {
-                spendable: spendable.to_raw(),
+                spendable: spendable.into(),
             }),
             Err(DrainBalanceReadError::Unanchorable { detail }) => Ok(DrainBalance::Syncing {
                 detail: detail.to_string(),
@@ -702,106 +662,6 @@ impl EngineSession {
         Ok(StakingView::from(view))
     }
 
-    /// One-shot send: build pending tx + submit (GUI transfer command).
-    ///
-    /// Mirrors wallet-rpc `build_pending_tx` → `submit_pending_tx` with
-    /// `FeePriority::Standard`. On CT-5d `ContentChanged`, resubmits once
-    /// with the advanced `content_gen` (user already confirmed the send
-    /// intent at the UI layer for this one-shot path).
-    pub async fn transfer(
-        &self,
-        address: &str,
-        amount_atomic: u64,
-    ) -> Result<TransferOutcome, String> {
-        let shared = self
-            .engine
-            .clone()
-            .ok_or_else(|| "No wallet is open".to_string())?;
-
-        let request = TxRequest {
-            recipients: vec![TxRecipient {
-                address: address.to_owned(),
-                amount_atomic_units: AtomicUnits::from_raw(amount_atomic),
-            }],
-            priority: FeePriority::Standard,
-        };
-
-        // Phase 4b: build/submit/discard take `&self` (interior mutability +
-        // engine-owned permits). Hold a *read* guard — same as wallet-rpc —
-        // so P-scan and other SharedEngine readers are not stalled across
-        // FCMP++ assembly and the daemon submit RTT. Serialization of the
-        // send path itself lives in LocalPendingTx, not this lock.
-        let engine = shared.read().await;
-        let pending = engine
-            .build_pending_tx_async(&request)
-            .await
-            .map_err(|e| format!("build transfer: {e}"))?;
-
-        let fee = pending.fee_atomic_units.to_raw();
-        let id = pending.id;
-        let mut seen_gen = pending.content_gen;
-
-        // SubmitOutcome is identity-bearing (Accepted / AlreadyInPool /
-        // AlreadyInChain); one-shot GUI needs only the txid. Verdict UX is a
-        // separate follow-up; refresh remains settlement authority.
-        let tx_hash = match engine.submit_pending_tx_async(id, seen_gen).await {
-            Ok(outcome) => outcome.hash(),
-            Err(SubmitError::ContentChanged {
-                content_gen,
-                reservation_id,
-            }) => {
-                // One-shot GUI path: re-confirm is implicit; resubmit once.
-                seen_gen = content_gen;
-                engine
-                    .submit_pending_tx_async(reservation_id, seen_gen)
-                    .await
-                    .map_err(|e| {
-                        // Best-effort discard so funds unlock if still held.
-                        let _ = engine.discard_pending_tx(reservation_id);
-                        format!("submit transfer (after re-anchor): {e}")
-                    })?
-                    .hash()
-            }
-            Err(e) => {
-                let _ = engine.discard_pending_tx(id);
-                return Err(format!("submit transfer: {e}"));
-            }
-        };
-
-        Ok(TransferOutcome {
-            tx_hash: tx_hash.to_string(),
-            amount: amount_atomic,
-            fee,
-        })
-    }
-
-    /// Estimate fee by building (then discarding) a pending tx.
-    pub async fn estimate_fee(&self, address: &str, amount_atomic: u64) -> Result<u64, String> {
-        let shared = self
-            .engine
-            .clone()
-            .ok_or_else(|| "No wallet is open".to_string())?;
-
-        let request = TxRequest {
-            recipients: vec![TxRecipient {
-                address: address.to_owned(),
-                amount_atomic_units: AtomicUnits::from_raw(amount_atomic),
-            }],
-            priority: FeePriority::Standard,
-        };
-
-        // Read guard: fee estimate is build+discard under the same Phase 4b
-        // shared-borrow contract as transfer (see above).
-        let engine = shared.read().await;
-        let pending = engine
-            .build_pending_tx_async(&request)
-            .await
-            .map_err(|e| format!("fee estimate: {e}"))?;
-        let fee = pending.fee_atomic_units.to_raw();
-        let _ = engine.discard_pending_tx(pending.id);
-        Ok(fee)
-    }
-
     /// Project receive ledger + send journal into a transaction list.
     ///
     /// See [`transfer_history`] for the PR-SJ-2 projection rules.
@@ -823,24 +683,6 @@ impl EngineSession {
             .map(|td| IncomingFact::from_details(td, &locks));
         transfer_history::merge_transfer_history(incoming, &ledger.send_journal.rows)
     }
-
-    /// Seed available only immediately after create (if BIP-39 path).
-    pub fn take_create_mnemonic(&mut self) -> Option<String> {
-        self.create_mnemonic.take()
-    }
-
-    /// Mid-session seed is not available on the Engine path (seed dropped at open).
-    pub fn seed_unavailable_message() -> &'static str {
-        "recovery phrase is only shown once at wallet creation on the Engine backend; \
-         mid-session seed display requires a credentialed reopen (not yet exposed)"
-    }
-}
-
-/// Result of a one-shot Engine transfer.
-pub struct TransferOutcome {
-    pub tx_hash: String,
-    pub amount: u64,
-    pub fee: u64,
 }
 
 /// Archival staker status (GUI-PR3).
@@ -852,16 +694,16 @@ pub struct StakerStatus {
     pub has_pscan: bool,
 }
 
-/// Outcome of `activate_staker` (bond sealed, not yet broadcast).
+/// Outcome of `stake` (bond sealed, not yet broadcast).
 #[derive(Debug, Clone)]
-pub struct ActivateStakerOutcome {
+pub struct StakeOutcome {
     pub slot: u32,
     pub swept_inputs: usize,
     pub resumed: bool,
     pub state: &'static str,
 }
 
-impl From<FirstStakeOutcome> for ActivateStakerOutcome {
+impl From<FirstStakeOutcome> for StakeOutcome {
     fn from(o: FirstStakeOutcome) -> Self {
         Self {
             slot: o.p_slot,
@@ -878,11 +720,6 @@ impl Default for EngineSession {
     }
 }
 
-pub struct CreateOutcome {
-    pub address: String,
-    pub seed: String,
-}
-
 /// Base path `{wallet_dir}/{name}.wallet` for Engine file envelope.
 pub fn engine_wallet_base(wallet_dir: &Path, name: &str) -> PathBuf {
     wallet_dir.join(format!("{name}.wallet"))
@@ -893,7 +730,7 @@ pub fn engine_wallet_exists(wallet_dir: &Path, name: &str) -> bool {
     keys_path_from(&engine_wallet_base(wallet_dir, name)).exists()
 }
 
-fn map_network(n: NetworkType) -> Network {
+pub(crate) fn map_network(n: NetworkType) -> Network {
     match n {
         NetworkType::Mainnet => Network::Mainnet,
         NetworkType::Testnet => Network::Testnet,
@@ -909,9 +746,105 @@ fn network_to_derivation(network: Network) -> DerivationNetwork {
     }
 }
 
-enum SeedBackup {
+/// The backup handed out exactly once at creation, in the network's
+/// encoding — the contract's `CreateWalletResult.mnemonic` (mainnet /
+/// stagenet) or `raw_seed_hex` (testnet). Held only until the create
+/// response is built; never stored.
+pub enum SeedBackup {
     Mnemonic(String),
     RawHex(String),
+}
+
+/// How `open` found the ledger. Decides whether the contract's
+/// `WalletHandle.restore_height_hint` is present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenedLedger {
+    /// The state file decoded. The hint is omitted even when the keys file stores one.
+    Loaded,
+    /// The state file was missing. `from_height` is the keys-file hint, widened.
+    /// Zero is still reported: a rebuild from genesis is a rebuild.
+    Rebuilt { from_height: u64 },
+}
+
+/// Capability and restore-hint presence for a lifecycle call that left a wallet open.
+///
+/// The hint's presence is the contract's, matching wallet-rpc: omitted on create,
+/// omitted when a restore starts at genesis, omitted on a cache-hit open, and
+/// present for a higher restore floor or a ledger rebuild.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalletFacts {
+    pub capability: Capability,
+    pub restore_height_hint: Option<u64>,
+}
+
+impl WalletFacts {
+    /// A fresh wallet. The contract omits the hint.
+    pub fn created(capability: Capability) -> Self {
+        Self {
+            capability,
+            restore_height_hint: None,
+        }
+    }
+
+    /// A restore. Genesis (`0`) omits the hint; every higher floor is reported.
+    pub fn restored(capability: Capability, height: u32) -> Self {
+        Self {
+            capability,
+            restore_height_hint: (height > 0).then_some(u64::from(height)),
+        }
+    }
+
+    /// An open. The hint is present only when the ledger was rebuilt.
+    pub fn opened(capability: Capability, ledger: OpenedLedger) -> Self {
+        let restore_height_hint = match ledger {
+            OpenedLedger::Loaded => None,
+            OpenedLedger::Rebuilt { from_height } => Some(from_height),
+        };
+        Self {
+            capability,
+            restore_height_hint,
+        }
+    }
+}
+
+/// Backup plus the facts `create_wallet` puts on the handle. The backup is
+/// moved onto the response and not stored on the session.
+pub struct CreatedSession {
+    pub backup: SeedBackup,
+    pub facts: WalletFacts,
+}
+
+/// The inverse of `generate_seed_material`: derive the master seed from the
+/// backup the user kept, in the encoding that network's create handed out.
+/// Messages name the failure class only — the backup is key material and is
+/// never reflected (rule 30).
+fn master_seed_from_backup(
+    backup: &str,
+    network: Network,
+) -> Result<(Zeroizing<[u8; MASTER_SEED_BYTES]>, SeedFormat), String> {
+    let derivation = network_to_derivation(network);
+    match network {
+        Network::Mainnet | Network::Stagenet => {
+            let (master, _blob) = generate_account_from_bip39(backup, "", derivation)
+                .map_err(|_| "Invalid recovery phrase".to_string())?;
+            Ok((master, SeedFormat::Bip39))
+        }
+        Network::Testnet => {
+            const EXPECTED: &str = "Testnet wallets back up as a 64-character hex seed";
+            let decoded =
+                Zeroizing::new(hex::decode(backup.trim()).map_err(|_| EXPECTED.to_string())?);
+            if decoded.len() != RAW_SEED_BYTES {
+                return Err(EXPECTED.into());
+            }
+            let mut raw = [0u8; RAW_SEED_BYTES];
+            raw.copy_from_slice(&decoded);
+            let derived = generate_account_from_raw_seed(&raw, derivation)
+                .map_err(|_| "Invalid testnet seed".to_string());
+            raw.zeroize();
+            let (master, _blob) = derived?;
+            Ok((master, SeedFormat::Raw32))
+        }
+    }
 }
 
 fn generate_seed_material(
@@ -968,6 +901,16 @@ async fn restart_pscan(shared: &SharedEngine) -> Option<PScanHandle> {
             None
         }
     }
+}
+
+/// One refresh to completion, keeping the engine's typed error so a caller
+/// can branch on what failed before it is rendered.
+async fn run_refresh(shared: SharedEngine) -> Result<(), RefreshError> {
+    Engine::start_refresh(shared, RefreshOptions::default())
+        .await?
+        .join()
+        .await
+        .map(drop)
 }
 
 #[cfg(test)]

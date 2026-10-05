@@ -2,7 +2,260 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.9] - 2026-10-05
+
+Paired with shekyl-core `v3.1.0-alpha.9`: `release.yml` clones that tag for
+the bundled `shekyld` and the Engine path-deps.
+
+### Added
+
+- **Stake funding, return, release, and collect.** The Staking page can fund a stake (`stake_in`, confirmed through the same reservation the Send page owns), return staking funds (`drain`), release the bond (the button says Release; the command is `unstake`), and collect the released collateral. If the chain moves during review, the wallet releases that reservation and shows the new figures before it asks to confirm; a rebuild that fails does not claim the figures were replaced. A fund of zero is refused before a reservation is made. Drain and release share one sealed receipt (`BROADCAST`, or `ALREADY_IN_CHAIN` with a height). Collect answers `SWEPT` — what moved, what remains, and whether another stake still holds funds — or `NOTHING_LEFT`, which carries no amounts.
+- **Proofs and message signing.** New Proofs and Sign pages call `get_tx_proof`, `check_tx_proof`, `get_reserve_proof`, `check_reserve_proof`, `sign_message`, and `verify_message`. A payment check carries each output, the received total, and the confirmation count. A proof that parses but does not check out is `valid: false` and is shown as a failure. `verify_message` succeeds only when the signature matches (`verified: true`); a mismatch, a damaged paste, and an unknown scheme are errors. Editing a field clears a check or a signature result that no longer applies, and a proof that finishes after that edit does not replace what was typed.
+- **Wallet care.** Settings can change the password, refresh, and rebuild history (rebuild asks first). Refresh can report that the chain reorganized; a rebuild cannot, because it is not a rewind. Transactions can store a note, abandon a send, and open one transfer by the id the history list shows. A pasted id may use either hex case or surrounding space; the wallet folds it to the lowercase spelling history emits, and a non-hex character is still refused. Changing the password asks for the new one twice and uses the same eight-character floor as creating a wallet; the command also refuses a null byte or a password past the existing length cap. Abandon asks before it stops tracking a send. Look up on a row fills that row's id, and the amount is shown in SKL.
+
+### Changed
+
+- **A payment link's request id rides the send.** `build_pending_tx` takes
+  the pasted link's `rid` (the contract's new `TxRecipient.rid`, shekyl-core
+  same-named branch) and the engine echoes it in the payment's encrypted
+  label, so the payee's wallet can attribute the receive: core's tests prove
+  the label is written and recovered as `Request(rid)`, and that a recovered
+  id matches a stored request; no single test yet crosses payer to payee.
+  An address edited by hand answers no request. A `rid` the label
+  cannot carry is refused as invalid input, never dropped to a sentinel.
+- **`get_transfers` takes the contract's last two filters.** `since_height`
+  keeps rows mined at or after a height (a send not yet on chain stays), and
+  `attribution` narrows receives by how they matched a payment request and
+  excludes every send — wallet-rpc's semantics, projected in
+  `transfer_history.rs` where the command now lives beside its DTOs (rule
+  27). The Transactions page offers **From block** and a **Request** menu
+  that leaves with the Sent tab.
+- **`AtomicUnitsString` is shekyl-units'.** The Tauri edge's newtype moved to
+  `shekyl_units::AtomicUnitsString`, the same one wallet-rpc serializes;
+  `wire.rs` is deleted and bare `u64` amounts from daemon RPC enter through
+  `AtomicUnits::from_raw` at the edge.
+- **`get_balance` is the contract's `GetBalanceResult`.** The DTO
+  (`src-tauri/src/balance.rs`) is a projection of engine-core's
+  `BalanceView` (`StakeFacade::balance_view`, shekyl-core #894), the same
+  view wallet-rpc serializes: `liquid`, `unlocked`, `pending`,
+  `unspendable`, and `staked` / `claimable_rewards`, which are absent — never
+  `"0"` — when the wallet's sealed staking state cannot be read. The
+  session's dual-truth `balance()` (a `staked` hard-wired to zero) is gone;
+  the engine's reviewed sum of the two bonded legs replaces it, and the
+  Staking page still shows the legs. A closed wallet is an error the card
+  renders as dashes with the engine's message and a retry, not a fabricated
+  zero balance. The Balance Card headlines `liquid`, binds **Available** to
+  `unlocked`, shows Pending / Staked / Rewards, an Unspendable line (at
+  dust precision) only when there is one, and **Unavailable** for absent
+  staking figures.
+  `commands.rs` ceiling locked at 586.
+- **Review round on #30.** `createdWalletFromWire` fails closed by presence
+  and by network: an arm that is present but empty is a contract violation,
+  not a missing arm, and the handle's network chooses the one encoding
+  allowed (`mnemonic` on mainnet/stagenet, `raw_seed_hex` on testnet). The
+  new wallet's address read (`components/wallet/CreatedWalletAddress`) and
+  the transfer history's fetch / poll / retry / fail-closed rendering
+  (`components/transactions/TransactionHistory`) are panels the pages
+  compose (rule 27); `Transactions.tsx` is the filter controls.
+- **The lifecycle results are the contract's.** `create_wallet`,
+  `open_wallet` and `restore_wallet` return the contract's `WalletHandle`
+  (name, the envelope's own capability `FULL`, network as
+  `MAINNET | TESTNET | STAGENET`) under `wallet`. `restore_height_hint`
+  follows wallet-rpc: omitted on create, on a restore from genesis, and on
+  a cache-hit open; present for a higher restore floor and when open
+  rebuilt the ledger (`OpenedEngine::Restored`, including a zero floor).
+  A restore height that does not fit the keys file's `u32` is refused.
+  `create_wallet` adds the backup exactly once — `mnemonic` or
+  `raw_seed_hex`, never both. The page treats those as two arms: a 24-word
+  phrase, or a 64-character hex seed confirmed by re-entry. The address
+  comes from `get_primary_address`; a failed read is shown, not a blank
+  address. The lifecycle commands live in `src-tauri/src/lifecycle.rs`
+  (rule 27; `commands.rs` ceiling locked at 640).
+- **`get_transfers` takes the contract's filters and projects attribution.**
+  `direction` and `state` deserialize as the contract enums (the
+  `since_height` watermark and the attribution filter have no page here
+  and are not taken). The Transactions page keeps each list with the query
+  that produced it, so a new filter shows loading rather than the previous
+  rows, and an empty filter says nothing matched. Incoming rows carry
+  `attribution` as one arm per kind; outgoing rows omit it.
+
+### Changed
+
+- **The command surface speaks the wallet contract's vocabulary.** The
+  four `RENAME` rows the command-surface gate ledgered are retired by
+  renaming, with the contract's parameters and result shapes:
+  `get_address(account, index) → string` is `get_primary_address() →
+  { address }` (no index: Shekyl has no subaddresses); `get_transactions
+  (offset, limit) → rows` is `get_transfers() → { transfers }` whose rows are
+  the contract's `Transfer` (`tx_hash`, `block_height` absent when not on
+  chain, `direction: INCOMING | OUTGOING`, `state: PENDING | CONFIRMED |
+  SPENT | UNSPENDABLE | FAILED | DROPPED | ABANDONED`, with
+  `unspendable_reason` present exactly on `UNSPENDABLE`);
+  `import_wallet_from_seed(name, seed, password, restore_height)` is
+  `restore_wallet(name, password, mnemonic, restore_height)`, and the
+  context method takes that same order; `activate_staker(password,
+  selected_shard_count)` is `stake(password)` — the contract takes a
+  posture, never a shard set, so the selection neither crosses the wire
+  nor is described on the activation card, and the "not open yet"
+  refusal names shard assignment. The startup fossil
+  `init_wallet_rpc` is `ensure_wallet_dir`, which is all it ever did.
+  `scripts/ci/command_surface.conf` carries no `RENAME` row.
+- **Every atomic amount on the Tauri edge is a decimal string.**
+  `Balance`, `DrainBalance.spendable`, the three `StakingView` legs,
+  `StakedOutputView.amount`, the transfer rows' `amount` / `fee`, and the
+  daemon-facing figures the wallet renders as SKL — `ChainHealth`'s
+  `total_burned` / `staker_pool_balance` / `last_block_reward` /
+  `total_staked`, `MiningStatus.block_reward`,
+  `ShardCoverageList.budget_atomic` — join the send edge on
+  `wire::AtomicUnitsString`; the frontend types them `string` and renders
+  with `formatSkl`. The FOLLOWUPS entry "Atomic amounts serialized as JS
+  `number`" is resolved.
+
+### Added
+
+- **Payment requests — the contract's receiving surface** (`create_payment_request`,
+  `list_payment_requests`, `parse_uri`; `src-tauri/src/receiving.rs`, over the
+  same Engine calls as wallet-rpc). Shekyl has no subaddresses; a request is
+  local bookkeeping with an opaque `rid` on the `shekyl:` link. The label is
+  written onto that link. Create and the list both return the URI
+  `format_request_uri` builds from the stored row, so showing the link again
+  does not reassemble it. The contract's freeform `make_uri` is not registered:
+  nothing in the GUI composes a link from loose fields. The Receive page
+  composes a request form (amount, label, optional expiry as a duration), the
+  created link as QR and text, and the request list with its states (Awaiting
+  payment / Paid / Expired / Cancelled). Paying the link does not yet mark the
+  request paid. On the Send page a pasted `shekyl:` link is parsed in Rust
+  (`parse_uri`) and fills the address and amount; Review waits until that
+  parse settles. Amounts are decimal strings throughout, shown at full
+  precision on the request list. Tests on both pages.
+- **The command surface is gated** (`scripts/ci/check_command_surface.sh`,
+  with its own negative controls in `test_check_command_surface.sh`, both in
+  CI). Three legs, mirroring shekyl-core's wallet-RPC liveness gate at the
+  Tauri edge: every command in `generate_handler![...]` is a wallet-contract
+  adapter (its name is SPECIFIED in `wallet_rpc.yaml`) or declared in
+  `scripts/ci/command_surface.conf` as `SHELL`, `RENAME <method>` or
+  `COMPOSITE <methods>`; every registered command is invoked from frontend
+  source and every invoked name is registered; no registered command's tail
+  is an unconditional `Err(...)` or `return Err(...)`. The `RENAME` rows are
+  the vocabulary-drift ledger slice (d) retires. `COMPOSITE` is the reviewed
+  claim that `get_staking_view` projects `staking_info`, `get_staked_balance`,
+  and `get_staked_outputs`. Policy: `.cursor/rules/28-command-surface.mdc`.
+
+### Removed
+
+- **Import from private keys.** `import_wallet_from_keys` validated a
+  Monero-shaped spend/view key pair and then returned "not available on the
+  Engine backend" — a registered refusal behind a live tab. A Shekyl wallet's
+  hybrid post-quantum keys are derived from the recovery phrase, and the
+  contract's `restore_wallet` takes a mnemonic only; the command, its key
+  validator, the Private Keys tab and the context method are gone. The
+  Import page also no longer collects a BIP-39 passphrase it never sent, and
+  no longer listens on the `wallet-progress` event nothing emitted (its
+  stage list showed steps that never happened); it now shows one honest
+  restoring state. `create_wallet` and `import_wallet_from_seed` no longer
+  take the Wallet2 mnemonic-language selector the Engine discarded.
+  `ImportWallet.test.tsx` covers the remaining path.
+
 ### Fixed
+
+- **A testnet wallet could not be restored.** `create_wallet` hands a testnet
+  wallet its 32-byte raw seed as hex (`seed_language: "raw32"`), but the
+  Import page accepted only 24 words and the session's restore called the
+  BIP-39 path, which refuses testnet outright. Restore is now network-governed
+  exactly as creation is: `validate_seed_backup` and
+  `EngineSession::restore_from_backup` (`master_seed_from_backup`, the inverse
+  of `generate_seed_material`) take the phrase on mainnet/stagenet and the
+  64-hex seed on testnet — the contract's `restore_wallet` — and the page
+  accepts either shape, leaving the network's choice to Rust. Covered in
+  `validate.rs` and `ImportWallet.test.tsx`.
+- **The command-surface gate's two blind spots** (Copilot on #27): a string
+  literal that is not a command name (`invoke("get-balance")`) was invisible
+  to the consumer leg — every literal is now read and one that fails the name
+  grammar is an `UNREG` finding; and the stub leg judged the last physical
+  line, so a rustfmt-wrapped `Err(format!(...))` ending in `))` passed — it
+  now judges the last statement that opens at the fn's top-level indent.
+  Both have negative controls.
+- **The Send flow built a full transaction on every keystroke pause, and the
+  fee the user saw was never the fee that shipped.** `estimate_fee` ran the
+  complete build — selection, `AssembleTx`, FCMP++ proving, signing,
+  reservation — on a 500 ms typing debounce, then discarded it; on the Pi 4
+  floor that is seconds of proving per pause, holding the engine lock against
+  balance polling. `transfer` then built *again*, so the confirmed fee belonged
+  to a discarded transaction, and a submit-time `ContentChanged` was resubmitted
+  with nobody re-consenting. Replaced by the contract's own three-step shape
+  and names in `send.rs`: `get_default_fee_priority` (the daemon's tier quote
+  for the canonical shape, fetched once per page — weight × rate, never a
+  proof), `build_pending_tx` (Review: built once, exact fee shown),
+  `submit_pending_tx` (Confirm, with the reviewed `content_gen`) and
+  `discard_pending_tx` (Cancel, leaving the page, closing the window). A
+  content change discards and rebuilds so the user re-confirms figures they can
+  read; ambiguous or still-pending submits keep their reservation and are never
+  discarded by the page, and a failed discard keeps the reservation owned and
+  visible rather than forgotten. The three fee tiers (FL-R17) are
+  user-selectable. Every atomic amount on this boundary is a decimal string
+  (`AtomicUnitsString`), parsed losslessly with `parseSkl` and rendered on the
+  review card at full 9-decimal precision, so a fee or amount above 2^53 is
+  never rounded at the Tauri edge and two reservations one atomic unit apart
+  never display alike. The page composes `FeeTierPicker` and `ReviewCard`
+  panels (rule 27).
+  `transfer`, `estimate_fee` and the dead `transfer_stage` progress UI (no
+  Rust emitter existed) are deleted.
+
+### Security
+
+- **No resident copy of the recovery phrase.** `EngineSession` kept a second,
+  never-zeroized `String` of the mnemonic for the whole session, solely so a
+  `get_seed` command nothing called could hand it out. `create_wallet` already
+  returns the phrase once, in its result. The field, `get_seed`,
+  `take_create_mnemonic` and `seed_unavailable_message` are deleted.
+- **Webview shell authority removed.** `capabilities/daemon.json` granted the
+  renderer `shell:allow-spawn`/`allow-kill`/`allow-stdin-write`. The bundled
+  `shekyld` is spawned from Rust, and the frontend does not install the shell
+  plugin, so this was dead authority. Deleted; the sidecar is unaffected.
+- **Seed copy is mitigated, not removed.** The copy button stays (denying it
+  only pushes users to photograph the screen). `copy_to_clipboard` writes the
+  phrase, keeps only a digest, and arms the clear itself: 60 s later, when
+  the create page is left, and when the window is destroyed. A clear forgets
+  the digest only when the clipboard has changed or the OS clear succeeds. A
+  failed read or clear leaves the digest tracked so the expiry task can
+  retry. The page timer only hides the notice. The webview has no clipboard
+  capability.
+
+### Changed
+
+- **Multisig Rust surface is compiled out by default.** The commands and the
+  arbitrary-path file shuttle compile only with `--features multisig`
+  (`src-tauri/src/multisig.rs`). That code is in flight — there is no Engine
+  port yet — not dead. The frontend is one bundle: it always contains the
+  page, reads `get_feature_flags`, and keeps the nav entry, route content,
+  Help section, and glossary terms hidden until Rust reports the feature.
+  The route stays registered so a loading flag cannot fall through to the
+  catch-all.
+
+- **Gallery profit as a decimal string.** `list_shards` emits
+  `expected_profit_atomic` as a decimal string of atomic units (not a JSON
+  number). The gallery sums and formats with BigInt so values above 2^53
+  stay exact. Remaining balance DTOs are still JSON numbers (see
+  `docs/FOLLOWUPS.md`).
+
+- **Live shard gallery.** The Shards page lists daemon coverage
+  (`get_archival_shard_coverage`) in join-scarcity order; equal-scarcity
+  ties are shuffled. Click toggles a session-only selection (not a network
+  assignment). Identity PNGs load lazily via `request_archival_shard`
+  (`shard_id` only); the GUI never fetches shard bodies. Until the daemon
+  wires holder draw / SOCKS, that RPC is a typed miss and the card
+  fail-closes without dropping the list. Empty frozen coverage is an
+  honest empty; a coverage fault does not fall back to fixtures. A
+  truncated coverage JSON is a fault, not an empty gallery. Session picks
+  that leave coverage are dropped. The gallery mounts a window of cards
+  (`Show more`) rather than one observer per frozen row.
+
+### Fixed
+
+- **Archival render identity.** `get_shard_render` refuses a
+  `request_archival_shard` reply whose `shard_id` does not match the
+  request, so a stale or swapped archive cannot be cached or shown under
+  the requested id.
 
 - **Linux release rustdoc `--ignored` trap.** After the daemon and Tauri
   bundles succeeded, `cargo test --release -- --ignored` still compiled
@@ -32,6 +285,14 @@
   first-parent history (append-only). Subsequent release tags sit on the
   dev→main merge commit. `v3.1.0-alpha.8` stays on dev `7d209ad`
   (already signed and pushed).
+
+### Removed
+
+- Eleven registered commands with no caller: `get_seed`, `refresh_wallet`,
+  `restart_daemon`, `shutdown_wallet_rpc` (a duplicate of `close_wallet`),
+  `get_curve_tree_info`, `get_tier_yields`, and the four Wallet2 scanner
+  stubs, which returned an unconditional refusal — a registered refusal is
+  not an absent feature.
 
 ## [3.1.0-alpha.8] - 2026-09-10
 

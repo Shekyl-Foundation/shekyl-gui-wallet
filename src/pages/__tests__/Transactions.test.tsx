@@ -1,12 +1,15 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  statusLabel,
-  statusTitle,
-  type TxStatus,
-} from "../../lib/transactionStatus";
+import { statusLabel, statusTitle } from "../../lib/transactionStatus";
+import type {
+  ReceiveAttribution,
+  Transfer,
+  TransferState,
+  Transfers,
+  UnspendableReason,
+} from "../../types/transfers";
 import Transactions from "../Transactions";
 
 beforeEach(() => {
@@ -17,105 +20,324 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** One projected `Transfer` row; amounts are decimal strings on the wire. */
 function sampleTx(
-  overrides: Partial<{
-    id: string;
-    hash: string;
-    amount: number;
-    fee: number;
-    height: number | null;
-    direction: "in" | "out";
-    status: TxStatus;
-  }> = {},
-) {
-  const hash =
-    overrides.hash ??
-    "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
+  overrides: {
+    id?: string;
+    tx_hash?: string;
+    amount?: string;
+    fee?: string;
+    block_height?: number;
+    direction?: Transfer["direction"];
+    state?: TransferState;
+    unspendable_reason?: UnspendableReason;
+    attribution?: ReceiveAttribution;
+  } = {},
+): Transfer {
+  const tx_hash =
+    overrides.tx_hash ?? "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
+  const shared = {
+    id: overrides.id ?? tx_hash,
+    tx_hash,
+    amount: overrides.amount ?? "1000000000",
+    fee: overrides.fee ?? "10000",
+    block_height: overrides.block_height,
+  };
+  const direction = overrides.direction ?? "OUTGOING";
+  if (direction === "INCOMING") {
+    const attribution = overrides.attribution ?? { kind: "UNATTRIBUTED" as const };
+    if (overrides.state === "UNSPENDABLE") {
+      return {
+        ...shared,
+        direction,
+        attribution,
+        state: "UNSPENDABLE",
+        unspendable_reason: overrides.unspendable_reason ?? "PQC_LEAF_MISMATCH",
+      };
+    }
+    return {
+      ...shared,
+      direction,
+      attribution,
+      state: overrides.state ?? "CONFIRMED",
+    };
+  }
   return {
-    id: overrides.id ?? hash,
-    hash,
-    amount: 1_000_000_000,
-    fee: 10_000,
-    height: null as number | null,
-    timestamp: 0,
-    direction: "out" as const,
-    status: "pending" as TxStatus,
-    pqc_protected: true,
-    ...overrides,
+    ...shared,
+    direction: "OUTGOING",
+    state: overrides.state && overrides.state !== "UNSPENDABLE" ? overrides.state : "PENDING",
   };
 }
 
-describe("status helpers", () => {
-  it("labels every lifecycle arm distinctly", () => {
-    expect(statusLabel("confirmed")).toBe("Confirmed");
-    expect(statusLabel("pending")).toBe("Pending");
-    expect(statusLabel("failed")).toBe("Failed");
-    expect(statusLabel("dropped")).toBe("Dropped");
-    expect(statusLabel("abandoned")).toBe("Abandoned");
-    expect(statusLabel("spent")).toBe("Spent");
+const transfers = (rows: Transfer[]): Transfers => ({ transfers: rows });
+
+describe("state helpers", () => {
+  it("labels every contract state distinctly", () => {
+    expect(statusLabel("CONFIRMED")).toBe("Confirmed");
+    expect(statusLabel("PENDING")).toBe("Pending");
+    expect(statusLabel("FAILED")).toBe("Failed");
+    expect(statusLabel("DROPPED")).toBe("Dropped");
+    expect(statusLabel("ABANDONED")).toBe("Abandoned");
+    expect(statusLabel("SPENT")).toBe("Spent");
+    expect(statusLabel("UNSPENDABLE")).toBe("Unspendable");
   });
 
-  it("gives failed, dropped, and abandoned actionable titles (rule 82)", () => {
-    expect(statusTitle("failed")).toMatch(/never mined/i);
-    expect(statusTitle("dropped")).toMatch(/spendable again/i);
-    expect(statusTitle("abandoned")).toMatch(/stop tracking/i);
-    expect(statusTitle("pending")).toBeUndefined();
-    expect(statusTitle("confirmed")).toBeUndefined();
-    expect(statusTitle("spent")).toBeUndefined();
+  it("gives failed, dropped, abandoned and unspendable actionable titles (rule 82)", () => {
+    expect(statusTitle("FAILED")).toMatch(/never mined/i);
+    expect(statusTitle("DROPPED")).toMatch(/spendable again/i);
+    expect(statusTitle("ABANDONED")).toMatch(/stop tracking/i);
+    expect(statusTitle("UNSPENDABLE", "PQC_LEAF_MISMATCH")).toMatch(/not created for this wallet/i);
+    expect(statusTitle("UNSPENDABLE", "PQC_LEAF_ENTRY_ABSENT")).toMatch(/missing what a spend needs/i);
+    expect(statusTitle("UNSPENDABLE")).toMatch(/never spend/i);
+    expect(statusTitle("PENDING")).toBeUndefined();
+    expect(statusTitle("CONFIRMED")).toBeUndefined();
+    expect(statusTitle("SPENT")).toBeUndefined();
   });
 });
 
 describe("Transactions", () => {
-  it("renders outgoing pending and failed/dropped without collapsing status", async () => {
-    vi.mocked(invoke).mockResolvedValue([
-      sampleTx({ status: "pending", height: null }),
-      sampleTx({
-        hash: "11".repeat(32),
-        status: "failed",
-        height: null,
-      }),
-      sampleTx({
-        hash: "22".repeat(32),
-        status: "dropped",
-        height: null,
-      }),
-      sampleTx({
-        id: `${"33".repeat(32)}:0`,
-        hash: "33".repeat(32),
-        status: "confirmed",
-        height: 42,
-        direction: "in",
-        fee: 0,
-      }),
-      sampleTx({
-        id: `${"44".repeat(32)}:0`,
-        hash: "44".repeat(32),
-        status: "spent",
-        height: 40,
-        direction: "in",
-        fee: 0,
-      }),
-    ]);
+  it("renders outgoing pending and failed/dropped without collapsing state", async () => {
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([
+        sampleTx({ state: "PENDING" }),
+        sampleTx({ tx_hash: "11".repeat(32), state: "FAILED" }),
+        sampleTx({ tx_hash: "22".repeat(32), state: "DROPPED" }),
+        sampleTx({
+          id: `${"33".repeat(32)}:0`,
+          tx_hash: "33".repeat(32),
+          state: "CONFIRMED",
+          block_height: 42,
+          direction: "INCOMING",
+          fee: "0",
+        }),
+        sampleTx({
+          id: `${"44".repeat(32)}:0`,
+          tx_hash: "44".repeat(32),
+          state: "SPENT",
+          block_height: 40,
+          direction: "INCOMING",
+          fee: "0",
+        }),
+      ]),
+    );
 
     render(<Transactions />);
 
+    const rows = () => within(screen.getByTestId("transfers"));
     await waitFor(() => {
-      expect(screen.getByText("Pending")).toBeInTheDocument();
+      expect(rows().getByText("Pending")).toBeInTheDocument();
     });
-    expect(screen.getByText("Failed")).toBeInTheDocument();
-    expect(screen.getByText("Dropped")).toBeInTheDocument();
-    expect(screen.getByText("Confirmed")).toBeInTheDocument();
-    expect(screen.getByText("Spent")).toBeInTheDocument();
-    expect(screen.getByText("Block 42")).toBeInTheDocument();
+    expect(rows().getByText("Failed")).toBeInTheDocument();
+    expect(rows().getByText("Dropped")).toBeInTheDocument();
+    expect(rows().getByText("Confirmed")).toBeInTheDocument();
+    expect(rows().getByText("Spent")).toBeInTheDocument();
+    expect(rows().getByText("Block 42")).toBeInTheDocument();
     expect(screen.getByTitle(/never mined/i)).toBeInTheDocument();
     expect(screen.getByTitle(/spendable again/i)).toBeInTheDocument();
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_transfers", {
+      direction: undefined,
+      state: undefined,
+      sinceHeight: undefined,
+      attribution: undefined,
+    });
+  });
+
+  it("sends the from-block watermark and the request filter to Rust, and drops the request filter with the Sent tab", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockResolvedValue(transfers([sampleTx({ direction: "INCOMING", state: "CONFIRMED" })]));
+    render(<Transactions />);
+    await waitFor(() => expect(within(screen.getByTestId("transfers")).getByText("Confirmed")).toBeInTheDocument());
+    await user.type(screen.getByLabelText("From block"), "1200");
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1); // nothing per keystroke
+    await user.tab();
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: undefined,
+        state: undefined,
+        sinceHeight: 1200,
+        attribution: undefined,
+      }),
+    );
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(2);
+    await user.selectOptions(screen.getByLabelText("Request"), "MATCHED");
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: undefined,
+        state: undefined,
+        sinceHeight: 1200,
+        attribution: "MATCHED",
+      }),
+    );
+    await user.click(screen.getByRole("tab", { name: "Sent" }));
+    expect(screen.queryByLabelText("Request")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "OUTGOING",
+        state: undefined,
+        sinceHeight: 1200,
+        attribution: undefined,
+      }),
+    );
+    await user.click(screen.getByRole("tab", { name: "Received" }));
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "INCOMING",
+        state: undefined,
+        sinceHeight: 1200,
+        attribution: undefined,
+      }),
+    );
+    await user.clear(screen.getByLabelText("From block"));
+    await user.type(screen.getByLabelText("From block"), "12x{enter}");
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "INCOMING",
+        state: undefined,
+        sinceHeight: undefined,
+        attribution: undefined,
+      }),
+    );
+  });
+
+  it("sends the contract's direction and state filters to Rust, never filtering a shown list itself", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockResolvedValue(transfers([sampleTx({ state: "PENDING" })]));
+    render(<Transactions />);
+    await waitFor(() => expect(within(screen.getByTestId("transfers")).getByText("Pending")).toBeInTheDocument());
+    await user.click(screen.getByRole("tab", { name: "Received" }));
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "INCOMING",
+        state: undefined,
+        sinceHeight: undefined,
+        attribution: undefined,
+      }),
+    );
+    await user.selectOptions(screen.getByLabelText("State"), "CONFIRMED");
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenLastCalledWith("get_transfers", {
+        direction: "INCOMING",
+        state: "CONFIRMED",
+        sinceHeight: undefined,
+        attribution: undefined,
+      }),
+    );
+  });
+
+  it("hides the previous rows while a new filter is in flight, then says when nothing matches", async () => {
+    const user = userEvent.setup();
+    let resolveFiltered: (value: unknown) => void = () => {};
+    const filtered = new Promise((resolve) => {
+      resolveFiltered = resolve;
+    });
+    vi.mocked(invoke)
+      .mockResolvedValueOnce(transfers([sampleTx({ state: "PENDING" })]))
+      .mockImplementationOnce(() => filtered);
+
+    render(<Transactions />);
+    expect(await screen.findByText("Pending")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Received" }));
+    expect(screen.queryByTestId("transfers")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading transactions…")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFiltered(transfers([]));
+      await Promise.resolve();
+    });
+    expect(await screen.findByText("No matching transactions")).toBeInTheDocument();
+    expect(screen.queryByText("No transactions yet")).not.toBeInTheDocument();
+  });
+
+  it("an empty result under only the request filter or the from-block watermark is a miss, not an empty wallet", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockResolvedValue(transfers([]));
+    render(<Transactions />);
+    expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Request"), "MATCHED");
+    expect(await screen.findByText("No matching transactions")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Request"), "");
+    expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("From block"), "5{enter}");
+    expect(await screen.findByText("No matching transactions")).toBeInTheDocument();
+  });
+
+  it("shows which payment request a receive arrived against", async () => {
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([
+        sampleTx({
+          id: `${"55".repeat(32)}:0`,
+          tx_hash: "55".repeat(32),
+          direction: "INCOMING",
+          state: "CONFIRMED",
+          block_height: 7,
+          fee: "0",
+          attribution: { kind: "MATCHED", request_id: "42" },
+        }),
+        sampleTx({
+          id: `${"66".repeat(32)}:0`,
+          tx_hash: "66".repeat(32),
+          direction: "INCOMING",
+          state: "CONFIRMED",
+          block_height: 8,
+          fee: "0",
+          attribution: { kind: "UNATTRIBUTED" },
+        }),
+      ]),
+    );
+    render(<Transactions />);
+    expect(await screen.findByText("Request 42")).toBeInTheDocument();
+    expect(screen.getAllByTestId("attribution")).toHaveLength(1);
+  });
+
+  it("renders an unspendable receive with the reason the projection named", async () => {
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([
+        sampleTx({
+          direction: "INCOMING",
+          state: "UNSPENDABLE",
+          unspendable_reason: "PQC_LEAF_ENTRY_ABSENT",
+          block_height: 7,
+          fee: "0",
+        }),
+      ]),
+    );
+    render(<Transactions />);
+    expect(await screen.findByText("Unspendable")).toBeInTheDocument();
+    expect(screen.getByText("Block 7")).toBeInTheDocument();
+    expect(screen.getByTitle(/missing what a spend needs/i)).toBeInTheDocument();
+  });
+
+  it("fills the lookup from a row, including a receive id", async () => {
+    const id = `${"ab".repeat(32)}:2`;
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([
+        sampleTx({
+          id,
+          tx_hash: "ab".repeat(32),
+          direction: "INCOMING",
+          state: "CONFIRMED",
+          block_height: 3,
+        }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<Transactions />);
+    await user.click(await screen.findByRole("button", { name: /Look up abababab/ }));
+    expect(screen.getByLabelText("Look up by id")).toHaveValue(id);
+  });
+
+  it("renders amounts above 2^53 atomic units exactly", async () => {
+    vi.mocked(invoke).mockResolvedValue(
+      transfers([sampleTx({ amount: "9007199254740993", fee: "1", state: "CONFIRMED", block_height: 1 })]),
+    );
+    render(<Transactions />);
+    expect(await screen.findByText("-9007199.254740 SKL")).toBeInTheDocument();
   });
 
   it("surfaces a load failure with retry instead of an empty list", async () => {
     const user = userEvent.setup();
-    vi.mocked(invoke)
-      .mockRejectedValueOnce("wallet not open")
-      .mockResolvedValueOnce([]);
+    vi.mocked(invoke).mockRejectedValueOnce("wallet not open").mockResolvedValueOnce(transfers([]));
 
     render(<Transactions />);
 
@@ -132,7 +354,7 @@ describe("Transactions", () => {
     expect(screen.queryByText("wallet not open")).not.toBeInTheDocument();
   });
 
-  it("discards a slower older response so status is not overwritten", async () => {
+  it("discards a slower older response so state is not overwritten", async () => {
     let resolveSlow: (value: unknown) => void = () => {};
     const slow = new Promise((resolve) => {
       resolveSlow = resolve;
@@ -140,9 +362,7 @@ describe("Transactions", () => {
 
     vi.mocked(invoke)
       .mockImplementationOnce(() => slow as Promise<unknown>)
-      .mockResolvedValueOnce([
-        sampleTx({ status: "confirmed", height: 9 }),
-      ]);
+      .mockResolvedValueOnce(transfers([sampleTx({ state: "CONFIRMED", block_height: 9 })]));
 
     render(<Transactions />);
 
@@ -153,39 +373,41 @@ describe("Transactions", () => {
       await Promise.resolve();
     });
 
+    const rows = () => within(screen.getByTestId("transfers"));
     await waitFor(() => {
-      expect(screen.getByText("Confirmed")).toBeInTheDocument();
+      expect(rows().getByText("Confirmed")).toBeInTheDocument();
     });
-    expect(screen.getByText("Block 9")).toBeInTheDocument();
+    expect(rows().getByText("Block 9")).toBeInTheDocument();
 
     // Stale first response resolves later with pending — must not clobber.
     await act(async () => {
-      resolveSlow([sampleTx({ status: "pending", height: null })]);
+      resolveSlow(transfers([sampleTx({ state: "PENDING" })]));
       await Promise.resolve();
     });
-    expect(screen.getByText("Confirmed")).toBeInTheDocument();
-    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+    expect(rows().getByText("Confirmed")).toBeInTheDocument();
+    expect(rows().queryByText("Pending")).not.toBeInTheDocument();
   });
 
-  it("polls get_transactions so status can advance without remount", async () => {
+  it("polls get_transfers so state can advance without remount", async () => {
     vi.useFakeTimers();
     vi.mocked(invoke)
-      .mockResolvedValueOnce([sampleTx({ status: "pending" })])
-      .mockResolvedValueOnce([sampleTx({ status: "confirmed", height: 9 })]);
+      .mockResolvedValueOnce(transfers([sampleTx({ state: "PENDING" })]))
+      .mockResolvedValueOnce(transfers([sampleTx({ state: "CONFIRMED", block_height: 9 })]));
 
     render(<Transactions />);
 
     // Flush the initial invoke microtask under fake timers (no waitFor —
     // waitFor advances real time and races the 5s test timeout).
+    const rows = () => within(screen.getByTestId("transfers"));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(rows().getByText("Pending")).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15_000);
     });
-    expect(screen.getByText("Confirmed")).toBeInTheDocument();
-    expect(screen.getByText("Block 9")).toBeInTheDocument();
+    expect(rows().getByText("Confirmed")).toBeInTheDocument();
+    expect(rows().getByText("Block 9")).toBeInTheDocument();
   });
 });

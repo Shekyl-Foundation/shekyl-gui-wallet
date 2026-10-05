@@ -69,13 +69,12 @@ is gone; network stats remain. Real staking needs the Engine path.
 | GUI-PR2 | Engine transfer (build+submit) + fee estimate + ledger history | same | **done** |
 | GUI-PR3 | `activate_staker` / `stake { password }` + status + error map | PR #336 landed | **done** |
 | GUI-PR3b | Staked-balance/outputs read panel (`staking_read_view`) | WI-RPC-1 on core dev | **done** |
-| GUI-PR4 | `stake_in` funding UX | public/RPC `stake_in` (core PR-P3+) | next |
+| GUI-PR4 | `stake_in` funding UX | public/RPC `stake_in` (core PR-P3+) | **done** (Staking page Fund, 2026-10-04) |
 | GUI-PR5 | Multisig address-fingerprint cutover | group_id deleted in core | pending |
-| GUI-PR6+ | unbond / drain / live shards | PR-P4/P5/P6 + emission | pending |
+| GUI-PR6 | release / return / collect | PR-P4/P5 landed | **done** (buttons Release, Return, Collect; command `unstake` stays the contract name) |
 
-**GUI-PR3 leftovers:** activation without stake_in funding often returns
-not-ready (expected until PR4). No UI for multi-slot W2 resume detail.
-Next: GUI-PR4 `stake_in` funding.
+**GUI-PR3 leftovers:** No UI for multi-slot W2 resume detail.
+Next: GUI-PR5 multisig address-fingerprint cutover. Live shard operator duties stay out of the desktop wallet.
 
 **Deleted:** the Wallet2 backend, `wallet_bridge`, the `shekyl-ffi` /
 `shekyl-engine-rpc` deps and the C++ static linkage, the
@@ -84,10 +83,11 @@ Next: GUI-PR4 `stake_in` funding.
 placeholder plus the three staked-output scanner stubs
 (`get_scanner_staked_outputs` / `get_scanner_claimable_stakes` /
 `get_scanner_unstakeable_outputs`) — `get_staking_view` is their
-Engine-native replacement. **Still to delete when done:** `StakeTierCard`
-if unused, `get_tier_yields` if daemon tiers vanish, and the remaining
-scanner stubs (`get_scanner_balance` / `get_scanner_height` /
-`scanner_freeze` / `scanner_thaw`) once Engine-native equivalents exist.
+Engine-native replacement. **Deleted 2026-09-26:** `get_tier_yields` and
+the four scanner stubs (`get_scanner_balance` / `get_scanner_height` /
+`scanner_freeze` / `scanner_thaw`) — none had a caller, and a registered
+refusal is not an absent feature. **Still to delete when done:**
+`StakeTierCard` if unused.
 
 ---
 
@@ -346,15 +346,81 @@ linkage. `shekyl-core` then deleted the `shekyl-engine-rpc` crate outright
 depend on even in principle. Nothing in the GUI process links C++ wallet
 code.
 
-**Residual, tracked elsewhere:** feature parity is not complete — the
-capabilities that only ever existed on the old path (import-from-keys, PQC
-multisig, scanner freeze/thaw) return honest "not available on the Engine
-backend" errors and are carried by the per-PR followups above, not by this
-entry. The *dependency* question this entry existed to answer is settled.
+**Residual, tracked elsewhere:** feature parity is not complete. The
+capabilities that only ever existed on the old path are absent from the
+default build rather than registered refusals (rule 28, stub leg, 2026-09-26):
+import-from-keys and scanner freeze/thaw are deleted, PQC multisig compiles
+only under `--features multisig`. The *dependency* question this entry
+existed to answer is settled.
 
 ---
 
-## Atomic amounts serialized as JS `number` — target: post-genesis
+## Payer side of a payment request is not wired in the Engine — RESOLVED 2026-09-28
+
+**Resolved in shekyl-core (branch `feat/gui-balance-view`, the same name as this wallet's):** `TxRecipient::rid`
+is threaded through `OutputDestination` to `outbound_label::label_plaintext_for_recipient`
+and `construct_output_with_label_plaintext`, exposed as the contract's
+`TxRecipient.rid`; `build_pending_tx` here passes a pasted link's `rid`
+through. The helper was renamed with its caller: the falsifier below now
+reads `grep -rn label_plaintext_for_recipient rust/` in shekyl-core, and
+finds `engine/sign_bridge.rs`. What is proven is the two halves — core's
+sign-bridge test recovers the written label as `Request(rid)`, and core's
+attribution test matches a recovered `Request(rid)` to a stored request —
+meeting at the 8-byte plaintext both agree on; no single test yet crosses
+payer to payee. The entry is kept for its record of the gap.
+
+
+The receive side is complete: a request's `rid` rides the `shekyl:` link and
+`shekyl_engine_core::attribution::match_inbound_attribution` matches an
+inbound output whose `enc_label` plaintext carries that `rid` (plus the
+amount). The **send** side has the mechanism but no caller:
+`shekyl_engine_core::label_plaintext_for_payment_uri` derives the label
+plaintext from a parsed link, but `TxRequest` / `TxRecipient` carry no
+`rid` or label, so neither wallet-rpc's `build_pending_tx`, the CLI, nor
+this wallet's Send page can attach it — a payment made from a link arrives
+at the payee **unattributed** and the request never flips to Paid. The
+Receive page says so, and its list shows the link
+`format_request_uri` built from the stored row rather than a second
+composer. The Send page prefills address and amount from a link and
+promises no more.
+
+**Named blocker:** a shekyl-core change — an outbound label (`rid`) on
+`TxRecipient`, threaded to `construct_output`, exposed on the contract's
+`TxRecipient` schema — reviewed as a contract change. Not a GUI item.
+
+**Falsifier:** `grep -rn label_plaintext_for_payment_uri rust/` in
+shekyl-core showing a caller under `engine/pending.rs` or the tx builder.
+
+---
+
+## Atomic amounts serialized as JS `number` — RESOLVED 2026-09-27
+
+Every atomic amount on the Tauri edge is now `wire::AtomicUnitsString`, a
+decimal string parsed with BigInt on the frontend: the send edge (#26),
+shard profit (#26), and — closing this entry — `Balance`, `DrainBalance`,
+`StakingView` / `StakedOutputView.amount`, the transfer rows' `amount` /
+`fee`, and the daemon-facing SKL figures (`ChainHealth`'s `total_burned`,
+`staker_pool_balance`, `last_block_reward`, `total_staked`;
+`MiningStatus.block_reward`; `ShardCoverageList.budget_atomic`). No JS
+`number` carries a `u64` of atomic units anywhere on the wire; `src/types/*`
+type them `string`, and `formatSkl` renders them. The daemon's own JSON
+still delivers numbers (`daemon_rpc.rs` deserializes them as `u64`); the
+conversion happens once, at the Tauri edge.
+The history below is kept for the reasoning; the residue is gone.
+
+<details><summary>History</summary>
+
+UPDATE 2026-09-17: shared `formatSkl` / `formatSklCompact` take
+`bigint | string | number`. Gallery `list_shards` `expected_profit_atomic`
+is a decimal string, summed as bigint. Remaining `Balance` /
+`DrainBalance` / `StakingView` still JSON numbers (display-only).
+
+UPDATE 2026-09-26: the instrument now exists — `wire::AtomicUnitsString`
+(#26) is the one wire type for atomic amounts, used by the send edge
+(`amount`, `fee`, tier quotes) and shard profit, with `parseSkl` on the
+frontend. The remaining work is adopting it for `Balance` / `DrainBalance`
+/ `StakingView` and typing those fields `string`; nothing else is left to
+design.
 
 Every balance the Tauri layer hands the frontend is a Rust `u64` of
 atomic units serialized to a JS `number`: `Balance.{total,unlocked,
@@ -369,10 +435,10 @@ Above that, the low-order atomic digits round in the JSON bridge.
 arithmetic; formatters are coarser than ULP across the supply range).
 Not a genesis consensus item.
 
-**The fix (systemic).** Migrate the balance-read pipeline wholesale:
-serialize atomic amounts as decimal strings, type them `string` in
-`daemon.ts`, parse with `BigInt`, and add a BigInt-native SKL formatter
-that `Balance` and `DrainBalance` share. One PR, one consistent surface.
+**The fix (systemic).** The BigInt-native SKL formatter is in `format.ts`
+(`bigint | string | number`). Remaining work: serialize `Balance` /
+`DrainBalance` / `StakingView` as decimal strings and type them `string`
+in the frontend. One PR, one consistent surface.
 
 **Why it's deferred, not fixed in DS-PR-3 PR-B.** The exposure is
 *display-only* — these figures are rendered, never round-tripped into
@@ -382,9 +448,10 @@ independently). And the SKL formatters (`formatSkl` 6-dp, `formatSklCompact`
 K/M) are coarser than the `number` ULP across the entire supply range
 (max supply 4.29e9 SKL → ULP at that magnitude ≈ the 6-dp display
 granularity), so the rounding is not observable in any rendered value.
-Patching one field to string+BigInt would need a divergent BigInt
-formatter and leave `Balance` inconsistent beside it — tech-debt-shaped,
-not tech-debt-removing (rules 15/16).
+Patching one field in DS-PR-3 would have needed a divergent BigInt
+formatter and left `Balance` inconsistent beside it. Gallery profit now
+uses the shared formatter; remaining number DTOs wait for the wholesale
+pipeline.
 
 **Reversion criteria (bring forward from post-genesis).** Any one of:
 
@@ -395,6 +462,7 @@ not tech-debt-removing (rules 15/16).
 3. The daemon RPC contract migrates its own amount fields to strings and
    the GUI should follow in lockstep.
 
+</details>
 ---
 
 ## npm / toolchain holds from the 2026-08-09 refresh — target: V3.1 / next Node bump

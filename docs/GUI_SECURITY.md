@@ -27,8 +27,9 @@ The Engine's daemon client is constructed with
 `DaemonClient::verifying` (`engine_daemon.rs` `make_daemon`), matching
 `shekyl-wallet-rpc`. `make_daemon` runs the four-axis handshake before
 it returns, so create/restore refuse a foreign node **before**
-`Engine::create` writes a file (the recovery phrase is create-once and
-cannot be recovered by `get_seed`). Open still fail-closes the session
+`Engine::create` writes a file (the recovery phrase is create-once: it is
+returned in the `create_wallet` result and nothing retains a copy — there
+is no seed-returning command). Open still fail-closes the session
 if a later Engine RPC sees a mismatch. Status-panel polls that still
 go through `daemon_rpc.rs` do not run this check — they are a separate
 HTTP client.
@@ -55,34 +56,37 @@ This prevents:
 Capabilities are defined in `capabilities/default.json`:
 - Scoped to `"windows": ["main"]` only
 - Permissions: `core:default`, `opener:default`
-- Sensitive commands (`get_seed`, `transfer`, `import_wallet_from_seed`, `import_wallet_from_keys`, `query_key`) are only callable from the main window context
+- Sensitive commands (`build_pending_tx` / `submit_pending_tx`, `restore_wallet`, `stake`, `create_payment_request`, `copy_to_clipboard`) are only callable from the main window context
+- A pasted `shekyl:` payment link is counterparty-controlled text: `parse_uri` runs in Rust, the Send page only prefills the address and amount from it and shows the label as text, and nothing from the link is trusted, stored or sent. Review cannot start while that parse is in flight. The label typed into a payment request is stored and copied onto the link the payer receives; it is not a private note
+- The command surface itself is gated: `scripts/ci/check_command_surface.sh` holds `generate_handler![...]` to the wallet contract (every command is a contract adapter or declared in `scripts/ci/command_surface.conf`), to its callers (no registered command without a page that invokes it, no invoke without a command), and to honesty (no registered command whose body is an unconditional refusal)
 
 ## Input Validation
 
-Every Tauri command that accepts user input validates before reaching the C++ FFI or Rust scanner. The `validate.rs` module enforces:
+Commands that take user input check it in `validate.rs` before it reaches the Engine:
 
 | Input | Validation |
 |-------|-----------|
 | Address | Bech32m decode via `shekyl-address` crate |
-| Amount | Non-zero u64 |
+| Amount | Non-zero u64, carried across the Tauri edge as a decimal string (`AtomicUnitsString`, `src-tauri/src/wire.rs`) — never a JS `number` |
 | Wallet name | No path separators, no dots prefix, max 255 chars |
 | Password | No null bytes, max 1024 chars |
-| Seed phrase | ASCII, 1-30 words, no null bytes |
-| Secret keys | Exact 64 hex chars |
-| Key images | Exact 64 hex chars |
-| Staking tier | 0, 1, or 2 |
+| Recovery phrase | Exactly 24 ASCII words, no null bytes |
 
-Malformed inputs are rejected at the Rust bridge layer with a human-readable error. No malformed data reaches C++.
+Malformed inputs are rejected at the Rust bridge with a human-readable error. No malformed input reaches the Engine.
 
-## Transfer Flow Security
+## Send Flow
 
-The transfer uses a three-phase native-sign path:
+The GUI drives the wallet engine's own reservation lifecycle under the contract's names (`src-tauri/src/send.rs`): `get_default_fee_priority` → `build_pending_tx` → `submit_pending_tx` / `discard_pending_tx`. The wallet2 prepare/finalize path this section used to describe no longer exists.
 
-1. **C++ Prepare**: wallet2 selects UTXOs, builds tx prefix, returns structured JSON
-2. **Rust Sign**: `shekyl-tx-builder` generates FCMP++ proof, BP+ proof, PQC auth
-3. **C++ Finalize**: wallet2 inserts proofs, broadcasts to daemon
+- **Nothing is built while the user types.** The fee shown in the form is the daemon's tier quote for the canonical 2-in/2-out shape (weight × rate), fetched once per page. The previous page ran a full FCMP++ build — selection, proving, signing, reservation — on every 500 ms typing pause and discarded it.
+- **One built transaction per intent.** Review builds once and shows the exact fee; Confirm submits that reservation with the `content_gen` it was reviewed at. The engine refuses a stale generation, so the user can never broadcast content they did not see.
+- **A content change is never resubmitted silently.** If the realized fee or change moved on re-anchor, the reservation is discarded and rebuilt, and the user re-confirms figures they can read.
+- **Retained reservations are never discarded by the page.** An ambiguous or still-pending submit may already be on the network; the engine keeps the reservation so a retry cannot double-spend, and the page leaves it alone.
+- **Cancel, leaving the page, or closing the window discards** the reservation and releases the funds.
+- **Every atomic amount crosses the Tauri edge as a decimal string** (`AtomicUnitsString`), parsed with `BigInt` and shown on the review card at full 9-decimal precision. A JS `number` is lossy above 2^53; a fee rounded at the edge would break the invariant that the fee the user confirms is the fee that ships, and two reservations one atomic unit apart must never display alike.
+- **A failed discard keeps the reservation owned.** The page releases ownership only when a submit succeeds, a discard succeeds, or the engine reports it has retained the reservation; a discard that fails is shown, review stays, and a rebuild is never stacked on a reservation that is still live.
 
-No optimistic spent-marking is performed on the scanner side. The scanner's sync loop is the sole authority for marking outputs as spent — it does so only when key images appear on-chain. If signing succeeds but finalize fails (daemon unreachable, relay rejected), the scanner's `(LedgerBlock, LedgerIndexes)` state is unaffected and no rollback is needed. Outputs remain spendable for a retry.
+Spent-marking is unchanged: the engine's refresh is the sole settlement authority, and a submit verdict is display metadata only.
 
 ## Secret Key Handling
 
@@ -116,7 +120,9 @@ These are inherent to any desktop wallet with a GUI:
 ### User Guidance
 
 - Use a dedicated, clean machine for seed entry when possible
-- Clear clipboard after pasting seed material
+- Clear clipboard after pasting seed material on import; on create the
+  wallet clears a phrase it placed (60 s after "Copy", on leaving the page,
+  or when the window closes)
 - Avoid screen-sharing or remote desktop during seed display
 - Store the seed offline (paper/metal backup), not in digital form
 
@@ -126,8 +132,8 @@ These are tracked for implementation in future releases:
 
 - [ ] **On-screen keyboard for seed entry** — bypasses OS keyboard pipeline, accessibility loggers, predictive text
 - [ ] **Seed display with dismissal gesture** — show words once, require explicit acknowledgement, then clear from DOM
-- [ ] **Clipboard access denial for seed fields** — prevent clipboard logger exfiltration via `navigator.clipboard` API restriction
-- [ ] **Automatic seed field clearing** — if user navigates away, clear seed fields after a short timeout
+- [x] ~~**Clipboard access denial for seed fields**~~ — **declined 2026-09-25.** Denying the copy button does not deny the capability (the words are selectable text), and users denied a copy photograph the screen, which is worse. Ruled the other way: the button stays and is the mitigated path — Rust-side clear after 60 s and on leaving the page, with the warning shown at the moment of copying.
+- [x] **Automatic clipboard clearing** — Rust places the phrase (`copy_to_clipboard`), keeps only a SHA-256 digest, and arms a 60 s clear. Leaving the create page and destroying the window clear early, off the UI timer. A clear forgets the digest when the clipboard has changed or the OS clear succeeds, and leaves it tracked when a read or clear fails so the expiry task can retry. Another app's later clipboard value is not wiped. The webview has no clipboard capability.
 - [ ] **Memory-locked allocations** — `mlock()` on pages holding wallet secrets in the Rust process
 - [ ] **`prctl(PR_SET_DUMPABLE, 0)`** — suppress core dumps containing secrets on Linux
 

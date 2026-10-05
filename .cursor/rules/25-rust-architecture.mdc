@@ -24,8 +24,15 @@ src-tauri/src/
   engine_session.rs   // thin Engine lifecycle shell
   commands.rs         // thin Tauri adaptors (prefer not to grow)
   transfer_history.rs // send/receive history projection (Serialize DTO)
+  transfer_lookup.rs  // get_transfer_by_id (contract id grammar, one side)
   staking_view.rs     // WI-RPC-1 staking read projection
+  staking_actions.rs  // stake_in / drain / unstake / collect_unstaked
   drain_balance.rs    // drainable-P read projection
+  proofs.rs           // payment and reserve proofs
+  message_signing.rs  // sign_message / verify_message (success-only)
+  wallet_care.rs      // refresh, rescan, change_password
+  tx_journal.rs       // notes and abandon
+  contract_error.rs   // one contract error shape for those commands
   shard_visual.rs     // shard preview + list commands
   daemon_*.rs         // daemon process + JSON-RPC to shekyld
   gui_config.rs       // desktop config paths
@@ -37,7 +44,7 @@ src-tauri/src/
 
 | Kind of code | Home |
 |--------------|------|
-| Open / create / close / refresh / transfer one-shot | `engine_session` (shell) |
+| Open / create / close / one-shot shell calls | `engine_session` (shell). Refresh is `wallet_care` |
 | Core → wire projection + unit tests | dedicated module (`transfer_history`, `staking_view`, `drain_balance`, …) |
 | Tauri `#[tauri::command]` | thin function in `commands` **or** in the feature module that owns the DTO (see `shard_visual`); register in `lib.rs` |
 | Daemon HTTP JSON-RPC types | `daemon_rpc` |

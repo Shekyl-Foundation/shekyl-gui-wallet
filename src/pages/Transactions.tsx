@@ -1,187 +1,155 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { ArrowUpRight, ArrowDownLeft, ShieldCheck } from "lucide-react";
-import {
-  statusClass,
-  statusLabel,
-  statusTitle,
-  type TxDirection,
-  type TxStatus,
-} from "../lib/transactionStatus";
+import { useState } from "react";
+import { statusLabel } from "../lib/transactionStatus";
+import TransactionHistory, { type HistoryQuery } from "../components/transactions/TransactionHistory";
+import TxTools from "../components/transactions/TxTools";
+import type { ReceiveAttributionKind, TransferDirection, TransferState } from "../types/transfers";
 
-interface TxInfo {
-  id: string;
-  hash: string;
-  amount: number;
-  fee: number;
-  /** Inclusion height, or null when not on chain. */
-  height: number | null;
-  timestamp: number;
-  direction: TxDirection;
-  status: TxStatus;
-  pqc_protected: boolean;
+/** The contract's `direction` filter, as the page offers it. */
+const DIRECTIONS: readonly { value: TransferDirection | undefined; label: string }[] = [
+  { value: undefined, label: "All" },
+  { value: "INCOMING", label: "Received" },
+  { value: "OUTGOING", label: "Sent" },
+];
+
+/** The contract's `state` filter; the labels are the same ones the rows show. */
+const STATES: readonly TransferState[] = [
+  "PENDING",
+  "CONFIRMED",
+  "SPENT",
+  "UNSPENDABLE",
+  "FAILED",
+  "DROPPED",
+  "ABANDONED",
+];
+
+/** The contract's `attribution` filter: how a receive matched your payment requests. */
+const ATTRIBUTIONS: readonly { value: ReceiveAttributionKind; label: string }[] = [
+  { value: "MATCHED", label: "Paid a request" },
+  { value: "MANUAL_MATCH", label: "Linked by hand" },
+  { value: "UNATTRIBUTED", label: "No request" },
+  { value: "LABEL_UNKNOWN", label: "Unknown request" },
+  { value: "DISPUTED", label: "Disputed" },
+];
+
+/** The select's value, or `undefined` for "any". A string outside the list is any. */
+function selectedOf<T extends string>(options: readonly T[], value: string): T | undefined {
+  for (const option of options) {
+    if (option === value) return option;
+  }
+  return undefined;
 }
 
-/** Poll so pending → confirmed (and failed/dropped) updates without remount. */
-const REFRESH_MS = 15_000;
-
-function atomicToSkl(atomic: number): string {
-  return (atomic / 1e9).toFixed(4);
+/** A typed block height, or `undefined` when the field is empty or not a whole number. */
+function selectedHeight(value: string): number | undefined {
+  if (!/^[0-9]+$/.test(value)) return undefined;
+  const height = Number(value);
+  return Number.isSafeInteger(height) ? height : undefined;
 }
 
-function loadErrorMessage(err: unknown): string {
-  if (typeof err === "string" && err.trim()) return err;
-  if (err instanceof Error && err.message.trim()) return err.message;
-  return "Could not load transactions. Try again, or reopen the wallet if this keeps happening.";
-}
-
+/** Filter controls for the contract's `get_transfers` filters; the history panel does the rest. */
 export default function Transactions() {
-  const [txs, setTxs] = useState<TxInfo[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  /** Monotonic generation so overlapping loads discard stale results. */
-  const loadGen = useRef(0);
+  const [lookupId, setLookupId] = useState("");
+  const [direction, setDirection] = useState<TransferDirection | undefined>(undefined);
+  const [state, setState] = useState<TransferState | undefined>(undefined);
+  const [sinceHeightText, setSinceHeightText] = useState("");
+  // Committed on blur or Enter, not per keystroke: every query lists the
+  // whole ledger, and a half-typed height is not a filter anyone asked for.
+  const [sinceHeight, setSinceHeight] = useState<number | undefined>(undefined);
+  const [attribution, setAttribution] = useState<ReceiveAttributionKind | undefined>(undefined);
+  // Attribution exists on receives only: the control leaves with the "Sent"
+  // tab, and its value with it, so a send list is never filtered to nothing.
+  const attributionOffered = direction !== "OUTGOING";
+  const query: HistoryQuery = {
+    direction,
+    state,
+    sinceHeight,
+    attribution: attributionOffered ? attribution : undefined,
+  };
 
-  const load = useCallback(async () => {
-    const gen = ++loadGen.current;
-    try {
-      const rows = await invoke<TxInfo[]>("get_transactions", {
-        offset: 0,
-        limit: 50,
-      });
-      if (gen !== loadGen.current) return;
-      setTxs(rows);
-      setError(null);
-    } catch (err) {
-      if (gen !== loadGen.current) return;
-      setError(loadErrorMessage(err));
-    } finally {
-      if (gen === loadGen.current) {
-        setLoading(false);
-      }
-    }
-  }, []);
+  function commitSinceHeight() {
+    setSinceHeight(selectedHeight(sinceHeightText));
+  }
 
-  useEffect(() => {
-    void load();
-    const id = window.setInterval(() => {
-      void load();
-    }, REFRESH_MS);
-    const onFocus = () => {
-      void load();
-    };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      // Invalidate in-flight applies on unmount so setState is never called
-      // after the component is gone (and so a late response cannot win).
-      loadGen.current += 1;
-      window.clearInterval(id);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [load]);
+  function chooseDirection(next: TransferDirection | undefined) {
+    setDirection(next);
+    if (next === "OUTGOING") setAttribution(undefined);
+  }
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-white">Transactions</h1>
-
-      {error && (
-        <div className="card border border-red-500/30 bg-red-500/10 py-4 text-center">
-          <p className="text-sm text-red-300">{error}</p>
-          <button
-            type="button"
-            className="mt-3 text-xs font-medium text-purple-200 underline underline-offset-2 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={loading}
-            onClick={() => {
-              // Keep the error card visible with "Retrying…" feedback; loadGen
-              // makes double-clicks discard the older in-flight result.
-              setLoading(true);
-              void load();
-            }}
-          >
-            {loading ? "Retrying…" : "Try again"}
-          </button>
-        </div>
-      )}
-
-      {!error && loading && txs.length === 0 ? (
-        <div className="card py-12 text-center">
-          <p className="text-purple-300">Loading transactions…</p>
-        </div>
-      ) : !error && txs.length === 0 ? (
-        <div className="card py-12 text-center">
-          <p className="text-purple-300">No transactions yet</p>
-          <p className="mt-1 text-xs text-purple-400">
-            Send or receive SKL to see your transaction history.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {txs.map((tx) => (
-            <div key={tx.id} className="card flex items-center gap-4 py-3">
-              <div
-                className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                  tx.direction === "in"
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : "bg-red-500/20 text-red-400"
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-bold text-white">Transactions</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 rounded-lg bg-purple-800/60 p-1" role="tablist" aria-label="Direction">
+            {DIRECTIONS.map((d) => (
+              <button
+                key={d.label}
+                type="button"
+                role="tab"
+                aria-selected={direction === d.value}
+                onClick={() => chooseDirection(d.value)}
+                className={`rounded-md px-2 py-1 text-[11px] font-semibold ${
+                  direction === d.value ? "bg-gold-500/15 text-gold-400" : "text-purple-300 hover:text-white"
                 }`}
               >
-                {tx.direction === "in" ? (
-                  <ArrowDownLeft className="h-4 w-4" />
-                ) : (
-                  <ArrowUpRight className="h-4 w-4" />
-                )}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-mono text-xs text-purple-300">
-                    {tx.hash.slice(0, 16)}...
-                  </p>
-                  {tx.pqc_protected && (
-                    <span
-                      className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-300"
-                      title="Protected by post-quantum signatures"
-                    >
-                      <ShieldCheck className="h-2.5 w-2.5" />
-                      PQC
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 text-xs text-purple-400">
-                  {tx.height != null && tx.height > 0 && (
-                    <span>Block {tx.height.toLocaleString()}</span>
-                  )}
-                  {tx.timestamp > 0 && (
-                    <span>
-                      {new Date(tx.timestamp * 1000).toLocaleDateString()}
-                    </span>
-                  )}
-                  {tx.fee > 0 && tx.direction === "out" && (
-                    <span className="text-purple-500">
-                      Fee: {atomicToSkl(tx.fee)}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="text-right">
-                <p
-                  className={`text-sm font-semibold ${
-                    tx.direction === "in" ? "text-emerald-400" : "text-red-400"
-                  }`}
-                >
-                  {tx.direction === "in" ? "+" : "-"}
-                  {atomicToSkl(tx.amount)} SKL
-                </p>
-                <span
-                  className={`text-[10px] ${statusClass(tx.status)}`}
-                  title={statusTitle(tx.status)}
-                >
-                  {statusLabel(tx.status)}
-                </span>
-              </div>
-            </div>
-          ))}
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <select
+            aria-label="State"
+            className="input w-auto py-1 text-[11px]"
+            value={state ?? ""}
+            onChange={(e) => setState(selectedOf(STATES, e.target.value))}
+          >
+            <option value="">Any state</option>
+            {STATES.map((s) => (
+              <option key={s} value={s}>
+                {statusLabel(s)}
+              </option>
+            ))}
+          </select>
+          {attributionOffered && (
+            <select
+              aria-label="Request"
+              className="input w-auto py-1 text-[11px]"
+              value={attribution ?? ""}
+              onChange={(e) =>
+                setAttribution(
+                  selectedOf(
+                    ATTRIBUTIONS.map((a) => a.value),
+                    e.target.value,
+                  ),
+                )
+              }
+            >
+              <option value="">Any request</option>
+              {ATTRIBUTIONS.map((a) => (
+                <option key={a.value} value={a.value}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          )}
+          <input
+            aria-label="From block"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            placeholder="From block"
+            title="Only transactions confirmed at or after this block height. Sends not yet on chain stay listed."
+            className="input w-28 py-1 text-[11px]"
+            value={sinceHeightText}
+            onChange={(e) => setSinceHeightText(e.target.value.trim())}
+            onBlur={commitSinceHeight}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitSinceHeight();
+            }}
+          />
         </div>
-      )}
+      </div>
+
+      <TxTools lookupId={lookupId} onLookupId={setLookupId} />
+      <TransactionHistory query={query} onLookup={setLookupId} />
     </div>
   );
 }

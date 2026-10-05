@@ -16,6 +16,7 @@ import type { DrainBalance } from "../types/daemon";
 import EmissionGauge from "../components/EmissionGauge";
 import ShardIdentityPreview from "../components/staking/ShardIdentityPreview";
 import YourStakePanel from "../components/staking/YourStakePanel";
+import StakeActions from "../components/staking/StakeActions";
 
 interface StakerStatusInfo {
   staking_enabled: boolean;
@@ -24,7 +25,8 @@ interface StakerStatusInfo {
   has_pscan: boolean;
 }
 
-interface ActivateStakerResult {
+/** The contract's `StakeResult`. */
+interface StakeResult {
   slot: number;
   swept_inputs: number;
   resumed: boolean;
@@ -35,9 +37,8 @@ interface ActivateStakerResult {
  * Staking page — archival participation (GUI-PR0 honesty + GUI-PR3
  * activation + GUI-PR3b staked-balance/outputs read panel).
  *
- * Page owns activation and network stats; personal stake read lives in
- * [`YourStakePanel`] (fetch + fail-closed render). Funding (stake_in) and
- * unbond land in later PRs.
+ * Page owns activation, funding, return, release, and collect. Personal
+ * stake read lives in [`YourStakePanel`].
  */
 export default function Staking() {
   const { health } = useDaemon();
@@ -49,7 +50,7 @@ export default function Staking() {
   const [password, setPassword] = useState("");
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastOutcome, setLastOutcome] = useState<ActivateStakerResult | null>(
+  const [lastOutcome, setLastOutcome] = useState<StakeResult | null>(
     null,
   );
 
@@ -72,7 +73,7 @@ export default function Staking() {
   // Ok(0) — no point showing it outside the active panel). A fault or a closed
   // wallet resets to null → the panel renders "—", never a fabricated zero; the
   // transient "syncing" arm is the only non-value render (DS-PR-3, rule 82).
-  // The `cancelled` guard (matching Shards.tsx) drops a late-resolving read if
+  // The `cancelled` guard (matching ShardCoverageGallery) drops a late-resolving read if
   // the wallet closes / staking is disabled / the component unmounts first, so
   // a stale in-flight value can never re-populate `drain` after the reset.
   useEffect(() => {
@@ -111,9 +112,7 @@ export default function Staking() {
     setError(null);
     setLastOutcome(null);
     try {
-      const result = await invoke<ActivateStakerResult>("activate_staker", {
-        password,
-      });
+      const result = await invoke<StakeResult>("stake", { password });
       setLastOutcome(result);
       setPassword("");
       refreshStatus();
@@ -141,8 +140,8 @@ export default function Staking() {
             <p className="mt-1 text-xs leading-relaxed text-emerald-200/80">
               Staking means becoming an archival participant: your wallet
               activates a staker persona, posts a bond (broadcast is scheduled,
-              not instant), and later holds shards as useful work. Principal
-              funding and reward recovery ship in follow-up releases.
+              not instant), and can fund that stake, return funds, release the
+              bond, or collect released collateral.
             </p>
           </div>
         </div>
@@ -192,9 +191,7 @@ export default function Staking() {
               )}
             </p>
             <p className="mt-1 text-emerald-100/70">
-              Bond posts may still be pending scheduled broadcast
-              (pending_dispatch). Funding the persona and holding shards land
-              in later releases.
+              Bond posts may still be pending scheduled broadcast.
             </p>
           </div>
         )}
@@ -246,6 +243,7 @@ export default function Staking() {
         )}
       </div>
 
+      {stakerActive && <StakeActions />}
       {stakerActive && <YourStakePanel refreshKey={health} />}
 
       <ShardIdentityPreview />

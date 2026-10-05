@@ -13,10 +13,9 @@
 //! the client is attached.
 
 use shekyl_engine_core::{DaemonClient, DaemonExpectation, FakechainPolicy, Network};
-use shekyl_rpc_client::Rpc;
+use shekyl_rpc_client::{DaemonFault, Rpc};
 use shekyl_rpc_transport::HttpRpc;
-
-use crate::engine_errors::identity_refusal_message;
+use shekyl_wallet_contract::error::from_daemon_rpc_error;
 
 pub(crate) async fn make_daemon(
     daemon_http_base: &str,
@@ -40,16 +39,14 @@ pub(crate) async fn make_daemon(
     );
     // First Engine RPC runs the four-axis handshake. Identity mismatch
     // refuses here so create/restore never write a file the person cannot
-    // recover (`get_seed` is create-once). Unreachable is not a mismatch.
+    // recover (the phrase is create-once; there is no seed-returning
+    // command). The verdict is read from its type; the refusal is said in
+    // the wallet contract's words for its axis. Any other failure — an
+    // outage above all — is not a mismatch, and create/open proceed offline.
     match daemon.get_height().await {
-        Ok(_) => Ok(daemon),
-        Err(e) => {
-            let rendered = e.to_string();
-            if let Some(msg) = identity_refusal_message(&rendered) {
-                Err(msg)
-            } else {
-                Ok(daemon)
-            }
+        Err(e) if matches!(e.fault(), DaemonFault::Identity(_)) => {
+            Err(from_daemon_rpc_error(&e).message())
         }
+        Ok(_) | Err(_) => Ok(daemon),
     }
 }

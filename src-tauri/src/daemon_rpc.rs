@@ -198,6 +198,73 @@ pub async fn get_curve_tree_info(client: &Client, url: &str) -> Result<CurveTree
     rpc_call(client, url, "get_curve_tree_info", serde_json::json!({})).await
 }
 
+// ─── get_archival_shard_coverage (SL-D4 / SL-D7) ────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ShardCoverageRow {
+    pub shard_id: u64,
+    pub bonded_count: u64,
+    pub served_count: u64,
+    pub freeze_height: u64,
+    pub join_scarcity_micro: u64,
+    pub expected_profit_atomic: u64,
+}
+
+/// 3.31 coverage fields are mandatory. A truncated `{}` must not deserialize
+/// as an honest-empty gallery (`frozen_count: 0`); that would hide a daemon
+/// that is not speaking the contract.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GetArchivalShardCoverageResponse {
+    pub as_of_height: u64,
+    pub leaf_count: u64,
+    pub frozen_count: u64,
+    pub settled_epoch: u64,
+    pub budget_atomic: u64,
+    pub sigma_work_milli: u64,
+    pub profit_estimate_available: bool,
+    pub shards: Vec<ShardCoverageRow>,
+}
+
+pub async fn get_archival_shard_coverage(
+    client: &Client,
+    url: &str,
+) -> Result<GetArchivalShardCoverageResponse, String> {
+    rpc_call(
+        client,
+        url,
+        "get_archival_shard_coverage",
+        serde_json::json!({}),
+    )
+    .await
+}
+
+// ─── request_archival_shard (SF-D1; shard_id only) ───────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RequestArchivalShardResponse {
+    pub shard_id: u64,
+    pub shard_hash: String,
+    pub block_count: u64,
+    pub tx_count: u64,
+    pub output_count: u64,
+    pub coinbase_output_count: u64,
+    pub time_range_seconds: u64,
+}
+
+pub async fn request_archival_shard(
+    client: &Client,
+    url: &str,
+    shard_id: u64,
+) -> Result<RequestArchivalShardResponse, String> {
+    rpc_call(
+        client,
+        url,
+        "request_archival_shard",
+        serde_json::json!({ "shard_id": shard_id }),
+    )
+    .await
+}
+
 // ─── estimate_claim_reward ───────────────────────────────────────────────────
 
 #[allow(dead_code)]
@@ -333,4 +400,37 @@ pub async fn estimate_claim_reward(
         }),
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const COMPLETE_COVERAGE: &str = r#"{
+        "as_of_height": 50,
+        "leaf_count": 0,
+        "frozen_count": 0,
+        "settled_epoch": 0,
+        "budget_atomic": 0,
+        "sigma_work_milli": 0,
+        "profit_estimate_available": false,
+        "shards": []
+    }"#;
+
+    #[test]
+    fn coverage_empty_object_is_a_fault() {
+        assert!(
+            serde_json::from_str::<GetArchivalShardCoverageResponse>("{}").is_err(),
+            "truncated JSON must not become frozen_count=0"
+        );
+    }
+
+    #[test]
+    fn coverage_complete_honest_empty_deserializes() {
+        let res: GetArchivalShardCoverageResponse =
+            serde_json::from_str(COMPLETE_COVERAGE).expect("complete 3.31 empty");
+        assert_eq!(res.frozen_count, 0);
+        assert!(res.shards.is_empty());
+        assert!(!res.profit_estimate_available);
+    }
 }

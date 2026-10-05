@@ -107,6 +107,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
+name = "arboard"
+version = "3.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf"
+dependencies = [
+ "clipboard-win",
+ "image",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation",
+ "parking_lot",
+ "percent-encoding",
+ "windows-sys 0.60.2",
+ "wl-clipboard-rs",
+ "x11rb",
+]
+
+[[package]]
 name = "arg_enum_proc_macro"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -365,9 +386,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.16.2"
+version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a054912289d18629dc78375ba2c3726a3afe3ff71b4edba9dedfca0e3446d1fc"
+checksum = "b281d307588d634de920874890732659e2e7672f72b5e10e81badc1a8a83621e"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -375,14 +396,15 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.39.1"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83a25cf98105baa966497416dbd42565ce3a8cf8dbfd59803ec9ad46f3126399"
+checksum = "9bff6c3b54fad79a2e60b8102caf565819711497c1f5f092f49508e2f5c31b27"
 dependencies = [
  "cc",
  "cmake",
  "dunce",
  "fs_extra",
+ "pkg-config",
 ]
 
 [[package]]
@@ -790,6 +812,15 @@ dependencies = [
  "std-shims",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "clipboard-win"
+version = "5.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
+dependencies = [
+ "error-code",
 ]
 
 [[package]]
@@ -1323,6 +1354,12 @@ dependencies = [
 
 [[package]]
 name = "downcast-rs"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
+
+[[package]]
+name = "downcast-rs"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
@@ -1571,6 +1608,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "error-code"
+version = "3.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5343afd4a8365a643ac588dab4cf234a190c7f6c88c9f6dd6ffe00837661b7"
+
+[[package]]
 name = "event-listener"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1706,6 +1749,12 @@ dependencies = [
  "sha3",
  "zeroize",
 ]
+
+[[package]]
+name = "fixedbitset"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
 name = "flate2"
@@ -2087,6 +2136,16 @@ checksum = "eaf57c49a95fd1fe24b90b3033bee6dc7e8f1288d51494cb44e627c295e38542"
 dependencies = [
  "rustversion",
  "typenum",
+]
+
+[[package]]
+name = "gethostname"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+dependencies = [
+ "rustix",
+ "windows-link 0.2.1",
 ]
 
 [[package]]
@@ -3013,7 +3072,7 @@ version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1dfd134d7a2c6ec05ee696dcbf3f7a034bdb97ecc623e981014652dcd124d77"
 dependencies = [
- "downcast-rs",
+ "downcast-rs 2.0.2",
  "dyn-clone",
  "futures",
  "kameo_macros",
@@ -3595,6 +3654,7 @@ dependencies = [
  "block2",
  "objc2",
  "objc2-core-foundation",
+ "objc2-core-graphics",
  "objc2-foundation",
 ]
 
@@ -3935,6 +3995,17 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "petgraph"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8701b58ea97060d5e5b155d383a69952a60943f0e6dfe30b04c287beb0b27455"
+dependencies = [
+ "fixedbitset",
+ "hashbrown 0.15.5",
+ "indexmap 2.13.0",
+]
 
 [[package]]
 name = "phf"
@@ -4950,9 +5021,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.37"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "758025cb5fccfd3bc2fd74708fd4682be41d99e5dff73c377c0646c6012c73a4"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -5015,9 +5086,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -5448,7 +5519,9 @@ dependencies = [
  "shekyl-archival-retention",
  "shekyl-crypto-pq",
  "shekyl-ct-balance",
+ "shekyl-types",
  "shekyl-units",
+ "shekyl-wire",
  "thiserror 2.0.18",
 ]
 
@@ -5488,6 +5561,7 @@ name = "shekyl-consensus"
 version = "3.1.0"
 dependencies = [
  "serde",
+ "shekyl-difficulty",
  "thiserror 2.0.18",
 ]
 
@@ -5527,6 +5601,7 @@ dependencies = [
  "shekyl-crypto-hash",
  "shekyl-curve-generators",
  "shekyl-curve-primitives",
+ "shekyl-types",
  "thiserror 2.0.18",
  "x25519-dalek",
  "zeroize",
@@ -5588,8 +5663,18 @@ dependencies = [
  "redb",
  "serde_json",
  "shekyl-consensus",
+ "shekyl-crypto-pq",
  "shekyl-curve-io",
  "shekyl-fcmp",
+ "shekyl-types",
+]
+
+[[package]]
+name = "shekyl-difficulty"
+version = "3.1.0"
+dependencies = [
+ "serde_json",
+ "shekyl-types",
 ]
 
 [[package]]
@@ -5675,6 +5760,7 @@ dependencies = [
  "shekyl-crypto-pq",
  "shekyl-engine-prefs",
  "shekyl-engine-state",
+ "shekyl-types",
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
@@ -5765,6 +5851,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-onion-v3"
+version = "3.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "sha3",
+]
+
+[[package]]
 name = "shekyl-operator-alarm"
 version = "3.1.0"
 dependencies = [
@@ -5777,9 +5871,11 @@ dependencies = [
 name = "shekyl-p-host"
 version = "3.1.0"
 dependencies = [
+ "shekyl-crypto-pq",
  "shekyl-curve-tree",
  "shekyl-p-serve",
  "shekyl-tor-control-wallet",
+ "shekyl-types",
  "tokio",
 ]
 
@@ -5787,7 +5883,10 @@ dependencies = [
 name = "shekyl-p-serve"
 version = "3.1.0"
 dependencies = [
+ "shekyl-archival-retention",
+ "shekyl-crypto-pq",
  "shekyl-curve-tree",
+ "shekyl-types",
  "tokio",
 ]
 
@@ -5831,6 +5930,7 @@ dependencies = [
  "serde_json",
  "shekyl-curve-io",
  "shekyl-rpc-types",
+ "shekyl-types",
  "std-shims",
  "thiserror 2.0.18",
  "zeroize",
@@ -5847,8 +5947,8 @@ dependencies = [
  "hyper-rustls",
  "hyper-util",
  "shekyl-rpc-client",
+ "shekyl-socks",
  "tokio",
- "tokio-socks",
  "tower-service",
  "zeroize",
 ]
@@ -5890,16 +5990,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shekyl-shard-source"
-version = "3.1.0"
-dependencies = [
- "hex",
- "serde",
- "shekyl-shard-visual",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "shekyl-shard-visual"
 version = "3.1.0"
 dependencies = [
@@ -5911,6 +6001,14 @@ dependencies = [
  "sha2",
  "sha3",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "shekyl-socks"
+version = "3.1.0"
+dependencies = [
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -5929,7 +6027,7 @@ dependencies = [
  "kameo",
  "libc",
  "sha2",
- "sha3",
+ "shekyl-onion-v3",
  "tokio",
  "zeroize",
 ]
@@ -5962,6 +6060,7 @@ dependencies = [
  "shekyl-curve-io",
  "shekyl-curve-primitives",
  "shekyl-fcmp",
+ "shekyl-types",
  "shekyl-units",
  "shekyl-wire",
  "thiserror 2.0.18",
@@ -5975,6 +6074,7 @@ dependencies = [
  "shekyl-crypto-pq",
  "shekyl-curve-io",
  "shekyl-fcmp",
+ "shekyl-types",
  "shekyl-wire",
 ]
 
@@ -5984,6 +6084,8 @@ version = "3.1.0"
 dependencies = [
  "postcard-schema",
  "serde",
+ "serde_json",
+ "shekyl-units",
  "zeroize",
 ]
 
@@ -5999,7 +6101,7 @@ dependencies = [
 
 [[package]]
 name = "shekyl-wallet"
-version = "3.1.0-alpha.8"
+version = "3.1.0-alpha.9"
 dependencies = [
  "base64 0.22.1",
  "curve25519-dalek",
@@ -6021,13 +6123,14 @@ dependencies = [
  "shekyl-rpc-client",
  "shekyl-rpc-transport",
  "shekyl-scanner",
- "shekyl-shard-source",
  "shekyl-shard-visual",
  "shekyl-types",
  "shekyl-units",
+ "shekyl-wallet-contract",
  "shekyl-wire",
  "tauri",
  "tauri-build",
+ "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-shell",
@@ -6036,6 +6139,23 @@ dependencies = [
  "tokio-util",
  "tracing",
  "zeroize",
+]
+
+[[package]]
+name = "shekyl-wallet-contract"
+version = "3.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "shekyl-crypto-pq",
+ "shekyl-engine-core",
+ "shekyl-engine-file",
+ "shekyl-engine-prefs",
+ "shekyl-engine-state",
+ "shekyl-rpc-client",
+ "shekyl-types",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -6050,7 +6170,10 @@ dependencies = [
 name = "shekyl-wire"
 version = "3.1.0"
 dependencies = [
+ "serde_json",
  "shekyl-crypto-hash",
+ "shekyl-curve-generators",
+ "shekyl-types",
 ]
 
 [[package]]
@@ -6583,6 +6706,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-clipboard-manager"
+version = "2.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4136fb69d967753d000423d7e5f863f89bf949efbdfbecb43a580426a01a0194"
+dependencies = [
+ "arboard",
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "tauri-plugin-dialog"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6953,18 +7091,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-socks"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7e2948f60dbe26b35f2c7fb74ac2854c1fddded0fe9d7548fcc674a246f7615"
-dependencies = [
- "either",
- "futures-util",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
 name = "tokio-util"
 version = "0.7.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7178,6 +7304,17 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tree_magic_mini"
+version = "3.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8765b90061cba6c22b5831f675da109ae5561588290f9fa2317adab2714d5a6"
+dependencies = [
+ "memchr",
+ "nom",
+ "petgraph",
 ]
 
 [[package]]
@@ -7590,6 +7727,76 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap 2.13.0",
  "semver",
+]
+
+[[package]]
+name = "wayland-backend"
+version = "0.3.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38a91b4eaddff87b1cd1074985e3713da4af2c49742d1b356b2c01670a67a078"
+dependencies = [
+ "cc",
+ "downcast-rs 1.2.1",
+ "rustix",
+ "smallvec",
+ "wayland-sys",
+]
+
+[[package]]
+name = "wayland-client"
+version = "0.31.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3c36a0f861ad76d0901f2800b46321410d9f73f2ea88aac0650d86c32688073"
+dependencies = [
+ "bitflags 2.11.0",
+ "rustix",
+ "wayland-backend",
+ "wayland-scanner",
+]
+
+[[package]]
+name = "wayland-protocols"
+version = "0.32.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23d0c813de3daa2ed6520af85a3bd49b0e722a3078506899aa9686fea58dc4b6"
+dependencies = [
+ "bitflags 2.11.0",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-scanner",
+]
+
+[[package]]
+name = "wayland-protocols-wlr"
+version = "0.3.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb04e52f7836d7c7976c78ca0250d61e33873c34156a2a1fc9474828ec268234"
+dependencies = [
+ "bitflags 2.11.0",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-scanner",
+]
+
+[[package]]
+name = "wayland-scanner"
+version = "0.31.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "338e30461b3a2b67d70eb30a6d89f8e0c93a833e07d2ae89085cd070c4a00ac0"
+dependencies = [
+ "proc-macro2",
+ "quick-xml",
+ "quote",
+]
+
+[[package]]
+name = "wayland-sys"
+version = "0.31.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8eab23fefc9e41f8e841df4a9c707e8a8c4ed26e944ef69297184de2785e3be"
+dependencies = [
+ "pkg-config",
 ]
 
 [[package]]
@@ -8298,6 +8505,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "wl-clipboard-rs"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9651471a32e87d96ef3a127715382b2d11cc7c8bb9822ded8a7cc94072eb0a3"
+dependencies = [
+ "libc",
+ "log",
+ "os_pipe",
+ "rustix",
+ "thiserror 2.0.18",
+ "tree_magic_mini",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-wlr",
+]
+
+[[package]]
 name = "writeable"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8376,6 +8601,23 @@ dependencies = [
  "once_cell",
  "pkg-config",
 ]
+
+[[package]]
+name = "x11rb"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414"
+dependencies = [
+ "gethostname",
+ "rustix",
+ "x11rb-protocol",
+]
+
+[[package]]
+name = "x11rb-protocol"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 
 [[package]]
 name = "x25519-dalek"

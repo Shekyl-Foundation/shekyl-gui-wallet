@@ -6,20 +6,21 @@
 //! WI-RPC-1 staking read projection for the GUI (GUI-PR3b).
 //!
 //! Single serializable DTO for the Tauri wire — the one projection of core
-//! [`StakingReadView`] with newtypes unwrapped to raw integers. Lives here
-//! (not inside [`crate::engine_session`]) so the session stays a thin shell
-//! and so there is no second identity hop through `commands.rs`. Same
-//! ownership pattern as [`crate::transfer_history`].
+//! [`StakingReadView`]. Lives here (not inside [`crate::engine_session`]) so
+//! the session stays a thin shell and so there is no second identity hop
+//! through `commands.rs`. Same ownership pattern as [`crate::transfer_history`].
 //!
-//! The three balance legs stay distinct on purpose — confirmed bond
-//! principal, pending (in-flight post) principal, and received-unspent
-//! rewards are never conflated into one figure. Amounts are atomic-unit
-//! `u64`s, display-only at the frontend (FOLLOWUPS "Atomic amounts
-//! serialized as JS number"). Fail-closed: a corrupt / version-mismatched
-//! seal is an `Err(String)` from the session method, never an empty view.
+//! The three balance legs stay distinct: confirmed bond principal, pending
+//! (in-flight post) principal, and received-unspent rewards. Each of those
+//! amounts, and each staked output's amount, is
+//! [`AtomicUnitsString`] (a decimal string). Heights, slots, and
+//! gindexes stay raw integers. A corrupt or version-mismatched seal is an
+//! `Err(String)` from the session method, never an empty view.
 
 use serde::Serialize;
 use shekyl_engine_core::{StakedOutput, StakingReadView};
+
+use shekyl_units::AtomicUnitsString;
 
 /// Wire projection of core [`StakingReadView`] (WI-RPC-1; GUI-PR3b).
 ///
@@ -28,11 +29,11 @@ use shekyl_engine_core::{StakedOutput, StakingReadView};
 pub struct StakingView {
     pub staking_enabled: bool,
     /// Bond principal locked under confirmed live bonds (atomic units).
-    pub bonded_principal_confirmed: u64,
+    pub bonded_principal_confirmed: AtomicUnitsString,
     /// Bond principal committed by in-flight (sealed, unconfirmed) posts.
-    pub bonded_principal_pending: u64,
+    pub bonded_principal_pending: AtomicUnitsString,
     /// Emission-reward money received and still unspent in `P`-owned outputs.
-    pub rewards_received_unspent: u64,
+    pub rewards_received_unspent: AtomicUnitsString,
     /// Unspent `P`-owned funding outputs, in scan order.
     pub staked_outputs: Vec<StakedOutputView>,
     /// P-scan sealed frontier height (`None`: never scanned as `P`).
@@ -50,7 +51,7 @@ pub struct StakingView {
 pub struct StakedOutputView {
     pub gindex: u64,
     /// Recovered cleartext amount, atomic units.
-    pub amount: u64,
+    pub amount: AtomicUnitsString,
     /// Owning persona's slot ordinal.
     pub p_slot: u32,
     /// Height at which the output becomes spendable.
@@ -63,9 +64,9 @@ impl From<StakingReadView> for StakingView {
     fn from(view: StakingReadView) -> Self {
         Self {
             staking_enabled: view.staking_enabled,
-            bonded_principal_confirmed: view.balance.bonded_principal_confirmed.to_raw(),
-            bonded_principal_pending: view.balance.bonded_principal_pending.to_raw(),
-            rewards_received_unspent: view.balance.rewards_received_unspent.to_raw(),
+            bonded_principal_confirmed: view.balance.bonded_principal_confirmed.into(),
+            bonded_principal_pending: view.balance.bonded_principal_pending.into(),
+            rewards_received_unspent: view.balance.rewards_received_unspent.into(),
             staked_outputs: view.outputs.iter().map(StakedOutputView::from).collect(),
             pscan_synced_height: view.pscan_synced_height.map(|h| h.to_raw()),
             recovery_pending_reopen: view.recovery_pending_reopen,
@@ -77,7 +78,7 @@ impl From<&StakedOutput> for StakedOutputView {
     fn from(o: &StakedOutput) -> Self {
         Self {
             gindex: o.gindex.to_raw(),
-            amount: o.amount.to_raw(),
+            amount: o.amount.into(),
             p_slot: o.p_slot.to_raw(),
             unlock_height: o.unlock_height.to_raw(),
             confirmed: o.confirmed,
@@ -121,9 +122,18 @@ mod tests {
         };
         let read = StakingView::from(view);
         assert!(read.staking_enabled);
-        assert_eq!(read.bonded_principal_confirmed, 1_000);
-        assert_eq!(read.bonded_principal_pending, 2_000);
-        assert_eq!(read.rewards_received_unspent, 3_000);
+        assert_eq!(
+            read.bonded_principal_confirmed.to_atomic_units().to_raw(),
+            1_000
+        );
+        assert_eq!(
+            read.bonded_principal_pending.to_atomic_units().to_raw(),
+            2_000
+        );
+        assert_eq!(
+            read.rewards_received_unspent.to_atomic_units().to_raw(),
+            3_000
+        );
         assert!(read.staked_outputs.is_empty());
         assert_eq!(read.pscan_synced_height, None);
     }
@@ -146,7 +156,7 @@ mod tests {
             read.staked_outputs,
             vec![StakedOutputView {
                 gindex: 42,
-                amount: 5_000_000_000,
+                amount: AtomicUnits::from_raw(5_000_000_000).into(),
                 p_slot: 3,
                 unlock_height: 12_345,
                 confirmed: true,

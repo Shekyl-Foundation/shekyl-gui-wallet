@@ -1,7 +1,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Copy, Check, ChevronDown, ChevronUp, ShieldCheck } from "lucide-react";
+import { Copy, Check, ChevronDown, ChevronUp, ShieldCheck, AlertCircle } from "lucide-react";
+import { useCopyFeedback } from "../lib/useCopyFeedback";
 import { QRCodeSVG } from "qrcode.react";
+import { PaymentLinkCard, PaymentRequestList, RequestPaymentForm } from "../components/receive";
+import type { PrimaryAddress } from "../types/wallet";
+import type { CreatedPaymentRequest, PaymentRequest } from "../types/receiving";
 
 const BECH32M_PREFIX = "shekyl1";
 const CLASSICAL_SEGMENT_LEN = 95;
@@ -22,14 +26,32 @@ function splitAddress(full: string): {
   };
 }
 
+/**
+ * Receive: the wallet's one address, and payment requests. Creating a
+ * request stores it and yields the `shekyl:` link composed from that stored
+ * row. The list shows each request's state and can show that same link
+ * again. Paying the link does not yet mark the request paid.
+ */
 export default function Receive() {
   const [address, setAddress] = useState<string>("");
-  const [copied, setCopied] = useState(false);
+  const { state: copyState, copy } = useCopyFeedback();
   const [showFull, setShowFull] = useState(false);
+  const [link, setLink] = useState<{ title: string; uri: string } | null>(null);
+  const [requestsVersion, setRequestsVersion] = useState(0);
+
+  function onCreated(created: CreatedPaymentRequest) {
+    setLink({ title: "Payment link created", uri: created.uri });
+    setRequestsVersion((v) => v + 1);
+  }
+
+  function onShowLink(request: PaymentRequest) {
+    const title = request.label ? `Payment link — ${request.label}` : `Payment link — request ${request.id}`;
+    setLink({ title, uri: request.uri });
+  }
 
   useEffect(() => {
-    invoke<string>("get_address", { account: 0, index: 0 })
-      .then(setAddress)
+    invoke<PrimaryAddress>("get_primary_address")
+      .then((r) => setAddress(r.address))
       .catch(() => {});
   }, []);
 
@@ -38,13 +60,6 @@ export default function Receive() {
     [address],
   );
   const hasPqSegment = pqSegment !== null;
-
-  function copyAddress() {
-    navigator.clipboard.writeText(address).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
@@ -97,18 +112,25 @@ export default function Receive() {
                 )}
               </code>
               <button
-                onClick={copyAddress}
+                onClick={() => copy(address)}
                 disabled={!address}
                 className="btn-ghost shrink-0 rounded-md p-1.5"
                 title="Copy full address"
               >
-                {copied ? (
+                {copyState === "copied" ? (
                   <Check className="h-4 w-4 text-emerald-400" />
+                ) : copyState === "failed" ? (
+                  <AlertCircle className="h-4 w-4 text-red-400" />
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
               </button>
             </div>
+            {copyState === "failed" && (
+              <p className="mt-2 text-[10px] text-red-300" role="alert">
+                Copy failed. Select the address above and copy it by hand.
+              </p>
+            )}
 
             {hasPqSegment && (
               <button
@@ -138,6 +160,14 @@ export default function Receive() {
           )}
         </div>
       </div>
+
+      {address && (
+        <>
+          {link && <PaymentLinkCard uri={link.uri} title={link.title} onDismiss={() => setLink(null)} />}
+          <RequestPaymentForm onCreated={onCreated} />
+          <PaymentRequestList version={requestsVersion} onShowLink={onShowLink} />
+        </>
+      )}
     </div>
   );
 }

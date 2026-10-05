@@ -1,40 +1,30 @@
 import type { CandidateRecipe } from "./shardPreview";
 
 /**
- * Public chain properties that drive a shard's visual semantics.
- * Mirrors `shekyl_shard_visual::ShardAggregate` (the f64 fields are
- * display-only aesthetic scalars; `shard_hash` is lowercase hex).
+ * One row of `list_shards` (daemon `get_archival_shard_coverage`).
+ * Ranking uses join-adjusted scarcity; the GUI shows `expected_profit_atomic`.
+ * That field is a decimal string of atomic units so values above 2^53 stay
+ * exact across the Tauri JSON edge.
  */
-export interface ShardAggregate {
+export interface ShardCoverageRow {
   shard_id: number;
-  shard_hash: string;
-  block_count: number;
-  tx_count: number;
-  output_count: number;
-  coinbase_output_count: number;
-  time_range_seconds: number;
-  coinbase_ratio: number;
-  value_log_mean: number;
-  value_log_variance: number;
-  stake_events_created: number;
-  stake_events_claimed: number;
-  tier_distribution: [number, number, number];
-  dominant_regime: string;
+  bonded_count: number;
+  served_count: number;
+  freeze_height: number;
+  join_scarcity_micro: number;
+  expected_profit_atomic: string;
 }
 
-/** One entry in the shard list (`shekyl_shard_source::ShardSummary`). */
-export interface ShardSummary {
-  label: string;
-  aggregate: ShardAggregate;
-}
-
-/** A render request for a single shard (`shekyl_shard_source::ShardRenderHandle`). */
-export interface ShardRenderHandle {
-  shard_id: number;
-  shard_hash: string;
-  /** Compositor-seed override; omit when unset (wire: absent, not null). */
-  hash_override?: string;
-  size: number;
+/** Full coverage list. `frozen_count === 0` is an honest empty, not a fault. */
+export interface ShardCoverageList {
+  as_of_height: number;
+  leaf_count: number;
+  frozen_count: number;
+  settled_epoch: number;
+  budget_atomic: string;
+  sigma_work_milli: number;
+  profit_estimate_available: boolean;
+  shards: ShardCoverageRow[];
 }
 
 /** Render result for a single shard (`shard_visual::ShardRenderResponse`). */
@@ -44,3 +34,12 @@ export interface ShardRenderResponse {
   cache_key: string;
   shard_id: number;
 }
+
+/** Bond holdings cap (`ArchivalBondValue::kMaxHoldings`). */
+export const MAX_HOLDINGS_SHARDS = 4096;
+
+/**
+ * Cards mounted at once on the operator gallery. Selection lives in session
+ * state for the full coverage set; this only bounds DOM / observers.
+ */
+export const GALLERY_PAGE_SIZE = 36;

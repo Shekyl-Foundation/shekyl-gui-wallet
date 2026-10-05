@@ -11,6 +11,8 @@
 
 use shekyl_address::ShekylAddress;
 
+use crate::state::NetworkType;
+
 const MAX_WALLET_NAME_LEN: usize = 255;
 const MAX_PASSWORD_LEN: usize = 1024;
 
@@ -42,21 +44,6 @@ pub fn validate_address(address: &str) -> Result<(), String> {
 pub fn validate_amount(amount: u64) -> Result<(), String> {
     if amount == 0 {
         return Err("Amount must be greater than zero".into());
-    }
-    Ok(())
-}
-
-/// Validate a hex string of expected byte length.
-pub fn validate_hex(hex_str: &str, expected_bytes: usize, field_name: &str) -> Result<(), String> {
-    if hex_str.len() != expected_bytes * 2 {
-        return Err(format!(
-            "{field_name} must be {} hex chars, got {}",
-            expected_bytes * 2,
-            hex_str.len()
-        ));
-    }
-    if !hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("{field_name} contains non-hex characters"));
     }
     Ok(())
 }
@@ -96,13 +83,44 @@ pub fn validate_wallet_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a wallet password.
-pub fn validate_password(password: &str) -> Result<(), String> {
-    if password.len() > MAX_PASSWORD_LEN {
+/// Screen untrusted password text before it becomes a credential.
+///
+/// Length cap and no NUL. A passing value is still just text: the caller
+/// wraps it in `Zeroizing` at the moment it is used. The parameter is
+/// `password_text` so this screen is not itself a use of a credential.
+pub fn validate_password(password_text: &str) -> Result<(), String> {
+    if password_text.len() > MAX_PASSWORD_LEN {
         return Err(format!("Password too long (max {MAX_PASSWORD_LEN} chars)"));
     }
-    if password.contains('\0') {
+    if password_text.contains('\0') {
         return Err("Password must not contain null bytes".into());
+    }
+    Ok(())
+}
+
+/// Hex characters in a testnet seed backup: the 32-byte raw seed, as
+/// `create_wallet` hands it out (the contract's `CreateWalletResult.raw_seed_hex`).
+pub const RAW_SEED_HEX_LENGTH: usize = 64;
+
+/// Validate a seed backup for restore in the encoding `network` hands out at
+/// creation: a 24-word BIP-39 English phrase on mainnet/stagenet, the raw seed
+/// as 64 hex characters on testnet.
+///
+/// Error messages describe the failure class only; the backup is never echoed.
+pub fn validate_seed_backup(backup: &str, network: NetworkType) -> Result<(), String> {
+    match network {
+        NetworkType::Testnet => validate_raw_seed_hex(backup),
+        NetworkType::Mainnet | NetworkType::Stagenet => validate_recovery_phrase(backup),
+    }
+}
+
+fn validate_raw_seed_hex(seed: &str) -> Result<(), String> {
+    let seed = seed.trim();
+    if seed.len() != RAW_SEED_HEX_LENGTH || !seed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "Testnet wallets back up as a {RAW_SEED_HEX_LENGTH}-character hex seed, \
+             not a recovery phrase"
+        ));
     }
     Ok(())
 }
@@ -110,7 +128,7 @@ pub fn validate_password(password: &str) -> Result<(), String> {
 /// Validate a BIP-39 English recovery phrase (24 words) for import/restore.
 ///
 /// Error messages describe the failure class only; the phrase is never echoed.
-pub fn validate_recovery_phrase(phrase: &str) -> Result<(), String> {
+fn validate_recovery_phrase(phrase: &str) -> Result<(), String> {
     if phrase.is_empty() {
         return Err("Recovery phrase must not be empty".into());
     }
@@ -131,16 +149,6 @@ pub fn validate_recovery_phrase(phrase: &str) -> Result<(), String> {
     Err(format!(
         "Recovery phrase must be exactly {BIP39_RECOVERY_PHRASE_WORD_COUNT} words"
     ))
-}
-
-/// Validate a key image hex string (32 bytes = 64 hex chars).
-pub fn validate_key_image(key_image: &str) -> Result<(), String> {
-    validate_hex(key_image, 32, "key_image")
-}
-
-/// Validate a secret key hex string (32 bytes = 64 hex chars).
-pub fn validate_secret_key(key: &str, name: &str) -> Result<(), String> {
-    validate_hex(key, 32, name)
 }
 
 #[cfg(test)]
@@ -167,23 +175,6 @@ mod tests {
     fn accept_nonzero_amount() {
         assert!(validate_amount(1).is_ok());
         assert!(validate_amount(u64::MAX).is_ok());
-    }
-
-    #[test]
-    fn validate_hex_correct_length() {
-        let hex64 = "a".repeat(64);
-        assert!(validate_hex(&hex64, 32, "test").is_ok());
-    }
-
-    #[test]
-    fn reject_hex_wrong_length() {
-        assert!(validate_hex("abcd", 32, "test").is_err());
-    }
-
-    #[test]
-    fn reject_hex_non_hex_chars() {
-        let bad = "zz".to_string() + &"0".repeat(62);
-        assert!(validate_hex(&bad, 32, "test").is_err());
     }
 
     #[test]
@@ -256,6 +247,34 @@ mod tests {
     }
 
     #[test]
+    fn seed_backup_shape_is_network_governed() {
+        let hex = "ab".repeat(RAW_SEED_HEX_LENGTH / 2);
+        let phrase = twenty_four_word_phrase();
+        for net in [NetworkType::Mainnet, NetworkType::Stagenet] {
+            assert!(validate_seed_backup(&phrase, net).is_ok());
+            assert!(
+                validate_seed_backup(&hex, net).is_err(),
+                "{net:?} takes a phrase"
+            );
+        }
+        assert!(validate_seed_backup(&hex, NetworkType::Testnet).is_ok());
+        assert!(validate_seed_backup(&format!(" {hex} "), NetworkType::Testnet).is_ok());
+        let err = validate_seed_backup(&phrase, NetworkType::Testnet).unwrap_err();
+        assert!(err.contains("64-character hex seed"), "{err}");
+        for bad in [
+            "",
+            &hex[..62],
+            &format!("{hex}ab"),
+            &format!("zz{}", &hex[2..]),
+        ] {
+            assert!(
+                validate_seed_backup(bad, NetworkType::Testnet).is_err(),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
     fn reject_wrong_word_count_recovery_phrase() {
         let short = (1..23)
             .map(|i| format!("word{i}"))
@@ -292,26 +311,6 @@ mod tests {
         let bad_addr = format!("shekyl1{CANARY_HEX}");
         let err = validate_address(&bad_addr).unwrap_err();
         assert_no_canary(&err, &[CANARY_HEX, CANARY_SHORT]);
-    }
-
-    #[test]
-    fn hex_error_does_not_leak_input() {
-        let err = validate_hex(CANARY_HEX, 16, "test_field").unwrap_err();
-        assert_no_canary(&err, &[CANARY_HEX, CANARY_SHORT]);
-    }
-
-    #[test]
-    fn key_image_error_does_not_leak_canary() {
-        let short_ki = &CANARY_HEX[..32];
-        let err = validate_key_image(short_ki).unwrap_err();
-        assert_no_canary(&err, &[short_ki, CANARY_SHORT]);
-    }
-
-    #[test]
-    fn secret_key_error_does_not_leak_canary() {
-        let short_sk = &CANARY_HEX[..32];
-        let err = validate_secret_key(short_sk, "spend_key").unwrap_err();
-        assert_no_canary(&err, &[short_sk, CANARY_SHORT]);
     }
 
     #[test]
@@ -377,11 +376,6 @@ mod tests {
             }
 
             #[test]
-            fn validate_hex_never_panics(s in "\\PC{0,200}", len in 0usize..100) {
-                let _ = validate_hex(&s, len, "fuzz");
-            }
-
-            #[test]
             fn validate_wallet_name_never_panics(s in "\\PC{0,500}") {
                 let _ = validate_wallet_name(&s);
             }
@@ -394,11 +388,6 @@ mod tests {
             #[test]
             fn validate_recovery_phrase_never_panics(s in "\\PC{0,1000}") {
                 let _ = validate_recovery_phrase(&s);
-            }
-
-            #[test]
-            fn validate_key_image_never_panics(s in "\\PC{0,200}") {
-                let _ = validate_key_image(&s);
             }
 
             #[test]

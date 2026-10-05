@@ -62,9 +62,10 @@ C++ `wallet2` FFI bridge is gone: `wallet_bridge.rs` was deleted at GUI-PR1,
 the `shekyl-ffi` / `shekyl-engine-rpc` deps and the C++ static linkage went
 with it, and `shekyl-engine-rpc` itself has since been deleted from
 `shekyl-core`. Nothing in this process links C++ wallet code. Features that
-were only ever backed by the old path (import-from-keys, PQC multisig,
-scanner freeze/thaw) return honest "not available on the Engine backend"
-errors until they are ported.
+were only ever backed by the old path are absent from the default build
+rather than registered refusals (rule 28, stub leg): import-from-keys and
+scanner freeze/thaw are deleted; PQC multisig compiles only under
+`--features multisig`.
 
 ---
 
@@ -79,7 +80,7 @@ The frontend uses a phase-based state machine to control what the user sees:
 | `select_wallet`| Unlock (with picker)| Multiple .keys files; user picks one       |
 | `unlock`       | Unlock              | Single .keys file; enter password          |
 | `creating`     | Create Wallet       | In the middle of wallet creation wizard    |
-| `importing`    | Import Wallet       | Restoring from seed/keys                   |
+| `importing`    | Import Wallet       | Restoring from the recovery phrase         |
 | `ready`        | Main app (Dashboard)| Wallet is open and authenticated           |
 
 Transitions:
@@ -167,10 +168,10 @@ most recently modified.
 
 ### Initialization
 
-`init_wallet_rpc` (Tauri command -- name retained for IPC compatibility)
-initializes the wallet bridge with the network type, daemon address, and
-wallet directory. No external process is started; this is a synchronous
-in-process FFI initialization.
+`ensure_wallet_dir` (Tauri command) guarantees the configured wallet
+directory exists before any create/open flow runs. Nothing else is
+initialised at startup: the Engine connects to the daemon per wallet-open,
+and no external process is started.
 
 ### Open / Close
 
@@ -207,25 +208,26 @@ When a wallet is closed (`close_wallet`) or the window is destroyed:
 
 ## Create Wallet Flow
 
-**Current (pre–BIP-39 integration):** Frontend calls
-`create_wallet(name, password, language)`. The `language` parameter is legacy
-and will be removed in the integration PR.
+`create_wallet(name, password)` creates the wallet through the Engine and
+returns the contract's `CreateWalletResult` — `wallet` (the `WalletHandle`:
+name, capability `FULL`, network, and `restore_height_hint` only when the
+contract reports one) and the backup exactly once, in the network's
+encoding: `mnemonic` (24 words) on mainnet/stagenet or `raw_seed_hex` on
+testnet. The address is not on the result; the page reads it from
+`get_primary_address` once the wallet is open, and a failed read is shown
+rather than a blank address. There is no `seed_language` and no
+mnemonic-language argument: which backup field is present says which
+encoding the Engine chose.
 
-**Planned (after shekyl-core BIP-39 FFI + gui integration PR):**
-`create_wallet(name, password)` → `wallet2_ffi_create_wallet_from_bip39`, then
-`query_key("mnemonic")` for the 24-word recovery phrase. No seed-language
-parameter.
+1. **setup** — name, password and confirmation.
+2. **seed** — the phrase in a numbered grid, or the testnet hex seed on its
+   own. "Copy to clipboard" hands that backup to Rust, which owns the
+   clipboard's timed, hash-checked clear (`GUI_SECURITY.md` "Recovery phrase").
+3. **confirm** — four randomly chosen words, or a re-entry of the hex seed.
+4. **done** — transitions to `phase: "ready"`.
 
-1. Bridge creates the wallet file and queries the recovery phrase and primary
-   address.
-2. Returns `CreateWalletResult` with name, address, seed, network.
-3. Frontend displays the phrase in a numbered grid (24 words).
-5. Frontend challenges user to enter 4 randomly chosen words.
-6. On success, transitions to `phase: "ready"`.
-
-The wallet automatically includes PQC key material (Ed25519 + ML-DSA-65)
-because `wallet2` calls `generate_pqc_key_material()` during account
-generation. No special flags needed -- all new wallets are v3 PQC wallets.
+Every new wallet is a v3 wallet. The Engine derives hybrid Ed25519 + ML-DSA-65
+spend authorization as part of creation; there is no flag that turns it off.
 
 New wallets also generate ML-KEM-768 key material for the Bech32m address
 format (`shekyl1:<version><classical ~103 chars>/<pqc ~1750 chars>`, ~1,870
@@ -240,45 +242,32 @@ classical segment by default; the PQC segment is handled internally.
 
 ### From Recovery Phrase
 
-**Current (pre–BIP-39 integration):** Calls
-`restore_deterministic_wallet(filename, seed, password, language, restore_height)`.
-The GUI prep PR validates 24-word input client-side; full BIP-39 restore
-requires the integration PR and updated shekyl-core FFI.
+The only restore path. `restore_wallet(name, password, mnemonic,
+restore_height)` — the contract's method and parameters — validates the backup in the encoding the running network
+hands out at creation (`validate_seed_backup`: a 24-word phrase on
+mainnet/stagenet, the 32-byte raw seed as 64 hex characters on testnet —
+the contract's `restore_wallet`) and calls `EngineSession::restore_from_backup`,
+whose `master_seed_from_backup` is the inverse of the create path's
+`generate_seed_material`. The hybrid post-quantum keys are derived from the
+seed, so nothing is "generated for" a restored wallet and no passphrase or
+mnemonic language is taken. `restore_height` defaults to 0 (full scan). On
+success the page shows "Restore complete" and transitions to `phase: "ready"`.
 
-**Planned:** `restore_from_bip39(filename, phrase, password, passphrase, restore_height)`
-(replaces Electrum restore). Optional BIP-39 passphrase maps to
-`seed_passphrase` in wallet2 JSON semantics per
-`shekyl-core/docs/design/ELECTRUM_WORDS_REMOVAL.md` §4.5.1.
-
-PQC keys are generated automatically for restored wallets via
-`generate_pqc_for_restored_address()` in `wallet2`.
-
-### From Keys
-
-Calls `generate_from_keys(filename, address, spendkey, viewkey, password, language, restore_height)`.
-If the address includes PQC public key bytes, they are preserved. If not,
-`wallet2` generates fresh PQC key material on the restore path.
-
-Both flows set `restore_height` (default 0 = full scan) and transition to
-`phase: "ready"` on success.
+There is no import from raw spend/view keys: that was a Wallet2 path whose
+GUI command had become an unconditional refusal, and the command-surface
+gate (`scripts/ci/check_command_surface.sh`, stub leg) now refuses such a
+command. The contract's `restore_wallet` takes a mnemonic only.
 
 ---
 
-## Transfer Flow (Native-Sign)
+## Transfer Flow
 
-Outgoing transactions use the native-sign path:
-
-1. **C++ prepare** -- `wallet2` selects inputs, computes change, and builds
-   the transaction skeleton (output construction, commitment masks; no ring
-   selection -- FCMP++ replaces ring signatures).
-2. **Rust sign** -- the FCMP++ membership proof and PQC `pqc_auth` blobs
-   are produced by the Rust signing crates.
-3. **C++ finalize** -- `wallet2` records the transaction, marks inputs
-   spent, and submits to the daemon.
-
-If finalize fails after sign, the bridge returns an error to the frontend;
-inputs remain spendable from the wallet's perspective and will be
-reconsidered on the next transfer attempt.
+Outgoing transactions follow the wallet contract's own three steps in
+`src-tauri/src/send.rs` — `get_default_fee_priority` → `build_pending_tx`
+→ `submit_pending_tx` / `discard_pending_tx` — entirely in Rust through the
+Engine. See `GUI_SECURITY.md` "Send Flow" for the invariant (one built
+transaction per user intent; the fee the user confirms is the fee that
+ships) and the reservation-ownership rules.
 
 ---
 
@@ -292,9 +281,8 @@ The wallet connects to a `shekyld` daemon over HTTP. Default ports:
 | Testnet   | 12029      |
 | Stagenet  | 13029      |
 
-Both the C++ `wallet2` instance (for transaction submission, key image
-checks) and the Rust scanner (for block fetching) talk to the same daemon
-endpoint.
+The Engine (transaction construction and submission) and the scanner (block
+fetching) both talk to that same daemon endpoint.
 
 ---
 

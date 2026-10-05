@@ -144,8 +144,13 @@ almost all cases.
 
 The Dashboard is your home screen. Here's what you'll find:
 
-- **Balance Card** -- Shows your total SKL balance, how much is unlocked
-  (spendable right now), and how much is locked in staking.
+- **Balance Card** -- Shows your balance, what you can spend right now
+  (**Available**), what is pending (committed to a send that is still
+  confirming), what is staked, and the staking rewards you have received and
+  not yet spent. If the wallet cannot read its staking state, those two
+  figures say **Unavailable** rather than showing a zero that would be wrong.
+  If the balance itself cannot be read, the card says so and offers
+  **Try again**.
 
 - **Quick Actions** -- Four buttons that take you to the most common tasks:
   Send, Receive, Staking, and History.
@@ -168,18 +173,21 @@ If this is your first time, you'll see the Welcome screen. Click
    This password encrypts your wallet file. If someone steals your
    computer, they can't open the wallet without it.
 
-2. **Recovery phrase.** The wallet generates a **24-word BIP-39 English recovery
-   phrase** and displays it in a numbered grid. This is the most important thing
-   you'll encounter. Read the next section carefully. You can also copy it to
-   your clipboard, but **write it down on paper immediately**.
+2. **Recovery phrase.** On mainnet and stagenet the wallet generates a
+   **24-word BIP-39 English recovery phrase** and displays it in a numbered
+   grid. On testnet the backup is one **64-character hex seed**, not a phrase.
+   Either way this is the most important thing you'll encounter. Read the next
+   section carefully. You can also copy it to your clipboard, but **write it
+   down on paper immediately**.
 
-3. **Phrase confirmation.** To make sure you actually saved your phrase, the wallet
-   asks you to enter 4 randomly chosen words (e.g., "Enter word #3, #8, #17,
-   #22"). This prevents accidentally clicking through without saving.
+3. **Confirmation.** To make sure you actually saved the backup, the wallet
+   asks you to enter 4 randomly chosen words, or — on testnet — to type the
+   hex seed back. This prevents accidentally clicking through without saving.
 
 4. **Done.** Your wallet is created and ready to use. You'll see your address
-   and a confirmation that it's protected by hybrid PQC signatures. Click
-   "Open Wallet" to enter the main app.
+   and a confirmation that it's protected by hybrid PQC signatures. If the
+   address cannot be read, the wallet still exists: open it and copy the
+   address from Receive. Click "Open Wallet" to enter the main app.
 
 Your wallet is automatically a **v3 wallet** with full post-quantum key
 material (Ed25519 + ML-DSA-65). No extra steps are needed for PQC protection.
@@ -194,29 +202,23 @@ backup, or the CLI tools -- you can import it instead of creating a new one.
 ### Restoring from a recovery phrase
 
 1. On the Welcome screen, click **Import Existing Wallet**.
-2. Choose **Recovery Phrase**.
-3. Enter your **24 words** in the text area. The wallet checks the word count
-   before restore. An optional **passphrase** field is available if you used
-   one when the wallet was created.
+2. Enter your **24 words** in the text area. The wallet checks the word count
+   before restore. A **testnet** wallet has no words: enter the 64-character
+   hex seed it showed when it was created.
+3. Choose a **password** for the wallet file.
 4. Set a **restore height** (optional but recommended). This is the block
    height at which your wallet was first created. If you know it, enter it --
    the wallet will skip scanning blocks before that height, which is much
    faster. If you don't know it, leave it blank and the wallet will scan from
    the beginning (this can take a long time).
-5. Choose a **password** for the wallet file.
-6. Click **Import**. You'll see a progress bar as the wallet scans the
-   blockchain for your transactions.
+5. Click **Restore from Recovery Phrase**. The wallet derives your keys and
+   scans the chain from your restore height, then opens.
 
-### Restoring from keys
-
-This is less common but available for advanced users who have exported their
-spend key and view key separately.
-
-1. On the Welcome screen, click **Import Existing Wallet**.
-2. Choose **Import from Keys**.
-3. Enter your **spend key**, **view key**, and **address**.
-4. Set a password and optionally a restore height.
-5. Click **Import**.
+The seed backup is the only restore path. Shekyl's quantum-resistant keys
+are all derived from it, so there is no separate spend key or view key to
+import, and the phrase takes no extra passphrase. A backup restores on the
+network it was created for: the wallet refuses a phrase on testnet and a hex
+seed on mainnet, and says which it expects.
 
 ### Why restore height matters
 
@@ -278,6 +280,28 @@ Getting SKL sent to you is the easiest part:
 A QR code will also be displayed, which is handy if someone wants to scan it
 from their phone.
 
+### Asking for a specific amount: payment requests
+
+Shekyl has one address and no sub-addresses. To ask for a specific amount,
+make a **payment request**: below your address, enter the **amount**, a
+**label** (it is written on the link, so the payer will see it), and how long
+the request stays open, then click **Create payment link**. The wallet stores
+the request and shows a `shekyl:` **payment link** as a QR code and text.
+Send that link to whoever is paying you. You can show a pending request's
+link again from the list on the same page.
+
+The list reads each request as **Awaiting payment**, **Paid**, **Expired**, or
+**Cancelled**. A request moves to **Expired** on its own when the time you
+chose runs out. A payment made from the link does **not** mark the request
+paid yet: the wallet that pastes the link fills in the address and amount,
+and that is all.
+
+If someone sends *you* a payment link, paste it into the **Recipient Address**
+field on the Send page. The wallet fills in the address and amount and shows
+the link's label so you can check both before you review. Review stays
+unavailable until that link has been read, so the figures you confirm are the
+ones the link filled in.
+
 **Privacy note:** Shekyl uses **stealth addresses**, which means every
 transaction to you creates a unique one-time destination on the blockchain.
 Even if you give the same address to two different people, an outside observer
@@ -316,7 +340,18 @@ been mined on top of it (typically 10 confirmations for full assurance).
 ## Transaction History
 
 Click **Transactions** in the sidebar to see a list of all your past
-transactions -- both sent and received.
+transactions -- both sent and received. The tabs above the list narrow it
+to **Received** or **Sent**, and the state menu to one state (Pending,
+Confirmed, Spent, …). **From block** keeps only transactions confirmed at
+or after a block height (sends not yet on chain stay listed), and the
+**Request** menu narrows receives by how they matched your payment
+requests; it applies to receives only, so it goes away on the Sent tab.
+Changing a filter loads that view on its own; an empty result means
+nothing matched, which is different from a wallet that has no history
+yet. A receive that arrived against one of your payment requests names
+the request on its row. Paying a payment link from the Send page carries
+the request's id inside the payment, encrypted, so the payee's wallet can
+match it.
 
 Each entry shows:
 
