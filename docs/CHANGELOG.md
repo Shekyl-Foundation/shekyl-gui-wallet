@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+Paired with shekyl-core's shard-view branch (wallet contract 0.11.0,
+`docs/design/SHARD_VIEW_FETCH.md`).
+
+### Changed
+
+- **Shard cards are drawn from a real fetch.** The Shards page's lazy render
+  is now the contract's `get_shard_view` (a contract adapter; the
+  `get_shard_render` shell command is gone): the wallet's daemon fetches the
+  shard's archival body from a holder, verifies it, and answers the view
+  (`ShardView`, with `close_height` and the SV-D1 view hash — a fold over
+  the archival bytes, not the challenge hash); the GUI draws candidate.v1
+  locally. The three contract refusals are each a card state: still open
+  (`SHARD_STILL_OPEN`), could not be retrieved this time
+  (`SHARD_UNAVAILABLE`, with a retry that does not toggle selection), and
+  not offered by this daemon (`SHARD_VIEW_NOT_OFFERED`). A reply for a
+  different shard, or a hash that is not 32 bytes, is a protocol violation
+  and is never drawn or cached. The GUI's own `request_archival_shard`
+  daemon call and `ShardRenderResponse` are deleted.
+
 ## [3.1.0-alpha.9] - 2026-10-05
 
 Paired with shekyl-core `v3.1.0-alpha.9`: `release.yml` clones that tag for

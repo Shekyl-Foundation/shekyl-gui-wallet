@@ -34,7 +34,7 @@ const SAMPLE_LIST: ShardCoverageList = {
 function mockCoverage(list: ShardCoverageList) {
   vi.mocked(invoke).mockImplementation(async (cmd: string) => {
     if (cmd === "list_shards") return list;
-    if (cmd === "get_shard_render") {
+    if (cmd === "get_shard_view") {
       throw new Error("lazy PNG must not fetch on mount");
     }
     return null;
@@ -75,7 +75,7 @@ describe("Shards", () => {
     expect(screen.queryByText("genesis")).not.toBeInTheDocument();
     expect(screen.queryByText(/Tier distribution/)).not.toBeInTheDocument();
     expect(
-      vi.mocked(invoke).mock.calls.every((c) => c[0] !== "get_shard_render"),
+      vi.mocked(invoke).mock.calls.every((c) => c[0] !== "get_shard_view"),
     ).toBe(true);
   });
 
@@ -105,7 +105,7 @@ describe("Shards", () => {
     const user = userEvent.setup();
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "list_shards") return SAMPLE_LIST;
-      if (cmd === "get_shard_render") {
+      if (cmd === "get_shard_view") {
         throw new Error("could not retrieve this archive");
       }
       return null;
@@ -115,11 +115,86 @@ describe("Shards", () => {
     await user.click(card);
     await waitFor(() => {
       expect(
-        vi.mocked(invoke).mock.calls.some((c) => c[0] === "get_shard_render"),
+        vi.mocked(invoke).mock.calls.some((c) => c[0] === "get_shard_view"),
       ).toBe(true);
     });
     expect(screen.getByText("Archive #2")).toBeInTheDocument();
     expect(screen.getByText("5.000000 SKL / epoch")).toBeInTheDocument();
+    expect(screen.getByText("Selected")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Could not draw")).toHaveAttribute(
+      "title",
+      "could not retrieve this archive",
+    );
+  });
+
+  it("asks the wallet for the view by shard id and draws what comes back", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === "list_shards") return SAMPLE_LIST;
+      if (cmd === "get_shard_view") {
+        expect(args).toEqual({ shardId: 2, size: 160 });
+        return {
+          view: {
+            shard_id: 2,
+            shard_hash: "00".repeat(32),
+            archival_len: 10,
+            block_count: 1,
+            tx_count: 1,
+            output_count: 2,
+            coinbase_output_count: 1,
+            time_range_seconds: 0,
+            close_height: 1000,
+          },
+          png_base64: "iVBORw0KGgo=",
+          recipe: {},
+          cache_key: "k",
+        };
+      }
+      return null;
+    });
+    renderShards();
+    await user.click(await screen.findByRole("button", { name: /Archive #2/i }));
+    await waitFor(() => {
+      expect(document.querySelector("img[src^='data:image/png;base64,']")).not.toBeNull();
+    });
+  });
+
+  it.each([
+    ["SHARD_STILL_OPEN", "Still open"],
+    ["SHARD_UNAVAILABLE", "Could not be retrieved; retry"],
+    ["SHARD_VIEW_NOT_OFFERED", "Not offered by this daemon"],
+  ])("shows %s as its own state, never an empty frame", async (code, label) => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "list_shards") return SAMPLE_LIST;
+      if (cmd === "get_shard_view") {
+        throw { code, message: `the wallet said ${code}` };
+      }
+      return null;
+    });
+    renderShards();
+    await user.click(await screen.findByRole("button", { name: /Archive #2/i }));
+    expect(await screen.findByLabelText(label)).toBeInTheDocument();
+    expect(document.querySelector("img")).toBeNull();
+  });
+
+  it("retries a shard that could not be retrieved when asked", async () => {
+    const user = userEvent.setup();
+    let views = 0;
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "list_shards") return SAMPLE_LIST;
+      if (cmd === "get_shard_view") {
+        views += 1;
+        throw { code: "SHARD_UNAVAILABLE", message: "no holder served it" };
+      }
+      return null;
+    });
+    renderShards();
+    await user.click(await screen.findByRole("button", { name: /Archive #2/i }));
+    const retry = await screen.findByLabelText("Could not be retrieved; retry");
+    await user.click(retry);
+    await waitFor(() => expect(views).toBe(2));
+    // Clicking the frame's retry does not toggle the card's selection.
     expect(screen.getByText("Selected")).toBeInTheDocument();
   });
 
@@ -128,7 +203,7 @@ describe("Shards", () => {
     let list: ShardCoverageList = SAMPLE_LIST;
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "list_shards") return list;
-      if (cmd === "get_shard_render") {
+      if (cmd === "get_shard_view") {
         throw new Error("lazy PNG must not fetch on mount");
       }
       return null;

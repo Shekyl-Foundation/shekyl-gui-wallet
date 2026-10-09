@@ -19,30 +19,46 @@ opacity variation without changing aggregate features.
 
 ## Shards page (operator gallery)
 
-The sidebar **Shards** page is not this Staking-tab preview. Command names
-`list_shards` and `get_shard_render` stay stable (`docs/SHARD_PREVIEW_CUTOVER.md`
-was the original seam), but they now speak JSON-RPC only:
+The sidebar **Shards** page is not this Staking-tab preview. It speaks two
+commands:
 
-- `list_shards` → daemon `get_archival_shard_coverage` (no Tor, no bodies).
-  `expected_profit_atomic` on each row is a decimal string of atomic units
-  so values above 2^53 stay exact; the gallery sums and formats with BigInt.
-- `get_shard_render` → daemon `request_archival_shard` with `shard_id` only.
+- `list_shards` (app shell, `command_surface.conf`) → daemon
+  `get_archival_shard_coverage` (no Tor, no bodies). `expected_profit_atomic`
+  on each row is a decimal string of atomic units so values above 2^53 stay
+  exact; the gallery sums and formats with BigInt.
+- `get_shard_view` — the wallet contract's method of that name
+  (`wallet_rpc.yaml` 0.11.0, shekyl-core `docs/design/SHARD_VIEW_FETCH.md`
+  SV-D), adapted in `src-tauri/src/shard_coverage.rs`. The wallet's daemon
+  **fetches the shard's archival body from a holder**, verifies it, and
+  answers the aggregate (`ShardView`: counts, `shard_hash` — the SV-D1 view
+  hash, a fold over the archival bytes, distinct from the challenge hash —
+  `archival_len`, `time_range_seconds`, `close_height`). The GUI draws
+  candidate.v1 from that aggregate with `shekyl-shard-visual` and caches the
+  PNG under `{app_cache}/shard-visual/` keyed on shard id, view hash and
+  size (a reorg that rewrites the shard changes the hash, so it misses); the
+  wire type is `ShardViewRender { view, png_base64, recipe, cache_key }`.
   The command fails closed if the reply's `shard_id` does not match the
-  request, so a stale or swapped archive cannot be cached or shown under
-  the requested id. Today the daemon returns a typed miss
-  (`ARCHIVAL_UNAVAILABLE` / "could not retrieve this archive") until
-  holder draw and SOCKS are production-wired; a miss is a per-card fault,
-  not a gallery fault. Once that path is enabled the daemon fetches a
-  pruned-window body from a staker (or a temporary view-cache; never a
-  local chain-store walk) and this command renders the verified aggregate.
+  request, or its hash is not 32 bytes of hex: both are
+  `DAEMON_PROTOCOL_VIOLATION`, never a render. Every view request is a real
+  fetch on the network — that traffic is the point — so the card asks only
+  when it is visible or selected, never on page mount.
 
-The GUI never fetches shard bodies. Selection is session state (you pick;
-the network does not assign). Picks that leave the latest coverage list
-are dropped. The gallery panel (`ShardCoverageGallery`) owns fetch and
-fail-closed render; it mounts a window of cards (`GALLERY_PAGE_SIZE`)
-with Show more, so a long frozen set does not create one observer per
-row. The fixture preview on the Staking tab is unchanged until the
-Stage 5 checklist below.
+The contract's three refusals are each a card state (rule 82), read off the
+`ContractError.code` the command rejects with: `SHARD_STILL_OPEN` (the shard
+is still being written; a clock), `SHARD_UNAVAILABLE` (no holder served it
+this time; a retry button that does not toggle selection),
+`SHARD_VIEW_NOT_OFFERED` (`data.cause` is `restricted` — the wallet's daemon
+serves the view only on its unrestricted listener — or `skeleton_absent`).
+Anything else is a fault with the wallet's sentence as the title. No state
+is an empty frame, and a refused view is never cached.
+
+The GUI never fetches shard bodies itself. Selection is session state (you
+pick; the network does not assign). Picks that leave the latest coverage
+list are dropped. The gallery panel (`ShardCoverageGallery`) owns the
+coverage fetch and fail-closed render; it mounts a window of cards
+(`GALLERY_PAGE_SIZE`) with Show more, so a long frozen set does not create
+one observer per row. The fixture preview on the Staking tab is unchanged
+until the Stage 5 checklist below.
 
 ## Stage 5 cutover checklist
 

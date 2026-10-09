@@ -149,9 +149,10 @@ pub fn run() {
             // Shard identity preview (pre-archival beta)
             shard_visual::list_shard_preview_fixtures,
             shard_visual::render_shard_preview,
-            // Shards page (daemon coverage + lazy render; command names stable)
+            // Shards page: daemon coverage (app shell) + the contract's
+            // get_shard_view, drawn here (SHARD_VIEW_FETCH.md SV-D)
             shard_coverage::list_shards,
-            shard_coverage::get_shard_render,
+            shard_coverage::get_shard_view,
             // PQC Multisig — only under the `multisig` cargo feature (see multisig.rs)
             #[cfg(feature = "multisig")]
             multisig::create_multisig_group,

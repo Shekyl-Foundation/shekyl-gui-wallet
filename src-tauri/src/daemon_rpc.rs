@@ -238,33 +238,6 @@ pub async fn get_archival_shard_coverage(
     .await
 }
 
-// ─── request_archival_shard (SF-D1; shard_id only) ───────────────────────────
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct RequestArchivalShardResponse {
-    pub shard_id: u64,
-    pub shard_hash: String,
-    pub block_count: u64,
-    pub tx_count: u64,
-    pub output_count: u64,
-    pub coinbase_output_count: u64,
-    pub time_range_seconds: u64,
-}
-
-pub async fn request_archival_shard(
-    client: &Client,
-    url: &str,
-    shard_id: u64,
-) -> Result<RequestArchivalShardResponse, String> {
-    rpc_call(
-        client,
-        url,
-        "request_archival_shard",
-        serde_json::json!({ "shard_id": shard_id }),
-    )
-    .await
-}
-
 // ─── estimate_claim_reward ───────────────────────────────────────────────────
 
 #[allow(dead_code)]
