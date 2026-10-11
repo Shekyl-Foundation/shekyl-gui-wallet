@@ -119,8 +119,6 @@ pub struct GetInfoResponse {
     pub staker_pool_balance: u64,
     #[serde(default)]
     pub staker_emission_share_effective: u64,
-    #[serde(default)]
-    pub emission_era: String,
 }
 
 pub async fn get_info(client: &Client, url: &str) -> Result<GetInfoResponse, String> {

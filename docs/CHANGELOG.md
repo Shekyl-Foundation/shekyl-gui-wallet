@@ -17,6 +17,9 @@ the bundled `shekyld` and the Engine path-deps.
   Linux packages carry the pinned Tor bundle from this release; this wallet's
   installers do not carry it yet, so the sidecar `shekyld` logs "No Tor was
   found" at start and runs clearnet-only, as it did before without saying.
+- **The emission-era badge is gone from Chain Health.** The daemon's
+  `get_info` no longer reports `emission_era` (shekyl-core RPC 3.45), so the
+  wallet no longer reads or shows it. Emission progress is unchanged.
 - Dependencies: `source-map-js` 1.2.1 to 1.2.2 (a high-severity advisory;
   the lockfile change is that one package).
 

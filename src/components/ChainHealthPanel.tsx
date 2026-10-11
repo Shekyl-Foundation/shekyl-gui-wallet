@@ -58,11 +58,6 @@ export default function ChainHealthPanel({ compact = false }: Props) {
               <Info className="inline h-3 w-3" />
             </span>
           </h3>
-          {health.emission_era && (
-            <span className="rounded-full bg-gold-500/15 px-2 py-0.5 text-[10px] font-semibold text-gold-400">
-              {health.emission_era}
-            </span>
-          )}
         </div>
         <div className="grid grid-cols-4 gap-3 text-center">
           <EmissionGauge
@@ -93,18 +88,13 @@ export default function ChainHealthPanel({ compact = false }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Emission Era + Progress */}
+      {/* Emission progress */}
       <div className="card">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Layers className="h-4 w-4 text-gold-400" />
             <h3 className="text-sm font-semibold text-purple-200">Emission</h3>
           </div>
-          {health.emission_era && (
-            <span className="rounded-full bg-gold-500/15 px-2.5 py-0.5 text-xs font-semibold text-gold-400">
-              {health.emission_era} Era
-            </span>
-          )}
         </div>
         <div className="space-y-2">
           <div className="flex justify-between text-xs text-purple-300">
