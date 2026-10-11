@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.10] - 2026-10-11
+
+Paired with shekyl-core `v3.1.0-alpha.10`: `release.yml` clones that tag for
+the bundled `shekyld` and the Engine path-deps.
+
+- **The testnet restarted from a new genesis.** shekyl-core rotated the
+  testnet genesis for this release, so the network this wallet's daemon joins
+  is a new chain with a new network id. A wallet's alpha.9 testnet history
+  and balances do not exist on it, and the bundled daemon's alpha.9 testnet
+  data cannot be carried forward: delete the daemon's testnet data directory
+  before first start.
+- **The bundled daemon starts without Tor and now says so.** shekyl-core's
+  Linux packages carry the pinned Tor bundle from this release; this wallet's
+  installers do not carry it yet, so the sidecar `shekyld` logs "No Tor was
+  found" at start and runs clearnet-only, as it did before without saying.
+- Dependencies: `source-map-js` 1.2.1 to 1.2.2 (a high-severity advisory;
+  the lockfile change is that one package).
+
 Paired with shekyl-core's shard-view branch (wallet contract 0.11.0,
 `docs/design/SHARD_VIEW_FETCH.md`).
 
