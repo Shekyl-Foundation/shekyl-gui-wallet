@@ -176,8 +176,14 @@ jobs:
           # this job lands on.
           triple=$(rustc -vV | sed -n 's/^host: //p')
           [ -n "$triple" ] || { echo "no 'host:' line in 'rustc -vV'" >&2; exit 1; }
+          # Tauri appends .exe to the sidecar name on Windows targets, so the
+          # placeholder has to as well or the build script fails with
+          # `resource path binaries\shekyld-<triple>.exe doesn't exist`.
+          # Derived from the triple rather than from the runner, so the step
+          # stays correct wherever it lands.
+          case "$triple" in *windows*) exe=".exe" ;; *) exe="" ;; esac
           mkdir -p src-tauri/binaries
-          touch "src-tauri/binaries/shekyld-$triple"
+          touch "src-tauri/binaries/shekyld-$triple$exe"
 
       # No `npm ci` / `npm run build`: the frontend bundle is a bundle-time
       # resource, and `cargo check` completes without `dist/` (verified).
