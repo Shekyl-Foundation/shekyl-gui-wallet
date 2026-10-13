@@ -155,9 +155,18 @@ The project uses GitHub Actions with two workflows:
 
 ## Build
 
+The build bundles `shekyld` as a sidecar, so
+`src-tauri/binaries/shekyld-<target-triple>` must exist first — with a
+`.exe` suffix on Windows. See [`src-tauri/binaries/README.md`](src-tauri/binaries/README.md)
+for where that binary comes from; without it the Tauri build script stops
+with `resource path binaries\shekyld-<triple>.exe doesn't exist`.
+
 ```bash
 # Production build (generates platform-specific bundles)
 npm run tauri build
+
+# Windows: NSIS only — see the note below
+npm run tauri -- build --bundles nsis
 ```
 
 Build artifacts are placed in `src-tauri/target/release/bundle/`:
@@ -166,7 +175,22 @@ Build artifacts are placed in `src-tauri/target/release/bundle/`:
 |----------|--------|
 | Linux | `.deb`, `.rpm`, `.AppImage` |
 | macOS | `.dmg`, `.app` |
-| Windows | `.msi`, `.nsis` |
+| Windows | `.nsis` |
+
+**Windows produces NSIS only, and the target has to be named.** `bundle.targets`
+is `all`, so a plain `npm run tauri build` also attempts MSI and stops the
+whole bundle with:
+
+```text
+failed to bundle project: `optional pre-release identifier in app version
+must be numeric-only and cannot be greater than 65535 for msi target`
+```
+
+MSI requires a numeric-only pre-release identifier and this project's version
+carries one that is not (`3.1.0-alpha.9`). This is why
+[`release.yml`](.github/workflows/release.yml) passes `--bundles nsis` on the
+Windows runner, and local Windows builds need the same flag. The MSI row was
+removed from the table above because no release has ever shipped one.
 
 ## Project Structure
 
