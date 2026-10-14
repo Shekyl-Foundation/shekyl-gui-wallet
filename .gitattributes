@@ -1,39 +1,33 @@
-# Line-ending policy.
+# Line-ending policy: every text file is LF, in the repository AND in the
+# working tree, on every platform.
 #
-# Why this file exists: without it, a Windows clone with `core.autocrlf=true`
-# checks every text file out as CRLF. Two of this repo's own CI gates read
-# `key=value` configuration line by line, and the trailing CR becomes part of
-# the last field — `check_file_size_ratchet.sh` reports `unknown conf key ''`
-# and `check_command_surface.sh` reports `unknown disposition ''`. Both pass on
-# the identical tree checked out with LF. The gates are not wrong and the confs
-# are not wrong; the checkout was.
+# Why one rule rather than a list of extensions. Without this file, a Windows
+# clone with `core.autocrlf=true` checks text files out as CRLF, and this
+# repo's CI gates read files line by line:
 #
-# It also stops `git status` reporting files as modified when nothing but the
-# line endings differ, which is how the problem surfaces before anyone runs a
-# gate.
-
-# Default: let git decide what is text, and normalise it to LF in the
-# repository. Working-tree endings follow the platform unless overridden below.
-* text=auto
-
-# Anything a shell, or a script parsing it line by line, has to read must be LF
-# in the working tree too — not just in the repository. These are the files the
-# gates above consume.
-*.sh            text eol=lf
-*.conf          text eol=lf
-*.bash          text eol=lf
-
-# Toolchain and manifest files read by cargo, npm and rustup. Cargo rewrites
-# `Cargo.lock` with LF on every platform, so pinning it here keeps the working
-# tree from disagreeing with what the tool just wrote.
-Cargo.toml      text eol=lf
-Cargo.lock      text eol=lf
-*.toml          text eol=lf
-.nvmrc          text eol=lf
-
-# Workflow and config files are consumed by Linux runners.
-*.yml           text eol=lf
-*.yaml          text eol=lf
+#   check_file_size_ratchet.sh  reads *.conf      -> "unknown conf key ''"
+#   check_command_surface.sh    reads *.conf      -> "unknown disposition ''"
+#   check_command_surface.sh    reads lib.rs      -> "handler entry this gate
+#                                                     cannot read: '...,\r'"
+#
+# The first version of this file pinned the extensions those gates were then
+# known to read. Review found a third (`lib.rs`, via the gate's handler
+# extractor) the list had missed. A list of "files someone reads line by line"
+# is a list nobody can keep complete, and each miss surfaces as a gate failure
+# on one platform only. One rule has nothing to miss: the Windows working tree
+# becomes byte-identical to the tree Linux CI tests.
+#
+# The `lib.rs` case also shows why a passing local run proves nothing here.
+# Git for Windows' gawk strips CR in text mode, so that gate PASSES on a CRLF
+# checkout under Git Bash -- and FAILS under any Linux awk reading the same
+# files, which is what a WSL shell on a Windows clone uses. Verified both ways.
+#
+# No file in this repository needs CRLF today: there is no .bat, .cmd, .sln,
+# .vcxproj, .reg, .nsi or .wxs, and no blob in git is stored CRLF, so this rule
+# changes how files are checked out and changes no content. If a Windows batch
+# file is ever added, give it `text eol=crlf` here in the same change --
+# cmd.exe misreads labels in LF batch files.
+* text=auto eol=lf
 
 # Binary: never normalise, never diff as text.
 *.png           binary
