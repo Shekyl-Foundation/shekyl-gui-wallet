@@ -161,11 +161,26 @@ jobs:
       #
       # `ci.yml` and `codeql.yml` carry this `run:` block verbatim — three
       # copies of a snippet that derives its own value, so they cannot
-      # disagree about a constant. Lift it into a composite action when a
-      # fourth copy appears or it needs to branch (a Windows check job would
-      # need the `.exe` suffix); today a local `uses:` would have to be
-      # spelled differently here anyway, since this workflow checks the
-      # wallet out under `gui/` rather than at the workspace root.
+      # disagree about a constant.
+      #
+      # The extraction trigger has FIRED, and was deliberately not taken.
+      # This note used to say "lift it into a composite action when a fourth
+      # copy appears or it needs to branch (a Windows check job would need
+      # the `.exe` suffix)". The snippet now branches, for precisely that
+      # reason — see the Windows arm below. It stays as three copies because
+      # the composite action would have no caller that exercises the new arm:
+      # no job on any of these three workflows runs on a Windows runner, so
+      # the extraction would be verified by nothing. The obstacle the old
+      # note named is also still here — a local `uses:` would have to be
+      # spelled differently in this file, which checks the wallet out under
+      # `gui/` rather than at the workspace root.
+      #
+      # The trigger that remains, stated so it is not already true: a fourth
+      # copy, or the first job on any of these workflows that runs on
+      # Windows. That job is what would exercise the branch and give a
+      # composite action something to be correct against, and it is the point
+      # at which three hand-synced copies of a platform conditional stop
+      # being cheap.
       - name: Create sidecar placeholder for Tauri build script
         working-directory: gui
         run: |
@@ -176,8 +191,14 @@ jobs:
           # this job lands on.
           triple=$(rustc -vV | sed -n 's/^host: //p')
           [ -n "$triple" ] || { echo "no 'host:' line in 'rustc -vV'" >&2; exit 1; }
+          # Tauri appends .exe to the sidecar name on Windows targets, so the
+          # placeholder has to as well or the build script fails with
+          # `resource path binaries\shekyld-<triple>.exe doesn't exist`.
+          # Derived from the triple rather than from the runner, so the step
+          # stays correct wherever it lands.
+          case "$triple" in *windows*) exe=".exe" ;; *) exe="" ;; esac
           mkdir -p src-tauri/binaries
-          touch "src-tauri/binaries/shekyld-$triple"
+          touch "src-tauri/binaries/shekyld-$triple$exe"
 
       # No `npm ci` / `npm run build`: the frontend bundle is a bundle-time
       # resource, and `cargo check` completes without `dist/` (verified).
