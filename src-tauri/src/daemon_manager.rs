@@ -108,14 +108,19 @@ impl DaemonManager {
             }
         };
 
+        // The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md`
+        // §5): one view listener on loopback for the wallet and no admin
+        // listener, so nothing on this machine can mine or ban through the
+        // sidecar. Nothing reads the daemon's stdin without `--console`.
         let mut args = vec![
-            "--rpc-bind-ip=127.0.0.1".to_string(),
-            format!("--rpc-bind-port={}", config.rpc_port),
-            "--non-interactive".to_string(),
-            "--restricted-rpc".to_string(),
+            "--rpc-admin-listen".to_string(),
+            "none".to_string(),
+            "--rpc-view-listen".to_string(),
+            format!("127.0.0.1:{}", config.rpc_port),
         ];
         if let Some(ref dir) = config.data_dir {
-            args.push(format!("--data-dir={dir}"));
+            args.push("--data-dir".to_string());
+            args.push(dir.clone());
         }
 
         match sidecar.args(&args).spawn() {
