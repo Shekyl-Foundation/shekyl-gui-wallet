@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.10] - 2026-10-15
+
+Paired with shekyl-core `v3.1.0-alpha.10`: `release.yml` clones that tag for
+the bundled `shekyld` and the Engine path-deps.
+
+- **Every network restarted from a new genesis.** shekyl-core regenerated
+  all three genesis blocks for this release, so the network this wallet's
+  daemon joins is a new chain with a new network id. A wallet's alpha.9
+  history and balances do not exist on it, and the bundled daemon's alpha.9
+  data cannot be carried forward on any network: delete the daemon's data
+  directory before first start.
+- **The bundled daemon starts without Tor and now says so.** shekyl-core's
+  Linux packages carry the pinned Tor bundle from this release; this wallet's
+  installers do not carry it yet, so the sidecar `shekyld` logs "No Tor was
+  found" at start and runs clearnet-only, as it did before without saying.
+- **The emission-era badge is gone from Chain Health.** The daemon's
+  `get_info` no longer reports `emission_era`, so the wallet no longer reads
+  or shows it. Emission progress is unchanged.
+- **Dependencies, for published advisories:** `rustls` 0.23.45 to 0.23.46
+  (four RUSTSEC advisories, one a post-quantum downgrade), `quinn-proto`
+  0.11.16 to 0.11.19 (five RUSTSEC advisories), `source-map-js` 1.2.1 to
+  1.2.2 (GHSA-68fv-2mgg-jv7q).
+- **Windows is built as an NSIS installer only**, the format that has
+  always shipped; the build instructions now say so.
+
+Paired with shekyl-core's shard-view branch (wallet contract 0.11.0,
+`docs/design/SHARD_VIEW_FETCH.md`).
+
+### Changed
+
+- **Shard cards are drawn from a real fetch.** The Shards page's lazy render
+  is now the contract's `get_shard_view` (a contract adapter; the
+  `get_shard_render` shell command is gone): the wallet's daemon fetches the
+  shard's archival body from a holder, verifies it, and answers the view
+  (`ShardView`, with `close_height` and the SV-D1 view hash — a fold over
+  the archival bytes, not the challenge hash); the GUI draws candidate.v1
+  locally. The three contract refusals are each a card state: still open
+  (`SHARD_STILL_OPEN`), could not be retrieved this time
+  (`SHARD_UNAVAILABLE`, with a retry that does not toggle selection), and
+  not offered by this daemon (`SHARD_VIEW_NOT_OFFERED`). A reply for a
+  different shard, or a hash that is not 32 bytes, is a protocol violation
+  and is never drawn or cached. The GUI's own `request_archival_shard`
+  daemon call and `ShardRenderResponse` are deleted.
+
 ## [3.1.0-alpha.9] - 2026-10-05
 
 Paired with shekyl-core `v3.1.0-alpha.9`: `release.yml` clones that tag for

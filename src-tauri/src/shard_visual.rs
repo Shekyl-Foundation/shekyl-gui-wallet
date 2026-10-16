@@ -119,15 +119,6 @@ pub fn render_shard_preview(
     })
 }
 
-/// Render result for a single shard on the Shards page.
-#[derive(Debug, Serialize)]
-pub struct ShardRenderResponse {
-    pub png_base64: String,
-    pub recipe: CandidateRecipe,
-    pub cache_key: String,
-    pub shard_id: u64,
-}
-
 /// Return the cached PNG for `cache_key`, rendering and persisting it on miss.
 ///
 /// Concurrent renders for the same key can race on the write: both miss the

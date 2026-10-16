@@ -119,8 +119,6 @@ pub struct GetInfoResponse {
     pub staker_pool_balance: u64,
     #[serde(default)]
     pub staker_emission_share_effective: u64,
-    #[serde(default)]
-    pub emission_era: String,
 }
 
 pub async fn get_info(client: &Client, url: &str) -> Result<GetInfoResponse, String> {
@@ -234,33 +232,6 @@ pub async fn get_archival_shard_coverage(
         url,
         "get_archival_shard_coverage",
         serde_json::json!({}),
-    )
-    .await
-}
-
-// ─── request_archival_shard (SF-D1; shard_id only) ───────────────────────────
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct RequestArchivalShardResponse {
-    pub shard_id: u64,
-    pub shard_hash: String,
-    pub block_count: u64,
-    pub tx_count: u64,
-    pub output_count: u64,
-    pub coinbase_output_count: u64,
-    pub time_range_seconds: u64,
-}
-
-pub async fn request_archival_shard(
-    client: &Client,
-    url: &str,
-    shard_id: u64,
-) -> Result<RequestArchivalShardResponse, String> {
-    rpc_call(
-        client,
-        url,
-        "request_archival_shard",
-        serde_json::json!({ "shard_id": shard_id }),
     )
     .await
 }

@@ -1,0 +1,41 @@
+# Line-ending policy: every text file is LF, in the repository AND in the
+# working tree, on every platform.
+#
+# Why one rule rather than a list of extensions. Without this file, a Windows
+# clone with `core.autocrlf=true` checks text files out as CRLF, and this
+# repo's CI gates read files line by line:
+#
+#   check_file_size_ratchet.sh  reads *.conf      -> "unknown conf key ''"
+#   check_command_surface.sh    reads *.conf      -> "unknown disposition ''"
+#   check_command_surface.sh    reads lib.rs      -> "handler entry this gate
+#                                                     cannot read: '...,\r'"
+#
+# The first version of this file pinned the extensions those gates were then
+# known to read. Review found a third (`lib.rs`, via the gate's handler
+# extractor) the list had missed. A list of "files someone reads line by line"
+# is a list nobody can keep complete, and each miss surfaces as a gate failure
+# on one platform only. One rule has nothing to miss: the Windows working tree
+# becomes byte-identical to the tree Linux CI tests.
+#
+# The `lib.rs` case also shows why a passing local run proves nothing here.
+# Git for Windows' gawk strips CR in text mode, so that gate PASSES on a CRLF
+# checkout under Git Bash -- and FAILS under any Linux awk reading the same
+# files, which is what a WSL shell on a Windows clone uses. Verified both ways.
+#
+# No file in this repository needs CRLF today: there is no .bat, .cmd, .sln,
+# .vcxproj, .reg, .nsi or .wxs, and no blob in git is stored CRLF, so this rule
+# changes how files are checked out and changes no content. If a Windows batch
+# file is ever added, give it `text eol=crlf` here in the same change --
+# cmd.exe misreads labels in LF batch files.
+* text=auto eol=lf
+
+# Binary: never normalise, never diff as text.
+*.png           binary
+*.jpg           binary
+*.ico           binary
+*.icns          binary
+*.woff          binary
+*.woff2         binary
+*.exe           binary
+*.dll           binary
+*.wasm          binary

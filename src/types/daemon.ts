@@ -16,7 +16,6 @@ export interface ChainHealth {
   total_burned: string;
   staker_pool_balance: string;
   staker_emission_share_effective: number;
-  emission_era: string;
   last_block_reward: string;
   last_block_timestamp: number;
   last_block_hash: string;

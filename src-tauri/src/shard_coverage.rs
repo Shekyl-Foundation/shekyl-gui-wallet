@@ -3,24 +3,30 @@
 // All rights reserved.
 // BSD-3-Clause
 
-//! Operator coverage list and lazy shard renders (`ARCHIVAL_SHARD_SELECTION_LIST.md`).
+//! Operator coverage list and lazy shard views (`ARCHIVAL_SHARD_SELECTION_LIST.md`,
+//! `SHARD_VIEW_FETCH.md` SV-D).
 //!
-//! The GUI never fetches shard bodies. Both commands speak JSON-RPC only:
-//! `get_archival_shard_coverage` (no Tor) and `request_archival_shard`
-//! (`shard_id` only; the daemon draws `P` and verifies). Command names stay
-//! `list_shards` / `get_shard_render` (`docs/SHARD_PREVIEW_CUTOVER.md`).
+//! The GUI never fetches shard bodies. `list_shards` is the daemon's
+//! `get_archival_shard_coverage` projection (app shell: no wallet method
+//! lists coverage). `get_shard_view` is the contract adapter: the open
+//! wallet's daemon fetches the shard from a holder and answers the
+//! aggregate (`shekyl_wallet_contract::shard_view::fetch_shard_view`, the
+//! same call `shekyl-wallet-rpc` serves), and this edge draws candidate.v1
+//! from it because a page cannot. The daemon's refusals arrive as the
+//! contract's codes — `SHARD_STILL_OPEN`, `SHARD_UNAVAILABLE`,
+//! `SHARD_VIEW_NOT_OFFERED` — so a card shows a state, never an empty frame.
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
 use shekyl_shard_visual::{CandidateRecipe, ShardAggregate};
+use shekyl_wallet_contract::error::WalletRpcError;
+use shekyl_wallet_contract::shard_view::{fetch_shard_view, ShardViewResult};
 use tauri::{AppHandle, State};
 
-use crate::daemon_rpc::{
-    self, GetArchivalShardCoverageResponse, RequestArchivalShardResponse,
-    ShardCoverageRow as RpcRow,
-};
+use crate::contract_error::{open_engine, ContractError};
+use crate::daemon_rpc::{self, GetArchivalShardCoverageResponse, ShardCoverageRow as RpcRow};
 use crate::shard_visual::{
-    cache_digest, recipe_for, render_cached, ShardRenderResponse, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE,
+    cache_digest, recipe_for, render_cached, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE,
 };
 use crate::state::AppState;
 use shekyl_units::{AtomicUnits, AtomicUnitsString};
@@ -70,24 +76,42 @@ pub async fn list_shards(state: State<'_, AppState>) -> Result<ShardCoverageList
     Ok(coverage_list_from_rpc(res))
 }
 
+/// `get_shard_view`'s answer on this edge: the contract's result plus the
+/// candidate.v1 render a page cannot draw itself. One DTO (rule 27); the
+/// picture is derived from `view`, never carried separately on any wire.
+#[derive(Debug, Serialize)]
+pub struct ShardViewRender {
+    pub view: ShardViewResult,
+    pub png_base64: String,
+    pub recipe: CandidateRecipe,
+    pub cache_key: String,
+}
+
 #[tauri::command]
-pub async fn get_shard_render(
+pub async fn get_shard_view(
     app: AppHandle,
     state: State<'_, AppState>,
     shard_id: u64,
     size: Option<u32>,
-) -> Result<ShardRenderResponse, String> {
-    let url = state.url().await;
-    let rpc = daemon_rpc::request_archival_shard(&state.http, &url, shard_id).await?;
-    let aggregate = aggregate_from_rpc(shard_id, rpc)?;
+) -> Result<ShardViewRender, ContractError> {
+    let shared = open_engine(&state).await?;
+    // Clone the handle and drop the read guard: the daemon fetches the body
+    // from a holder before it answers, and no other command should wait on
+    // the engine for that.
+    let daemon = shared.read().await.daemon().clone();
+    let view = fetch_shard_view(&daemon, shard_id)
+        .await
+        .map_err(ContractError::from_rpc)?;
+    if view.shard_id != shard_id {
+        // The contract's own answer names another shard: the wallet broke
+        // its contract, which is the protocol-violation code, not a bad shard.
+        return Err(ContractError::from_rpc(
+            WalletRpcError::DaemonProtocolViolation,
+        ));
+    }
+    let aggregate = aggregate_from_view(&view)?;
     let size = size.unwrap_or(DEFAULT_SIZE).clamp(MIN_SIZE, MAX_SIZE);
-    let verified_shard_id = aggregate.shard_id;
-    let cache_key = cache_digest(
-        &verified_shard_id.to_string(),
-        aggregate.shard_hash,
-        None,
-        size,
-    );
+    let cache_key = cache_digest(&view.shard_id.to_string(), aggregate.shard_hash, None, size);
     // Recipe + PNG cache/render are sync I/O and 69–385 ms CPU on the
     // rule-76 floor (`shard_visual.rs` cache_digest). Keep them off the
     // async runtime so visible cards cannot stall unrelated Tauri work.
@@ -97,12 +121,14 @@ pub async fn get_shard_render(
         Ok::<_, String>((recipe, png, cache_key))
     })
     .await
-    .map_err(|e| format!("shard render task failed: {e}"))??;
-    Ok(ShardRenderResponse {
+    .map_err(|e| format!("shard render task failed: {e}"))
+    .and_then(|r| r)
+    .map_err(|detail| ContractError::from_rpc(WalletRpcError::InternalError(detail)))?;
+    Ok(ShardViewRender {
+        view,
         png_base64: STANDARD.encode(&png),
         recipe,
         cache_key,
-        shard_id: verified_shard_id,
     })
 }
 
@@ -119,29 +145,21 @@ fn coverage_list_from_rpc(res: GetArchivalShardCoverageResponse) -> ShardCoverag
     }
 }
 
-fn aggregate_from_rpc(
-    requested_shard_id: u64,
-    rpc: RequestArchivalShardResponse,
-) -> Result<ShardAggregate, String> {
-    if rpc.shard_id != requested_shard_id {
-        return Err(format!(
-            "daemon returned archive {} for requested {}",
-            rpc.shard_id, requested_shard_id
-        ));
-    }
-    let bytes = hex::decode(rpc.shard_hash.trim())
-        .map_err(|e| format!("daemon shard_hash is not hex: {e}"))?;
-    let shard_hash: [u8; 32] = bytes
-        .try_into()
-        .map_err(|_| "daemon shard_hash must be 32 bytes (64 hex characters)".to_string())?;
+/// The renderer's input from the contract's result. The result's hash is
+/// the contract's `^[0-9a-f]{64}$`; one that is not is the wallet breaking
+/// its contract, reported as such rather than drawn under a guessed hash.
+fn aggregate_from_view(view: &ShardViewResult) -> Result<ShardAggregate, ContractError> {
+    let violation = || ContractError::from_rpc(WalletRpcError::DaemonProtocolViolation);
+    let bytes = hex::decode(&view.shard_hash).map_err(|_| violation())?;
+    let shard_hash: [u8; 32] = bytes.try_into().map_err(|_| violation())?;
     Ok(ShardAggregate {
-        shard_id: rpc.shard_id,
+        shard_id: view.shard_id,
         shard_hash,
-        block_count: rpc.block_count,
-        tx_count: rpc.tx_count,
-        output_count: rpc.output_count,
-        coinbase_output_count: rpc.coinbase_output_count,
-        time_range_seconds: rpc.time_range_seconds,
+        block_count: view.block_count,
+        tx_count: view.tx_count,
+        output_count: view.output_count,
+        coinbase_output_count: view.coinbase_output_count,
+        time_range_seconds: view.time_range_seconds,
     })
 }
 
@@ -149,57 +167,34 @@ fn aggregate_from_rpc(
 mod tests {
     use super::*;
 
-    #[test]
-    fn aggregate_from_rpc_rejects_short_hash() {
-        let rpc = RequestArchivalShardResponse {
-            shard_id: 0,
-            shard_hash: "abcd".into(),
-            block_count: 1,
-            tx_count: 0,
-            output_count: 1,
-            coinbase_output_count: 0,
-            time_range_seconds: 0,
-        };
-        assert!(aggregate_from_rpc(0, rpc).is_err());
-    }
-
-    #[test]
-    fn aggregate_from_rpc_accepts_64_hex() {
-        let rpc = RequestArchivalShardResponse {
+    fn view(shard_hash: &str) -> ShardViewResult {
+        ShardViewResult {
             shard_id: 7,
-            shard_hash: "11".repeat(32),
+            shard_hash: shard_hash.to_owned(),
+            archival_len: 4_000_000,
             block_count: 10,
             tx_count: 2,
             output_count: 4,
             coinbase_output_count: 1,
             time_range_seconds: 120,
-        };
-        let agg = aggregate_from_rpc(7, rpc).expect("valid hash");
+            close_height: 9_000,
+        }
+    }
+
+    #[test]
+    fn aggregate_from_view_takes_the_contracts_hash() {
+        let agg = aggregate_from_view(&view(&"11".repeat(32))).expect("valid hash");
         assert_eq!(agg.shard_id, 7);
         assert_eq!(agg.block_count, 10);
         assert_eq!(agg.shard_hash[0], 0x11);
     }
 
     #[test]
-    fn aggregate_from_rpc_rejects_mismatched_shard_id() {
-        let rpc = RequestArchivalShardResponse {
-            shard_id: 7,
-            shard_hash: "11".repeat(32),
-            block_count: 10,
-            tx_count: 2,
-            output_count: 4,
-            coinbase_output_count: 1,
-            time_range_seconds: 120,
-        };
-        let err = aggregate_from_rpc(1, rpc).expect_err("identity mismatch");
-        assert!(
-            err.contains("requested 1"),
-            "mismatch must name the request: {err}"
-        );
-        assert!(
-            err.contains("archive 7"),
-            "mismatch must name the daemon id: {err}"
-        );
+    fn a_hash_off_the_contract_is_a_protocol_violation_not_a_render() {
+        for bad in ["abcd", &"zz".repeat(32), &"11".repeat(33)] {
+            let err = aggregate_from_view(&view(bad)).expect_err("off-contract hash");
+            assert_eq!(err.code, "DAEMON_PROTOCOL_VIOLATION", "{bad}: {err:?}");
+        }
     }
 
     #[test]

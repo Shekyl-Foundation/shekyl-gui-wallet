@@ -27,13 +27,40 @@ export interface ShardCoverageList {
   shards: ShardCoverageRow[];
 }
 
-/** Render result for a single shard (`shard_visual::ShardRenderResponse`). */
-export interface ShardRenderResponse {
+/**
+ * The wallet contract's `GetShardViewResult`: one closed shard's aggregate,
+ * answered by the wallet's daemon after a real fetch from a holder
+ * (shekyl-core `docs/design/SHARD_VIEW_FETCH.md`). Every field is a
+ * deterministic function of the shard; `close_height` is the cache key's
+ * second half — a view whose close height moved is a view across a reorg.
+ */
+export interface ShardView {
+  shard_id: number;
+  shard_hash: string;
+  archival_len: number;
+  block_count: number;
+  tx_count: number;
+  output_count: number;
+  coinbase_output_count: number;
+  time_range_seconds: number;
+  close_height: number;
+}
+
+/** `get_shard_view` on this edge: the view plus the candidate.v1 render. */
+export interface ShardViewRender {
+  view: ShardView;
   png_base64: string;
   recipe: CandidateRecipe;
   cache_key: string;
-  shard_id: number;
 }
+
+/**
+ * The contract codes `get_shard_view` refuses with, each a state a card
+ * shows (rule 82). Anything else is a fault with the wallet's own sentence.
+ */
+export const SHARD_STILL_OPEN = "SHARD_STILL_OPEN";
+export const SHARD_UNAVAILABLE = "SHARD_UNAVAILABLE";
+export const SHARD_VIEW_NOT_OFFERED = "SHARD_VIEW_NOT_OFFERED";
 
 /** Bond holdings cap (`ArchivalBondValue::kMaxHoldings`). */
 export const MAX_HOLDINGS_SHARDS = 4096;
