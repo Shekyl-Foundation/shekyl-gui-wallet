@@ -152,8 +152,9 @@ export default function Help() {
           <div>
             <h4 className="font-semibold text-white">Requirements</h4>
             <p>
-              Mining requires an <strong>unrestricted daemon</strong> (do not
-              run shekyld with <code>--restricted-rpc</code>). Solo mining on
+              Mining requires the daemon&apos;s <strong>admin listener</strong>
+              (<code>rpc-admin-listen</code>; a view listener refuses it). The
+              bundled sidecar opens a view listener only. Solo mining on
               mainnet with a single CPU is unlikely to find blocks frequently,
               but it contributes to network decentralization and security.
             </p>
