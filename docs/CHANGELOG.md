@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.10] - 2026-10-15
+
+Paired with shekyl-core `v3.1.0-alpha.10`: `release.yml` clones that tag for
+the bundled `shekyld` and the Engine path-deps.
+
+- **Every network restarted from a new genesis.** shekyl-core regenerated
+  all three genesis blocks for this release, so the network this wallet's
+  daemon joins is a new chain with a new network id. A wallet's alpha.9
+  history and balances do not exist on it, and the bundled daemon's alpha.9
+  data cannot be carried forward on any network: delete the daemon's data
+  directory before first start.
+- **The bundled daemon starts without Tor and now says so.** shekyl-core's
+  Linux packages carry the pinned Tor bundle from this release; this wallet's
+  installers do not carry it yet, so the sidecar `shekyld` logs "No Tor was
+  found" at start and runs clearnet-only, as it did before without saying.
+- **The emission-era badge is gone from Chain Health.** The daemon's
+  `get_info` no longer reports `emission_era`, so the wallet no longer reads
+  or shows it. Emission progress is unchanged.
+- **Dependencies, for published advisories:** `rustls` 0.23.45 to 0.23.46
+  (four RUSTSEC advisories, one a post-quantum downgrade), `quinn-proto`
+  0.11.16 to 0.11.19 (five RUSTSEC advisories), `source-map-js` 1.2.1 to
+  1.2.2 (GHSA-68fv-2mgg-jv7q).
+- **Windows is built as an NSIS installer only**, the format that has
+  always shipped; the build instructions now say so.
+
 Paired with shekyl-core's shard-view branch (wallet contract 0.11.0,
 `docs/design/SHARD_VIEW_FETCH.md`).
 

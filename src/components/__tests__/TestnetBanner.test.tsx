@@ -25,7 +25,6 @@ const baseHealth = {
   total_burned: "0",
   staker_pool_balance: "0",
   staker_emission_share_effective: 100_000,
-  emission_era: "Foundation",
   last_block_reward: "0",
   last_block_timestamp: 0,
   last_block_hash: "",
