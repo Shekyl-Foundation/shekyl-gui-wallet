@@ -119,6 +119,8 @@ mod tests {
             outputs: Vec::new(),
             pscan_synced_height: None,
             recovery_pending_reopen: false,
+            in_flight: Vec::new(),
+            outcomes: Vec::new(),
         };
         let read = StakingView::from(view);
         assert!(read.staking_enabled);
@@ -150,6 +152,8 @@ mod tests {
             outputs: vec![core_output(42, 5_000_000_000, 3, 12_345)],
             pscan_synced_height: Some(BlockHeight::from_raw(99_000)),
             recovery_pending_reopen: false,
+            in_flight: Vec::new(),
+            outcomes: Vec::new(),
         };
         let read = StakingView::from(view);
         assert_eq!(
@@ -183,6 +187,8 @@ mod tests {
             outputs: Vec::new(),
             pscan_synced_height: None,
             recovery_pending_reopen: true,
+            in_flight: Vec::new(),
+            outcomes: Vec::new(),
         };
         assert!(StakingView::from(view).recovery_pending_reopen);
     }
