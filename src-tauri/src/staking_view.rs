@@ -104,22 +104,42 @@ mod tests {
         }
     }
 
+    /// The one `StakingReadView` literal. `StakingReadView` has no `Default`,
+    /// and a default would compile straight through the next field core adds,
+    /// which is how `in_flight` and `outcomes` would have been dropped from
+    /// the projection without a test noticing. A new field fails here.
+    fn staking_read(
+        balance: StakedBalance,
+        outputs: Vec<StakedOutput>,
+        pscan_synced_height: Option<BlockHeight>,
+        recovery_pending_reopen: bool,
+    ) -> StakingReadView {
+        StakingReadView {
+            staking_enabled: true,
+            balance,
+            outputs,
+            pscan_synced_height,
+            recovery_pending_reopen,
+            in_flight: Vec::new(),
+            outcomes: Vec::new(),
+        }
+    }
+
     /// The three balance legs stay distinct across the projection — a swap
     /// (or a conflating sum) would misreport confirmed principal as pending
     /// or rewards, which the WI-RPC-1 shape exists to prevent.
     #[test]
     fn staking_view_keeps_balance_legs_distinct() {
-        let view = StakingReadView {
-            staking_enabled: true,
-            balance: StakedBalance {
+        let view = staking_read(
+            StakedBalance {
                 bonded_principal_confirmed: AtomicUnits::from_raw(1_000),
                 bonded_principal_pending: AtomicUnits::from_raw(2_000),
                 rewards_received_unspent: AtomicUnits::from_raw(3_000),
             },
-            outputs: Vec::new(),
-            pscan_synced_height: None,
-            recovery_pending_reopen: false,
-        };
+            Vec::new(),
+            None,
+            false,
+        );
         let read = StakingView::from(view);
         assert!(read.staking_enabled);
         assert_eq!(
@@ -140,17 +160,16 @@ mod tests {
 
     #[test]
     fn staking_view_projects_outputs_and_frontier() {
-        let view = StakingReadView {
-            staking_enabled: true,
-            balance: StakedBalance {
+        let view = staking_read(
+            StakedBalance {
                 bonded_principal_confirmed: AtomicUnits::ZERO,
                 bonded_principal_pending: AtomicUnits::ZERO,
                 rewards_received_unspent: AtomicUnits::ZERO,
             },
-            outputs: vec![core_output(42, 5_000_000_000, 3, 12_345)],
-            pscan_synced_height: Some(BlockHeight::from_raw(99_000)),
-            recovery_pending_reopen: false,
-        };
+            vec![core_output(42, 5_000_000_000, 3, 12_345)],
+            Some(BlockHeight::from_raw(99_000)),
+            false,
+        );
         let read = StakingView::from(view);
         assert_eq!(
             read.staked_outputs,
@@ -173,17 +192,16 @@ mod tests {
     /// wallet would come to show staker-hood it cannot act on (rule 82).
     #[test]
     fn recovery_pending_reopen_reaches_the_wire() {
-        let view = StakingReadView {
-            staking_enabled: true,
-            balance: StakedBalance {
+        let view = staking_read(
+            StakedBalance {
                 bonded_principal_confirmed: AtomicUnits::ZERO,
                 bonded_principal_pending: AtomicUnits::ZERO,
                 rewards_received_unspent: AtomicUnits::ZERO,
             },
-            outputs: Vec::new(),
-            pscan_synced_height: None,
-            recovery_pending_reopen: true,
-        };
+            Vec::new(),
+            None,
+            true,
+        );
         assert!(StakingView::from(view).recovery_pending_reopen);
     }
 }
