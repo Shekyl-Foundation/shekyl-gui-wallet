@@ -73,6 +73,12 @@ jobs:
             args: --target aarch64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
+    env:
+      # One artifact name per matrix row. `platform` alone collides if a
+      # second row shares the runner image, which a second macOS target
+      # would. `tauri_target` is unset on Linux and Windows, so those names
+      # stay `dry-run-<platform>`.
+      DRY_RUN_ARTIFACT: dry-run-${{ matrix.platform }}${{ matrix.tauri_target && format('-{0}', matrix.tauri_target) || '' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -90,6 +96,10 @@ jobs:
         env:
           CORE_REF: ${{ inputs.core_ref || env.SHEKYL_CORE_REF }}
         run: |
+          if [ -z "${CORE_REF}" ]; then
+            echo "::error::core_ref is empty; set the workflow input core_ref or SHEKYL_CORE_REF"
+            exit 1
+          fi
           echo "Building the sidecar from shekyl-core@${CORE_REF}"
           mkdir ../shekyl-core
           git -C ../shekyl-core init --quiet
@@ -299,7 +309,7 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push'
         uses: actions/upload-artifact@v6
         with:
-          name: dry-run-${{ matrix.platform }}
+          name: ${{ env.DRY_RUN_ARTIFACT }}
           path: |
             ${{ steps.linux-bundles.outputs.deb }}
             ${{ steps.linux-bundles.outputs.appimage }}
@@ -342,6 +352,6 @@ jobs:
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
         uses: actions/upload-artifact@v6
         with:
-          name: dry-run-${{ matrix.platform }}
+          name: ${{ env.DRY_RUN_ARTIFACT }}
           path: ${{ steps.tauri-bundles.outputs.paths }}
           if-no-files-found: error
