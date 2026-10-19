@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **Your stake shows work still outstanding, and how it ended.** A stake,
+  reward claim, return of staking funds, or stake release that has not
+  finished yet appears under "In progress", and the last ending of each
+  appears under "Recently ended", in the wallet's own words. Nothing on
+  that list identifies which staking identity it belongs to.
+
 ## [3.1.0-alpha.10] - 2026-10-15
 
 Paired with shekyl-core `v3.1.0-alpha.10`: `release.yml` clones that tag for

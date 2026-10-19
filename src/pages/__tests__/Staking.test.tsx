@@ -173,6 +173,8 @@ describe("Staking drainable-P (DS-PR-3 PR-B)", () => {
           staked_outputs: [],
           pscan_synced_height: null,
           recovery_pending_reopen: false,
+          in_flight: [],
+          outcomes: [],
         };
       }
       return null;
@@ -253,6 +255,8 @@ describe("Staking view panel (GUI-PR3b)", () => {
       ],
       pscan_synced_height: 99000,
       recovery_pending_reopen: false,
+      in_flight: [],
+      outcomes: [],
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 
@@ -292,6 +296,8 @@ describe("Staking view panel (GUI-PR3b)", () => {
       staked_outputs: [],
       pscan_synced_height: 99000,
       recovery_pending_reopen: true,
+      in_flight: [],
+      outcomes: [],
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 
@@ -309,6 +315,8 @@ describe("Staking view panel (GUI-PR3b)", () => {
       staked_outputs: [],
       pscan_synced_height: 99000,
       recovery_pending_reopen: false,
+      in_flight: [],
+      outcomes: [],
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 
@@ -325,6 +333,8 @@ describe("Staking view panel (GUI-PR3b)", () => {
       staked_outputs: [],
       pscan_synced_height: null,
       recovery_pending_reopen: false,
+      in_flight: [],
+      outcomes: [],
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 
@@ -333,6 +343,53 @@ describe("Staking view panel (GUI-PR3b)", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Persona scan has not sealed a frontier yet/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("In progress")).toBeNull();
+    expect(screen.queryByText("Recently ended")).toBeNull();
+  });
+
+  it("shows an outstanding stake and an ending in the wallet's own words", async () => {
+    mockStakerWithView({
+      staking_enabled: true,
+      bonded_principal_confirmed: "0",
+      bonded_principal_pending: "0",
+      rewards_received_unspent: "0",
+      staked_outputs: [],
+      pscan_synced_height: 5000,
+      recovery_pending_reopen: false,
+      in_flight: [
+        {
+          kind: "stake",
+          state: "refused",
+          dispatched_at_height: 5000,
+          attempts: 2,
+          funds_return_at: 5100,
+          reason: "This node cannot accept a stake yet.",
+        },
+      ],
+      outcomes: [
+        {
+          kind: "claim",
+          outcome: "ended_unconfirmed",
+          reason: "This reward claim could not be confirmed.",
+          at_height: 5300,
+          funds: "none_held",
+        },
+      ],
+    });
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(await screen.findByText("In progress (1)")).toBeInTheDocument();
+    expect(screen.getByText("Stake — a node refused it")).toBeInTheDocument();
+    expect(
+      screen.getByText("This node cannot accept a stake yet."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Sent 2 times/)).toBeInTheDocument();
+    expect(screen.getByText(/scan passes block 5,100/)).toBeInTheDocument();
+    expect(screen.getByText("Recently ended")).toBeInTheDocument();
+    expect(screen.getByText("Reward claim")).toBeInTheDocument();
+    expect(
+      screen.getByText("This reward claim could not be confirmed."),
     ).toBeInTheDocument();
   });
 
