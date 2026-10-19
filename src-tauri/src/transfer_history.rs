@@ -471,6 +471,7 @@ impl PartialOrd for HistoryOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shekyl_engine_state::{SendDestination, SendRecipient};
 
     fn row(direction: TransferDirection, state: TransferState) -> TransferRow {
         TransferRow {
@@ -656,7 +657,6 @@ mod tests {
         let incoming = serde_json::to_value(project_incoming_row(&fact)).unwrap();
         assert_eq!(incoming["attribution"]["kind"], "UNATTRIBUTED");
     }
-    use shekyl_engine_state::{SendDestination, SendRecipient};
 
     fn sample_record(state: SendState, fee: u64, amounts: &[u64]) -> SendRecord {
         SendRecord {
