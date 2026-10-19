@@ -62,7 +62,8 @@
 use serde::Serialize;
 use shekyl_engine_core::engine::SubmitError;
 use shekyl_engine_core::{
-    FeePriority, InputCount, OutputCount, ReservationId, SubmitOutcome, TxRecipient, TxRequest,
+    FeePriority, InputCount, OutputCount, ReservationId, SubmitOutcome, TxDestination, TxRecipient,
+    TxRequest,
 };
 use shekyl_wallet_contract::error::{WalletRpcError, WalletRpcErrorCode};
 use tauri::State;
@@ -275,7 +276,7 @@ pub async fn build_pending_tx(
     let shared = shared_engine(&state).await?;
     let request = TxRequest {
         recipients: vec![TxRecipient {
-            address,
+            destination: TxDestination::Address(address),
             amount_atomic_units: amount.to_atomic_units(),
             rid: rid.as_deref().map(parse_rid).transpose()?,
         }],
