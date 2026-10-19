@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **A wallet file written before this change does not open.** shekyl-core's
+  send journal now records what a send paid as a typed destination (an
+  address, or this wallet funding its own staking persona) instead of an
+  address string, so the wallet file format moved (send journal 5, wallet
+  ledger 22; shekyl-core#1122). There is no migration: testnet releases
+  start from a fresh wallet. Nothing on screen changes.
+
 ## [3.1.0-alpha.10] - 2026-10-15
 
 Paired with shekyl-core `v3.1.0-alpha.10`: `release.yml` clones that tag for
