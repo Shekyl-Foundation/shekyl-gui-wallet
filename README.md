@@ -148,10 +148,15 @@ The project uses GitHub Actions with two workflows:
 
 - **CI** (`.github/workflows/ci.yml`) — runs on every push/PR to `main`:
   ESLint, TypeScript type-check, Vitest, Rustfmt, Clippy, and cargo test.
-- **Release** (`.github/workflows/release.yml`) — runs on push to the
-  `release` branch: builds platform-specific binaries (Linux, Windows,
-  macOS ARM64 + Intel) via `tauri-action` and creates a draft GitHub release
-  with all artifacts attached.
+- **Release** (`.github/workflows/release.yml`) — a `v*` tag push builds
+  the wallet for Linux (`.deb`, `.AppImage`), Windows (NSIS installer) and
+  macOS ARM64, each with a `shekyld` sidecar built from the paired
+  shekyl-core tag (`SHEKYL_CORE_REF`), and publishes them as a GitHub
+  pre-release for an alpha, beta or rc tag. A manual dispatch is the dry
+  run: the same builds, kept as run artifacts, with no release created.
+  Dispatch it on the release branch before tagging, naming the core release
+  commit as `core_ref` if the core tag does not exist yet:
+  `gh workflow run release.yml --ref <release-branch> -f core_ref=<core-sha>`.
 
 ## Build
 
