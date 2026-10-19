@@ -5593,7 +5593,9 @@ name = "shekyl-bulletproofs"
 version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
+ "rand_chacha 0.3.1",
  "rand_core 0.6.4",
+ "shekyl-crypto-hash",
  "shekyl-curve-generators",
  "shekyl-curve-io",
  "shekyl-curve-primitives",
@@ -5880,8 +5882,10 @@ dependencies = [
  "generalized-bulletproofs",
  "helioselene",
  "multiexp",
+ "rand_chacha 0.3.1",
  "rand_core 0.6.4",
  "serde",
+ "shekyl-crypto-hash",
  "shekyl-crypto-pq",
  "shekyl-curve-generators",
  "shekyl-fcmp-proofs",
@@ -6002,11 +6006,10 @@ dependencies = [
 name = "shekyl-rpc-client"
 version = "0.1.0"
 dependencies = [
- "curve25519-dalek",
  "hex",
  "serde",
  "serde_json",
- "shekyl-curve-io",
+ "shekyl-economics",
  "shekyl-rpc-types",
  "shekyl-types",
  "std-shims",
@@ -6127,7 +6130,9 @@ dependencies = [
  "serde_json",
  "sha2",
  "shekyl-onion-v3",
+ "shekyl-win-sec",
  "tokio",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -6271,6 +6276,7 @@ name = "shekyl-wire"
 version = "3.1.0"
 dependencies = [
  "serde_json",
+ "shekyl-bulletproofs",
  "shekyl-crypto-hash",
  "shekyl-curve-generators",
  "shekyl-types",
