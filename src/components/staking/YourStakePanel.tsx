@@ -145,6 +145,56 @@ function StakeViewBody({ view }: { view: StakingView }) {
         </div>
       )}
 
+      {view.in_flight.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold text-purple-200">
+            In progress ({view.in_flight.length})
+          </p>
+          <ul className="space-y-1">
+            {view.in_flight.map((row, index) => (
+              <li
+                key={`${row.kind}-${row.state}-${index}`}
+                className="rounded-lg bg-purple-900/40 px-3 py-2 text-xs"
+              >
+                <p className="text-purple-100">
+                  {kindLabel(row.kind)} — {stateLabel(row.state)}
+                </p>
+                {row.reason && (
+                  <p className="mt-1 text-purple-200">{row.reason}</p>
+                )}
+                {(row.attempts > 0 || row.funds_return_at != null) && (
+                  <p className="mt-1 text-purple-300">
+                    {row.attempts === 1 && "Sent once."}
+                    {row.attempts > 1 && `Sent ${row.attempts} times.`}
+                    {row.funds_return_at != null &&
+                      `${row.attempts > 0 ? " " : ""}Funds stay set aside until the scan passes block ${row.funds_return_at.toLocaleString()}.`}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {view.outcomes.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold text-purple-200">
+            Recently ended
+          </p>
+          <ul className="space-y-1">
+            {view.outcomes.map((row, index) => (
+              <li
+                key={`${row.kind}-${row.at_height}-${index}`}
+                className="rounded-lg bg-purple-900/40 px-3 py-2 text-xs"
+              >
+                <p className="text-purple-100">{kindLabel(row.kind)}</p>
+                <p className="mt-1 text-purple-200">{row.reason}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {view.recovery_pending_reopen && (
         <p
           className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200"
@@ -163,6 +213,39 @@ function StakeViewBody({ view }: { view: StakingView }) {
       </p>
     </>
   );
+}
+
+/** Open strings: an unknown kind is shown as the wallet sent it. */
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case "stake":
+      return "Stake";
+    case "claim":
+      return "Reward claim";
+    case "drain":
+      return "Return of staking funds";
+    case "exit":
+      return "Stake release";
+    default:
+      return kind;
+  }
+}
+
+function stateLabel(state: string): string {
+  switch (state) {
+    case "pending":
+      return "not sent yet";
+    case "dispatched":
+      return "sent, not confirmed";
+    case "refused":
+      return "a node refused it";
+    case "expired":
+      return "can no longer be mined";
+    case "held":
+      return "kept until it can be checked";
+    default:
+      return state;
+  }
 }
 
 function Leg({

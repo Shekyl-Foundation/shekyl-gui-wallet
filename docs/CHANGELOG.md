@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **Your stake shows work still outstanding, and how it ended.** A stake,
+  reward claim, return of staking funds, or stake release that has not
+  finished yet appears under "In progress", and the last ending of each
+  appears under "Recently ended", in the wallet's own words. Nothing on
+  that list identifies which staking identity it belongs to.
 - **A wallet file written before this change does not open.** shekyl-core's
   send journal now records what a send paid as a typed destination (an
   address, or this wallet funding its own staking persona) instead of an
