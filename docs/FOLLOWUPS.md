@@ -56,9 +56,11 @@ Before broadcasting, the send flow reads Health; when the node cannot
 originate, the GUI says the transaction is held, not sent.
 
 **Blocker:** core increment 3's typed Status read, and the RPC wire round
-(`RPC_WIRE.md`) naming the fields and confirming that the sidecar, running
-as the same user, gets a grant that carries Status. Without that grant the
-GUI cannot show the reason.
+(`RPC_WIRE.md`) naming the fields. The sidecar, running as the same user,
+already gets Status: core's `RPC_CHANNEL.md` RT-15 makes a same-user caller
+the owner, with every grant. A GUI pointed at a service-mode daemon,
+another user's or another machine's sees Status only if its enrolment
+grants it, and must say so rather than show an empty posture.
 
 ---
 
