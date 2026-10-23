@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **The frontend test runner is vitest 5.** vitest 4.1.11's mock registry
+  carried two advisories (GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp); vitest
+  and `@vitest/coverage-v8` move to 5.0.5, and vite takes its in-range fix
+  for the launch-editor and dev-server advisories (8.3.5). Development only;
+  nothing in the installed wallet changes.
+
 - **Your stake shows work still outstanding, and how it ended.** A stake,
   reward claim, return of staking funds, or stake release that has not
   finished yet appears under "In progress", and the last ending of each
