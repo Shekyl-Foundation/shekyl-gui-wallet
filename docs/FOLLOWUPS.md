@@ -8,6 +8,93 @@ shekyl-core).
 
 ---
 
+## Carry core's pinned Tor in the Linux and Windows installers (`GS-1`) — target: pre-genesis
+
+The installers ship `shekyld` as a sidecar with no tor beside it, so every
+GUI user's daemon runs core's TB-2 posture: it starts, holds its own
+transactions, and announces why into a log the GUI never shows (`GS-F1`).
+Ruled (`GS-Q5`, Rick 2026-10-22): the GUI's daemon and Tor come from
+gitian, like every build. The `.deb`, AppImage and Windows installers
+consume core's gitian release archive for their target, verify its digest,
+and carry `tor/` as its own Tauri resource directory with `tor-licenses/`
+beside it; the sidecar is started with `tor-file` naming the resolved
+resource path, so one mechanism holds on every platform.
+
+**Blocker:** `GS-Q6`, how a signed Tor is made available to the installers,
+is open; and the archive must exist at the paired core tag. The daemon
+reads `tor-file` on core `dev` and verifies the named binary against the
+pin as it does a discovered one, so the resource is that target's pinned
+bundle, never another tor. Source:
+[`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4, §5.
+
+---
+
+## One target and one stop for the sidecar (`GS-2`) — target: pre-genesis
+
+Start takes anything answering HTTP on the port as an external daemon, the
+ladder RT-15 forbids (`GS-F6`); stop is `SIGTERM`, 2 s, `SIGKILL` by raw
+PID, or `taskkill /F` on Windows, so Tor's directory cache is never written
+back and every GUI boot is a cold bootstrap (`GS-F5`). Ruled (`GS-Q1`): the
+GUI launches `shekyld` with one end of a connected socket pair as its owner
+connection; closing it is the clean stop on every platform and a crashed
+GUI cannot orphan the daemon. The GUI's target is "this computer" or an
+explicit node; the child is held by its handle; the stop waits for core's
+derived bound before any kill, and reports one. The "keep daemon running
+after the wallet closes" setting stays and answers "not yet implemented"
+loudly until RT-W10 lands (`GS-Q2`).
+
+**Blocker:** core increment `GS-C3`, the owning connection as an RPC
+listener kind. Source: [`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4.
+
+---
+
+## Show the daemon's Tor posture, and report a held send as held (`GS-3`) — target: pre-genesis
+
+A send whose transaction the node is holding for Tor is reported
+"Transaction submitted." (`GS-F2`). The GUI reads Status on its normal
+refresh and shows core's one rendering verbatim: a posture line in the
+header whenever `OwnTx` is not `AddressHiding`, the full read in
+Settings → Network, and "cannot see the node's Tor state" against a node
+whose grant withholds Status. The review card reads `OwnTx` before submit
+and says a `Held` transaction waits on this node and stays off clearnet;
+the verdict line says "accepted by your node"; every pending own
+transaction shows as held while `OwnTx` is `Held`. Settings → Network
+offers exactly the `ManagedTorFix` values in the read, each with its
+consequence, none pre-selected; taking one writes the sidecar's daemon
+config and restarts it (`GS-F7`, core `TSR-Q11`).
+
+**Blocker:** core increments `GS-C1` (`OwnTx` and Health from the relay's
+hop-0 verdict) and `GS-C2` (Status' Tor part on `get_info`, the posture
+types in `shekyl-rpc-types`), and `GS-2`. Source:
+[`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4.
+
+---
+
+## Take the daemon wire from `shekyl-rpc-types` (`GS-4`) — target: pre-genesis
+
+`daemon_rpc.rs` carries its own reply types for the daemon wire, against
+core's RK-D1 (one definition in `shekyl-rpc-types`); `get_info` does not
+decode against core `dev`; the Mining page calls admin-only paths on the
+view-only listener; the health probe is a REST `GET /get_info`, which core's
+RW-Q2 retires (`GS-F8`). The GUI's types go, `shekyl-rpc-client` is the
+client, mining moves to the owner leg, and the GUI tracks core `dev` in CI
+so it can pair with the RW rename PR.
+
+**Blocker:** `GS-2` (the owner leg). Source:
+[`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4.
+
+---
+
+## Carry core's pinned Tor in the macOS installer (`GS-5`) — target: pre-genesis
+
+The `.dmg` carries no tor. It follows `GS-1` once core's macOS pin exists;
+the pin's form is `GS-Q6`.
+
+**Blocker:** core `TB-11`, the macOS pin and launch test; `GS-Q6`. Source:
+[`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §5.
+
+---
+
 ## Daemon transport has no proxy — target: with the desktop's remote-node story
 
 The daemon client dials directly: `reqwest` is built without the `socks`
