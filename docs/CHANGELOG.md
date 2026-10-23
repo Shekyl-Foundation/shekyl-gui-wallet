@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **A sent transaction is reported as accepted by your node, not as
+  submitted.** Your node holds a transaction it cannot yet send over Tor and
+  retries on its own; "submitted" said more than the node had done. Showing
+  that held state is the GUI sync lane's `GS-3`.
+
 - **Your stake shows work still outstanding, and how it ended.** A stake,
   reward claim, return of staking funds, or stake release that has not
   finished yet appears under "In progress", and the last ending of each

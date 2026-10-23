@@ -61,7 +61,7 @@ function paymentLinkNotice(link: ParsedPaymentUri): string {
 function verdictLine(r: SubmitResult): string {
   switch (r.verdict) {
     case "ACCEPTED":
-      return "Transaction submitted.";
+      return "Transaction accepted by your node.";
     case "ALREADY_IN_POOL":
       return "Transaction already in the network's mempool.";
     case "ALREADY_IN_CHAIN":
