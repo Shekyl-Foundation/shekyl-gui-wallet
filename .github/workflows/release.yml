@@ -32,7 +32,7 @@ jobs:
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Create GitHub Release
         id: release
         env:
@@ -80,7 +80,7 @@ jobs:
       # stay `dry-run-<platform>`.
       DRY_RUN_ARTIFACT: dry-run-${{ matrix.platform }}${{ matrix.tauri_target && format('-{0}', matrix.tauri_target) || '' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # shekyl-core is cloned to (1) build the `shekyld` sidecar and (2)
       # satisfy the Tauri crate's path-deps on `../../shekyl-core/rust/*`.
@@ -147,7 +147,7 @@ jobs:
 
       - name: Cache depends prefix
         if: startsWith(matrix.platform, 'ubuntu')
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: depends-cache
         with:
           path: ${{ github.workspace }}/../shekyl-core/contrib/depends/built
@@ -199,7 +199,7 @@ jobs:
       # Rust is installed before the daemon cmake / make depends (above).
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: npm
@@ -208,7 +208,7 @@ jobs:
 
       - name: vcpkg cache
         if: startsWith(matrix.platform, 'windows')
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             C:\vcpkg\downloads
@@ -307,7 +307,7 @@ jobs:
 
       - name: Keep Linux bundles (dry run)
         if: startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.DRY_RUN_ARTIFACT }}
           path: |
@@ -319,7 +319,7 @@ jobs:
 
       - name: Build and upload (macOS / Windows)
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push' }}
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -330,7 +330,7 @@ jobs:
       - name: Build (macOS / Windows, dry run)
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
         id: tauri-dry-run
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         with:
           args: ${{ matrix.args }}
 
@@ -350,7 +350,7 @@ jobs:
 
       - name: Keep macOS / Windows bundles (dry run)
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.DRY_RUN_ARTIFACT }}
           path: ${{ steps.tauri-bundles.outputs.paths }}
