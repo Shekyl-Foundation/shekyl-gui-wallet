@@ -147,8 +147,11 @@ installers consume core's gitian release archive for each target
 `tor_bundle.py`) and verify its digest before unpacking. The Engine
 path-deps still compile against the same core tag.
 
-**GS-Q6 — How is a signed Tor made available to the GUI's installers?**
-OPEN. Raised by `GS-Q5`'s ruling.
+**GS-Q6 — How is a signed Tor made available to the GUI's installers, and
+what form does the macOS pin take?** OPEN. Raised by `GS-Q5`'s ruling. Tor's
+checksum lists show the Expert Bundle is not code-signed on macOS or Windows,
+while Tor Browser's macOS `.dmg` carries a `tor` signed with Tor's own
+Developer ID under entitlements Tor chose; the pin's form follows the answer.
 
 ## 4. Design for the slice
 
@@ -159,9 +162,8 @@ OPEN. Raised by `GS-Q5`'s ruling.
   path explicitly, one mechanism on every platform, rather than relying on
   beside-the-executable (Tauri puts `externalBin` and resources in
   different places per platform). The pin is still checked at every spawn.
-  Linux and Windows now; macOS after the macOS pin (TB-11, core
-  `TOR_MACOS_PIN_BRIEF.md`'s two-digest scheme, since app signing rewrites
-  the binary).
+  Linux and Windows now; macOS after the macOS pin (TB-11); the macOS pin's
+  form is `GS-Q6`.
 - **One target, one stop (GS-F5, GS-F6).** The GUI's target is "this
   computer" or an explicit node, never a probe ladder. The sidecar is held
   by its child handle, never a raw PID. Stop is the owning connection's
@@ -196,15 +198,15 @@ OPEN. Raised by `GS-Q5`'s ruling.
 | # | Repo | Contents | Blocked on |
 | --- | --- | --- | --- |
 | GS-0 | GUI | This charter; the two Tor rows of GUI #47 replaced by this lane's rows | — |
-| GS-C1 | core | `GS-Q3`: `OwnTx` and Health from the relay's hop-0 verdict (shekyl-core #1161) | increment 3 (#1151) |
-| GS-C2 | core | `GS-Q4`: Status' Tor part and Health's boolean on `get_info`; posture types and `render` into `shekyl-rpc-types`; a typed `Cause` for a local origin the relay holds while its link is usable (an exhausted epoch pin, or no address-hiding peer yet), so `Held` beside `Usable` carries its reason (`TSR-Q12`, `TSR-Q13`) | increment 3 (#1151), GS-C1 |
+| GS-C1 | core | `GS-Q3`: `OwnTx` and Health from the relay's hop-0 verdict (shekyl-core #1164) | increment 3 (#1151) |
+| GS-C2 | core | `GS-Q4`: Status' Tor part and Health's boolean on `get_info`; posture types and `render` into `shekyl-rpc-types`; a typed reason for `Held` beside a usable link (an exhausted epoch pin, or no address-hiding peer yet), in the shape IG-Q72 rules (core `INPUT_GRAMMAR.md`, draft #1162) | increment 3 (#1151), GS-C1 |
 | GS-C3 | core | `GS-Q1`'s leg: the owning connection as an RPC listener kind, owner grant, host-only stop | — |
 | GS-C4 | core | Correct `TSR-Q12`, `TOR_SUPERVISOR.md` §11 and core's FOLLOWUPS row for the RW naming: no leg carries Status to the GUI yet | — |
 | GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file` (Linux, Windows) | `GS-Q6` for the signed Tor; the archive at the paired core tag. `tor-file` is read on core `dev` (`sections/posture.rs` `managed_binary`, `shekyl-daemon/src/tor.rs` `discover_and_verify_at`) and the named path passes the same pin gate as discovery, so the resource must be that target's pinned bundle |
 | GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented" | GS-C3 |
 | GS-3 | GUI | Posture display, held review/verdict/pending, Settings → Network fixes, daemon config | GS-C1, GS-C2, GS-2 |
 | GS-4 | GUI | Wire debt: RK-D1 adoption, `get_info` decode, mining on the owner leg | GS-2 |
-| GS-5 | GUI | macOS installer Tor | the macOS pin (TB-11) |
+| GS-5 | GUI | macOS installer Tor | the macOS pin (TB-11); its form is `GS-Q6` |
 
 ## 6. Acceptance (real pathways, every platform with an installer)
 

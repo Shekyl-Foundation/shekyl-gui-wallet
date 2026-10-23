@@ -87,11 +87,10 @@ so it can pair with the RW rename PR.
 
 ## Carry core's pinned Tor in the macOS installer (`GS-5`) — target: pre-genesis
 
-The `.dmg` carries no tor. It follows `GS-1` once core's macOS pin exists:
-app signing rewrites the binary, so the pin is the two-digest scheme of
-core's `TOR_MACOS_PIN_BRIEF.md`.
+The `.dmg` carries no tor. It follows `GS-1` once core's macOS pin exists;
+the pin's form is `GS-Q6`.
 
-**Blocker:** core `TB-11`, the macOS pin and launch test. Source:
+**Blocker:** core `TB-11`, the macOS pin and launch test; `GS-Q6`. Source:
 [`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §5.
 
 ---
