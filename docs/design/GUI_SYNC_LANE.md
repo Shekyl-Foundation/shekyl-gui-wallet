@@ -196,8 +196,8 @@ OPEN. Raised by `GS-Q5`'s ruling.
 | # | Repo | Contents | Blocked on |
 | --- | --- | --- | --- |
 | GS-0 | GUI | This charter; the two Tor rows of GUI #47 replaced by this lane's rows | — |
-| GS-C1 | core | `GS-Q3`: `OwnTx` and Health from the relay's hop-0 verdict | increment 3 (#1151) |
-| GS-C2 | core | `GS-Q4`: Status' Tor part and Health's boolean on `get_info`; posture types and `render` into `shekyl-rpc-types` | increment 3 (#1151) |
+| GS-C1 | core | `GS-Q3`: `OwnTx` and Health from the relay's hop-0 verdict (shekyl-core #1161) | increment 3 (#1151) |
+| GS-C2 | core | `GS-Q4`: Status' Tor part and Health's boolean on `get_info`; posture types and `render` into `shekyl-rpc-types`; a typed `Cause` for a local origin the relay holds while its link is usable (an exhausted epoch pin, or no address-hiding peer yet), so `Held` beside `Usable` carries its reason (`TSR-Q12`, `TSR-Q13`) | increment 3 (#1151), GS-C1 |
 | GS-C3 | core | `GS-Q1`'s leg: the owning connection as an RPC listener kind, owner grant, host-only stop | — |
 | GS-C4 | core | Correct `TSR-Q12`, `TOR_SUPERVISOR.md` §11 and core's FOLLOWUPS row for the RW naming: no leg carries Status to the GUI yet | — |
 | GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file` (Linux, Windows) | `GS-Q6` for the signed Tor; the archive at the paired core tag |
