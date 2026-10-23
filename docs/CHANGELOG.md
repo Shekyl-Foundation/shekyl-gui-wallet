@@ -7,8 +7,10 @@
   both its JS and Rust halves; the Rust lock takes the fixes for tokio's,
   anyhow's and event-listener's soundness advisories and drops two crates
   nothing used; the CI actions run on their current majors. Building the
-  wallet now needs Node 22.19 or later. Nothing a person sees in the wallet
-  changes.
+  wallet now needs Node 22.19 or later. The installation guide no longer
+  describes `.rpm` or MSI packages: no release has shipped either, and the
+  build now produces exactly the formats a release publishes. Nothing a
+  person sees in the wallet changes.
 
 - **Your stake shows work still outstanding, and how it ended.** A stake,
   reward claim, return of staking funds, or stake release that has not

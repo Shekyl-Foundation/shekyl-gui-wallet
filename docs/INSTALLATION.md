@@ -48,23 +48,9 @@ To uninstall:
 sudo apt remove shekyl-wallet
 ```
 
-### Fedora / RHEL / openSUSE (.rpm)
+### Fedora / RHEL / openSUSE
 
-```bash
-sudo rpm -i "Shekyl_Wallet-X.Y.Z-1.x86_64.rpm"
-```
-
-Or with `dnf`:
-
-```bash
-sudo dnf install "Shekyl_Wallet-X.Y.Z-1.x86_64.rpm"
-```
-
-To uninstall:
-
-```bash
-sudo dnf remove shekyl-wallet
-```
+Use the AppImage above. The wallet ships no `.rpm`.
 
 ---
 
@@ -75,21 +61,6 @@ sudo dnf remove shekyl-wallet
 1. Download `Shekyl_Wallet_X.Y.Z_x64-setup.exe`.
 2. Run the installer and follow the prompts.
 3. The wallet is added to the Start Menu.
-
-### MSI
-
-1. Download `Shekyl_Wallet_X.Y.Z_x64.msi`.
-2. Double-click to install, or run from an elevated command prompt:
-
-```powershell
-msiexec /i "Shekyl_Wallet_X.Y.Z_x64.msi"
-```
-
-To uninstall, use **Settings > Apps** or:
-
-```powershell
-msiexec /x "Shekyl_Wallet_X.Y.Z_x64.msi"
-```
 
 ### System requirements
 
