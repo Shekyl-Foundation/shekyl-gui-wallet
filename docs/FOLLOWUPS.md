@@ -21,9 +21,10 @@ beside it; the sidecar is started with `tor-file` naming the resolved
 resource path, so one mechanism holds on every platform.
 
 **Blocker:** `GS-Q6`, how a signed Tor is made available to the installers,
-is open; the archive must exist at the paired core tag; and the daemon must
-read `tor-file`, which core's option table registers (IG-Q41) and its
-config reader does not fill yet (the daemon-config lane's). Source:
+is open; and the archive must exist at the paired core tag. The daemon
+reads `tor-file` on core `dev` and verifies the named binary against the
+pin as it does a discovered one, so the resource is that target's pinned
+bundle, never another tor. Source:
 [`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4, §5.
 
 ---
