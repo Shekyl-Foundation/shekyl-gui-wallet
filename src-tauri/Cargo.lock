@@ -6208,7 +6208,6 @@ name = "shekyl-wallet"
 version = "3.1.0-alpha.10"
 dependencies = [
  "base64 0.22.1",
- "curve25519-dalek",
  "dirs",
  "hex",
  "libc",
@@ -6238,7 +6237,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-shell",
- "thiserror 1.0.69",
  "tokio",
  "tokio-util",
  "tracing",

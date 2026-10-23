@@ -48,10 +48,8 @@ shekyl-units = { path = "../../shekyl-core/rust/shekyl-units" }
 # Production: IncomingFact / HistoryOrder carry domain newtypes until the
 # Tauri JSON edge. Tests also construct StakingReadView fixtures with them.
 shekyl-types = { path = "../../shekyl-core/rust/shekyl-types" }
-curve25519-dalek = { version = "4", features = ["zeroize"] }
 tokio-util = "0.7"
 tracing = "0.1"
-thiserror = "1"
 zeroize = { version = "1", features = ["alloc"] }
 rand = "0.8"
 
