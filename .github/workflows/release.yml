@@ -67,7 +67,7 @@ jobs:
           - platform: ubuntu-24.04
             args: ""
           - platform: windows-2025-vs2026
-            args: --bundles nsis
+            args: ""
           - platform: macos-latest
             tauri_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin

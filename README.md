@@ -167,35 +167,26 @@ for where that binary comes from; without it the Tauri build script stops
 with `resource path binaries\shekyld-<triple>.exe doesn't exist`.
 
 ```bash
-# Production build (generates platform-specific bundles)
+# Production build: the bundles this platform ships (see below)
 npm run tauri build
-
-# Windows: NSIS only — see the note below
-npm run tauri -- build --bundles nsis
 ```
 
 Build artifacts are placed in `src-tauri/target/release/bundle/`:
 
 | Platform | Format |
 |----------|--------|
-| Linux | `.deb`, `.rpm`, `.AppImage` |
+| Linux | `.deb`, `.AppImage` |
 | macOS | `.dmg`, `.app` |
-| Windows | `.nsis` |
+| Windows | NSIS `-setup.exe` |
 
-**Windows produces NSIS only, and the target has to be named.** `bundle.targets`
-is `all`, so a plain `npm run tauri build` also attempts MSI and stops the
-whole bundle with:
-
-```text
-failed to bundle project: `optional pre-release identifier in app version
-must be numeric-only and cannot be greater than 65535 for msi target`
-```
-
-MSI requires a numeric-only pre-release identifier and this project's version
-carries one that is not (`3.1.0-alpha.9`). This is why
-[`release.yml`](.github/workflows/release.yml) passes `--bundles nsis` on the
-Windows runner, and local Windows builds need the same flag. The MSI row was
-removed from the table above because no release has ever shipped one.
+**`bundle.targets` in `tauri.conf.json` lists exactly these formats**, and
+Tauri builds the ones that belong to the platform it runs on, so the release
+workflow and a local build produce the same bundles with no flags. MSI and
+RPM are not listed: both reject this project's pre-release version
+(`3.1.0-alpha.10`). MSI needs a numeric-only pre-release identifier; RPM
+forbids `-` in a version, which Tauri CLI 2.12 enforces and offers no
+override for (`bundle.linux.rpm` sets only `release` and `epoch`). No release
+has shipped either format.
 
 ## Project Structure
 
