@@ -2,11 +2,13 @@
 
 ## [Unreleased]
 
-- **The frontend test runner is vitest 5.** vitest 4.1.11's mock registry
-  carried two advisories (GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp); vitest
-  and `@vitest/coverage-v8` move to 5.0.5, and vite takes its in-range fix
-  for the launch-editor and dev-server advisories (8.3.5). Development only;
-  nothing in the installed wallet changes.
+- **Every dependency is at its current release.** The frontend test runner is
+  vitest 5 (clearing two mock-registry advisories); Tauri moves to 2.12 on
+  both its JS and Rust halves; the Rust lock takes the fixes for tokio's,
+  anyhow's and event-listener's soundness advisories and drops two crates
+  nothing used; the CI actions run on their current majors. Building the
+  wallet now needs Node 22.19 or later. Nothing a person sees in the wallet
+  changes.
 
 - **Your stake shows work still outstanding, and how it ended.** A stake,
   reward claim, return of staking funds, or stake release that has not
