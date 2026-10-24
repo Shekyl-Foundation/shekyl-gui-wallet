@@ -7,10 +7,12 @@
   both its JS and Rust halves; the Rust lock takes the fixes for tokio's,
   anyhow's and event-listener's soundness advisories and drops two crates
   nothing used; the CI actions run on their current majors. Building the
-  wallet now needs Node 22.19 or later. The installation guide no longer
-  describes `.rpm` or MSI packages: no release has shipped either, and the
-  build now produces exactly the formats a release publishes. Nothing a
-  person sees in the wallet changes.
+  wallet now needs Node 22.19 or later.
+- **Linux releases include an `.rpm` for Fedora, RHEL and openSUSE.** The
+  wallet's version now carries its pre-release as `3.1.0+alpha.N`, a form
+  every package format accepts; the release keeps its `v3.1.0-alpha.N` name,
+  and the sidebar shows that name. The installation guide no longer
+  describes an MSI package, which no release has shipped.
 
 - **Your stake shows work still outstanding, and how it ended.** A stake,
   reward claim, return of staking funds, or stake release that has not
