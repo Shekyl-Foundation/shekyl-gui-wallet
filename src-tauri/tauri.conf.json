@@ -27,7 +27,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "appimage", "nsis", "app", "dmg"],
+    "targets": [
+      "deb",
+      "rpm",
+      "appimage",
+      "nsis",
+      "app",
+      "dmg"
+    ],
     "externalBin": [
       "binaries/shekyld"
     ],

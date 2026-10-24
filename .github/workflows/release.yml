@@ -291,8 +291,14 @@ jobs:
             echo "::error::No .AppImage artifact found after tauri build"
             exit 1
           fi
+          RPM=$(find src-tauri/target/release/bundle/rpm -name '*.rpm' | head -1)
+          if [ -z "$RPM" ]; then
+            echo "::error::No .rpm artifact found after tauri build"
+            exit 1
+          fi
           echo "deb=$DEB" >> "$GITHUB_OUTPUT"
           echo "appimage=$APPIMAGE" >> "$GITHUB_OUTPUT"
+          echo "rpm=$RPM" >> "$GITHUB_OUTPUT"
 
       - name: Upload Linux bundles to release
         if: startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push'
@@ -300,10 +306,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEB: ${{ steps.linux-bundles.outputs.deb }}
           APPIMAGE: ${{ steps.linux-bundles.outputs.appimage }}
+          RPM: ${{ steps.linux-bundles.outputs.rpm }}
         run: |
           TAG="${{ github.ref_name }}"
           gh release upload "$TAG" "$DEB" --clobber
           gh release upload "$TAG" "$APPIMAGE" --clobber
+          gh release upload "$TAG" "$RPM" --clobber
 
       - name: Keep Linux bundles (dry run)
         if: startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push'
@@ -313,6 +321,7 @@ jobs:
           path: |
             ${{ steps.linux-bundles.outputs.deb }}
             ${{ steps.linux-bundles.outputs.appimage }}
+            ${{ steps.linux-bundles.outputs.rpm }}
           if-no-files-found: error
 
       # ── macOS / Windows: tauri-action uploads to the release made above ──

@@ -162,7 +162,7 @@ The project uses GitHub Actions with two workflows:
 - **CI** (`.github/workflows/ci.yml`) — runs on every push/PR to `main`:
   ESLint, TypeScript type-check, Vitest, Rustfmt, Clippy, and cargo test.
 - **Release** (`.github/workflows/release.yml`) — a `v*` tag push builds
-  the wallet for Linux (`.deb`, `.AppImage`), Windows (NSIS installer) and
+  the wallet for Linux (`.deb`, `.rpm`, `.AppImage`), Windows (NSIS installer) and
   macOS ARM64, each with a `shekyld` sidecar built from the paired
   shekyl-core tag (`SHEKYL_CORE_REF`), and publishes them as a GitHub
   pre-release for an alpha, beta or rc tag. A manual dispatch is the dry
@@ -188,18 +188,17 @@ Build artifacts are placed in `src-tauri/target/release/bundle/`:
 
 | Platform | Format |
 |----------|--------|
-| Linux | `.deb`, `.AppImage` |
+| Linux | `.deb`, `.rpm`, `.AppImage` |
 | macOS | `.dmg`, `.app` |
 | Windows | NSIS `-setup.exe` |
 
 **`bundle.targets` in `tauri.conf.json` lists exactly these formats**, and
 Tauri builds the ones that belong to the platform it runs on, so the release
-workflow and a local build produce the same bundles with no flags. MSI and
-RPM are not listed: both reject this project's pre-release version
-(`3.1.0-alpha.10`). MSI needs a numeric-only pre-release identifier; RPM
-forbids `-` in a version, which Tauri CLI 2.12 enforces and offers no
-override for (`bundle.linux.rpm` sets only `release` and `epoch`). No release
-has shipped either format.
+workflow and a local build produce the same bundles with no flags. MSI is
+not listed: no release ships it. The version convention above is what lets
+the `.rpm` build: RPM forbids `-` in a version, which Tauri CLI 2.12
+enforces, and Tauri offers no RPM-only version (`bundle.linux.rpm` sets only
+`release` and `epoch`).
 
 ## Project Structure
 
