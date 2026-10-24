@@ -105,13 +105,26 @@ npm run lint
 The version is defined once in `package.json` and synced everywhere:
 
 ```bash
-# Bump and sync (two steps)
-npm run version:bump -- 0.2.0-beta   # updates package.json
+# Set the version in package.json, then sync it
 npm run version:sync                  # propagates to Cargo.toml + tauri.conf.json
 ```
 
-The frontend reads `__APP_VERSION__` at build time via Vite's `define`, so
-`Sidebar.tsx` never needs a manual version edit.
+**Pre-genesis versions carry their sub-version as semver build metadata:**
+`3.1.0+alpha.10`, not `3.1.0-alpha.10`. Every format the release builds
+accepts that string as-is: Tauri requires semver, RPM forbids `-` in a
+version, and Debian and RPM order `+alpha.9` before `+alpha.10`. The release
+**tag** keeps the pre-release form, `v3.1.0-alpha.10`, because shekyl-core
+reserves the first tag without `-alpha`/`-beta`/`-rc` for genesis
+(`RELEASE_PROMOTION.md` §3). Package managers rank `3.1.0+alpha.N` above a
+plain `3.1.0`, so **the genesis release takes a version above the alpha
+series** (for example `3.1.1`); semver gives build metadata no ordering, so
+npm and Cargo are indifferent. Edit `package.json` by hand for a version with
+build metadata: `npm version` drops it.
+
+The frontend reads `__APP_RELEASE__` at build time via Vite's `define`: the
+release's name as its tag spells it (`3.1.0-alpha.10`), derived from the
+version, so `Sidebar.tsx` shows the name of the release a person downloaded
+and never needs a manual edit.
 
 ## Testing
 
@@ -206,7 +219,7 @@ shekyl-gui-wallet/
     types/daemon.ts         # Shared TypeScript interfaces for daemon RPC
     lib/format.ts           # SKL formatting utilities (9-decimal atomic)
     test/setup.ts           # Vitest global setup (RTL matchers, Tauri IPC mock)
-    vite-env.d.ts           # Global type declarations (__APP_VERSION__)
+    vite-env.d.ts           # Global type declarations (__APP_RELEASE__)
     styles/globals.css      # Tailwind CSS with Shekyl color palette
   scripts/
     sync-version.mjs        # Propagates package.json version → Cargo.toml, tauri.conf.json

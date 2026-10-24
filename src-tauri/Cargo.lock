@@ -6067,7 +6067,7 @@ dependencies = [
 
 [[package]]
 name = "shekyl-wallet"
-version = "3.1.0-alpha.10"
+version = "3.1.0+alpha.10"
 dependencies = [
  "base64 0.22.1",
  "dirs 6.0.0",
