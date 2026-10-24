@@ -8,11 +8,17 @@
   anyhow's and event-listener's soundness advisories and drops two crates
   nothing used; the CI actions run on their current majors. Building the
   wallet now needs Node 22.19 or later.
+
 - **Linux releases include an `.rpm` for Fedora, RHEL and openSUSE.** The
   wallet's version now carries its pre-release as `3.1.0+alpha.N`, a form
   every package format accepts; the release keeps its `v3.1.0-alpha.N` name,
   and the sidebar shows that name. The installation guide no longer
   describes an MSI package, which no release has shipped.
+
+- **A sent transaction is reported as accepted by your node.** It used to
+  say "submitted", which claimed more than the node had done: your node
+  holds a transaction it cannot yet send over Tor and retries on its own.
+  Showing that held state is the GUI sync lane's `GS-3`.
 
 - **Your stake shows work still outstanding, and how it ended.** A stake,
   reward claim, return of staking funds, or stake release that has not
