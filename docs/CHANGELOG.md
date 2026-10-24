@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+- **Every dependency is at its current release.** The frontend test runner is
+  vitest 5 (clearing two mock-registry advisories); Tauri moves to 2.12 on
+  both its JS and Rust halves; the Rust lock takes the fixes for tokio's,
+  anyhow's and event-listener's soundness advisories and drops two unused
+  crates; the CI actions run on their current majors. Building the wallet
+  needs Node 22.22.2 or later on the 22 line, 24.15.0 or later on the 24
+  line, or Node 26; npm refuses to install on anything else.
+
+- **Linux releases include an `.rpm` for Fedora, RHEL and openSUSE.** The
+  wallet's version now carries its pre-release as `3.1.0+alpha.N`, a form
+  every package format accepts; the release keeps its `v3.1.0-alpha.N` name,
+  and the sidebar shows that name. The installation guide no longer
+  describes an MSI package, which no release has shipped.
+
 - **A sent transaction is reported as accepted by your node.** It used to
   say "submitted", which claimed more than the node had done: your node
   holds a transaction it cannot yet send over Tor and retries on its own.

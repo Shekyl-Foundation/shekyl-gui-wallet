@@ -32,7 +32,7 @@ jobs:
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Create GitHub Release
         id: release
         env:
@@ -67,7 +67,7 @@ jobs:
           - platform: ubuntu-24.04
             args: ""
           - platform: windows-2025-vs2026
-            args: --bundles nsis
+            args: ""
           - platform: macos-latest
             tauri_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
@@ -80,7 +80,7 @@ jobs:
       # stay `dry-run-<platform>`.
       DRY_RUN_ARTIFACT: dry-run-${{ matrix.platform }}${{ matrix.tauri_target && format('-{0}', matrix.tauri_target) || '' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # shekyl-core is cloned to (1) build the `shekyld` sidecar and (2)
       # satisfy the Tauri crate's path-deps on `../../shekyl-core/rust/*`.
@@ -147,7 +147,7 @@ jobs:
 
       - name: Cache depends prefix
         if: startsWith(matrix.platform, 'ubuntu')
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: depends-cache
         with:
           path: ${{ github.workspace }}/../shekyl-core/contrib/depends/built
@@ -199,16 +199,16 @@ jobs:
       # Rust is installed before the daemon cmake / make depends (above).
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
-          node-version: lts/*
+          node-version-file: .nvmrc
           cache: npm
 
       # ── Windows: vcpkg + MSVC ──
 
       - name: vcpkg cache
         if: startsWith(matrix.platform, 'windows')
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             C:\vcpkg\downloads
@@ -291,8 +291,14 @@ jobs:
             echo "::error::No .AppImage artifact found after tauri build"
             exit 1
           fi
+          RPM=$(find src-tauri/target/release/bundle/rpm -name '*.rpm' | head -1)
+          if [ -z "$RPM" ]; then
+            echo "::error::No .rpm artifact found after tauri build"
+            exit 1
+          fi
           echo "deb=$DEB" >> "$GITHUB_OUTPUT"
           echo "appimage=$APPIMAGE" >> "$GITHUB_OUTPUT"
+          echo "rpm=$RPM" >> "$GITHUB_OUTPUT"
 
       - name: Upload Linux bundles to release
         if: startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push'
@@ -300,26 +306,29 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEB: ${{ steps.linux-bundles.outputs.deb }}
           APPIMAGE: ${{ steps.linux-bundles.outputs.appimage }}
+          RPM: ${{ steps.linux-bundles.outputs.rpm }}
         run: |
           TAG="${{ github.ref_name }}"
           gh release upload "$TAG" "$DEB" --clobber
           gh release upload "$TAG" "$APPIMAGE" --clobber
+          gh release upload "$TAG" "$RPM" --clobber
 
       - name: Keep Linux bundles (dry run)
         if: startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.DRY_RUN_ARTIFACT }}
           path: |
             ${{ steps.linux-bundles.outputs.deb }}
             ${{ steps.linux-bundles.outputs.appimage }}
+            ${{ steps.linux-bundles.outputs.rpm }}
           if-no-files-found: error
 
       # ── macOS / Windows: tauri-action uploads to the release made above ──
 
       - name: Build and upload (macOS / Windows)
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push' }}
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -330,7 +339,7 @@ jobs:
       - name: Build (macOS / Windows, dry run)
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
         id: tauri-dry-run
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         with:
           args: ${{ matrix.args }}
 
@@ -350,7 +359,7 @@ jobs:
 
       - name: Keep macOS / Windows bundles (dry run)
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.DRY_RUN_ARTIFACT }}
           path: ${{ steps.tauri-bundles.outputs.paths }}

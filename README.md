@@ -105,13 +105,26 @@ npm run lint
 The version is defined once in `package.json` and synced everywhere:
 
 ```bash
-# Bump and sync (two steps)
-npm run version:bump -- 0.2.0-beta   # updates package.json
+# Set the version in package.json, then sync it
 npm run version:sync                  # propagates to Cargo.toml + tauri.conf.json
 ```
 
-The frontend reads `__APP_VERSION__` at build time via Vite's `define`, so
-`Sidebar.tsx` never needs a manual version edit.
+**Pre-genesis versions carry their sub-version as semver build metadata:**
+`3.1.0+alpha.10`, not `3.1.0-alpha.10`. Every format the release builds
+accepts that string as-is: Tauri requires semver, RPM forbids `-` in a
+version, and Debian and RPM order `+alpha.9` before `+alpha.10`. The release
+**tag** keeps the pre-release form, `v3.1.0-alpha.10`, because shekyl-core
+reserves the first tag without `-alpha`/`-beta`/`-rc` for genesis
+(`RELEASE_PROMOTION.md` §3). Package managers rank `3.1.0+alpha.N` above a
+plain `3.1.0`, so **the genesis release takes a version above the alpha
+series** (for example `3.1.1`); semver gives build metadata no ordering, so
+npm and Cargo are indifferent. Edit `package.json` by hand for a version with
+build metadata: `npm version` drops it.
+
+The frontend reads `__APP_RELEASE__` at build time via Vite's `define`: the
+release's name as its tag spells it (`3.1.0-alpha.10`), derived from the
+version, so `Sidebar.tsx` shows the name of the release a person downloaded
+and never needs a manual edit.
 
 ## Testing
 
@@ -149,7 +162,7 @@ The project uses GitHub Actions with two workflows:
 - **CI** (`.github/workflows/ci.yml`) — runs on every push/PR to `main`:
   ESLint, TypeScript type-check, Vitest, Rustfmt, Clippy, and cargo test.
 - **Release** (`.github/workflows/release.yml`) — a `v*` tag push builds
-  the wallet for Linux (`.deb`, `.AppImage`), Windows (NSIS installer) and
+  the wallet for Linux (`.deb`, `.rpm`, `.AppImage`), Windows (NSIS installer) and
   macOS ARM64, each with a `shekyld` sidecar built from the paired
   shekyl-core tag (`SHEKYL_CORE_REF`), and publishes them as a GitHub
   pre-release for an alpha, beta or rc tag. A manual dispatch is the dry
@@ -167,11 +180,8 @@ for where that binary comes from; without it the Tauri build script stops
 with `resource path binaries\shekyld-<triple>.exe doesn't exist`.
 
 ```bash
-# Production build (generates platform-specific bundles)
+# Production build: the bundles this platform ships (see below)
 npm run tauri build
-
-# Windows: NSIS only — see the note below
-npm run tauri -- build --bundles nsis
 ```
 
 Build artifacts are placed in `src-tauri/target/release/bundle/`:
@@ -180,22 +190,15 @@ Build artifacts are placed in `src-tauri/target/release/bundle/`:
 |----------|--------|
 | Linux | `.deb`, `.rpm`, `.AppImage` |
 | macOS | `.dmg`, `.app` |
-| Windows | `.nsis` |
+| Windows | NSIS `-setup.exe` |
 
-**Windows produces NSIS only, and the target has to be named.** `bundle.targets`
-is `all`, so a plain `npm run tauri build` also attempts MSI and stops the
-whole bundle with:
-
-```text
-failed to bundle project: `optional pre-release identifier in app version
-must be numeric-only and cannot be greater than 65535 for msi target`
-```
-
-MSI requires a numeric-only pre-release identifier and this project's version
-carries one that is not (`3.1.0-alpha.9`). This is why
-[`release.yml`](.github/workflows/release.yml) passes `--bundles nsis` on the
-Windows runner, and local Windows builds need the same flag. The MSI row was
-removed from the table above because no release has ever shipped one.
+**`bundle.targets` in `tauri.conf.json` lists exactly these formats**, and
+Tauri builds the ones that belong to the platform it runs on, so the release
+workflow and a local build produce the same bundles with no flags. MSI is
+not listed: no release ships it. The version convention above is what lets
+the `.rpm` build: RPM forbids `-` in a version, which Tauri CLI 2.12
+enforces, and Tauri offers no RPM-only version (`bundle.linux.rpm` sets only
+`release` and `epoch`).
 
 ## Project Structure
 
@@ -215,7 +218,7 @@ shekyl-gui-wallet/
     types/daemon.ts         # Shared TypeScript interfaces for daemon RPC
     lib/format.ts           # SKL formatting utilities (9-decimal atomic)
     test/setup.ts           # Vitest global setup (RTL matchers, Tauri IPC mock)
-    vite-env.d.ts           # Global type declarations (__APP_VERSION__)
+    vite-env.d.ts           # Global type declarations (__APP_RELEASE__)
     styles/globals.css      # Tailwind CSS with Shekyl color palette
   scripts/
     sync-version.mjs        # Propagates package.json version → Cargo.toml, tauri.conf.json
