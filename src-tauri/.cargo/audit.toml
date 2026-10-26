@@ -1,0 +1,17 @@
+# cargo-audit configuration for the wallet backend. cargo-audit loads only
+# `.cargo/audit.toml` relative to the directory it runs in, which for this
+# repository is `src-tauri/` (`.github/workflows/audit.yml`); an ignore
+# placed anywhere else is silently inert.
+
+[advisories]
+# crypto-bigint 0.5.5 -- RUSTSEC-2026-0387, ignored by Rick's ruling of
+# 2026-10-24, recorded in shekyl-core as crypto audit row CA-1
+# (docs/design/CRYPTO_AUDIT.md, shekyl-core#1178). That row carries the
+# exposure, the lockfile consumers and the reopen criteria; this file does
+# not copy them. Why it applies here: the wallet links shekyl-engine-core,
+# whose FCMP++ prover computes over `helioselene::Field25519`, which is
+# crypto-bigint 0.5.5's Montgomery arithmetic. That is the wallet-side
+# exposure the row describes.
+# Reopen: drop this ignore in the same change that drops it from
+# shekyl-core's `rust/.cargo/audit.toml`.
+ignore = ["RUSTSEC-2026-0387"]

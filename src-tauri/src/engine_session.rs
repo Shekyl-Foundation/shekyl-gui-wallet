@@ -327,7 +327,7 @@ impl EngineSession {
     /// activation (GUI-PR3). Verify password → optional intent reopen →
     /// [`StakeFacade::first_stake`]. No broadcast on this path
     /// (`state: pending_dispatch`). Posture is always `Market`; the desktop
-    /// wallet offers no path to name the foundation posture.
+    /// wallet offers no path to name `SupportCompleteTree`.
     pub async fn stake(&mut self, password: &str) -> Result<StakeOutcome, String> {
         let shared = self
             .engine
@@ -388,7 +388,7 @@ impl EngineSession {
 
         // Market: ordinary archival staking inside the reward market. The
         // desktop wallet is principal-focused, and the other posture
-        // (`FoundationCompleteTree`) is a permanent, non-earning,
+        // (`SupportCompleteTree`) is a permanent, non-earning,
         // unbounded-storage obligation that engine-core documents as never
         // a default and never reachable without a caller naming it — there
         // is no acknowledgment path here for a caller to name it through.
