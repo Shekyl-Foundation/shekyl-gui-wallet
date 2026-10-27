@@ -38,7 +38,9 @@ interface StakeResult {
  * activation + GUI-PR3b staked-balance/outputs read panel).
  *
  * Page owns activation, funding, return, release, and collect. Personal
- * stake read lives in [`YourStakePanel`].
+ * stake read lives in [`YourStakePanel`], mounted for any open wallet: a
+ * wallet that is not staking can still have a first stake outstanding, or
+ * the ending of one that never landed.
  */
 export default function Staking() {
   const { health } = useDaemon();
@@ -244,7 +246,14 @@ export default function Staking() {
       </div>
 
       {stakerActive && <StakeActions />}
-      {stakerActive && <YourStakePanel refreshKey={health} />}
+      {walletOpen && (
+        // Keyed on staker-hood so activation (or a reopen that clears a
+        // phantom slot) reads again at once instead of at the next refresh.
+        <YourStakePanel
+          key={status?.staking_enabled ? "staker" : "not-staker"}
+          refreshKey={health}
+        />
+      )}
 
       <ShardIdentityPreview />
 

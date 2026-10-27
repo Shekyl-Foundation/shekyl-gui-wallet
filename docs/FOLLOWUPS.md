@@ -95,6 +95,24 @@ the pin's form is `GS-Q6`.
 
 ---
 
+## Say when an outstanding staking record holds funds — target: pre-genesis
+
+"Your stake" shows a record's end date ("Decided when the wallet's scan
+reaches block N") but not whether funds are set aside until then, because
+core's in-flight read does not carry that fact: a zero-fee reward claim
+reserves no inputs, yet it reads `expired` with the same `funds_return_at`
+as a stake that does. Core's own `refused` sentence ("Its funds stay set
+aside…") has the same gap, and `staking_info` carries it to the CLI.
+Once core's read says whether the record reserved inputs, the panel adds
+the funds sentence for the records that did.
+
+**Blocker:** shekyl-core `v3.1.0-alpha.11` is signed and this release builds
+against it; the fix amends the ruled `staking_info` `in_flight` shape
+(WR-Q1), which is Rick's call, and lands in core `dev` for alpha.12. Source:
+GUI #53 review.
+
+---
+
 ## Daemon transport has no proxy — target: with the desktop's remote-node story
 
 The daemon client dials directly: `reqwest` is built without the `socks`
