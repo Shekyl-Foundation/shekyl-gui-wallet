@@ -79,7 +79,7 @@ jobs:
       # which is what `../../shekyl-core/rust/*` in src-tauri/Cargo.toml
       # resolves to.
       - name: Checkout the wallet
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # A pull request of *this* repository checks out the head
           # repository at the head commit, so a fork's commits are built.

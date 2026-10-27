@@ -1,7 +1,17 @@
 name: Release
 
+# A tag push builds and publishes. A manual dispatch is the dry run: it
+# builds every platform from the same steps, keeps the bundles as run
+# artifacts, and creates or uploads to no release. Dispatch it on the
+# release branch before the wallet tag exists, the way shekyl-core's
+# gitian workflow is dispatched with `package_dry_run`.
 on:
   workflow_dispatch:
+    inputs:
+      core_ref:
+        description: "shekyl-core ref to build the sidecar from (a branch, tag, or SHA); empty means SHEKYL_CORE_REF"
+        type: string
+        default: ""
   push:
     tags:
       - "v*"
@@ -13,15 +23,16 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Matching-tag pin. Bump this when pairing the next GUI tag with a new
   # shekyl-core tag. CI (`ci.yml`, `codeql.yml`) stays on core `dev`.
-  SHEKYL_CORE_REF: v3.1.0-alpha.10
+  SHEKYL_CORE_REF: v3.1.0-alpha.11
 
 jobs:
   create-release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Create GitHub Release
         id: release
         env:
@@ -46,6 +57,8 @@ jobs:
 
   build:
     needs: create-release
+    # create-release is skipped on a dry run; build anyway, unless it failed.
+    if: ${{ !cancelled() && needs.create-release.result != 'failure' }}
     name: Build (${{ matrix.platform }}${{ matrix.tauri_target && format(' {0}', matrix.tauri_target) || '' }})
     strategy:
       fail-fast: false
@@ -54,25 +67,47 @@ jobs:
           - platform: ubuntu-24.04
             args: ""
           - platform: windows-2025-vs2026
-            args: --bundles nsis
+            args: ""
           - platform: macos-latest
             tauri_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
+    env:
+      # One artifact name per matrix row. `platform` alone collides if a
+      # second row shares the runner image, which a second macOS target
+      # would. `tauri_target` is unset on Linux and Windows, so those names
+      # stay `dry-run-<platform>`.
+      DRY_RUN_ARTIFACT: dry-run-${{ matrix.platform }}${{ matrix.tauri_target && format('-{0}', matrix.tauri_target) || '' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # shekyl-core is cloned to (1) build the `shekyld` sidecar and (2)
       # satisfy the Tauri crate's path-deps on `../../shekyl-core/rust/*`.
       # Pin is the matching shekyl-core tag, not `dev`: replaying this
       # wallet tag must rebuild the same daemon and the same Engine crates.
+      # Fetched by ref rather than `clone --branch`, which takes only a
+      # branch or tag name: a dry run may name a commit SHA (the core
+      # release commit before its tag exists). A tag push has no inputs,
+      # so it always builds from SHEKYL_CORE_REF.
       - name: Checkout Shekyl core (daemon sidecar + Engine crates)
-        # ${{ env.* }} is interpolated by Actions before the shell runs, so
-        # this is the same string on bash and on Windows pwsh. "${SHEKYL_CORE_REF}"
-        # is a bash expansion and is empty under pwsh (`fatal: Remote branch  not found`).
+        # bash on every platform, Windows included: the step is written once.
         shell: bash
-        run: git clone --depth 1 --branch "${{ env.SHEKYL_CORE_REF }}" --recurse-submodules --shallow-submodules https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
+        env:
+          CORE_REF: ${{ inputs.core_ref || env.SHEKYL_CORE_REF }}
+        run: |
+          if [ -z "${CORE_REF}" ]; then
+            echo "::error::core_ref is empty; set the workflow input core_ref or SHEKYL_CORE_REF"
+            exit 1
+          fi
+          echo "Building the sidecar from shekyl-core@${CORE_REF}"
+          mkdir ../shekyl-core
+          git -C ../shekyl-core init --quiet
+          git -C ../shekyl-core remote add origin https://github.com/Shekyl-Foundation/shekyl-core.git
+          git -C ../shekyl-core fetch --depth 1 --quiet origin "$CORE_REF"
+          git -C ../shekyl-core checkout --quiet FETCH_HEAD
+          git -C ../shekyl-core submodule update --init --recursive --depth 1 --quiet
+          echo "shekyl-core at $(git -C ../shekyl-core rev-parse HEAD)"
 
       # Install the pinned toolchain *before* any cmake -j / make depends.
       # shekyl-core's rust/rust-toolchain.toml is channel-only for this
@@ -112,7 +147,7 @@ jobs:
 
       - name: Cache depends prefix
         if: startsWith(matrix.platform, 'ubuntu')
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: depends-cache
         with:
           path: ${{ github.workspace }}/../shekyl-core/contrib/depends/built
@@ -164,16 +199,16 @@ jobs:
       # Rust is installed before the daemon cmake / make depends (above).
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
-          node-version: lts/*
+          node-version-file: .nvmrc
           cache: npm
 
       # ── Windows: vcpkg + MSVC ──
 
       - name: vcpkg cache
         if: startsWith(matrix.platform, 'windows')
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             C:\vcpkg\downloads
@@ -241,39 +276,91 @@ jobs:
         working-directory: src-tauri
         run: cargo test --release --lib --bins --tests -- --ignored
 
-      - name: Upload Linux .deb to release
+      # Both runs fail here if a bundle is missing; only a tag push uploads.
+      - name: Locate Linux bundles
         if: startsWith(matrix.platform, 'ubuntu')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: linux-bundles
         run: |
-          TAG="${{ github.ref_name }}"
           DEB=$(find src-tauri/target/release/bundle/deb -name '*.deb' | head -1)
           if [ -z "$DEB" ]; then
             echo "::error::No .deb artifact found after tauri build"
             exit 1
           fi
-          gh release upload "$TAG" "$DEB" --clobber
-
-      - name: Upload Linux AppImage to release
-        if: startsWith(matrix.platform, 'ubuntu')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.ref_name }}"
           APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
           if [ -z "$APPIMAGE" ]; then
             echo "::error::No .AppImage artifact found after tauri build"
             exit 1
           fi
-          gh release upload "$TAG" "$APPIMAGE" --clobber
+          RPM=$(find src-tauri/target/release/bundle/rpm -name '*.rpm' | head -1)
+          if [ -z "$RPM" ]; then
+            echo "::error::No .rpm artifact found after tauri build"
+            exit 1
+          fi
+          echo "deb=$DEB" >> "$GITHUB_OUTPUT"
+          echo "appimage=$APPIMAGE" >> "$GITHUB_OUTPUT"
+          echo "rpm=$RPM" >> "$GITHUB_OUTPUT"
 
-      # ── macOS / Windows: use tauri-action with existing release ──
+      - name: Upload Linux bundles to release
+        if: startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEB: ${{ steps.linux-bundles.outputs.deb }}
+          APPIMAGE: ${{ steps.linux-bundles.outputs.appimage }}
+          RPM: ${{ steps.linux-bundles.outputs.rpm }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release upload "$TAG" "$DEB" --clobber
+          gh release upload "$TAG" "$APPIMAGE" --clobber
+          gh release upload "$TAG" "$RPM" --clobber
+
+      - name: Keep Linux bundles (dry run)
+        if: startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.DRY_RUN_ARTIFACT }}
+          path: |
+            ${{ steps.linux-bundles.outputs.deb }}
+            ${{ steps.linux-bundles.outputs.appimage }}
+            ${{ steps.linux-bundles.outputs.rpm }}
+          if-no-files-found: error
+
+      # ── macOS / Windows: tauri-action uploads to the release made above ──
 
       - name: Build and upload (macOS / Windows)
-        if: ${{ !startsWith(matrix.platform, 'ubuntu') }}
-        uses: tauri-apps/tauri-action@v0
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push' }}
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
+
+      # With no releaseId, tagName or releaseName, tauri-action only builds.
+      - name: Build (macOS / Windows, dry run)
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
+        id: tauri-dry-run
+        uses: tauri-apps/tauri-action@v1
+        with:
+          args: ${{ matrix.args }}
+
+      # artifactPaths is a JSON array; upload-artifact takes one path per line.
+      - name: List macOS / Windows bundles (dry run)
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
+        id: tauri-bundles
+        shell: bash
+        env:
+          ARTIFACT_PATHS: ${{ steps.tauri-dry-run.outputs.artifactPaths }}
+        run: |
+          {
+            echo 'paths<<BUNDLES'
+            jq -r '.[]' <<<"$ARTIFACT_PATHS"
+            echo 'BUNDLES'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Keep macOS / Windows bundles (dry run)
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.DRY_RUN_ARTIFACT }}
+          path: ${{ steps.tauri-bundles.outputs.paths }}
+          if-no-files-found: error

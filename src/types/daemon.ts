@@ -166,5 +166,38 @@ export interface StakingView {
    * staker-hood it cannot use is the failure this flag exists to prevent.
    */
   recovery_pending_reopen: boolean;
+  /**
+   * Staking actions still outstanding. Empty means none. `kind` is `stake`,
+   * `claim`, `drain`, or `exit`; `state` is `pending`, `dispatched`,
+   * `refused`, `expired`, or `held`. An unknown string is shown as itself.
+   */
+  in_flight: InFlightView[];
+  /** The last ending of each kind of staking action. Empty means none. */
+  outcomes: StakingOutcomeView[];
+}
+
+/** One outstanding staking action (`get_staking_view`, WR-Q1). */
+export interface InFlightView {
+  kind: string;
+  state: string;
+  /** Block height of the first send. Null when it was never sent. */
+  dispatched_at_height: number | null;
+  /** Sends so far, the first included. Zero when never sent. */
+  attempts: number;
+  /** For `refused` and `expired`, the block after which it can no longer be mined. */
+  funds_return_at: number | null;
+  /** User sentence, when this state has one. */
+  reason: string | null;
+}
+
+/** How one kind of staking action last ended (`get_staking_view`, WR-Q2). */
+export interface StakingOutcomeView {
+  kind: string;
+  outcome: string;
+  /** User sentence. Never an internal name. */
+  reason: string;
+  at_height: number;
+  /** `returned`, or `none_held` when nothing was set aside. */
+  funds: string;
 }
 

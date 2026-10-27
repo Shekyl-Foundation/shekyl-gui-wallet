@@ -9,12 +9,12 @@ Download the latest release from
 
 ### AppImage (recommended -- works on any distro)
 
-1. Download `Shekyl_Wallet_X.Y.Z_amd64.AppImage`.
+1. Download `Shekyl.Wallet_X.Y.Z_amd64.AppImage`.
 2. Make it executable and run:
 
 ```bash
-chmod +x "Shekyl_Wallet_X.Y.Z_amd64.AppImage"
-./"Shekyl_Wallet_X.Y.Z_amd64.AppImage"
+chmod +x "Shekyl.Wallet_X.Y.Z_amd64.AppImage"
+./"Shekyl.Wallet_X.Y.Z_amd64.AppImage"
 ```
 
 The AppImage bundles all required libraries. No installation step is needed.
@@ -26,7 +26,7 @@ the file to `~/Applications/` and create a `.desktop` entry manually.
 ### Debian / Ubuntu (.deb)
 
 ```bash
-sudo dpkg -i "Shekyl_Wallet_X.Y.Z_amd64.deb"
+sudo dpkg -i "Shekyl.Wallet_X.Y.Z_amd64.deb"
 ```
 
 If dependency errors appear:
@@ -51,16 +51,10 @@ sudo apt remove shekyl-wallet
 ### Fedora / RHEL / openSUSE (.rpm)
 
 ```bash
-sudo rpm -i "Shekyl_Wallet-X.Y.Z-1.x86_64.rpm"
+sudo dnf install ./"Shekyl.Wallet-X.Y.Z-1.x86_64.rpm"
 ```
 
-Or with `dnf`:
-
-```bash
-sudo dnf install "Shekyl_Wallet-X.Y.Z-1.x86_64.rpm"
-```
-
-To uninstall:
+On openSUSE, use `sudo zypper install` with the same file. To uninstall:
 
 ```bash
 sudo dnf remove shekyl-wallet
@@ -72,24 +66,9 @@ sudo dnf remove shekyl-wallet
 
 ### Installer (.exe / NSIS)
 
-1. Download `Shekyl_Wallet_X.Y.Z_x64-setup.exe`.
+1. Download `Shekyl.Wallet_X.Y.Z_x64-setup.exe`.
 2. Run the installer and follow the prompts.
 3. The wallet is added to the Start Menu.
-
-### MSI
-
-1. Download `Shekyl_Wallet_X.Y.Z_x64.msi`.
-2. Double-click to install, or run from an elevated command prompt:
-
-```powershell
-msiexec /i "Shekyl_Wallet_X.Y.Z_x64.msi"
-```
-
-To uninstall, use **Settings > Apps** or:
-
-```powershell
-msiexec /x "Shekyl_Wallet_X.Y.Z_x64.msi"
-```
 
 ### System requirements
 
@@ -104,8 +83,8 @@ msiexec /x "Shekyl_Wallet_X.Y.Z_x64.msi"
 
 ### DMG
 
-1. Download `Shekyl_Wallet_X.Y.Z_x64.dmg` (Intel) or
-   `Shekyl_Wallet_X.Y.Z_aarch64.dmg` (Apple Silicon).
+1. Download `Shekyl.Wallet_X.Y.Z_x64.dmg` (Intel) or
+   `Shekyl.Wallet_X.Y.Z_aarch64.dmg` (Apple Silicon).
 2. Open the `.dmg` and drag **Shekyl Wallet** into your **Applications** folder.
 3. On first launch, macOS may warn that the app is from an unidentified
    developer. Go to **System Settings > Privacy & Security** and click
@@ -145,13 +124,13 @@ Release assets include SHA-256 checksums. After downloading, verify:
 
 ```bash
 # Linux / macOS
-sha256sum "Shekyl_Wallet_X.Y.Z_amd64.AppImage"
+sha256sum "Shekyl.Wallet_X.Y.Z_amd64.AppImage"
 # Compare the output against the published checksum in the release notes
 ```
 
 ```powershell
 # Windows (PowerShell)
-Get-FileHash "Shekyl_Wallet_X.Y.Z_x64-setup.exe" -Algorithm SHA256
+Get-FileHash "Shekyl.Wallet_X.Y.Z_x64-setup.exe" -Algorithm SHA256
 ```
 
 ---

@@ -109,7 +109,7 @@ describe("Send page", () => {
     render(<Send />);
     await reachReview(u);
     await confirm(u);
-    expect(await screen.findByText("Transaction submitted.")).toBeInTheDocument();
+    expect(await screen.findByText("Transaction accepted by your node.")).toBeInTheDocument();
     expect(calls("submit_pending_tx")).toEqual([["submit_pending_tx", { pendingTxId: "42", seenGen: 0 }]]);
     expect(calls("discard_pending_tx")).toHaveLength(0);
   });
@@ -189,7 +189,7 @@ describe("Send page", () => {
     expect(calls("discard_pending_tx")).toEqual([["discard_pending_tx", { pendingTxId: "42" }]]);
     expect(calls("build_pending_tx")).toHaveLength(2);
     await confirm(u);
-    expect(await screen.findByText("Transaction submitted.")).toBeInTheDocument();
+    expect(await screen.findByText("Transaction accepted by your node.")).toBeInTheDocument();
     expect(calls("submit_pending_tx")[1][1]).toEqual({ pendingTxId: "43", seenGen: 0 });
   });
 

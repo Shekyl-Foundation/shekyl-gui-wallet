@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.11] - 2026-10-26
+
+Paired with shekyl-core `v3.1.0-alpha.11`: `release.yml` clones that tag for
+the bundled `shekyld` and the Engine path-deps.
+
+- **Delete the bundled daemon's data directory before first start.**
+  shekyl-core alpha.11 is a wipe: its daemon reads its data directory as
+  given and never finds alpha.10's store, so a kept directory starts a second
+  chain beside the old one. The testnet genesis and network id are unchanged,
+  so the daemon syncs the same chain again.
+- **The wallet starts its daemon in the daemon's configuration grammar.**
+  shekyl-core alpha.11 retired the flags the wallet passed
+  (`--rpc-bind-ip`, `--rpc-bind-port`, `--restricted-rpc`,
+  `--non-interactive`). The wallet now asks for one view listener on
+  loopback and no admin listener, the access it had before. This wallet
+  release needs that daemon, and the alpha.10 wallet cannot start it.
+- **The bundled daemon no longer freezes.** On alpha.10 the daemon's P2P
+  layer could deadlock when a dialed link closed at the wrong moment, after
+  which it stopped answering the wallet. shekyl-core alpha.11 fixes it.
+
+- **Every dependency is at its current release.** The frontend test runner is
+  vitest 5 (clearing two mock-registry advisories); Tauri moves to 2.12 on
+  both its JS and Rust halves; the Rust lock takes the fixes for tokio's,
+  anyhow's and event-listener's soundness advisories and drops two unused
+  crates; the CI actions run on their current majors. Building the wallet
+  needs Node 22.22.2 or later on the 22 line, 24.15.0 or later on the 24
+  line, or Node 26; npm refuses to install on anything else.
+
+- **Linux releases include an `.rpm` for Fedora, RHEL and openSUSE.** The
+  wallet's version now carries its pre-release as `3.1.0+alpha.N`, a form
+  every package format accepts; the release keeps its `v3.1.0-alpha.N` name,
+  and the sidebar shows that name. The installation guide no longer
+  describes an MSI package, which no release has shipped.
+
+- **A sent transaction is reported as accepted by your node.** It used to
+  say "submitted", which claimed more than the node had done: your node
+  holds a transaction it cannot yet send over Tor and retries on its own.
+  Showing that held state is the GUI sync lane's `GS-3`.
+
+- **Your stake shows work still outstanding, and how it ended.** A stake,
+  reward claim, return of staking funds, or stake release that has not
+  finished yet appears under "In progress", and the last ending of each
+  appears under "Recently ended", in the wallet's own words. Nothing on
+  that list identifies which staking identity it belongs to. Both lists show
+  for any open wallet, not only a staking one, so a first stake that never
+  landed still says why after the wallet stops staking. A record with an
+  end date shows the block by which it is decided; it does not say whether
+  funds are set aside, because a zero-fee reward claim sets none aside and
+  the wallet's read cannot yet tell the two apart.
+- **A wallet file written before this change does not open.** shekyl-core's
+  send journal now records what a send paid as a typed destination (an
+  address, or this wallet funding its own staking persona) instead of an
+  address string, so the wallet file format moved (send journal 5, wallet
+  ledger 22; shekyl-core#1122). There is no migration. Move that wallet's
+  files aside and create the wallet again from its seed; the old file stays
+  unreadable. Nothing on screen changes.
+
 ## [3.1.0-alpha.10] - 2026-10-15
 
 Paired with shekyl-core `v3.1.0-alpha.10`: `release.yml` clones that tag for

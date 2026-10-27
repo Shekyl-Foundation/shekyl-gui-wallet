@@ -7,6 +7,22 @@ import { WalletContext } from "../../context/walletState";
 import type { WalletContextValue } from "../../context/walletState";
 import Staking from "../Staking";
 
+/** The read of an open wallet that is not staking and has no staking work. */
+function notStakingView(overrides: Record<string, unknown> = {}) {
+  return {
+    staking_enabled: false,
+    bonded_principal_confirmed: "0",
+    bonded_principal_pending: "0",
+    rewards_received_unspent: "0",
+    staked_outputs: [],
+    pscan_synced_height: null,
+    recovery_pending_reopen: false,
+    in_flight: [],
+    outcomes: [],
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(async (cmd: string) => {
@@ -26,6 +42,9 @@ beforeEach(() => {
         bonded_slot_count: 0,
         has_pscan: false,
       };
+    }
+    if (cmd === "get_staking_view") {
+      return notStakingView();
     }
     return null;
   });
@@ -92,6 +111,9 @@ describe("Staking (archival activation)", () => {
           has_pscan: false,
         };
       }
+      if (cmd === "get_staking_view") {
+        return notStakingView();
+      }
       return null;
     });
     renderStaking({ phase: "ready", walletName: "alice" });
@@ -118,6 +140,9 @@ describe("Staking (archival activation)", () => {
           bonded_slot_count: 0,
           has_pscan: false,
         };
+      }
+      if (cmd === "get_staking_view") {
+        return notStakingView();
       }
       if (cmd === "stake") {
         captured = args;
@@ -173,6 +198,8 @@ describe("Staking drainable-P (DS-PR-3 PR-B)", () => {
           staked_outputs: [],
           pscan_synced_height: null,
           recovery_pending_reopen: false,
+          in_flight: [],
+          outcomes: [],
         };
       }
       return null;
@@ -253,6 +280,8 @@ describe("Staking view panel (GUI-PR3b)", () => {
       ],
       pscan_synced_height: 99000,
       recovery_pending_reopen: false,
+      in_flight: [],
+      outcomes: [],
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 
@@ -292,6 +321,8 @@ describe("Staking view panel (GUI-PR3b)", () => {
       staked_outputs: [],
       pscan_synced_height: 99000,
       recovery_pending_reopen: true,
+      in_flight: [],
+      outcomes: [],
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 
@@ -309,6 +340,8 @@ describe("Staking view panel (GUI-PR3b)", () => {
       staked_outputs: [],
       pscan_synced_height: 99000,
       recovery_pending_reopen: false,
+      in_flight: [],
+      outcomes: [],
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 
@@ -325,6 +358,8 @@ describe("Staking view panel (GUI-PR3b)", () => {
       staked_outputs: [],
       pscan_synced_height: null,
       recovery_pending_reopen: false,
+      in_flight: [],
+      outcomes: [],
     });
     renderStaking({ phase: "ready", walletName: "alice" });
 
@@ -333,6 +368,55 @@ describe("Staking view panel (GUI-PR3b)", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Persona scan has not sealed a frontier yet/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("In progress")).toBeNull();
+    expect(screen.queryByText("Recently ended")).toBeNull();
+  });
+
+  it("shows an outstanding stake and an ending in the wallet's own words", async () => {
+    mockStakerWithView({
+      staking_enabled: true,
+      bonded_principal_confirmed: "0",
+      bonded_principal_pending: "0",
+      rewards_received_unspent: "0",
+      staked_outputs: [],
+      pscan_synced_height: 5000,
+      recovery_pending_reopen: false,
+      in_flight: [
+        {
+          kind: "stake",
+          state: "refused",
+          dispatched_at_height: 5000,
+          attempts: 2,
+          funds_return_at: 5100,
+          reason: "This node cannot accept a stake yet.",
+        },
+      ],
+      outcomes: [
+        {
+          kind: "claim",
+          outcome: "ended_unconfirmed",
+          reason: "This reward claim could not be confirmed.",
+          at_height: 5300,
+          funds: "none_held",
+        },
+      ],
+    });
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(await screen.findByText("In progress (1)")).toBeInTheDocument();
+    expect(screen.getByText("Stake — a node refused it")).toBeInTheDocument();
+    expect(
+      screen.getByText("This node cannot accept a stake yet."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Sent 2 times/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Decided when the wallet's scan reaches block 5,100/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Recently ended")).toBeInTheDocument();
+    expect(screen.getByText("Reward claim")).toBeInTheDocument();
+    expect(
+      screen.getByText("This reward claim could not be confirmed."),
     ).toBeInTheDocument();
   });
 
@@ -346,5 +430,108 @@ describe("Staking view panel (GUI-PR3b)", () => {
     // Fail-closed: no balance legs and no fabricated empty-output state.
     expect(screen.queryByText("Bonded (confirmed)")).not.toBeInTheDocument();
     expect(screen.queryByText(/No staked outputs yet/)).not.toBeInTheDocument();
+  });
+});
+
+// Copilot on GUI #53: the panel used to mount only for an active staker, and
+// its date line said funds were set aside for every record with an end date.
+// A wallet that is not staking can still hold a first stake's work or its
+// ending, and a zero-fee reward claim reserves nothing.
+describe("Staking view panel for a wallet that is not staking", () => {
+  function mockNotStaking(view: unknown) {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "list_shard_preview_fixtures" || cmd === "list_shards") {
+        return [];
+      }
+      if (cmd === "get_staker_status") {
+        return {
+          staking_enabled: false,
+          has_stake_engine: false,
+          bonded_slot_count: 0,
+          has_pscan: false,
+        };
+      }
+      if (cmd === "get_staking_view") {
+        return view;
+      }
+      return null;
+    });
+  }
+
+  /**
+   * A first stake that never landed is released with its ending, and the
+   * reopen that follows clears the slot. The ending is the only place the
+   * user learns why; the edit that turns this red is gating the panel on
+   * staker-hood again.
+   */
+  it("shows a failed first stake's ending after staking was cleared", async () => {
+    mockNotStaking(
+      notStakingView({
+        outcomes: [
+          {
+            kind: "stake",
+            outcome: "expired",
+            reason:
+              "The stake was not accepted in time and has been withdrawn. Its funds are spendable again.",
+            at_height: 5300,
+            funds: "returned",
+          },
+        ],
+      }),
+    );
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(await screen.findByText("Recently ended")).toBeInTheDocument();
+    expect(
+      screen.getByText(/The stake was not accepted in time/),
+    ).toBeInTheDocument();
+    // Holdings are a staker's: none are invented for this wallet.
+    expect(screen.queryByText("Bonded (confirmed)")).toBeNull();
+    expect(screen.queryByText(/No staked outputs yet/)).toBeNull();
+    expect(screen.queryByText(/Persona scan/)).toBeNull();
+  });
+
+  it("renders no stake card when there is nothing to show", async () => {
+    mockNotStaking(notStakingView());
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(
+      await screen.findByPlaceholderText("Wallet password"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("get_staking_view"),
+    );
+    expect(screen.queryByText("Your stake")).toBeNull();
+  });
+
+  /**
+   * An expired zero-fee reward claim carries an end date but reserved no
+   * inputs. The line under it names the date and never says funds are set
+   * aside, because the read does not say whether any were.
+   */
+  it("never says funds are set aside for a record with an end date", async () => {
+    mockNotStaking(
+      notStakingView({
+        in_flight: [
+          {
+            kind: "claim",
+            state: "expired",
+            dispatched_at_height: 5000,
+            attempts: 1,
+            funds_return_at: 5100,
+            reason: null,
+          },
+        ],
+      }),
+    );
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(
+      await screen.findByText("Reward claim — can no longer be mined"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Decided when the wallet's scan reaches block 5,100/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/set aside/)).toBeNull();
   });
 });
