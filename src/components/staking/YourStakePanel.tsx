@@ -19,16 +19,23 @@ type StakeViewLoad =
 export interface YourStakePanelProps {
   /**
    * Bumps when chain/daemon health refreshes so the panel re-polls.
-   * Mount is gated by the parent (`stakerActive`) — this component assumes
-   * it is only rendered for an open active staker.
+   * The parent mounts the panel for any open wallet; whether the wallet
+   * stakes comes from this panel's own read (`view.staking_enabled`).
    */
   refreshKey?: unknown;
 }
 
 /**
  * "Your stake" panel: bonded principal legs, unspent rewards, staked outputs,
- * and persona-scan frontier. Owns its own fetch; the Staking page only decides
- * whether to mount it.
+ * and persona-scan frontier for a staker; outstanding staking work and how it
+ * last ended for any open wallet. Owns its own fetch.
+ *
+ * A wallet that is not staking still reads its outstanding work and endings:
+ * a first stake is in flight before `staking_enabled` is set, and a first
+ * stake that never landed leaves its ending behind after the reopen that
+ * clears the slot. Hiding the panel there would hide why the stake failed.
+ * A wallet with nothing to show renders nothing, and so does the first read
+ * until it lands.
  *
  * Fetch shape matches ShardCoverageGallery: the effect only schedules the external
  * invoke; setState runs in the promise callbacks (not synchronously in the
@@ -69,6 +76,9 @@ export default function YourStakePanel({ refreshKey }: YourStakePanelProps) {
     };
   }, [refreshKey]);
 
+  if (load.kind === "loading") return null;
+  if (load.kind === "ready" && !hasAnythingToShow(load.view)) return null;
+
   return (
     <div className="card space-y-4">
       <div className="flex items-center gap-2">
@@ -76,23 +86,46 @@ export default function YourStakePanel({ refreshKey }: YourStakePanelProps) {
         <h2 className="text-sm font-semibold text-purple-200">Your stake</h2>
       </div>
 
-      {load.kind === "fault" && (
+      {load.kind === "fault" ? (
         <p className="text-xs text-red-300">
           Staking state could not be read. This is a read fault, not an empty
           stake — retrying on the next refresh.
         </p>
+      ) : (
+        <StakeViewBody view={load.view} />
       )}
-
-      {load.kind === "loading" && (
-        <p className="text-xs text-purple-300">Reading staking state…</p>
-      )}
-
-      {load.kind === "ready" && <StakeViewBody view={load.view} />}
     </div>
   );
 }
 
+/** A staker always has its holdings to show; anyone else, only its work. */
+function hasAnythingToShow(view: StakingView): boolean {
+  return (
+    view.staking_enabled ||
+    view.in_flight.length > 0 ||
+    view.outcomes.length > 0 ||
+    view.recovery_pending_reopen
+  );
+}
+
 function StakeViewBody({ view }: { view: StakingView }) {
+  return (
+    <>
+      {view.staking_enabled && <StakeHoldings view={view} />}
+      <StakeWork view={view} />
+      {view.staking_enabled && (
+        <p className="text-[10px] text-purple-300/80">
+          {view.pscan_synced_height === null
+            ? "Persona scan has not sealed a frontier yet."
+            : `Persona scan synced to block ${view.pscan_synced_height.toLocaleString()}.`}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** The bonded legs, unspent rewards and staked outputs: a staker's only. */
+function StakeHoldings({ view }: { view: StakingView }) {
   return (
     <>
       <div className="grid grid-cols-3 gap-4">
@@ -144,7 +177,22 @@ function StakeViewBody({ view }: { view: StakingView }) {
           </ul>
         </div>
       )}
+    </>
+  );
+}
 
+/**
+ * Outstanding staking work and how each kind last ended, for any wallet.
+ *
+ * `funds_return_at` is the record's end date: past it the transaction can no
+ * longer be mined, and the wallet settles the record once its scan reaches
+ * it. The read does not say whether the record reserved any inputs (a
+ * zero-fee reward claim reserves none), so the line states only the date and
+ * never that funds are set aside.
+ */
+function StakeWork({ view }: { view: StakingView }) {
+  return (
+    <>
       {view.in_flight.length > 0 && (
         <div>
           <p className="mb-2 text-xs font-semibold text-purple-200">
@@ -167,7 +215,7 @@ function StakeViewBody({ view }: { view: StakingView }) {
                     {row.attempts === 1 && "Sent once."}
                     {row.attempts > 1 && `Sent ${row.attempts} times.`}
                     {row.funds_return_at != null &&
-                      `${row.attempts > 0 ? " " : ""}Funds stay set aside until the scan passes block ${row.funds_return_at.toLocaleString()}.`}
+                      `${row.attempts > 0 ? " " : ""}Decided when the wallet's scan reaches block ${row.funds_return_at.toLocaleString()}.`}
                   </p>
                 )}
               </li>
@@ -205,12 +253,6 @@ function StakeViewBody({ view }: { view: StakingView }) {
           until you do.
         </p>
       )}
-
-      <p className="text-[10px] text-purple-300/80">
-        {view.pscan_synced_height === null
-          ? "Persona scan has not sealed a frontier yet."
-          : `Persona scan synced to block ${view.pscan_synced_height.toLocaleString()}.`}
-      </p>
     </>
   );
 }

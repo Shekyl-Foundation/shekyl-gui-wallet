@@ -45,7 +45,12 @@ the bundled `shekyld` and the Engine path-deps.
   reward claim, return of staking funds, or stake release that has not
   finished yet appears under "In progress", and the last ending of each
   appears under "Recently ended", in the wallet's own words. Nothing on
-  that list identifies which staking identity it belongs to.
+  that list identifies which staking identity it belongs to. Both lists show
+  for any open wallet, not only a staking one, so a first stake that never
+  landed still says why after the wallet stops staking. A record with an
+  end date shows the block by which it is decided; it does not say whether
+  funds are set aside, because a zero-fee reward claim sets none aside and
+  the wallet's read cannot yet tell the two apart.
 - **A wallet file written before this change does not open.** shekyl-core's
   send journal now records what a send paid as a typed destination (an
   address, or this wallet funding its own staking persona) instead of an
