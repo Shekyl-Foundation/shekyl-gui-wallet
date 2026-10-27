@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.11] - 2026-10-26
+
+Paired with shekyl-core `v3.1.0-alpha.11`: `release.yml` clones that tag for
+the bundled `shekyld` and the Engine path-deps.
+
+- **Delete the bundled daemon's data directory before first start.**
+  shekyl-core alpha.11 is a wipe: its daemon reads its data directory as
+  given and never finds alpha.10's store, so a kept directory starts a second
+  chain beside the old one. The testnet genesis and network id are unchanged,
+  so the daemon syncs the same chain again.
+- **The wallet starts its daemon in the daemon's configuration grammar.**
+  shekyl-core alpha.11 retired the flags the wallet passed
+  (`--rpc-bind-ip`, `--rpc-bind-port`, `--restricted-rpc`,
+  `--non-interactive`). The wallet now asks for one view listener on
+  loopback and no admin listener, the access it had before. This wallet
+  release needs that daemon, and the alpha.10 wallet cannot start it.
+- **The bundled daemon no longer freezes.** On alpha.10 the daemon's P2P
+  layer could deadlock when a dialed link closed at the wrong moment, after
+  which it stopped answering the wallet. shekyl-core alpha.11 fixes it.
+
 - **Every dependency is at its current release.** The frontend test runner is
   vitest 5 (clearing two mock-registry advisories); Tauri moves to 2.12 on
   both its JS and Rust halves; the Rust lock takes the fixes for tokio's,
