@@ -289,7 +289,9 @@ impl EngineSession {
         Ok(facts)
     }
 
-    /// Persist and close the open Engine wallet.
+    /// Persist and close the open Engine wallet. Returns once the wallet's
+    /// stores have closed their files, so the wallet can be reopened at
+    /// once (shekyl-core `CURVE_TREE_CLIENT.md` §11).
     pub async fn close(&mut self) -> Result<(), String> {
         let Some(shared) = self.engine.take() else {
             self.clear_open();
@@ -302,7 +304,7 @@ impl EngineSession {
             .map_err(|_| "cannot close: wallet engine still in use by another task".to_string())?;
         let engine = lock.into_inner();
         tokio::task::block_in_place(|| engine.persist_for_close()).map_err(map_open_err)?;
-        drop(engine);
+        engine.release().await;
         self.clear_open();
         Ok(())
     }
@@ -461,7 +463,9 @@ impl EngineSession {
             );
             return Err(format!("could not close for stake activation: {e}"));
         }
-        drop(engine);
+        // Awaited, not dropped: the reopen below opens the same stores, and
+        // a store still held is refused, not waited on.
+        engine.release().await;
 
         let reopened = tokio::task::block_in_place(|| {
             let creds = Credentials::password_only(password.as_slice());
