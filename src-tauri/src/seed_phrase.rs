@@ -124,7 +124,6 @@ mod tests {
     fn the_wrong_shape_is_named_and_the_input_is_not() {
         let (_seed, backup) = generate().unwrap();
         let words = backup.into_mnemonic();
-        let first = words.split_whitespace().next().unwrap();
         let twelve = words
             .split_whitespace()
             .take(PHRASE_WORD_COUNT / 2)
@@ -152,14 +151,18 @@ mod tests {
         );
         assert!(!err.contains("ab"), "{err}");
 
+        // Each refusal is a fixed message, so it cannot echo the input. A
+        // substring check against a random word is not that test: a short
+        // BIP-39 word ("use") can sit inside the fixed text ("uses").
         let err = seed_from_phrase(&twelve).unwrap_err();
-        assert!(err.contains(&PHRASE_WORD_COUNT.to_string()), "{err}");
-        assert!(!err.contains(first), "{err}");
+        assert_eq!(
+            err,
+            format!("Recovery phrase must be exactly {PHRASE_WORD_COUNT} words")
+        );
 
         let legacy = format!("{words} extra");
         let err = seed_from_phrase(&legacy).unwrap_err();
         assert_eq!(err, ERR_LEGACY_PHRASE);
-        assert!(!err.contains(first), "{err}");
     }
 
     #[test]
@@ -167,15 +170,19 @@ mod tests {
         let (_, backup) = generate().unwrap();
         let words = backup.into_mnemonic();
         let mut parts: Vec<String> = words.split_whitespace().map(str::to_owned).collect();
-        let first = parts[0].clone();
-        parts[PHRASE_WORD_COUNT - 1] = if parts[PHRASE_WORD_COUNT - 1] == "abandon" {
-            "ability".to_owned()
-        } else {
-            "abandon".to_owned()
-        };
-        let err = seed_from_phrase(&parts.join(" ")).unwrap_err();
+        // A swapped last word still passes BIP-39's 8-bit checksum about one
+        // time in 256, so take the first candidate that does not decode.
+        // The refusal is one fixed message, so it cannot echo the input.
+        let original = parts[PHRASE_WORD_COUNT - 1].clone();
+        let err = ["abandon", "ability", "able", "about", "above", "absent"]
+            .into_iter()
+            .filter(|w| *w != original)
+            .find_map(|w| {
+                parts[PHRASE_WORD_COUNT - 1] = w.to_owned();
+                seed_from_phrase(&parts.join(" ")).err()
+            })
+            .expect("one of six swaps fails the checksum");
         assert_eq!(err, invalid_mnemonic_message());
-        assert!(!err.contains(&first), "{err}");
     }
 
     #[test]
