@@ -6,8 +6,8 @@ export const BIP39_RECOVERY_PHRASE_WORD_COUNT = 24;
 
 /**
  * True when a typed backup has the phrase's shape: exactly 24 words. Whether
- * the words decode is Rust's call (`validate_seed_backup`, then the decoder);
- * the page only refuses what cannot be a phrase.
+ * the words decode is Rust's call (`seed_from_phrase`); the page only
+ * refuses what cannot be a phrase.
  */
 export function hasRecoveryPhraseShape(text: string): boolean {
   return text.trim().split(/\s+/).filter(Boolean).length === BIP39_RECOVERY_PHRASE_WORD_COUNT;

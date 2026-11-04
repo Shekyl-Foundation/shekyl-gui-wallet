@@ -242,16 +242,19 @@ classical segment by default; the PQC segment is handled internally.
 ### From Recovery Phrase
 
 The only restore path. `restore_wallet(name, password, mnemonic,
-restore_height)` — the contract's method and parameters — checks the backup
-is 24 words (`validate_seed_backup`, the same on every network) and calls
-`EngineSession::restore_from_backup`, whose `seed_from_backup` decodes the
-words to the 32-byte seed — the inverse of the create path's
-`generate_seed_material` — and refuses anything else with one stable message
-that never repeats the input. The hybrid post-quantum keys are derived from
-the seed under the network's name, so nothing is "generated for" a restored
-wallet, no passphrase or mnemonic language is taken, and the same words on
-another network give an unrelated wallet. `restore_height` defaults to 0 (full scan). On
-success the page shows "Restore complete" and transitions to `phase: "ready"`.
+restore_height)` — the contract's method and parameters — decodes the backup
+with `seed_phrase::seed_from_phrase` before any directory or daemon work. A
+known bad shape keeps its own message: empty, a null byte, non-English
+letters, a count other than 24, and the one-word-longer legacy phrase. A
+24-word phrase that is not BIP-39 is refused with one stable message,
+`invalid mnemonic (expected 24 BIP-39 words)`. No refusal repeats the words.
+The session then installs that 32-byte seed, the same input `create`
+installs. The hybrid post-quantum keys are derived from the seed under the
+network's name, so nothing is "generated for" a restored wallet, no
+passphrase or mnemonic language is taken, and the same words on another
+network give an unrelated wallet. `restore_height` defaults to 0 (full
+scan). On success the page shows "Restore complete" and transitions to
+`phase: "ready"`.
 
 There is no import from raw spend/view keys: that was a Wallet2 path whose
 GUI command had become an unconditional refusal, and the command-surface

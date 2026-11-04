@@ -22,6 +22,7 @@ use tauri::State;
 use zeroize::Zeroizing;
 
 use crate::engine_session;
+use crate::seed_phrase;
 use crate::state::{AppState, NetworkType};
 use crate::validate;
 use crate::wallet_name;
@@ -135,12 +136,9 @@ pub async fn create_wallet(
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
     let wallet = wallet_handle(sanitized, network, &created.facts);
-    // Move the words out of their `Zeroizing` wrapper onto the response,
-    // leaving an empty string behind for it to wipe: no second copy.
-    let engine_session::SeedBackup(mut words) = created.backup;
     Ok(CreatedWallet {
         wallet,
-        mnemonic: std::mem::take(&mut *words),
+        mnemonic: created.backup.into_mnemonic(),
     })
 }
 
@@ -195,8 +193,9 @@ pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(true)
 }
 
-/// The contract's `restore_wallet` (`mnemonic` is the seed backup: its 24
-/// BIP-39 words, on every network — see `validate_seed_backup`).
+/// The contract's `restore_wallet`. `mnemonic` is the 24 BIP-39 words.
+/// [`seed_phrase::seed_from_phrase`] decodes them before any directory or
+/// daemon work; the session installs the resulting seed.
 #[tauri::command]
 pub async fn restore_wallet(
     state: State<'_, AppState>,
@@ -205,12 +204,14 @@ pub async fn restore_wallet(
     mnemonic: String,
     restore_height: Option<u64>,
 ) -> Result<OpenedWallet, String> {
-    // The words are key material: into `Zeroizing` before any other work.
+    // The words are key material: into `Zeroizing` before any other work,
+    // and dropped as soon as they are a seed.
     let mnemonic = Zeroizing::new(mnemonic);
     let sanitized = wallet_name::sanitize(&name);
     let network = *state.network.read().await;
     validate::validate_wallet_name(&sanitized)?;
-    validate::validate_seed_backup(&mnemonic)?;
+    let seed = seed_phrase::seed_from_phrase(mnemonic.as_str())?;
+    drop(mnemonic);
     validate::validate_password(&password)?;
 
     let height = restore_floor(restore_height)?;
@@ -221,10 +222,10 @@ pub async fn restore_wallet(
     let daemon = state.daemon_http_base().await;
     let mut eng = state.engine.lock().await;
     let facts = eng
-        .restore_from_backup(
+        .restore_from_seed(
             &wallet_dir,
             &sanitized,
-            &mnemonic,
+            seed,
             &password,
             height,
             network,

@@ -14,15 +14,6 @@ use shekyl_address::ShekylAddress;
 const MAX_WALLET_NAME_LEN: usize = 255;
 const MAX_PASSWORD_LEN: usize = 1024;
 
-/// BIP-39 English recovery phrase length for Shekyl genesis wallets.
-pub const BIP39_RECOVERY_PHRASE_WORD_COUNT: usize = 24;
-
-/// User-facing rejection when a legacy 25-word phrase is supplied.
-/// Aligned with shekyl-core V6 hint (`wallet2.cpp` parse_wallet_create_data).
-const ERR_LEGACY_25_WORD_PHRASE: &str = "Shekyl uses a 24-word recovery phrase. \
-    25-word phrases from other wallets are not supported — Shekyl begins at its \
-    own genesis and does not use legacy seed formats.";
-
 /// Validate a Shekyl address string.
 ///
 /// Parses the Bech32m-encoded address and returns Ok(()) if valid.
@@ -96,41 +87,6 @@ pub fn validate_password(password_text: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a seed backup for restore: the 24-word BIP-39 English phrase
-/// `create_wallet` hands out, the one encoding on every network. There is no
-/// hex form of the seed on any network.
-///
-/// Error messages describe the failure class only; the backup is never echoed.
-pub fn validate_seed_backup(backup: &str) -> Result<(), String> {
-    validate_recovery_phrase(backup)
-}
-
-/// Validate a BIP-39 English recovery phrase (24 words) for import/restore.
-///
-/// Error messages describe the failure class only; the phrase is never echoed.
-fn validate_recovery_phrase(phrase: &str) -> Result<(), String> {
-    if phrase.is_empty() {
-        return Err("Recovery phrase must not be empty".into());
-    }
-    if phrase.contains('\0') {
-        return Err("Recovery phrase must not contain null bytes".into());
-    }
-    if !phrase.is_ascii() {
-        return Err("Recovery phrase must use English letters only".into());
-    }
-
-    let word_count = phrase.split_whitespace().count();
-    if word_count == BIP39_RECOVERY_PHRASE_WORD_COUNT {
-        return Ok(());
-    }
-    if word_count == 25 {
-        return Err(ERR_LEGACY_25_WORD_PHRASE.into());
-    }
-    Err(format!(
-        "Recovery phrase must be exactly {BIP39_RECOVERY_PHRASE_WORD_COUNT} words"
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,58 +152,6 @@ mod tests {
         assert!(validate_password("pass\0word").is_err());
     }
 
-    fn twenty_four_word_phrase() -> String {
-        (1..=BIP39_RECOVERY_PHRASE_WORD_COUNT)
-            .map(|i| format!("word{i}"))
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-
-    #[test]
-    fn reject_empty_recovery_phrase() {
-        assert!(validate_recovery_phrase("").is_err());
-    }
-
-    #[test]
-    fn reject_non_ascii_recovery_phrase() {
-        assert!(validate_recovery_phrase("café latté").is_err());
-    }
-
-    #[test]
-    fn accept_valid_recovery_phrase() {
-        assert!(validate_recovery_phrase(&twenty_four_word_phrase()).is_ok());
-    }
-
-    #[test]
-    fn reject_25_word_recovery_phrase() {
-        let mut phrase = twenty_four_word_phrase();
-        phrase.push_str(" extra");
-        let err = validate_recovery_phrase(&phrase).unwrap_err();
-        assert_eq!(err, ERR_LEGACY_25_WORD_PHRASE);
-    }
-
-    #[test]
-    fn seed_backup_is_the_24_words_and_never_hex() {
-        assert!(validate_seed_backup(&twenty_four_word_phrase()).is_ok());
-        // The 32-byte seed spelled as hex is not a backup, testnet included:
-        // the words are its only spelling (NI-R7).
-        let hex = "ab".repeat(32);
-        for bad in [hex.as_str(), &format!(" {hex} "), &hex.to_uppercase(), ""] {
-            let err = validate_seed_backup(bad).unwrap_err();
-            assert!(!err.contains("ab"), "the backup is never echoed: {err}");
-        }
-    }
-
-    #[test]
-    fn reject_wrong_word_count_recovery_phrase() {
-        let short = (1..23)
-            .map(|i| format!("word{i}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let err = validate_recovery_phrase(&short).unwrap_err();
-        assert!(err.contains("exactly 24"), "unexpected error: {err}");
-    }
-
     // ── Gate 6: Canary-based secret leak detection ──
     //
     // These tests plant known canary byte patterns in input fields that could
@@ -297,14 +201,6 @@ mod tests {
     }
 
     #[test]
-    fn recovery_phrase_error_does_not_leak_words() {
-        let canary_seed = "abandon ability able about above absent absorb abstract absurd abuse \
-                           access accident account accuse achieve acid acoustic acquire across act action";
-        let err = validate_recovery_phrase(&format!("{canary_seed}\0injected")).unwrap_err();
-        assert_no_canary(&err, &["abandon", "acoustic", "injected"]);
-    }
-
-    #[test]
     fn oversized_address_error_does_not_leak_content() {
         let big = "X".repeat(5000);
         let err = validate_address(&big).unwrap_err();
@@ -347,11 +243,6 @@ mod tests {
             #[test]
             fn validate_password_never_panics(s in "\\PC{0,2000}") {
                 let _ = validate_password(&s);
-            }
-
-            #[test]
-            fn validate_recovery_phrase_never_panics(s in "\\PC{0,1000}") {
-                let _ = validate_recovery_phrase(&s);
             }
 
             #[test]

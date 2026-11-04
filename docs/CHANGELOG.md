@@ -9,8 +9,11 @@
   creating a testnet wallet shows and confirms the 24 words like any other,
   and restore takes only the 24 words — a hex string is refused on every
   network. `create_wallet` returns `mnemonic` alone (`raw_seed_hex` is gone
-  from the result). A restore that does not decode is refused with one
-  message that never repeats what was typed. The keys are derived under the
+  from the result). Restore decodes the phrase before it creates a
+  directory or talks to a daemon. A wrong shape is named (empty, a null
+  byte, non-English letters, a count other than 24, or a 25-word phrase).
+  A 24-word phrase that is not BIP-39 is refused with one stable message.
+  Neither message repeats what was typed. The keys are derived under the
   network's name, so the same words on another network open a different,
   empty wallet. Wallet files from earlier releases are refused when opened,
   and their words derive different keys under this release.
