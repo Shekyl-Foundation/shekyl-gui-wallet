@@ -6,13 +6,14 @@
 //! Verifying daemon client for Engine sessions (VC-4).
 //!
 //! Construction plus the identity handshake: [`DaemonClient::verifying`]
-//! with [`FakechainPolicy::Refuse`] (VC-R3), then one Engine RPC so a
-//! mismatch is known **before** `Engine::create` writes a wallet file.
+//! against this wallet's network — an exact identity match, with no
+//! policy to relax it — then one Engine RPC so a mismatch is known
+//! **before** `Engine::create` writes a wallet file.
 //! Transport failures are not stored and are not fatal — an unreachable
 //! daemon still lets create/open proceed (offline). The session owns when
 //! the client is attached.
 
-use shekyl_engine_core::{DaemonClient, DaemonExpectation, FakechainPolicy, Network};
+use shekyl_engine_core::{DaemonClient, DaemonExpectation, Network};
 use shekyl_rpc_client::{DaemonFault, Rpc};
 use shekyl_rpc_transport::HttpRpc;
 use shekyl_wallet_contract::error::from_daemon_rpc_error;
@@ -30,13 +31,7 @@ pub(crate) async fn make_daemon(
     let rpc = HttpRpc::new(url)
         .await
         .map_err(|e| format!("daemon unreachable: {e}"))?;
-    let daemon = DaemonClient::verifying(
-        rpc,
-        DaemonExpectation {
-            network,
-            fakechain: FakechainPolicy::Refuse,
-        },
-    );
+    let daemon = DaemonClient::verifying(rpc, DaemonExpectation { network });
     // First Engine RPC runs the four-axis handshake. Identity mismatch
     // refuses here so create/restore never write a file the person cannot
     // recover (the phrase is create-once; there is no seed-returning

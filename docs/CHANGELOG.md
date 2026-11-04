@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+- **Every wallet backs up as 24 words, on every network.** Built against
+  shekyl-core's network-identity change (one secret, one derivation): a
+  wallet's secret is 32 bytes on every network, shown as 24 BIP-39 English
+  words, with no passphrase. Testnet no longer shows a 64-character hex seed:
+  creating a testnet wallet shows and confirms the 24 words like any other,
+  and restore takes only the 24 words — a hex string is refused on every
+  network. `create_wallet` returns `mnemonic` alone (`raw_seed_hex` is gone
+  from the result). A restore that does not decode is refused with one
+  message that never repeats what was typed. The keys are derived under the
+  network's name, so the same words on another network open a different,
+  empty wallet. Wallet files from earlier releases are refused when opened,
+  and their words derive different keys under this release.
+- **The wallet's daemon check is an exact identity match.** The wallet
+  refuses a daemon whose network is not its own before writing a wallet
+  file; there is no fakechain policy left to set.
+
 ## [3.1.0-alpha.11] - 2026-10-26
 
 Paired with shekyl-core `v3.1.0-alpha.11`: `release.yml` clones that tag for

@@ -11,8 +11,6 @@
 
 use shekyl_address::ShekylAddress;
 
-use crate::state::NetworkType;
-
 const MAX_WALLET_NAME_LEN: usize = 255;
 const MAX_PASSWORD_LEN: usize = 1024;
 
@@ -98,31 +96,13 @@ pub fn validate_password(password_text: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Hex characters in a testnet seed backup: the 32-byte raw seed, as
-/// `create_wallet` hands it out (the contract's `CreateWalletResult.raw_seed_hex`).
-pub const RAW_SEED_HEX_LENGTH: usize = 64;
-
-/// Validate a seed backup for restore in the encoding `network` hands out at
-/// creation: a 24-word BIP-39 English phrase on mainnet/stagenet, the raw seed
-/// as 64 hex characters on testnet.
+/// Validate a seed backup for restore: the 24-word BIP-39 English phrase
+/// `create_wallet` hands out, the one encoding on every network. There is no
+/// hex form of the seed on any network.
 ///
 /// Error messages describe the failure class only; the backup is never echoed.
-pub fn validate_seed_backup(backup: &str, network: NetworkType) -> Result<(), String> {
-    match network {
-        NetworkType::Testnet => validate_raw_seed_hex(backup),
-        NetworkType::Mainnet | NetworkType::Stagenet => validate_recovery_phrase(backup),
-    }
-}
-
-fn validate_raw_seed_hex(seed: &str) -> Result<(), String> {
-    let seed = seed.trim();
-    if seed.len() != RAW_SEED_HEX_LENGTH || !seed.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!(
-            "Testnet wallets back up as a {RAW_SEED_HEX_LENGTH}-character hex seed, \
-             not a recovery phrase"
-        ));
-    }
-    Ok(())
+pub fn validate_seed_backup(backup: &str) -> Result<(), String> {
+    validate_recovery_phrase(backup)
 }
 
 /// Validate a BIP-39 English recovery phrase (24 words) for import/restore.
@@ -247,30 +227,14 @@ mod tests {
     }
 
     #[test]
-    fn seed_backup_shape_is_network_governed() {
-        let hex = "ab".repeat(RAW_SEED_HEX_LENGTH / 2);
-        let phrase = twenty_four_word_phrase();
-        for net in [NetworkType::Mainnet, NetworkType::Stagenet] {
-            assert!(validate_seed_backup(&phrase, net).is_ok());
-            assert!(
-                validate_seed_backup(&hex, net).is_err(),
-                "{net:?} takes a phrase"
-            );
-        }
-        assert!(validate_seed_backup(&hex, NetworkType::Testnet).is_ok());
-        assert!(validate_seed_backup(&format!(" {hex} "), NetworkType::Testnet).is_ok());
-        let err = validate_seed_backup(&phrase, NetworkType::Testnet).unwrap_err();
-        assert!(err.contains("64-character hex seed"), "{err}");
-        for bad in [
-            "",
-            &hex[..62],
-            &format!("{hex}ab"),
-            &format!("zz{}", &hex[2..]),
-        ] {
-            assert!(
-                validate_seed_backup(bad, NetworkType::Testnet).is_err(),
-                "{bad:?}"
-            );
+    fn seed_backup_is_the_24_words_and_never_hex() {
+        assert!(validate_seed_backup(&twenty_four_word_phrase()).is_ok());
+        // The 32-byte seed spelled as hex is not a backup, testnet included:
+        // the words are its only spelling (NI-R7).
+        let hex = "ab".repeat(32);
+        for bad in [hex.as_str(), &format!(" {hex} "), &hex.to_uppercase(), ""] {
+            let err = validate_seed_backup(bad).unwrap_err();
+            assert!(!err.contains("ab"), "the backup is never echoed: {err}");
         }
     }
 

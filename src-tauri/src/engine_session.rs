@@ -22,11 +22,8 @@ use crate::engine_errors::{
 };
 use rand::rngs::OsRng;
 use rand::RngCore;
-use shekyl_crypto_pq::account::{
-    generate_account_from_bip39, generate_account_from_raw_seed, DerivationNetwork, SeedFormat,
-    MASTER_SEED_BYTES, RAW_SEED_BYTES,
-};
-use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES};
+use shekyl_crypto_pq::account::SEED_BYTES;
+use shekyl_crypto_pq::bip39::{entropy_from_mnemonic, mnemonic_from_entropy};
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::{
     BalanceView, Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams,
@@ -38,7 +35,7 @@ use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
 use tokio::sync::RwLock;
 use tracing::warn;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use crate::drain_balance::DrainBalance;
 use crate::staking_view::StakingView;
@@ -108,7 +105,8 @@ impl EngineSession {
         self.daemon_http_base = None;
     }
 
-    /// Create a fresh Engine wallet (BIP-39 on mainnet/stagenet; raw32 on testnet).
+    /// Create a fresh Engine wallet: a 32-byte seed from the OS RNG, handed
+    /// out once as its 24 BIP-39 words — the same on every network.
     pub async fn create(
         &mut self,
         wallet_dir: &Path,
@@ -132,7 +130,7 @@ impl EngineSession {
         let engine_net = map_network(network);
         let daemon = make_daemon(daemon_http_base, engine_net).await?;
 
-        let (master_seed, seed_format, backup) = generate_seed_material(engine_net)?;
+        let (seed, backup) = generate_seed_material()?;
         let creation_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -143,10 +141,7 @@ impl EngineSession {
             base_path: &base,
             credentials: &creds,
             network: engine_net,
-            capability: shekyl_engine_core::CapabilityInput::Full {
-                master_seed_64: &master_seed,
-                seed_format,
-            },
+            capability: shekyl_engine_core::CapabilityInput::Full { seed: &seed },
             creation_timestamp,
             restore_height_hint: 0,
             kdf: KdfParams::default(),
@@ -157,7 +152,7 @@ impl EngineSession {
         let engine =
             tokio::task::block_in_place(|| Engine::<SoloSigner>::create(create_params, daemon))
                 .map_err(map_open_err)?;
-        drop(master_seed);
+        drop(seed);
 
         // Create always omits `restore_height_hint`. Read the capability off
         // the engine before it moves into the session lock.
@@ -173,10 +168,9 @@ impl EngineSession {
         Ok(CreatedSession { backup, facts })
     }
 
-    /// Restore an Engine wallet from its seed backup. The backup's encoding is
-    /// network-governed, exactly as `generate_seed_material` chose it at
-    /// creation: a BIP-39 mnemonic on mainnet/stagenet, the 32-byte raw seed
-    /// as hex on testnet (the contract's `restore_wallet`).
+    /// Restore an Engine wallet from its seed backup: the 24 BIP-39 words
+    /// `create` handed out, on every network (the contract's
+    /// `restore_wallet`). The words decode to the 32-byte seed and nothing else.
     #[allow(clippy::too_many_arguments)]
     pub async fn restore_from_backup(
         &mut self,
@@ -200,7 +194,7 @@ impl EngineSession {
         std::fs::create_dir_all(wallet_dir)
             .map_err(|e| format!("Failed to create wallet directory: {e}"))?;
 
-        let (master_seed, seed_format) = master_seed_from_backup(backup, engine_net)?;
+        let seed = seed_from_backup(backup)?;
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let daemon = make_daemon(daemon_http_base, engine_net).await?;
@@ -214,10 +208,7 @@ impl EngineSession {
             base_path: &base,
             credentials: &creds,
             network: engine_net,
-            capability: shekyl_engine_core::CapabilityInput::Full {
-                master_seed_64: &master_seed,
-                seed_format,
-            },
+            capability: shekyl_engine_core::CapabilityInput::Full { seed: &seed },
             creation_timestamp,
             restore_height_hint: restore_height,
             kdf: KdfParams::default(),
@@ -228,7 +219,7 @@ impl EngineSession {
         let engine =
             tokio::task::block_in_place(|| Engine::<SoloSigner>::create(create_params, daemon))
                 .map_err(map_open_err)?;
-        drop(master_seed);
+        drop(seed);
 
         let facts = WalletFacts::restored(engine.capability(), restore_height);
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
@@ -738,22 +729,11 @@ pub(crate) fn map_network(n: NetworkType) -> Network {
     }
 }
 
-fn network_to_derivation(network: Network) -> DerivationNetwork {
-    match network {
-        Network::Mainnet => DerivationNetwork::Mainnet,
-        Network::Testnet => DerivationNetwork::Testnet,
-        Network::Stagenet => DerivationNetwork::Stagenet,
-    }
-}
-
-/// The backup handed out exactly once at creation, in the network's
-/// encoding — the contract's `CreateWalletResult.mnemonic` (mainnet /
-/// stagenet) or `raw_seed_hex` (testnet). Held only until the create
+/// The backup handed out exactly once at creation: the seed's 24 BIP-39
+/// words, the contract's `CreateWalletResult.mnemonic`, the same on every
+/// network. Wrapped in `Zeroizing` from birth and held only until the create
 /// response is built; never stored.
-pub enum SeedBackup {
-    Mnemonic(String),
-    RawHex(String),
-}
+pub struct SeedBackup(pub Zeroizing<String>);
 
 /// How `open` found the ledger. Decides whether the contract's
 /// `WalletHandle.restore_height_hint` is present.
@@ -814,64 +794,25 @@ pub struct CreatedSession {
     pub facts: WalletFacts,
 }
 
-/// The inverse of `generate_seed_material`: derive the master seed from the
-/// backup the user kept, in the encoding that network's create handed out.
-/// Messages name the failure class only — the backup is key material and is
-/// never reflected (rule 30).
-fn master_seed_from_backup(
-    backup: &str,
-    network: Network,
-) -> Result<(Zeroizing<[u8; MASTER_SEED_BYTES]>, SeedFormat), String> {
-    let derivation = network_to_derivation(network);
-    match network {
-        Network::Mainnet | Network::Stagenet => {
-            let (master, _blob) = generate_account_from_bip39(backup, "", derivation)
-                .map_err(|_| "Invalid recovery phrase".to_string())?;
-            Ok((master, SeedFormat::Bip39))
-        }
-        Network::Testnet => {
-            const EXPECTED: &str = "Testnet wallets back up as a 64-character hex seed";
-            let decoded =
-                Zeroizing::new(hex::decode(backup.trim()).map_err(|_| EXPECTED.to_string())?);
-            if decoded.len() != RAW_SEED_BYTES {
-                return Err(EXPECTED.into());
-            }
-            let mut raw = [0u8; RAW_SEED_BYTES];
-            raw.copy_from_slice(&decoded);
-            let derived = generate_account_from_raw_seed(&raw, derivation)
-                .map_err(|_| "Invalid testnet seed".to_string());
-            raw.zeroize();
-            let (master, _blob) = derived?;
-            Ok((master, SeedFormat::Raw32))
-        }
-    }
+/// The inverse of `generate_seed_material`: decode the backup the user kept
+/// — its 24 BIP-39 words, on every network — to the 32-byte seed. The message
+/// is stable and detail-free: the backup is key material and is never
+/// reflected, not even through the decoder's own error (rule 30).
+fn seed_from_backup(backup: &str) -> Result<Zeroizing<[u8; SEED_BYTES]>, String> {
+    entropy_from_mnemonic(backup)
+        .map_err(|_| "invalid mnemonic (expected 24 BIP-39 words)".to_string())
 }
 
-fn generate_seed_material(
-    network: Network,
-) -> Result<(Zeroizing<[u8; MASTER_SEED_BYTES]>, SeedFormat, SeedBackup), String> {
-    let derivation = network_to_derivation(network);
-    match network {
-        Network::Mainnet | Network::Stagenet => {
-            let mut entropy = [0u8; SHEKYL_BIP39_ENTROPY_BYTES];
-            OsRng.fill_bytes(&mut entropy);
-            let mnemonic = mnemonic_from_entropy(&entropy)
-                .map_err(|e| format!("mnemonic_from_entropy: {e}"))?;
-            entropy.zeroize();
-            let (master, _blob) = generate_account_from_bip39(&mnemonic, "", derivation)
-                .map_err(|e| format!("bip39 account: {e}"))?;
-            Ok((master, SeedFormat::Bip39, SeedBackup::Mnemonic(mnemonic)))
-        }
-        Network::Testnet => {
-            let mut raw = [0u8; RAW_SEED_BYTES];
-            OsRng.fill_bytes(&mut raw);
-            let seed_hex = hex::encode(raw);
-            let (master, _blob) = generate_account_from_raw_seed(&raw, derivation)
-                .map_err(|e| format!("raw account: {e}"))?;
-            raw.zeroize();
-            Ok((master, SeedFormat::Raw32, SeedBackup::RawHex(seed_hex)))
-        }
-    }
+/// A fresh 32-byte seed from the OS RNG and its 24 words. Both are wrapped in
+/// `Zeroizing` at birth, so the words are never a bare `String` on the way to
+/// the create response.
+fn generate_seed_material() -> Result<(Zeroizing<[u8; SEED_BYTES]>, SeedBackup), String> {
+    let mut seed = Zeroizing::new([0u8; SEED_BYTES]);
+    OsRng.fill_bytes(seed.as_mut());
+    let words = Zeroizing::new(
+        mnemonic_from_entropy(&seed).map_err(|e| format!("mnemonic_from_entropy: {e}"))?,
+    );
+    Ok((seed, SeedBackup(words)))
 }
 
 async fn wrap_and_start_pscan(
@@ -921,5 +862,28 @@ mod tests {
     fn engine_wallet_base_appends_wallet_suffix() {
         let p = engine_wallet_base(Path::new("/tmp/wallets"), "Alice");
         assert_eq!(p, PathBuf::from("/tmp/wallets/Alice.wallet"));
+    }
+
+    #[test]
+    fn the_backup_is_24_words_that_decode_to_the_seed() {
+        let (seed, SeedBackup(words)) = generate_seed_material().unwrap();
+        assert_eq!(words.split_whitespace().count(), 24);
+        let restored = seed_from_backup(&words).unwrap();
+        assert_eq!(*restored, *seed);
+    }
+
+    #[test]
+    fn a_backup_that_is_not_24_words_is_refused_without_echoing_it() {
+        let (_, SeedBackup(words)) = generate_seed_material().unwrap();
+        let hex = "ab".repeat(SEED_BYTES);
+        let first_twelve = words
+            .split_whitespace()
+            .take(12)
+            .collect::<Vec<_>>()
+            .join(" ");
+        for bad in [hex.as_str(), first_twelve.as_str(), ""] {
+            let err = seed_from_backup(bad).unwrap_err();
+            assert_eq!(err, "invalid mnemonic (expected 24 BIP-39 words)");
+        }
     }
 }

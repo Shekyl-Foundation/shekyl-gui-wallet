@@ -173,16 +173,15 @@ If this is your first time, you'll see the Welcome screen. Click
    This password encrypts your wallet file. If someone steals your
    computer, they can't open the wallet without it.
 
-2. **Recovery phrase.** On mainnet and stagenet the wallet generates a
-   **24-word BIP-39 English recovery phrase** and displays it in a numbered
-   grid. On testnet the backup is one **64-character hex seed**, not a phrase.
-   Either way this is the most important thing you'll encounter. Read the next
-   section carefully. You can also copy it to your clipboard, but **write it
+2. **Recovery phrase.** The wallet generates a **24-word BIP-39 English
+   recovery phrase** and displays it in a numbered grid. This is the same on
+   every network, testnet included. It is the most important thing you'll
+   encounter. Read the next section carefully. You can also copy it to your clipboard, but **write it
    down on paper immediately**.
 
 3. **Confirmation.** To make sure you actually saved the backup, the wallet
-   asks you to enter 4 randomly chosen words, or — on testnet — to type the
-   hex seed back. This prevents accidentally clicking through without saving.
+   asks you to enter 4 randomly chosen words. This prevents accidentally
+   clicking through without saving.
 
 4. **Done.** Your wallet is created and ready to use. You'll see your address
    and a confirmation that it's protected by hybrid PQC signatures. If the
@@ -203,8 +202,7 @@ backup, or the CLI tools -- you can import it instead of creating a new one.
 
 1. On the Welcome screen, click **Import Existing Wallet**.
 2. Enter your **24 words** in the text area. The wallet checks the word count
-   before restore. A **testnet** wallet has no words: enter the 64-character
-   hex seed it showed when it was created.
+   before restore.
 3. Choose a **password** for the wallet file.
 4. Set a **restore height** (optional but recommended). This is the block
    height at which your wallet was first created. If you know it, enter it --
@@ -216,9 +214,9 @@ backup, or the CLI tools -- you can import it instead of creating a new one.
 
 The seed backup is the only restore path. Shekyl's quantum-resistant keys
 are all derived from it, so there is no separate spend key or view key to
-import, and the phrase takes no extra passphrase. A backup restores on the
-network it was created for: the wallet refuses a phrase on testnet and a hex
-seed on mainnet, and says which it expects.
+import, and the phrase takes no extra passphrase. Restore on the network the
+wallet was created for: the same 24 words on another network open a
+different, empty wallet, not yours.
 
 ### Why restore height matters
 

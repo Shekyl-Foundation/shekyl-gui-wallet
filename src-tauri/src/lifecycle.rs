@@ -13,13 +13,13 @@
 //! wallet-rpc — omitted on create, on a restore from genesis, and on a
 //! cache-hit open; present for a higher restore floor and for an open that
 //! rebuilt the ledger (`OpenedEngine::Restored`, including a zero floor).
-//! `create_wallet` adds the backup exactly once, in the network's encoding
-//! — `mnemonic` on mainnet/stagenet, `raw_seed_hex` on testnet — and the
-//! session keeps no copy of it.
+//! `create_wallet` adds the backup exactly once — `mnemonic`, the seed's 24
+//! BIP-39 words, on every network — and the session keeps no copy of it.
 
 use serde::Serialize;
 use shekyl_engine_core::Capability;
 use tauri::State;
+use zeroize::Zeroizing;
 
 use crate::engine_session;
 use crate::state::{AppState, NetworkType};
@@ -51,15 +51,12 @@ pub struct OpenedWallet {
 }
 
 /// `create_wallet`: the contract's `CreateWalletResult`. Backup material is
-/// returned exactly once, in the network's encoding: `mnemonic` on
-/// mainnet/stagenet, `raw_seed_hex` on testnet, never both.
+/// returned exactly once: `mnemonic`, the seed's 24 BIP-39 words, the same
+/// encoding on every network.
 #[derive(Debug, Serialize)]
 pub struct CreatedWallet {
     pub wallet: WalletHandle,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mnemonic: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_seed_hex: Option<String>,
+    pub mnemonic: String,
 }
 
 /// The contract's spellings for a handle.
@@ -138,14 +135,12 @@ pub async fn create_wallet(
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
     let wallet = wallet_handle(sanitized, network, &created.facts);
-    let (mnemonic, raw_seed_hex) = match created.backup {
-        engine_session::SeedBackup::Mnemonic(m) => (Some(m), None),
-        engine_session::SeedBackup::RawHex(h) => (None, Some(h)),
-    };
+    // Move the words out of their `Zeroizing` wrapper onto the response,
+    // leaving an empty string behind for it to wipe: no second copy.
+    let engine_session::SeedBackup(mut words) = created.backup;
     Ok(CreatedWallet {
         wallet,
-        mnemonic,
-        raw_seed_hex,
+        mnemonic: std::mem::take(&mut *words),
     })
 }
 
@@ -200,8 +195,8 @@ pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(true)
 }
 
-/// The contract's `restore_wallet` (`mnemonic` is the seed backup in the
-/// network's encoding — see `validate_seed_backup`).
+/// The contract's `restore_wallet` (`mnemonic` is the seed backup: its 24
+/// BIP-39 words, on every network — see `validate_seed_backup`).
 #[tauri::command]
 pub async fn restore_wallet(
     state: State<'_, AppState>,
@@ -210,10 +205,12 @@ pub async fn restore_wallet(
     mnemonic: String,
     restore_height: Option<u64>,
 ) -> Result<OpenedWallet, String> {
+    // The words are key material: into `Zeroizing` before any other work.
+    let mnemonic = Zeroizing::new(mnemonic);
     let sanitized = wallet_name::sanitize(&name);
     let network = *state.network.read().await;
     validate::validate_wallet_name(&sanitized)?;
-    validate::validate_seed_backup(&mnemonic, network)?;
+    validate::validate_seed_backup(&mnemonic)?;
     validate::validate_password(&password)?;
 
     let height = restore_floor(restore_height)?;
@@ -305,22 +302,27 @@ mod tests {
     }
 
     #[test]
-    fn created_wallet_carries_exactly_one_backup_encoding() {
-        let wallet = handle_from(engine_session::WalletFacts::created(Capability::Full));
-        let mainnet = serde_json::to_value(CreatedWallet {
-            wallet: wallet.clone(),
-            mnemonic: Some("word ".repeat(24).trim().into()),
-            raw_seed_hex: None,
-        })
-        .unwrap();
-        assert!(mainnet.get("mnemonic").is_some() && mainnet.get("raw_seed_hex").is_none());
-        let testnet = serde_json::to_value(CreatedWallet {
-            wallet: wallet.clone(),
-            mnemonic: None,
-            raw_seed_hex: Some("ab".repeat(32)),
-        })
-        .unwrap();
-        assert!(testnet.get("mnemonic").is_none() && testnet.get("raw_seed_hex").is_some());
+    fn created_wallet_carries_the_24_words_on_every_network() {
+        let facts = engine_session::WalletFacts::created(Capability::Full);
+        let words = "word ".repeat(24).trim().to_owned();
+        for network in [
+            NetworkType::Mainnet,
+            NetworkType::Testnet,
+            NetworkType::Stagenet,
+        ] {
+            let created = serde_json::to_value(CreatedWallet {
+                wallet: wallet_handle("alice".into(), network, &facts),
+                mnemonic: words.clone(),
+            })
+            .unwrap();
+            assert_eq!(created["mnemonic"], words.as_str(), "{network:?}");
+            assert_eq!(created["wallet"]["network"], network_str(network));
+            assert!(
+                created.get("raw_seed_hex").is_none(),
+                "no hex backup on any network ({network:?})"
+            );
+        }
+        let wallet = handle_from(facts);
         let opened = serde_json::to_value(OpenedWallet { wallet }).unwrap();
         assert_eq!(opened["wallet"]["name"], "alice");
         assert!(

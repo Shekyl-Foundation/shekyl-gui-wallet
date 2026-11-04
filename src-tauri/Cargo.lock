@@ -5417,6 +5417,7 @@ dependencies = [
  "bech32",
  "shekyl-crypto-hash",
  "shekyl-encoding",
+ "shekyl-network",
  "thiserror 2.0.21",
 ]
 
@@ -5439,6 +5440,7 @@ version = "3.1.0"
 dependencies = [
  "curve25519-dalek",
  "rand 0.8.8",
+ "serde",
  "serde_json",
  "sha3",
  "shekyl-crypto-pq",
@@ -5663,8 +5665,10 @@ dependencies = [
  "shekyl-rpc-client",
  "shekyl-rpc-transport",
  "shekyl-rpc-types",
+ "shekyl-runtime",
  "shekyl-scanner",
  "shekyl-standoff",
+ "shekyl-thread-priority",
  "shekyl-tor-control-wallet",
  "shekyl-tx-builder",
  "shekyl-tx-weight",
@@ -5781,6 +5785,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-network"
+version = "3.1.0"
+dependencies = [
+ "serde",
+ "shekyl-crypto-hash",
+]
+
+[[package]]
 name = "shekyl-onion-v3"
 version = "3.1.0"
 dependencies = [
@@ -5882,6 +5894,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-rpc-grants"
+version = "3.1.0"
+
+[[package]]
 name = "shekyl-rpc-transport"
 version = "0.1.0"
 dependencies = [
@@ -5905,7 +5921,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shekyl-network",
  "shekyl-portable-storage",
+ "shekyl-rpc-grants",
  "shekyl-units",
 ]
 
