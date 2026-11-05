@@ -11,6 +11,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { useWallet } from "../context/useWallet";
+import { BIP39_RECOVERY_PHRASE_WORD_COUNT } from "../constants/wallet";
 import { type CreatedWallet } from "../types/wallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
 import CreatedWalletAddress from "../components/wallet/CreatedWalletAddress";
@@ -187,11 +188,6 @@ export default function CreateWallet() {
         {/* Step: Setup */}
         {step === "setup" && (
           <div className="card space-y-5">
-            <div className="rounded-lg border border-purple-500/40 bg-purple-900/30 p-3 text-xs text-purple-200">
-              Wallet creation may not succeed until you are running a Shekyl
-              build with full recovery-phrase support. If creation fails,
-              update Shekyl and try again.
-            </div>
             <div className="space-y-2">
               <label className="text-xs font-medium text-purple-200">
                 Wallet Name
@@ -283,7 +279,7 @@ export default function CreateWallet() {
               <div className="text-xs text-orange-200">
                 <p className="font-semibold">Write these words down now.</p>
                 <p className="mt-1">
-                  This 24-word recovery phrase is your only backup. If you lose
+                  This {BIP39_RECOVERY_PHRASE_WORD_COUNT}-word recovery phrase is your only backup. If you lose
                   it, your funds cannot be recovered. Never share it with anyone.
                 </p>
               </div>

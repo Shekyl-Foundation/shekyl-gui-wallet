@@ -10,10 +10,11 @@
   and restore takes only the 24 words — a hex string is refused on every
   network. `create_wallet` returns `mnemonic` alone (`raw_seed_hex` is gone
   from the result). Restore decodes the phrase before it creates a
-  directory or talks to a daemon. A wrong shape is named (empty, a null
-  byte, non-English letters, a count other than 24, or a 25-word phrase).
-  A 24-word phrase that is not BIP-39 is refused with one stable message.
-  Neither message repeats what was typed. The keys are derived under the
+  directory or talks to a daemon. A null byte is refused before the
+  decoder. Every other refusal is the decoder's own class: an empty
+  phrase, a count other than 24 (a 25-word phrase keeps its own sentence),
+  a word that is not in the list, or a checksum that does not match. No
+  refusal repeats what was typed. The keys are derived under the
   network's name, so the same words on another network open a different,
   empty wallet. Wallet files from earlier releases are refused when opened,
   and their words derive different keys under this release.

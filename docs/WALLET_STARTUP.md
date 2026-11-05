@@ -243,11 +243,12 @@ classical segment by default; the PQC segment is handled internally.
 
 The only restore path. `restore_wallet(name, password, mnemonic,
 restore_height)` — the contract's method and parameters — decodes the backup
-with `seed_phrase::seed_from_phrase` before any directory or daemon work. A
-known bad shape keeps its own message: empty, a null byte, non-English
-letters, a count other than 24, and the one-word-longer legacy phrase. A
-24-word phrase that is not BIP-39 is refused with one stable message,
-`invalid mnemonic (expected 24 BIP-39 words)`. No refusal repeats the words.
+with `seed_phrase::seed_from_phrase` before any directory or daemon work.
+A null byte is refused at that edge. Every other refusal is the decoder's
+`PhraseError`: an empty phrase, a count other than 24 (including the
+one-word-longer legacy phrase, which keeps its own sentence), a 24-word
+phrase with a word that is not in the list, and a 24-word phrase whose
+checksum does not match. No refusal repeats the words.
 The session then installs that 32-byte seed, the same input `create`
 installs. The hybrid post-quantum keys are derived from the seed under the
 network's name, so nothing is "generated for" a restored wallet, no

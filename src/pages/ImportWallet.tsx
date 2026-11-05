@@ -139,7 +139,7 @@ export default function ImportWallet() {
                   className="input min-h-[100px] resize-none font-mono text-sm"
                   value={seed}
                   onChange={(e) => setSeed(e.target.value)}
-                  placeholder="Enter your 24-word recovery phrase, separated by spaces"
+                  placeholder={`Enter your ${BIP39_RECOVERY_PHRASE_WORD_COUNT}-word recovery phrase, separated by spaces`}
                   spellCheck={false}
                   autoComplete="off"
                 />

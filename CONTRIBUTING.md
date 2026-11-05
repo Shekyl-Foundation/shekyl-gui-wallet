@@ -53,9 +53,11 @@ Policy: `.cursor/rules/06-branching.mdc`.
 
 ### Input Validation
 
-Every Tauri command that accepts user input MUST validate through
-`src-tauri/src/validate.rs` before reaching the wallet FFI.
-See `docs/GUI_SECURITY.md` for the full validation table.
+Every Tauri command that accepts user input checks it before it reaches
+the Engine. Names, passwords, addresses and amounts go through
+`src-tauri/src/validate.rs`. The recovery phrase goes through
+`src-tauri/src/seed_phrase.rs` (`seed_from_phrase`), which decodes it
+once. See `docs/GUI_SECURITY.md` for the full validation table.
 
 ### Secret Key Handling
 
@@ -73,7 +75,7 @@ See `docs/GUI_SECURITY.md` for the full validation table.
 
 **Frontend tests**: `npm test` (Vitest)
 
-**Canary leak tests** (Gate 6): validate.rs includes tests that plant known
+**Canary leak tests** (Gate 6): `validate.rs` and `seed_phrase.rs` plant known
 canary patterns in secret-like inputs and assert error messages don't leak them.
 
 **Unit vs. sidecar-integration tests**: the backend unit tests run on every

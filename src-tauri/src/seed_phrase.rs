@@ -5,38 +5,36 @@
 
 //! The wallet's one secret and its one spelling.
 //!
-//! A full wallet is [`PHRASE_WORD_COUNT`] BIP-39 English words, which are
+//! A full wallet is [`SHEKYL_MNEMONIC_WORD_COUNT`] BIP-39 English words,
 //! the spelling of [`SEED_BYTES`] of entropy. Create draws the bytes and
-//! spells them. Restore spells them back. [`crate::engine_session`] installs
-//! the bytes and never sees the words.
+//! spells them. Restore asks [`entropy_from_mnemonic`] and turns its
+//! [`PhraseError`] into a sentence. [`crate::engine_session`] installs the
+//! bytes and never sees the words.
 //!
-//! Shape refusals (empty, NUL, non-ASCII, a count other than
-//! [`PHRASE_WORD_COUNT`], and the one-word-longer legacy phrase) name the
-//! shape. A phrase of the right shape that does not decode gets one stable
-//! message. No refusal repeats the input.
+//! A null byte is refused here, before the decoder, the same screen a
+//! password gets. Every other refusal is the decoder's class. No refusal
+//! repeats the input.
 
 use rand::rngs::OsRng;
 use rand::RngCore;
 use shekyl_crypto_pq::account::SEED_BYTES;
-use shekyl_crypto_pq::bip39::{entropy_from_mnemonic, mnemonic_from_entropy};
+use shekyl_crypto_pq::bip39::{
+    entropy_from_mnemonic, mnemonic_from_entropy, PhraseError, SHEKYL_MNEMONIC_WORD_COUNT,
+};
 use zeroize::Zeroizing;
 
-/// Words in the only recovery phrase Shekyl spells.
-pub const PHRASE_WORD_COUNT: usize = 24;
-
-/// A phrase one word longer than [`PHRASE_WORD_COUNT`]. Other wallets spell
-/// that length; Shekyl does not.
-const LEGACY_PHRASE_WORD_COUNT: usize = PHRASE_WORD_COUNT + 1;
+/// A phrase one word longer than [`SHEKYL_MNEMONIC_WORD_COUNT`]. Other
+/// wallets spell that length; Shekyl does not.
+const LEGACY_WORD_COUNT: usize = SHEKYL_MNEMONIC_WORD_COUNT + 1;
 
 const ERR_EMPTY: &str = "Recovery phrase must not be empty";
 const ERR_NUL: &str = "Recovery phrase must not contain null bytes";
-const ERR_NON_ASCII: &str = "Recovery phrase must use English letters only";
-/// The digits in this sentence are [`PHRASE_WORD_COUNT`] and
-/// [`LEGACY_PHRASE_WORD_COUNT`]. Kept as one literal so the spacing the
-/// wallet already shows does not drift.
-const ERR_LEGACY_PHRASE: &str = "Shekyl uses a 24-word recovery phrase. \
-    25-word phrases from other wallets are not supported — Shekyl begins at its \
-    own genesis and does not use legacy seed formats.";
+const ERR_UNKNOWN_WORD: &str =
+    "One of these words is not a recovery-phrase word. Check the words you entered.";
+const ERR_CHECKSUM: &str =
+    "These words do not match a recovery phrase. Check the words and their order.";
+const ERR_UNREADABLE: &str = "The recovery phrase could not be read. Try again.";
+const ERR_CREATE: &str = "The wallet could not be created. Try again.";
 
 /// The 32-byte wallet secret. Wrapped from the moment it exists.
 pub type WalletSeed = Zeroizing<[u8; SEED_BYTES]>;
@@ -56,47 +54,64 @@ impl SeedBackup {
 
 /// A fresh seed from the OS RNG and the words that spell it. Both are
 /// wrapped before this returns. The words are never a bare `String`.
+///
+/// A failure here is the speller, not the user. The page sees
+/// [`ERR_CREATE`]; the speller's own error is logged and not returned.
 pub fn generate() -> Result<(WalletSeed, SeedBackup), String> {
     let mut seed = Zeroizing::new([0u8; SEED_BYTES]);
     OsRng.fill_bytes(seed.as_mut());
-    let words = Zeroizing::new(
-        mnemonic_from_entropy(&seed).map_err(|e| format!("mnemonic_from_entropy: {e}"))?,
-    );
-    Ok((seed, SeedBackup(words)))
+    let spelled = mnemonic_from_entropy(&seed).map_err(|e| {
+        tracing::warn!(error = %e, "spelling a new seed failed");
+        ERR_CREATE.to_owned()
+    })?;
+    Ok((seed, SeedBackup(Zeroizing::new(spelled))))
 }
 
 /// Decode a recovery phrase to its seed.
 ///
-/// The shape checks run first so each known bad shape keeps its message.
-/// The decoder then accepts a real [`PHRASE_WORD_COUNT`]-word phrase and
-/// refuses every other 24-token string with [`invalid_mnemonic_message`],
-/// which does not include the decoder's own error.
+/// A null byte is refused before the decoder. Every other input is
+/// [`entropy_from_mnemonic`]'s answer, mapped by [`refusal_message`].
 pub fn seed_from_phrase(phrase: &str) -> Result<WalletSeed, String> {
-    if phrase.is_empty() {
-        return Err(ERR_EMPTY.into());
-    }
     if phrase.contains('\0') {
         return Err(ERR_NUL.into());
     }
-    if !phrase.is_ascii() {
-        return Err(ERR_NON_ASCII.into());
-    }
-
-    let word_count = phrase.split_whitespace().count();
-    if word_count == LEGACY_PHRASE_WORD_COUNT {
-        return Err(ERR_LEGACY_PHRASE.into());
-    }
-    if word_count != PHRASE_WORD_COUNT {
-        return Err(format!(
-            "Recovery phrase must be exactly {PHRASE_WORD_COUNT} words"
-        ));
-    }
-
-    entropy_from_mnemonic(phrase).map_err(|_| invalid_mnemonic_message())
+    entropy_from_mnemonic(phrase).map_err(refusal_message)
 }
 
-fn invalid_mnemonic_message() -> String {
-    format!("invalid mnemonic (expected {PHRASE_WORD_COUNT} BIP-39 words)")
+/// The sentence for one [`PhraseError`]. The count arms name the length
+/// Shekyl spells. A 24-word phrase that fails the wordlist or the checksum
+/// names that failure, not the length the caller already got right.
+fn refusal_message(err: PhraseError) -> String {
+    match err {
+        PhraseError::WordCount(0) => ERR_EMPTY.to_owned(),
+        PhraseError::WordCount(LEGACY_WORD_COUNT) => legacy_phrase_message(),
+        PhraseError::WordCount(_) | PhraseError::Length(_) => word_count_message(),
+        PhraseError::UnknownWord {
+            words: SHEKYL_MNEMONIC_WORD_COUNT,
+        } => ERR_UNKNOWN_WORD.to_owned(),
+        PhraseError::Checksum {
+            words: SHEKYL_MNEMONIC_WORD_COUNT,
+        } => ERR_CHECKSUM.to_owned(),
+        PhraseError::UnknownWord { .. } | PhraseError::Checksum { .. } => word_count_message(),
+        // `EntropyLength` and `Unclassified` are decoder faults, not a
+        // phrase the person can correct. A later `PhraseError` variant
+        // lands here until it has its own sentence.
+        _ => ERR_UNREADABLE.to_owned(),
+    }
+}
+
+fn word_count_message() -> String {
+    format!("Recovery phrase must be exactly {SHEKYL_MNEMONIC_WORD_COUNT} words")
+}
+
+/// The one-word-longer sentence. The two lengths come from
+/// [`SHEKYL_MNEMONIC_WORD_COUNT`] and [`LEGACY_WORD_COUNT`].
+fn legacy_phrase_message() -> String {
+    format!(
+        "Shekyl uses a {SHEKYL_MNEMONIC_WORD_COUNT}-word recovery phrase. \
+         {LEGACY_WORD_COUNT}-word phrases from other wallets are not supported — Shekyl begins at its \
+         own genesis and does not use legacy seed formats."
+    )
 }
 
 #[cfg(test)]
@@ -107,7 +122,7 @@ mod tests {
     fn generated_words_decode_to_the_same_seed() {
         let (seed, backup) = generate().unwrap();
         let words = backup.into_mnemonic();
-        assert_eq!(words.split_whitespace().count(), PHRASE_WORD_COUNT);
+        assert_eq!(words.split_whitespace().count(), SHEKYL_MNEMONIC_WORD_COUNT);
         let restored = seed_from_phrase(&words).unwrap();
         assert_eq!(*restored, *seed);
     }
@@ -126,7 +141,7 @@ mod tests {
         let words = backup.into_mnemonic();
         let twelve = words
             .split_whitespace()
-            .take(PHRASE_WORD_COUNT / 2)
+            .take(SHEKYL_MNEMONIC_WORD_COUNT / 2)
             .collect::<Vec<_>>()
             .join(" ");
         let hex = "ab".repeat(SEED_BYTES);
@@ -134,55 +149,50 @@ mod tests {
         let err = seed_from_phrase("").unwrap_err();
         assert_eq!(err, ERR_EMPTY);
 
+        // Spaces are no words. The decoder counts zero, the same class as empty.
         let err = seed_from_phrase("   ").unwrap_err();
-        assert_eq!(
-            err,
-            format!("Recovery phrase must be exactly {PHRASE_WORD_COUNT} words")
-        );
+        assert_eq!(err, ERR_EMPTY);
 
         let err = seed_from_phrase("café latté").unwrap_err();
-        assert_eq!(err, ERR_NON_ASCII);
+        assert_eq!(err, word_count_message());
         assert!(!err.contains("caf"));
 
         let err = seed_from_phrase(&hex).unwrap_err();
-        assert_eq!(
-            err,
-            format!("Recovery phrase must be exactly {PHRASE_WORD_COUNT} words")
-        );
+        assert_eq!(err, word_count_message());
         assert!(!err.contains("ab"), "{err}");
 
-        // Each refusal is a fixed message, so it cannot echo the input. A
-        // substring check against a random word is not that test: a short
-        // BIP-39 word ("use") can sit inside the fixed text ("uses").
+        // A short BIP-39 word can sit inside a fixed sentence ("use" inside
+        // "uses"). These refusals are the fixed sentences, so the assertion
+        // is equality, not a search for a word drawn at random.
         let err = seed_from_phrase(&twelve).unwrap_err();
-        assert_eq!(
-            err,
-            format!("Recovery phrase must be exactly {PHRASE_WORD_COUNT} words")
-        );
+        assert_eq!(err, word_count_message());
 
         let legacy = format!("{words} extra");
         let err = seed_from_phrase(&legacy).unwrap_err();
-        assert_eq!(err, ERR_LEGACY_PHRASE);
+        assert_eq!(err, legacy_phrase_message());
     }
 
     #[test]
-    fn twenty_four_tokens_that_do_not_decode_use_the_one_stable_message() {
-        let (_, backup) = generate().unwrap();
-        let words = backup.into_mnemonic();
-        let mut parts: Vec<String> = words.split_whitespace().map(str::to_owned).collect();
-        // A swapped last word still passes BIP-39's 8-bit checksum about one
-        // time in 256, so take the first candidate that does not decode.
-        // The refusal is one fixed message, so it cannot echo the input.
-        let original = parts[PHRASE_WORD_COUNT - 1].clone();
-        let err = ["abandon", "ability", "able", "about", "above", "absent"]
-            .into_iter()
-            .filter(|w| *w != original)
-            .find_map(|w| {
-                parts[PHRASE_WORD_COUNT - 1] = w.to_owned();
-                seed_from_phrase(&parts.join(" ")).err()
-            })
-            .expect("one of six swaps fails the checksum");
-        assert_eq!(err, invalid_mnemonic_message());
+    fn the_all_zero_phrase_names_a_bad_word_and_a_bad_checksum() {
+        // The same vector `shekyl-crypto-pq`'s bip39 tests pin: 32 zero
+        // bytes spell a phrase whose last word is "art". "ability" is in
+        // the list and fails the checksum. "notaword" is not in the list.
+        let words = mnemonic_from_entropy(&[0u8; SEED_BYTES]).unwrap();
+        let mut parts: Vec<&str> = words.split_whitespace().collect();
+        assert_eq!(parts.len(), SHEKYL_MNEMONIC_WORD_COUNT);
+        assert_eq!(*parts.last().unwrap(), "art");
+
+        parts[SHEKYL_MNEMONIC_WORD_COUNT - 1] = "notaword";
+        let err = seed_from_phrase(&parts.join(" ")).unwrap_err();
+        assert_eq!(err, ERR_UNKNOWN_WORD);
+        assert!(!err.contains("notaword"));
+        assert!(!err.contains("art"));
+
+        parts[SHEKYL_MNEMONIC_WORD_COUNT - 1] = "ability";
+        let err = seed_from_phrase(&parts.join(" ")).unwrap_err();
+        assert_eq!(err, ERR_CHECKSUM);
+        assert!(!err.contains("ability"));
+        assert!(!err.contains("art"));
     }
 
     #[test]
