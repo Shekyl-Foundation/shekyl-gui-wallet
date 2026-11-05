@@ -11,7 +11,8 @@ import {
   EyeOff,
 } from "lucide-react";
 import { useWallet } from "../context/useWallet";
-import { seedBackupOf, type CreatedWallet } from "../types/wallet";
+import { BIP39_RECOVERY_PHRASE_WORD_COUNT } from "../constants/wallet";
+import { type CreatedWallet } from "../types/wallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
 import CreatedWalletAddress from "../components/wallet/CreatedWalletAddress";
 
@@ -41,8 +42,6 @@ export default function CreateWallet() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CreatedWallet | null>(null);
-  /** Re-entry of a testnet hex seed. Phrase confirmation uses `confirmValues`. */
-  const [rawConfirm, setRawConfirm] = useState("");
   const [copied, setCopied] = useState(false);
   const [clearAfterMs, setClearAfterMs] = useState<number | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,10 +51,10 @@ export default function CreateWallet() {
     {},
   );
 
-  /** Phrase words. Empty unless this create returned a mnemonic. */
+  /** Phrase words. Empty until create returns. */
   const phraseWords = useMemo(() => {
-    if (!result || result.encoding !== "mnemonic") return [];
-    return result.mnemonic.split(" ").filter(Boolean);
+    if (!result) return [];
+    return result.mnemonic.split(/\s+/).filter(Boolean);
   }, [result]);
 
   const challengeIndices = useMemo(() => {
@@ -89,9 +88,6 @@ export default function CreateWallet() {
 
   const confirmCorrect = useMemo(() => {
     if (!result) return false;
-    if (result.encoding === "raw_seed_hex") {
-      return rawConfirm.trim().toLowerCase() === result.raw_seed_hex;
-    }
     return (
       phraseWords.length > 0 &&
       challengeIndices.length > 0 &&
@@ -99,7 +95,7 @@ export default function CreateWallet() {
         (i) => confirmValues[i]?.toLowerCase().trim() === phraseWords[i]?.toLowerCase(),
       )
     );
-  }, [result, rawConfirm, phraseWords, challengeIndices, confirmValues]);
+  }, [result, phraseWords, challengeIndices, confirmValues]);
 
   const handleCreate = useCallback(async () => {
     setError(null);
@@ -119,7 +115,7 @@ export default function CreateWallet() {
     if (!result) return;
     try {
       const placed = await invoke<ClipboardPlacement>("copy_to_clipboard", {
-        text: seedBackupOf(result),
+        text: result.mnemonic,
       });
       setClearAfterMs(placed.clear_after_ms);
       setCopied(true);
@@ -192,11 +188,6 @@ export default function CreateWallet() {
         {/* Step: Setup */}
         {step === "setup" && (
           <div className="card space-y-5">
-            <div className="rounded-lg border border-purple-500/40 bg-purple-900/30 p-3 text-xs text-purple-200">
-              Wallet creation may not succeed until you are running a Shekyl
-              build with full recovery-phrase support. If creation fails,
-              update Shekyl and try again.
-            </div>
             <div className="space-y-2">
               <label className="text-xs font-medium text-purple-200">
                 Wallet Name
@@ -283,54 +274,29 @@ export default function CreateWallet() {
         {/* Step: Seed display */}
         {step === "seed" && result && (
           <div className="card space-y-5">
-            {result.encoding === "mnemonic" ? (
-              <>
-                <div className="flex items-start gap-3 rounded-lg border border-orange-500/40 bg-orange-900/20 p-4">
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-400" />
-                  <div className="text-xs text-orange-200">
-                    <p className="font-semibold">Write these words down now.</p>
-                    <p className="mt-1">
-                      This 24-word recovery phrase is your only backup. If you lose
-                      it, your funds cannot be recovered. Never share it with anyone.
-                    </p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-5 gap-2">
-                  {phraseWords.map((word, i) => (
-                    <div
-                      key={i}
-                      className="rounded-lg bg-purple-800/80 px-2 py-2 text-center"
-                    >
-                      <span className="block text-[9px] text-purple-400">
-                        {i + 1}
-                      </span>
-                      <span className="text-xs font-medium text-white">{word}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex items-start gap-3 rounded-lg border border-orange-500/40 bg-orange-900/20 p-4">
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-400" />
-                  <div className="text-xs text-orange-200">
-                    <p className="font-semibold">Write this hex seed down now.</p>
-                    <p className="mt-1">
-                      A testnet wallet backs up as 64 hex characters, not a recovery
-                      phrase. If you lose it, the funds cannot be recovered. Never
-                      share it with anyone.
-                    </p>
-                  </div>
-                </div>
-                <p
-                  className="break-all rounded-lg bg-purple-800/80 px-3 py-3 font-mono text-xs text-white"
-                  data-testid="raw-seed"
-                >
-                  {result.raw_seed_hex}
+            <div className="flex items-start gap-3 rounded-lg border border-orange-500/40 bg-orange-900/20 p-4">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-400" />
+              <div className="text-xs text-orange-200">
+                <p className="font-semibold">Write these words down now.</p>
+                <p className="mt-1">
+                  This {BIP39_RECOVERY_PHRASE_WORD_COUNT}-word recovery phrase is your only backup. If you lose
+                  it, your funds cannot be recovered. Never share it with anyone.
                 </p>
-                <p className="text-[11px] text-purple-400">64 hex characters</p>
-              </>
-            )}
+              </div>
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              {phraseWords.map((word, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg bg-purple-800/80 px-2 py-2 text-center"
+                >
+                  <span className="block text-[9px] text-purple-400">
+                    {i + 1}
+                  </span>
+                  <span className="text-xs font-medium text-white">{word}</span>
+                </div>
+              ))}
+            </div>
 
             <button
               onClick={handleCopySeed}
@@ -358,9 +324,7 @@ export default function CreateWallet() {
               onClick={() => setStep("confirm")}
               className="btn btn-primary w-full"
             >
-              {result.encoding === "mnemonic"
-                ? "I've saved my seed phrase"
-                : "I've saved this hex seed"}
+              I've saved my seed phrase
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -369,52 +333,32 @@ export default function CreateWallet() {
         {/* Step: Confirm seed */}
         {step === "confirm" && result && (
           <div className="card space-y-5">
-            {result.encoding === "mnemonic" ? (
-              <>
-                <p className="text-xs text-purple-200">
-                  Verify you saved your seed correctly by entering these words:
-                </p>
-                <div className="space-y-3">
-                  {challengeIndices.map((idx) => (
-                    <div key={idx} className="space-y-1">
-                      <label className="text-xs text-purple-300">
-                        Word #{idx + 1}
-                      </label>
-                      <input
-                        type="text"
-                        className="input"
-                        value={confirmValues[idx] ?? ""}
-                        onChange={(e) =>
-                          setConfirmValues((prev) => ({
-                            ...prev,
-                            [idx]: e.target.value,
-                          }))
-                        }
-                        placeholder={`Enter word #${idx + 1}`}
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                    </div>
-                  ))}
+            <p className="text-xs text-purple-200">
+              Verify you saved your seed correctly by entering these words:
+            </p>
+            <div className="space-y-3">
+              {challengeIndices.map((idx) => (
+                <div key={idx} className="space-y-1">
+                  <label className="text-xs text-purple-300">
+                    Word #{idx + 1}
+                  </label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={confirmValues[idx] ?? ""}
+                    onChange={(e) =>
+                      setConfirmValues((prev) => ({
+                        ...prev,
+                        [idx]: e.target.value,
+                      }))
+                    }
+                    placeholder={`Enter word #${idx + 1}`}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
                 </div>
-              </>
-            ) : (
-              <div className="space-y-1">
-                <label className="text-xs text-purple-300" htmlFor="raw-seed-confirm">
-                  Re-enter the 64-character hex seed
-                </label>
-                <input
-                  id="raw-seed-confirm"
-                  type="text"
-                  className="input font-mono"
-                  value={rawConfirm}
-                  onChange={(e) => setRawConfirm(e.target.value)}
-                  placeholder="64 hex characters"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </div>
-            )}
+              ))}
+            </div>
 
             <button
               onClick={() => setStep("done")}
@@ -430,7 +374,7 @@ export default function CreateWallet() {
               className="btn btn-ghost w-full text-xs"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              {result.encoding === "mnemonic" ? "Back to seed phrase" : "Back to hex seed"}
+              Back to seed phrase
             </button>
           </div>
         )}

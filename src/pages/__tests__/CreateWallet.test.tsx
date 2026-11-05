@@ -29,7 +29,6 @@ beforeEach(() => {
   createWallet.mockReset();
   createWallet.mockResolvedValue({
     wallet: { name: "My_Wallet", capability: "FULL", network: "MAINNET" },
-    encoding: "mnemonic",
     mnemonic: SEED,
   });
 });
@@ -111,13 +110,14 @@ describe("CreateWallet seed clipboard mitigation", () => {
   });
 });
 
-const RAW_SEED = "ab".repeat(32);
-
-async function reachDoneWithRawSeed() {
+/**
+ * Create on testnet and walk to the done step. The confirm step asks for four
+ * randomly chosen words; read which ones from the rendered inputs.
+ */
+async function reachDoneOnTestnet() {
   createWallet.mockResolvedValue({
     wallet: { name: "My_Wallet", capability: "FULL", network: "TESTNET" },
-    encoding: "raw_seed_hex",
-    raw_seed_hex: RAW_SEED,
+    mnemonic: SEED,
   });
   render(
     <MemoryRouter>
@@ -131,21 +131,29 @@ async function reachDoneWithRawSeed() {
     target: { value: "correct horse battery" },
   });
   fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-  expect(await screen.findByTestId("raw-seed")).toHaveTextContent(RAW_SEED);
-  expect(screen.queryByText(/24-word recovery phrase/i)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /saved this hex seed/i }));
-  fireEvent.change(screen.getByLabelText(/re-enter the 64-character hex seed/i), {
-    target: { value: RAW_SEED.toUpperCase() },
-  });
-  fireEvent.click(screen.getByRole("button", { name: /verify/i }));
+  expect(await screen.findByText(/24-word recovery phrase/i)).toBeInTheDocument();
+  const words = SEED.split(" ");
+  for (const word of words) expect(screen.getByText(word)).toBeInTheDocument();
+  expect(screen.queryByText(/hex/i)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /saved my seed phrase/i }));
+
+  const verify = screen.getByRole("button", { name: /verify/i });
+  const inputs = screen.getAllByPlaceholderText(/enter word #/i);
+  expect(inputs).toHaveLength(4);
+  for (const input of inputs) {
+    const n = Number(/#(\d+)/.exec(input.getAttribute("placeholder") ?? "")?.[1]);
+    expect(verify).toBeDisabled();
+    fireEvent.change(input, { target: { value: words[n - 1].toUpperCase() } });
+  }
+  expect(verify).toBeEnabled();
+  fireEvent.click(verify);
   expect(await screen.findByRole("heading", { name: /wallet is ready/i })).toBeInTheDocument();
 }
 
 describe("CreateWallet testnet backup and address", () => {
-  it("shows the hex seed and confirms it by re-entry, not as a word", async () => {
-    await reachDoneWithRawSeed();
+  it("shows the 24 words on testnet and confirms them as words", async () => {
+    await reachDoneOnTestnet();
     expect(screen.getByText("shekyl1test")).toBeInTheDocument();
-    expect(screen.queryByText(/word #/i)).not.toBeInTheDocument();
   });
 
   it("says the address could not be read, and a retry can still show it", async () => {
@@ -154,7 +162,7 @@ describe("CreateWallet testnet backup and address", () => {
       if (cmd === "clear_clipboard") return Promise.resolve(false);
       return Promise.resolve(undefined);
     });
-    await reachDoneWithRawSeed();
+    await reachDoneOnTestnet();
     expect(screen.getByText(/copy the address from Receive/i)).toBeInTheDocument();
     expect(screen.queryByText("shekyl1test")).not.toBeInTheDocument();
     expect(screen.queryByText("Reading your address…")).not.toBeInTheDocument();

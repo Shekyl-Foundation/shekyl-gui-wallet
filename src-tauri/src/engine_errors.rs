@@ -180,7 +180,7 @@ mod tests {
         );
     }
 
-    use shekyl_rpc_client::{DaemonNetwork, IdentityMismatch};
+    use shekyl_rpc_client::{IdentityMismatch, Network};
 
     fn daemon_failure(fault: DaemonFault) -> RefreshError {
         RefreshError::Io(IoError::Daemon {
@@ -194,8 +194,8 @@ mod tests {
     #[test]
     fn an_identity_refusal_is_recognised_by_type_and_names_its_remedy() {
         let refused = daemon_failure(DaemonFault::Identity(IdentityMismatch::Network {
-            ours: DaemonNetwork::Stagenet,
-            theirs: DaemonNetwork::Mainnet,
+            ours: Network::Stagenet,
+            theirs: Network::Mainnet,
         }));
         assert!(is_identity_refusal(&refused));
         let msg = map_refresh_err(refused);

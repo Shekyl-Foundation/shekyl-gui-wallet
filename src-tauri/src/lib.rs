@@ -49,6 +49,7 @@ mod message_signing;
 mod multisig;
 mod proofs;
 mod receiving;
+mod seed_phrase;
 mod send;
 mod shard_coverage;
 mod shard_visual;
