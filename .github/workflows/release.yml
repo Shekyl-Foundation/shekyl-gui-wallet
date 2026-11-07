@@ -109,7 +109,7 @@ jobs:
           git -C ../shekyl-core submodule update --init --recursive --depth 1 --quiet
           echo "shekyl-core at $(git -C ../shekyl-core rev-parse HEAD)"
 
-      # Install the pinned toolchain *before* any cmake -j / make depends.
+      # Install the pinned toolchain *before* the sidecar's cargo build.
       # shekyl-core's rust/rust-toolchain.toml is channel-only for this
       # reason: parallel Cargo invocations race rustup's
       # ~/.rustup/downloads/ ("could not rename ...partial") if 1.94.0 is
@@ -126,128 +126,62 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: |
+            ./src-tauri -> target
+            ../shekyl-core/rust -> target
 
-      # ── Linux: use contrib/depends for all third-party libs ──
+      # ── The daemon sidecar: shekyld, built by cargo ──
+      # shekyld is all Rust. This is the command core's own build runs
+      # (cmake/BuildRust.cmake), and its only native code is `ring`'s C,
+      # which each runner's C compiler builds: no C++ toolchain and no
+      # third-party libraries are installed for it. It runs in core's rust/,
+      # so core's .cargo/config.toml applies (the static MSVC runtime on
+      # Windows, as the CMake build's -DSTATIC=ON gave).
 
       - name: Install Linux build tools and Tauri system deps
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential libtool cmake autotools-dev automake \
-            pkg-config ccache python3 gperf bsdmainutils curl bzip2 \
+            build-essential pkg-config \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             libdbus-1-dev libharfbuzz-dev libudev-dev
 
-      - name: Compute depends cache key
-        if: startsWith(matrix.platform, 'ubuntu')
-        id: depends-key
-        run: echo "hash=$(cat ../shekyl-core/contrib/depends/packages/*.mk | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache depends prefix
-        if: startsWith(matrix.platform, 'ubuntu')
-        uses: actions/cache@v6
-        id: depends-cache
-        with:
-          path: ${{ github.workspace }}/../shekyl-core/contrib/depends/built
-          key: depends-x86_64-linux-gnu-${{ steps.depends-key.outputs.hash }}
-          restore-keys: |
-            depends-x86_64-linux-gnu-
-
-      - name: Build shekyl-core with depends (all deps from source, static)
-        if: startsWith(matrix.platform, 'ubuntu')
-        working-directory: ../shekyl-core
-        run: make depends target=x86_64-unknown-linux-gnu -j$(nproc)
-
-      - name: Place sidecar binary (Linux)
-        if: startsWith(matrix.platform, 'ubuntu')
-        run: |
-          mkdir -p src-tauri/binaries
-          cp ../shekyl-core/build/x86_64-unknown-linux-gnu/release/bin/shekyld \
-             src-tauri/binaries/shekyld-x86_64-unknown-linux-gnu
-
-      # ── macOS: Homebrew for now (depends cross-build is stretch goal) ──
-
-      - name: Install macOS build dependencies
-        if: startsWith(matrix.platform, 'macos')
-        run: |
-          brew install --quiet cmake boost hidapi openssl libpgm \
-            miniupnpc expat protobuf abseil ccache libsodium unbound
-
-      - name: Build Shekyl daemon sidecar (macOS)
-        if: startsWith(matrix.platform, 'macos')
+      - name: Build the daemon sidecar
+        shell: bash
+        working-directory: ../shekyl-core/rust
         env:
-          OPENSSL_ROOT_DIR: ${{ runner.temp }}/_brew_openssl
+          SIDECAR_TARGET: ${{ matrix.tauri_target }}
         run: |
-          ln -sf "$(brew --prefix openssl@3)" "$OPENSSL_ROOT_DIR"
-          cmake -S ../shekyl-core -B ../shekyl-core/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_TESTS=OFF \
-            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"
-          cmake --build ../shekyl-core/build --target daemon -- -j$(sysctl -n hw.logicalcpu)
+          target_args=()
+          if [ -n "$SIDECAR_TARGET" ]; then target_args=(--target "$SIDECAR_TARGET"); fi
+          cargo build --locked --release -p shekyld "${target_args[@]}"
 
-      - name: Place sidecar binary (macOS)
-        if: startsWith(matrix.platform, 'macos')
+      # Tauri finds a sidecar as binaries/<name>-<target triple>[.exe]: the
+      # matrix's target where it names one (macOS), else the host's.
+      - name: Place the sidecar binary
+        shell: bash
+        env:
+          SIDECAR_TARGET: ${{ matrix.tauri_target }}
         run: |
+          if [ -n "$SIDECAR_TARGET" ]; then
+            triple="$SIDECAR_TARGET"; out="../shekyl-core/rust/target/$triple/release"
+          else
+            triple="$(rustc -vV | sed -n 's/^host: //p')"; out="../shekyl-core/rust/target/release"
+          fi
+          exe=""
+          case "$triple" in *windows*) exe=".exe" ;; esac
           mkdir -p src-tauri/binaries
-          cp ../shekyl-core/build/bin/shekyld \
-             src-tauri/binaries/shekyld-aarch64-apple-darwin
+          cp "$out/shekyld$exe" "src-tauri/binaries/shekyld-$triple$exe"
+          echo "sidecar: src-tauri/binaries/shekyld-$triple$exe"
 
       # ── Common: Node, frontend ──
-      # Rust is installed before the daemon cmake / make depends (above).
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
-
-      # ── Windows: vcpkg + MSVC ──
-
-      - name: vcpkg cache
-        if: startsWith(matrix.platform, 'windows')
-        uses: actions/cache@v6
-        with:
-          path: |
-            C:\vcpkg\downloads
-            C:\vcpkg\installed
-            C:\vcpkg\archives
-          key: vcpkg-x64-windows-static-${{ hashFiles('.github/workflows/release.yml') }}
-          restore-keys: vcpkg-x64-windows-static-
-
-      - name: Install Windows build dependencies
-        if: startsWith(matrix.platform, 'windows')
-        shell: pwsh
-        env:
-          VCPKG_BINARY_SOURCES: clear;files,C:\vcpkg\archives,readwrite
-        run: |
-          vcpkg install --triplet x64-windows-static --overlay-ports="${{ github.workspace }}/../shekyl-core/vcpkg-overlay/ports" boost openssl libsodium libusb lmdb
-
-      - name: Build Shekyl daemon sidecar (Windows / MSVC)
-        if: startsWith(matrix.platform, 'windows')
-        shell: pwsh
-        run: |
-          cmake -S ..\shekyl-core -B ..\shekyl-core\build `
-            -G "Visual Studio 18 2026" -A x64 `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DSTATIC=ON `
-            -DBUILD_SHARED_LIBS=OFF `
-            -DBUILD_TESTS=OFF `
-            -DSTACK_TRACE=OFF `
-            -DUSE_DEVICE_TREZOR=OFF `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows-static
-          cmake --build ..\shekyl-core\build --config Release --target daemon --parallel 2
-
-      - name: Place sidecar binary (Windows)
-        if: startsWith(matrix.platform, 'windows')
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path src-tauri\binaries | Out-Null
-          Copy-Item ..\shekyl-core\build\bin\Release\shekyld.exe `
-                    src-tauri\binaries\shekyld-x86_64-pc-windows-msvc.exe
 
       - name: Install frontend dependencies
         run: npm ci
