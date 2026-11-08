@@ -443,10 +443,36 @@ def check_installed(args):
         raise Refused("the bundled daemon cannot pin the bundled Tor")
     # The pin is the bytes; this is that they run where they were put, with
     # the libraries beside them.
-    proc = run([str(tor), "--version"])
+    proc = run_tor_version(tor)
     print(proc.stdout.strip())
     if proc.returncode != 0 or not proc.stdout.startswith("Tor version"):
         raise Refused(f"the bundled Tor does not run: {(proc.stdout + proc.stderr).strip()[:300]}")
+
+
+def run_tor_version(tor):
+    """`tor --version`, started the way core's managed launcher starts Tor
+    (`shekyl-tor-control-client` `control/launch.rs`): an environment holding
+    only what tor needs, never the caller's. On Linux that is
+    `LD_LIBRARY_PATH` naming tor's own directory, since the Expert Bundle's
+    tor has no RPATH; on Windows `SystemRoot`; everywhere `OPENSSL_CONF`
+    naming a blank file. With the caller's environment, a machine that has
+    libevent and OpenSSL installed would load those instead and hide a
+    bundle that cannot find its own."""
+    tor = tor.resolve()
+    with tempfile.TemporaryDirectory() as d:
+        blank = Path(d) / "openssl.cnf"
+        blank.write_text("", encoding="ascii")
+        return run([str(tor), "--version"], env=launch_env(tor, blank, sys.platform, os.environ))
+
+
+def launch_env(tor, blank, platform, parent):
+    """The environment tor starts with: built, never copied from `parent`."""
+    env = {"OPENSSL_CONF": str(blank)}
+    if platform.startswith("linux"):
+        env["LD_LIBRARY_PATH"] = str(tor.parent)
+    if platform == "win32":
+        env["SystemRoot"] = parent["SystemRoot"]
+    return env
 
 
 # ── Entry ──────────────────────────────────────────────────────────────────

@@ -174,6 +174,22 @@ def fake_runtime():
     return bytes(head)
 
 
+class LaunchEnvTests(unittest.TestCase):
+    PARENT = {"PATH": "/usr/bin", "LD_LIBRARY_PATH": "/elsewhere", "SystemRoot": "C:\\Windows"}
+
+    def test_linux_points_the_loader_at_tor_s_own_directory_only(self):
+        env = ca.launch_env(Path("/b/tor/tor"), Path("/t/blank"), "linux", self.PARENT)
+        self.assertEqual(env, {"OPENSSL_CONF": "/t/blank", "LD_LIBRARY_PATH": "/b/tor"})
+
+    def test_windows_carries_system_root_and_nothing_else_of_the_parent(self):
+        env = ca.launch_env(Path("/b/tor/tor.exe"), Path("/t/blank"), "win32", self.PARENT)
+        self.assertEqual(env, {"OPENSSL_CONF": "/t/blank", "SystemRoot": "C:\\Windows"})
+
+    def test_macos_takes_nothing_from_the_parent(self):
+        env = ca.launch_env(Path("/b/tor/tor"), Path("/t/blank"), "darwin", self.PARENT)
+        self.assertEqual(env, {"OPENSSL_CONF": "/t/blank"})
+
+
 class ElfTests(unittest.TestCase):
     def test_the_runtime_ends_after_its_section_headers(self):
         head = bytearray(fake_runtime())
