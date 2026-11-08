@@ -39,15 +39,19 @@ export type OpenRefusal =
   | { kind: "wrong_password"; message: string }
   | { kind: "other"; message: string };
 
-/** A rejected `open_wallet` as an [`OpenRefusal`]; anything else is `other`. */
+/**
+ * A rejected `open_wallet` as an [`OpenRefusal`]. Anything without a known
+ * `kind` is `other`, keeping its `message` when it has one (a transport
+ * error is an object with a message and no kind).
+ */
 export function asOpenRefusal(e: unknown): OpenRefusal {
   if (typeof e === "object" && e !== null) {
     const { kind, message } = e as { kind?: unknown; message?: unknown };
-    if (
-      typeof message === "string" &&
-      (kind === "earlier_release" || kind === "wrong_password" || kind === "other")
-    ) {
-      return { kind, message };
+    if (typeof message === "string") {
+      if (kind === "earlier_release" || kind === "wrong_password" || kind === "other") {
+        return { kind, message };
+      }
+      return { kind: "other", message };
     }
   }
   return { kind: "other", message: String(e) };

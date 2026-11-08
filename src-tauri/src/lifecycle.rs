@@ -343,6 +343,15 @@ mod tests {
         );
     }
 
+    /// A directory removed when the test ends, passed or not.
+    struct ScratchDir(std::path::PathBuf);
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     /// A wallet file made by the alpha.11 release (`tests/fixtures/alpha11-wallet`),
     /// opened through the command's own body. It is refused as an earlier
     /// release's file, with the sentence and not a code, and nothing opens.
@@ -354,28 +363,29 @@ mod tests {
 
         let fixture =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/alpha11-wallet");
-        let dir = std::env::temp_dir().join(format!(
+        let dir = ScratchDir(std::env::temp_dir().join(format!(
             "shekyl-gui-alpha11-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
+        )));
+        std::fs::create_dir_all(&dir.0).unwrap();
         for f in ["alpha11.wallet", "alpha11.wallet.keys"] {
-            std::fs::copy(fixture.join(f), dir.join(f)).unwrap();
+            std::fs::copy(fixture.join(f), dir.0.join(f)).unwrap();
         }
+        // The fixture carries its own password (see its README).
+        let password = std::fs::read_to_string(fixture.join("password")).unwrap();
 
         let state = AppState::new();
-        *state.wallet_dir.write().await = dir.clone();
+        *state.wallet_dir.write().await = dir.0.clone();
         *state.network.write().await = NetworkType::Testnet;
         *state.daemon_url.write().await = "http://127.0.0.1:1/json_rpc".into();
 
-        let refused = open_wallet_in(&state, "alpha11".into(), "fixture-password".into())
+        let refused = open_wallet_in(&state, "alpha11".into(), password)
             .await
             .expect_err("an alpha.11 wallet file does not open");
-        std::fs::remove_dir_all(&dir).unwrap();
 
         assert_eq!(
             refused,
@@ -388,7 +398,7 @@ mod tests {
         assert!(!wire["message"]
             .as_str()
             .unwrap()
-            .contains(dir.to_str().unwrap()));
+            .contains(dir.0.to_str().unwrap()));
         assert!(!*state.wallet_open.read().await);
         assert!(state.wallet_name.read().await.is_none());
     }

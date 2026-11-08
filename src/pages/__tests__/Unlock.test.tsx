@@ -79,6 +79,15 @@ describe("Unlock", () => {
     expect(screen.getByText(/forgot your password/i)).toBeInTheDocument();
   });
 
+  it("keeps the message of an error object that has no kind", async () => {
+    openWallet.mockRejectedValue({ message: "the connection to the backend was lost" });
+    renderPage();
+    unlock();
+
+    expect(await screen.findByText("the connection to the backend was lost")).toBeInTheDocument();
+    expect(screen.queryByText("[object Object]")).not.toBeInTheDocument();
+  });
+
   it("does not take a message that mentions a password for a wrong password", async () => {
     openWallet.mockRejectedValue("the password file could not be read");
     renderPage();
