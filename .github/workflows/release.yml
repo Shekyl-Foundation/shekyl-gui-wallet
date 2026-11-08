@@ -195,7 +195,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            rpm2cpio cpio squashfs-tools
+            libarchive-tools squashfs-tools
 
       - uses: actions/setup-python@v6
         with:
@@ -326,15 +326,17 @@ jobs:
             python scripts/release/core_archive.py check-installed \
               --shekyld "${daemons[0]}" --tor-file "${tors[0]}/tor"
           }
-          deb="$RUNNER_TEMP/deb"; dpkg-deb -x "$DEB" "$deb"; check "$deb" .deb
+          deb="$RUNNER_TEMP/deb"
+          dpkg-deb -x "$DEB" "$deb" || { echo "::error::cannot unpack $DEB"; exit 1; }
+          check "$deb" .deb
           rpm="$RUNNER_TEMP/rpm"; mkdir "$rpm"
-          rpm2cpio "$(realpath "$RPM")" > "$RUNNER_TEMP/payload.cpio"
-          (cd "$rpm" && cpio -idm --quiet < "$RUNNER_TEMP/payload.cpio")
+          bsdtar -xf "$RPM" -C "$rpm" || { echo "::error::cannot unpack $RPM"; exit 1; }
           check "$rpm" .rpm
           # Unpacked from its squashfs, never run: running an AppImage starts
           # the app.
           app="$RUNNER_TEMP/appimage"
-          python scripts/release/core_archive.py appimage-unpack --appimage "$APPIMAGE" --dest "$app"
+          python scripts/release/core_archive.py appimage-unpack --appimage "$APPIMAGE" --dest "$app" \
+            || { echo "::error::cannot unpack $APPIMAGE"; exit 1; }
           check "$app" .AppImage
 
       - name: Upload Linux bundles to release
