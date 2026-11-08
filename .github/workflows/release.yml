@@ -201,7 +201,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            rpm2cpio cpio
+            rpm2cpio cpio squashfs-tools
 
       - uses: actions/setup-python@v6
         with:
@@ -241,9 +241,26 @@ jobs:
 
       # ── Linux: build Tauri and upload artifacts manually ──
 
+      # The .deb and .rpm carry Tor as resources, copied as they are. The
+      # AppImage cannot: Tauri's AppImage step runs linuxdeploy over every
+      # ELF file in the AppDir, and it re-paths Tor's, which the pin then
+      # refuses. So the AppImage is built without Tor, and core_archive.py
+      # puts the placed tor/ into its squashfs afterwards, under the same
+      # resource directory the .deb uses.
       - name: Build Tauri app (Linux)
         if: startsWith(matrix.platform, 'ubuntu')
-        run: npx tauri build --config "$RELEASE_CONFIG"
+        run: |
+          set -euo pipefail
+          npx tauri build --bundles deb,rpm --config "$RELEASE_CONFIG"
+          npx tauri build --bundles appimage
+          appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          if [ "${#appimages[@]}" -ne 1 ] || [ ! -f "${appimages[0]}" ]; then
+            echo "::error::expected one AppImage, found ${appimages[*]}"
+            exit 1
+          fi
+          python scripts/release/core_archive.py appimage-add-tor \
+            --appimage "${appimages[0]}" --binaries src-tauri/binaries \
+            --tauri-conf src-tauri/tauri.conf.json
 
       # Backend integration tests that need a live `shekyld` sidecar are
       # marked `#[ignore]`, so the fast CI job (ci.yml) skips them. They run
@@ -320,10 +337,11 @@ jobs:
           rpm2cpio "$(realpath "$RPM")" > "$RUNNER_TEMP/payload.cpio"
           (cd "$rpm" && cpio -idm --quiet < "$RUNNER_TEMP/payload.cpio")
           check "$rpm" .rpm
-          app="$RUNNER_TEMP/appimage"; mkdir "$app"; cp "$APPIMAGE" "$app/app.AppImage"
-          chmod +x "$app/app.AppImage"
-          (cd "$app" && ./app.AppImage --appimage-extract > /dev/null)
-          check "$app/squashfs-root" .AppImage
+          # Unpacked from its squashfs, never run: running an AppImage starts
+          # the app.
+          app="$RUNNER_TEMP/appimage"
+          python scripts/release/core_archive.py appimage-unpack --appimage "$APPIMAGE" --dest "$app"
+          check "$app" .AppImage
 
       - name: Upload Linux bundles to release
         if: startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push'

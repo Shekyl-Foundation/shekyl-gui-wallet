@@ -51,6 +51,16 @@ without starting Tor, so a Tor it cannot pin fails the release.
 `tor/` stays out of `tauri.conf.json` so that dev builds and CI need no
 Tor. Only the release passes `--config src-tauri/tauri.release.conf.json`.
 
+The AppImage is the exception. Tauri's AppImage step runs `linuxdeploy`
+over every ELF file in the AppDir, and it re-paths Tor's files, so their
+bytes no longer match the pin. The release therefore builds the `.deb` and
+`.rpm` with the release config, builds the AppImage without it, and then
+runs `core_archive.py appimage-add-tor`. That command puts `tor/` and
+`tor-licenses/` into the AppImage's squashfs under `usr/lib/<productName>/`,
+the resource directory Tauri reads on Linux, and keeps the runtime as it
+was. The after-bundle check unpacks the AppImage with
+`core_archive.py appimage-unpack` rather than running it.
+
 ## At run time
 
 `DaemonManager` (`src-tauri/src/daemon_manager.rs`) starts the sidecar with

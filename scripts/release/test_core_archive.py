@@ -166,6 +166,73 @@ class UnpackPlaceTests(TmpCase):
             ca.archive_for(self.tmp, "x86_64-linux-gnu")
 
 
+def fake_runtime():
+    """A 64-byte ELF64 header with no section headers: the runtime ends at 64."""
+    head = bytearray(64)
+    head[:6] = b"\x7fELF\x02\x01"
+    head[0x28:0x30] = (64).to_bytes(8, "little")
+    return bytes(head)
+
+
+class ElfTests(unittest.TestCase):
+    def test_the_runtime_ends_after_its_section_headers(self):
+        head = bytearray(fake_runtime())
+        head[0x28:0x30] = (1000).to_bytes(8, "little")
+        head[0x3A:0x3C] = (64).to_bytes(2, "little")
+        head[0x3C:0x3E] = (3).to_bytes(2, "little")
+        self.assertEqual(ca.elf_end(bytes(head)), 1000 + 64 * 3)
+
+    def test_a_file_that_is_not_elf64_is_refused(self):
+        with self.assertRaisesRegex(ca.Refused, "not a 64-bit"):
+            ca.elf_end(b"MZ" + bytes(62))
+
+
+@unittest.skipUnless(shutil.which("mksquashfs") and shutil.which("unsquashfs"), "squashfs-tools is not installed")
+class AppImageTests(TmpCase):
+    def setUp(self):
+        super().setUp()
+        root = self.tmp / "root"
+        (root / "usr" / "bin").mkdir(parents=True)
+        (root / "usr" / "bin" / "app").write_bytes(b"app")
+        image = self.tmp / "image.sqfs"
+        subprocess.run(["mksquashfs", str(root), str(image), "-quiet", "-comp", "gzip"],
+                       check=True, capture_output=True)
+        self.appimage = self.tmp / "app.AppImage"
+        self.appimage.write_bytes(fake_runtime() + image.read_bytes())
+        self.bins = self.tmp / "binaries"
+        (self.bins / "tor").mkdir(parents=True)
+        (self.bins / "tor" / "tor").write_bytes(b"pinned tor")
+        (self.bins / "tor" / "tor").chmod(0o755)
+        (self.bins / "tor-licenses").mkdir()
+        (self.bins / "tor-licenses" / "tor.txt").write_bytes(b"licence")
+        self.conf = self.tmp / "tauri.conf.json"
+        self.conf.write_text('{"productName": "Shekyl Wallet"}', encoding="utf-8")
+
+    def args(self, **kw):
+        return type("A", (), dict(appimage=self.appimage, binaries=self.bins, tauri_conf=self.conf, **kw))
+
+    def test_tor_goes_in_under_the_resource_directory_with_the_runtime_kept(self):
+        ca.appimage_add_tor(self.args())
+        self.assertEqual(self.appimage.read_bytes()[:64], fake_runtime())
+        out = self.tmp / "out"
+        ca.appimage_unpack(type("A", (), dict(appimage=self.appimage, dest=out)))
+        tor = out / "usr" / "lib" / "Shekyl Wallet" / "tor" / "tor"
+        self.assertEqual(tor.read_bytes(), b"pinned tor")
+        self.assertTrue(os.stat(tor).st_mode & 0o100)
+        self.assertEqual((out / "usr" / "bin" / "app").read_bytes(), b"app")
+        self.assertTrue((out / "usr" / "lib" / "Shekyl Wallet" / "tor-licenses" / "tor.txt").is_file())
+
+    def test_an_appimage_that_already_holds_tor_is_refused(self):
+        ca.appimage_add_tor(self.args())
+        with self.assertRaisesRegex(ca.Refused, "already holds tor/"):
+            ca.appimage_add_tor(self.args())
+
+    def test_an_appimage_with_no_squashfs_after_its_runtime_is_refused(self):
+        self.appimage.write_bytes(fake_runtime() + b"not a squashfs")
+        with self.assertRaisesRegex(ca.Refused, "no squashfs"):
+            ca.appimage_add_tor(self.args())
+
+
 @unittest.skipUnless(shutil.which("gpg"), "gpg is not installed")
 class SignatureTests(TmpCase):
     def key(self, home, name):

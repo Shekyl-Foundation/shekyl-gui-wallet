@@ -34,6 +34,12 @@ Commands:
                            its digest. One Linux job runs this for every
                            installer, so the signature check has one home.
   place --archive A ...    unpack a checked archive and place it for Tauri.
+  appimage-unpack ...      unpack an AppImage's files without running it.
+  appimage-add-tor ...     put the placed tor/ and tor-licenses/ into a built
+                           AppImage. Tauri's AppImage step runs linuxdeploy
+                           over every ELF file in the AppDir, and it re-paths
+                           Tor's, which the pin then refuses; so the AppImage
+                           is built without Tor and Tor goes in afterwards.
   check-installed ...      run a bundled `shekyld --config-verify` against
                            the bundled Tor, and refuse if the daemon cannot
                            pin it.
@@ -326,6 +332,90 @@ def place_cmd(args):
         print(f"  {d + '/':14} {', '.join(names)}")
 
 
+# ── The AppImage's Tor ─────────────────────────────────────────────────────
+
+
+def elf_end(head):
+    """Where a 64-bit little-endian ELF file ends: past its section headers.
+    An AppImage's squashfs starts there, after the runtime."""
+    if head[:4] != b"\x7fELF" or head[4] != 2 or head[5] != 1:
+        raise Refused("the AppImage's runtime is not a 64-bit little-endian ELF file")
+    shoff = int.from_bytes(head[0x28:0x30], "little")
+    shentsize = int.from_bytes(head[0x3A:0x3C], "little")
+    shnum = int.from_bytes(head[0x3C:0x3E], "little")
+    return shoff + shentsize * shnum
+
+
+def squashfs_settings(image):
+    """The compression and block size `image` was made with."""
+    proc = run(["unsquashfs", "-s", str(image)])
+    if proc.returncode != 0:
+        raise Refused(f"`unsquashfs -s` failed: {proc.stderr.strip()[:300]}")
+    comp = re.search(r"^Compression (\S+)$", proc.stdout, re.M)
+    block = re.search(r"^Block size (\d+)$", proc.stdout, re.M)
+    if not comp or not block:
+        raise Refused("`unsquashfs -s` names no compression or block size")
+    return comp.group(1), block.group(1)
+
+
+def appimage_image(appimage, work):
+    """Write the squashfs behind `appimage`'s runtime to `work` and return
+    (runtime bytes, image path). The AppImage is never run."""
+    data = appimage.read_bytes()
+    end = elf_end(data[:64])
+    if data[end:end + 4] != b"hsqs":
+        raise Refused(f"{appimage.name} has no squashfs after its runtime")
+    image = work / "image.sqfs"
+    image.write_bytes(data[end:])
+    return data[:end], image
+
+
+def unsquash(image, dest):
+    proc = run(["unsquashfs", "-q", "-d", str(dest), str(image)])
+    if proc.returncode != 0:
+        raise Refused(f"`unsquashfs` failed: {proc.stderr.strip()[:300]}")
+
+
+def appimage_unpack(args):
+    work = Path(tempfile.mkdtemp(prefix="appimage-"))
+    _, image = appimage_image(args.appimage, work)
+    unsquash(image, args.dest)
+    shutil.rmtree(work)
+
+
+def appimage_add_tor(args):
+    product = json.loads(args.tauri_conf.read_text(encoding="utf-8"))["productName"]
+    work = Path(tempfile.mkdtemp(prefix="appimage-"))
+    runtime, image = appimage_image(args.appimage, work)
+    comp, block = squashfs_settings(image)
+    root = work / "root"
+    unsquash(image, root)
+    # Tauri's resource directory on Linux: `../lib/<productName>` beside the
+    # executable, as in the .deb.
+    resources = root / "usr" / "lib" / product
+    resources.mkdir(parents=True, exist_ok=True)
+    for d in ("tor", "tor-licenses"):
+        if (resources / d).exists():
+            raise Refused(f"the AppImage already holds {d}/; build it without the release config")
+        shutil.copytree(args.binaries / d, resources / d)
+    rebuilt = work / "rebuilt.sqfs"
+    proc = run([
+        "mksquashfs", str(root), str(rebuilt), "-root-owned", "-noappend",
+        "-comp", comp, "-b", block, "-quiet",
+    ])
+    if proc.returncode != 0:
+        raise Refused(f"`mksquashfs` failed: {proc.stderr.strip()[:300]}")
+    out = args.appimage.with_name(args.appimage.name + ".new")
+    with open(out, "wb") as f:
+        f.write(runtime)
+        f.write(rebuilt.read_bytes())
+    out.chmod(0o755)
+    out.replace(args.appimage)
+    shutil.rmtree(work)
+    print(f"core_archive: added tor/ and tor-licenses/ to {args.appimage.name} "
+          f"under usr/lib/{product}/ ({comp}, block {block})")
+
+
 # ── The installed daemon pins the installed Tor ────────────────────────────
 
 
@@ -351,6 +441,12 @@ def check_installed(args):
         raise Refused(f"`shekyld --config-verify` exited {proc.returncode}")
     if "warning: managed Tor" in out:
         raise Refused("the bundled daemon cannot pin the bundled Tor")
+    # The pin is the bytes; this is that they run where they were put, with
+    # the libraries beside them.
+    proc = run([str(tor), "--version"])
+    print(proc.stdout.strip())
+    if proc.returncode != 0 or not proc.stdout.startswith("Tor version"):
+        raise Refused(f"the bundled Tor does not run: {(proc.stdout + proc.stderr).strip()[:300]}")
 
 
 # ── Entry ──────────────────────────────────────────────────────────────────
@@ -377,6 +473,15 @@ def main(argv=None):
     cmd.add_argument("--tauri-triple", required=True)
     cmd.add_argument("--binaries", required=True, type=Path)
 
+    cmd = sub.add_parser("appimage-add-tor")
+    cmd.add_argument("--appimage", required=True, type=Path)
+    cmd.add_argument("--binaries", required=True, type=Path, help="place's output")
+    cmd.add_argument("--tauri-conf", required=True, type=Path)
+
+    cmd = sub.add_parser("appimage-unpack")
+    cmd.add_argument("--appimage", required=True, type=Path)
+    cmd.add_argument("--dest", required=True, type=Path)
+
     cmd = sub.add_parser("check-installed")
     cmd.add_argument("--shekyld", required=True, type=Path)
     cmd.add_argument("--tor-file", required=True, type=Path)
@@ -391,6 +496,10 @@ def main(argv=None):
             fetch(args)
         elif args.command == "place":
             place_cmd(args)
+        elif args.command == "appimage-unpack":
+            appimage_unpack(args)
+        elif args.command == "appimage-add-tor":
+            appimage_add_tor(args)
         else:
             check_installed(args)
     except Refused as exc:
