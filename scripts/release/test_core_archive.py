@@ -58,8 +58,26 @@ class RunTests(unittest.TestCase):
     def good(self):
         return {"path": ca.GITIAN_WORKFLOW, "conclusion": "success", "head_sha": SHA}
 
-    def test_a_passed_gitian_run_gives_its_commit(self):
-        self.assertEqual(ca.check_run(self.good(), 1), SHA)
+    def test_a_passed_gitian_run_is_usable(self):
+        ca.check_run(self.good(), 1)
+
+    def test_an_archive_names_the_build_after_gitian_s_tag_input(self):
+        self.assertEqual(
+            ca.archive_suffix("shekyl-x86_64-linux-gnu-df9910ecb.tar.bz2", "x86_64-linux-gnu"),
+            "df9910ecb",
+        )
+        self.assertEqual(
+            ca.archive_suffix("shekyl-x86_64-w64-mingw32-v3.1.0-alpha.12.zip", "x86_64-w64-mingw32"),
+            "v3.1.0-alpha.12",
+        )
+        with self.assertRaisesRegex(ca.Refused, "not an archive for"):
+            ca.archive_suffix("shekyl-x86_64-linux-gnu-.tar.bz2", "x86_64-linux-gnu")
+
+    def test_the_daemon_reports_the_commit_it_was_built_from(self):
+        line = "Shekyl 'Shekyl NG' (v3.1.0-df9910ecb, protocol 3)\n"
+        self.assertEqual(ca.version_commit(line), "df9910ecb")
+        with self.assertRaisesRegex(ca.Refused, "reports no commit"):
+            ca.version_commit("Shekyl 'Shekyl NG' (v3.1.0, protocol 3)")
 
     def test_another_workflow_is_refused(self):
         run = dict(self.good(), path=".github/workflows/ci.yml")

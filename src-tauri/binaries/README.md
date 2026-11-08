@@ -26,7 +26,11 @@ its digest before anything is unpacked:
 - **A dry run** (`workflow_dispatch`) takes a core gitian run by id,
   `core_gitian_run`. The run must be core's gitian workflow and must have
   passed, and each artifact must match the digest GitHub recorded. The
-  Engine crates compile against the commit that run built.
+  Engine crates compile against the commit the archives were built from,
+  which `core_archive.py archive-commit` reads from the archives themselves:
+  the suffix they share (gitian's `tag` input) resolved in core, and the
+  commit their Linux daemon reports. The run's own `head_sha` is not used,
+  because a dispatch on one commit can build another.
 
 Each build job then runs `core_archive.py place`, which writes:
 
@@ -42,7 +46,8 @@ and checks the staged `tor/` against core's pins with
 ID-signed `tor` and `libevent` (core TB-11). Nothing here re-signs them:
 re-signing changes the bytes, and the pin refuses them.
 
-After the bundle is built, the job reads Tor back out of what ships (the
+After the bundle is built, and before a tag build uploads anything, the
+job reads Tor back out of what ships (the
 `.deb`, `.rpm` and AppImage payloads, the mounted `.dmg`, the installed NSIS
 tree), verifies it against the pins again, and runs the bundled
 `shekyld --config-verify` against it. The daemon reads the pin there

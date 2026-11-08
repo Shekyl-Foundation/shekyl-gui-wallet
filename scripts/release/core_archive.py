@@ -27,9 +27,12 @@ An archive comes from one of two sources, and each has its own digest check:
 
 Commands:
 
-  run-commit --run ID      print the core commit a gitian run built, after
-                           checking the run. The release job checks out that
-                           commit for the Engine crates.
+  archive-commit --archives DIR
+                           print the core commit a dry run's archives were
+                           built from: the suffix they share (gitian's tag
+                           input), resolved in core, and the commit their
+                           Linux daemon reports. The Engine crates compile
+                           against it.
   fetch ... --out DIR      fetch the archive for each named host and check
                            its digest. One Linux job runs this for every
                            installer, so the signature check has one home.
@@ -81,8 +84,6 @@ HOSTS = {
     "aarch64-apple-darwin11": ("macOS", ".tar.bz2"),
 }
 
-# A gitian dry run names its archive by the commit's first nine hex digits.
-RUN_SUFFIX_LEN = 9
 
 
 class Refused(Exception):
@@ -122,14 +123,16 @@ def check_run(run_json, run_id):
         raise Refused(
             f"run {run_id} concluded {run_json.get('conclusion')!r}, not success"
         )
-    sha = run_json.get("head_sha", "")
-    if not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise Refused(f"run {run_id} has no commit: {sha!r}")
-    return sha
 
 
-def run_commit(run_id):
-    return check_run(gh_json(f"repos/{CORE_REPO}/actions/runs/{run_id}"), run_id)
+def archive_suffix(name, host):
+    """What gitian named the archive after: its `tag` input, which the run's
+    `head_sha` need not be (a dispatch on one commit can build another)."""
+    _, ext = HOSTS[host]
+    prefix = f"shekyl-{host}-"
+    if not (name.startswith(prefix) and name.endswith(ext)) or len(name) <= len(prefix) + len(ext):
+        raise Refused(f"{name} is not an archive for {host}")
+    return name[len(prefix):-len(ext)]
 
 
 def artifact_digest(artifact):
@@ -146,7 +149,7 @@ def artifact_digest(artifact):
 def fetch_from_run(run_id, host, work):
     """Download the run's artifact for `host`, check its digest, and return
     the archive inside it."""
-    sha = run_commit(run_id)
+    check_run(gh_json(f"repos/{CORE_REPO}/actions/runs/{run_id}"), run_id)
     artifact_name, ext = HOSTS[host]
     artifact_name = f"gitian-{artifact_name}"
     listing = gh_json(
@@ -172,13 +175,64 @@ def fetch_from_run(run_id, host, work):
     have = sha256_file(zipped)
     if have != want:
         raise Refused(f"{artifact_name}: GitHub recorded {want}, the download is {have}")
-    name = f"shekyl-{host}-{sha[:RUN_SUFFIX_LEN]}{ext}"
     unzipped = work / artifact_name
     with zipfile.ZipFile(zipped) as z:
-        if name not in z.namelist():
-            raise Refused(f"{artifact_name} of run {run_id} holds no {name}")
-        z.extract(name, unzipped)
-    return unzipped / name
+        names = [n for n in z.namelist() if n.startswith(f"shekyl-{host}-") and n.endswith(ext)]
+        if len(names) != 1:
+            raise Refused(f"{artifact_name} of run {run_id} holds {len(names)} archive(s) for {host}")
+        z.extract(names[0], unzipped)
+    return unzipped / names[0]
+
+
+# ── The commit a dry run's archives were built from ────────────────────────
+
+
+def resolve_suffix(suffix):
+    """The full core commit a gitian `tag` input names. A commit prefix or a
+    tag, never a branch: a branch's head moves after the build."""
+    if re.fullmatch(r"[0-9a-f]{7,40}", suffix):
+        commit = gh_json(f"repos/{CORE_REPO}/commits/{suffix}").get("sha", "")
+        if not commit.startswith(suffix):
+            raise Refused(f"{suffix!r} names no core commit")
+    else:
+        obj = gh_json(f"repos/{CORE_REPO}/git/ref/tags/{suffix}").get("object", {})
+        if obj.get("type") == "tag":
+            obj = gh_json(f"repos/{CORE_REPO}/git/tags/{obj.get('sha')}").get("object", {})
+        commit = obj.get("sha", "") if obj.get("type") == "commit" else ""
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise Refused(f"{suffix!r} names no core commit or tag")
+    return commit
+
+
+def version_commit(line):
+    """The commit `shekyld --version` reports: `(v3.1.0-<hex>, protocol N)`."""
+    m = re.search(r"\(v[0-9][^,\s]*-([0-9a-f]{7,40}),", line)
+    if not m:
+        raise Refused(f"`shekyld --version` reports no commit: {line.strip()[:200]!r}")
+    return m.group(1)
+
+
+def archive_commit(args):
+    """Every archive shares one suffix; it resolves to one commit; and the
+    Linux daemon built from it reports that commit."""
+    suffixes = {}
+    for host in HOSTS:
+        suffixes[host] = archive_suffix(archive_for(args.archives, host).name, host)
+    if len(set(suffixes.values())) != 1:
+        raise Refused(f"the archives name different builds: {suffixes}")
+    suffix = next(iter(suffixes.values()))
+    commit = resolve_suffix(suffix)
+    linux = archive_for(args.archives, "x86_64-linux-gnu")
+    work = Path(tempfile.mkdtemp(prefix="core-archive-"))
+    root = unpack(linux, work)
+    proc = run([str(root / "shekyld"), "--version"])
+    if proc.returncode != 0:
+        raise Refused(f"`shekyld --version` exited {proc.returncode}")
+    reported = version_commit(proc.stdout)
+    if not commit.startswith(reported):
+        raise Refused(f"the archives name {commit}, but their daemon reports {reported}")
+    shutil.rmtree(work)
+    print(commit)
 
 
 def foundation_key_block(core):
@@ -482,8 +536,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
-    cmd = sub.add_parser("run-commit")
-    cmd.add_argument("--run", required=True, type=int)
+    cmd = sub.add_parser("archive-commit")
+    cmd.add_argument("--archives", required=True, type=Path, help="fetch's output")
 
     cmd = sub.add_parser("fetch")
     src = cmd.add_mutually_exclusive_group(required=True)
@@ -514,8 +568,8 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
     try:
-        if args.command == "run-commit":
-            print(run_commit(args.run))
+        if args.command == "archive-commit":
+            archive_commit(args)
         elif args.command == "fetch":
             if args.release and args.core is None:
                 parser.error("fetch --release needs --core, for the Foundation key")

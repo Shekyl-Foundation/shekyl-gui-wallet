@@ -35,12 +35,9 @@ jobs:
   create-release:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.release.outputs.release_id }}
     steps:
       - uses: actions/checkout@v7
       - name: Create GitHub Release
-        id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -58,9 +55,6 @@ jobs:
             $PRERELEASE \
             --verify-tag || true
 
-          RELEASE_ID=$(gh release view "$TAG" --json databaseId -q .databaseId)
-          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
-
   # Fetch core's archive for every installer and check its digest, once,
   # on Linux: a tag build verifies `SHA256SUMS.asc` under the Foundation
   # signing subkey, a dry run checks each artifact against the digest
@@ -73,38 +67,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Resolve the core ref
-        id: ref
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          RUN_ID: ${{ inputs.core_gitian_run }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT" = push ]; then
-            echo "ref=$SHEKYL_CORE_REF" >> "$GITHUB_OUTPUT"
-          else
-            commit="$(python3 scripts/release/core_archive.py run-commit --run "$RUN_ID")"
-            echo "gitian run $RUN_ID built shekyl-core $commit"
-            echo "ref=$commit" >> "$GITHUB_OUTPUT"
-          fi
-
-      # The Foundation's public key comes from this checkout's SIGNING.md;
-      # the subkey it must verify under is pinned in core_archive.py.
-      - name: Checkout Shekyl core
-        id: commit
-        env:
-          CORE_REF: ${{ steps.ref.outputs.ref }}
+      # A tag build verifies core's signed manifest, so it reads the
+      # Foundation's public key from the tag's SIGNING.md; the subkey it must
+      # verify under is pinned in core_archive.py.
+      - name: Checkout Shekyl core at the paired tag
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           mkdir ../shekyl-core
           git -C ../shekyl-core init --quiet
           git -C ../shekyl-core remote add origin https://github.com/Shekyl-Foundation/shekyl-core.git
-          git -C ../shekyl-core fetch --depth 1 --quiet origin "$CORE_REF"
+          git -C ../shekyl-core fetch --depth 1 --quiet origin "refs/tags/$SHEKYL_CORE_REF"
           git -C ../shekyl-core checkout --quiet FETCH_HEAD
-          commit="$(git -C ../shekyl-core rev-parse HEAD)"
-          echo "shekyl-core at $commit"
-          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Fetch and check core's archives
         env:
@@ -123,6 +97,26 @@ jobs:
             --host x86_64-w64-mingw32 \
             --host aarch64-apple-darwin11 \
             --out core-archives
+
+      # The commit the Engine crates compile against: the tag's, or for a
+      # dry run the commit its archives were built from (their shared
+      # suffix, gitian's tag input, resolved in core and matched to what the
+      # Linux daemon reports). Never the run's head_sha: a dispatch on one
+      # commit can build another.
+      - name: The core commit
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = push ]; then
+            commit="$(git -C ../shekyl-core rev-parse HEAD)"
+          else
+            commit="$(python3 scripts/release/core_archive.py archive-commit --archives core-archives)"
+          fi
+          echo "core archives built from shekyl-core $commit"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -367,21 +361,14 @@ jobs:
             ${{ steps.linux-bundles.outputs.rpm }}
           if-no-files-found: error
 
-      # ── macOS / Windows: tauri-action uploads to the release made above ──
-
-      - name: Build and upload (macOS / Windows)
-        if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push' }}
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          args: ${{ matrix.args }} --config ${{ env.RELEASE_CONFIG }}
+      # ── macOS / Windows: build, check, then upload what was checked ──
 
       # With no releaseId, tagName or releaseName, tauri-action only builds.
-      - name: Build (macOS / Windows, dry run)
-        if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
-        id: tauri-dry-run
+      # A tag build uploads after the checks below, so an installer whose
+      # Tor the checks refuse is never published.
+      - name: Build (macOS / Windows)
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') }}
+        id: tauri-build
         uses: tauri-apps/tauri-action@v1
         with:
           args: ${{ matrix.args }} --config ${{ env.RELEASE_CONFIG }}
@@ -427,13 +414,41 @@ jobs:
             --shekyld "$dir\shekyld.exe" --tor-file "$dir\tor\tor.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # The checked bundles, under the names the release has always carried:
+      # GitHub turns the spaces in Tauri's file names into dots. The .app goes
+      # up as a tarball named after its .dmg, as tauri-action uploaded it.
+      - name: Upload macOS / Windows bundles to release
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push' }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_PATHS: ${{ steps.tauri-build.outputs.artifactPaths }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          mapfile -t paths < <(jq -r '.[]' <<<"$ARTIFACT_PATHS")
+          uploads=()
+          for path in "${paths[@]}"; do
+            case "$path" in
+              *-setup.exe|*.dmg) uploads+=("$path") ;;
+              *.app)
+                dmgs=("$(dirname "$path")"/../dmg/*.dmg)
+                [ "${#dmgs[@]}" -eq 1 ] && [ -f "${dmgs[0]}" ] || { echo "::error::no one .dmg to name the .app after"; exit 1; }
+                tarball="$(dirname "$path")/$(basename "${dmgs[0]}" .dmg).app.tar.gz"
+                tar -czf "$tarball" -C "$(dirname "$path")" "$(basename "$path")"
+                uploads+=("$tarball") ;;
+            esac
+          done
+          [ "${#uploads[@]}" -gt 0 ] || { echo "::error::nothing to upload from $ARTIFACT_PATHS"; exit 1; }
+          for f in "${uploads[@]}"; do gh release upload "$TAG" "$f" --clobber; done
+
       # artifactPaths is a JSON array; upload-artifact takes one path per line.
       - name: List macOS / Windows bundles (dry run)
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
         id: tauri-bundles
         shell: bash
         env:
-          ARTIFACT_PATHS: ${{ steps.tauri-dry-run.outputs.artifactPaths }}
+          ARTIFACT_PATHS: ${{ steps.tauri-build.outputs.artifactPaths }}
         run: |
           {
             echo 'paths<<BUNDLES'
