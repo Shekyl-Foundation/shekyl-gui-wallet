@@ -8,20 +8,24 @@ shekyl-core).
 
 ---
 
-## Carry core's pinned Tor in the Linux and Windows installers (`GS-1`) — target: pre-genesis
+## Carry core's pinned Tor in every installer (`GS-1`, `GS-5`) — target: pre-genesis
 
 The installers ship `shekyld` as a sidecar with no tor beside it, so every
 GUI user's daemon runs core's TB-2 posture: it starts, holds its own
 transactions, and announces why into a log the GUI never shows (`GS-F1`).
 Ruled (`GS-Q5`, Rick 2026-10-22): the GUI's daemon and Tor come from
-gitian, like every build. The `.deb`, AppImage and Windows installers
-consume core's gitian release archive for their target, verify its digest,
-and carry `tor/` as its own Tauri resource directory with `tor-licenses/`
-beside it; the sidecar is started with `tor-file` naming the resolved
-resource path, so one mechanism holds on every platform.
+gitian, like every build. Every installer, the `.dmg` included (`GS-Q6`,
+Rick 2026-11-08), consumes core's gitian release archive for its target,
+verifies its digest, and carries `tor/` as its own Tauri resource
+directory with `tor-licenses/` beside it; the sidecar is started with
+`tor-file` naming the resolved resource path, so one mechanism holds on
+every platform. On macOS the
+archive's `tor/` holds the Foundation's Developer ID-signed `tor` and
+`libevent` (core TB-11), and the GUI never re-signs them.
 
-**Blocker:** `GS-Q6`, how a signed Tor is made available to the installers,
-is open; and the archive must exist at the paired core tag. The daemon
+**Blocker:** the archive must exist at the paired core tag; for macOS, that
+cut must carry core #1310 (TSR-F18). Until the tag exists, the dry run
+consumes a core gitian run's artifacts by run id. The daemon
 reads `tor-file` on core `dev` and verifies the named binary against the
 pin as it does a discovered one, so the resource is that target's pinned
 bundle, never another tor. Source:
@@ -82,16 +86,6 @@ so it can pair with the RW rename PR.
 
 **Blocker:** `GS-2` (the owner leg). Source:
 [`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4.
-
----
-
-## Carry core's pinned Tor in the macOS installer (`GS-5`) — target: pre-genesis
-
-The `.dmg` carries no tor. It follows `GS-1` once core's macOS pin exists;
-the pin's form is `GS-Q6`.
-
-**Blocker:** core `TB-11`, the macOS pin and launch test; `GS-Q6`. Source:
-[`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §5.
 
 ---
 

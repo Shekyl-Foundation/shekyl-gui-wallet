@@ -4,7 +4,7 @@
 artifacts and rulings. Round 0 read at core `dev` `32cfa46cf` (merge of
 #1150) and `feat/tsr-inc3-lifecycle` `bb774a6` (#1151), GUI `dev`
 `479fa1e` (merge of #45) and `docs/tor-installer-and-status` `1cc7e91`
-(#47). `GS-Q1`…`GS-Q5` ruled by Rick 2026-10-22; `GS-Q6` open. Family
+(#47). `GS-Q1`…`GS-Q5` ruled by Rick 2026-10-22, `GS-Q6` 2026-11-08. Family
 `GS-` (`GS-F` findings, `GS-Q` questions, `GS-0`… GUI increments, `GS-C1`…
 core increments) is registered in core's `IMPLEMENTATION_INDEX.md` §2.
 Code anchors below resolve at the read SHAs.
@@ -148,10 +148,19 @@ installers consume core's gitian release archive for each target
 path-deps still compile against the same core tag.
 
 **GS-Q6 — How is a signed Tor made available to the GUI's installers, and
-what form does the macOS pin take?** OPEN. Raised by `GS-Q5`'s ruling. Tor's
-checksum lists show the Expert Bundle is not code-signed on macOS or Windows,
-while Tor Browser's macOS `.dmg` carries a `tor` signed with Tor's own
-Developer ID under entitlements Tor chose; the pin's form follows the answer.
+what form does the macOS pin take?** Raised by `GS-Q5`'s ruling: the Expert
+Bundle is not code-signed on macOS or Windows.
+*Ruled (Rick, 2026-11-08: "it ships with a signed macOS TOR"):* every
+installer carries Tor, the `.dmg` included, and the signed Tor is core's
+TB-11 (shekyl-core #1167). Both macOS targets are pinned at 15.0.26 with the
+Foundation's Developer ID-signed `tor` and `libevent` (release
+`tor-macos-15.0.26-signed`). Each macOS row of `config/tor_pins.json` holds
+two digest sets: `files`, the signed bytes that ship and that the daemon
+checks at every spawn, and `upstream`, Tor's own, which `tor_bundle.py` ties
+to them. `gitian-osx.yml` stages the signed files into the macOS archive and
+signs nothing. The GUI takes `tor/` from that archive and never re-signs it:
+re-signing changes the bytes, and the pin refuses them. Linux and Windows
+carry Tor's own bytes as pinned.
 
 ## 4. Design for the slice
 
@@ -162,8 +171,8 @@ Developer ID under entitlements Tor chose; the pin's form follows the answer.
   path explicitly, one mechanism on every platform, rather than relying on
   beside-the-executable (Tauri puts `externalBin` and resources in
   different places per platform). The pin is still checked at every spawn.
-  Linux and Windows now; macOS after the macOS pin (TB-11); the macOS pin's
-  form is `GS-Q6`.
+  Every platform, macOS included (`GS-Q6`): the `.dmg` takes the signed
+  `tor/` from core's macOS archive as it is.
 - **One target, one stop (GS-F5, GS-F6).** The GUI's target is "this
   computer" or an explicit node, never a probe ladder. The sidecar is held
   by its child handle, never a raw PID. Stop is the owning connection's
@@ -202,11 +211,11 @@ Developer ID under entitlements Tor chose; the pin's form follows the answer.
 | GS-C2 | core | `GS-Q4`: Status' Tor part and Health's boolean on `get_info`; posture types and `render` into `shekyl-rpc-types`; a typed reason for `Held` beside a usable link (an exhausted epoch pin, or no address-hiding peer yet), in the shape IG-Q72 rules (core `INPUT_GRAMMAR.md`, draft #1162) | increment 3 (#1151), GS-C1 |
 | GS-C3 | core | `GS-Q1`'s leg: the owning connection as an RPC listener kind, owner grant, host-only stop | — |
 | GS-C4 | core | Correct `TSR-Q12`, `TOR_SUPERVISOR.md` §11 and core's FOLLOWUPS row for the RW naming: no leg carries Status to the GUI yet | — |
-| GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file` (Linux, Windows) | `GS-Q6` for the signed Tor; the archive at the paired core tag. `tor-file` is read on core `dev` (`sections/posture.rs` `managed_binary`, `shekyl-daemon/src/tor.rs` `discover_and_verify_at`) and the named path passes the same pin gate as discovery, so the resource must be that target's pinned bundle |
+| GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file`, on every platform (`GS-Q6`) | The archive at the paired core tag; for macOS, that cut carries core #1310 (TSR-F18), without which the hardened runtime kills the signed `tor` at its first onion proof-of-work. `tor-file` is read on core `dev` (`sections/posture.rs` `managed_binary`, `shekyl-daemon/src/tor.rs` `discover_and_verify_at`) and the named path passes the same pin gate as discovery, so the resource must be that target's pinned bundle |
 | GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented" | GS-C3 |
 | GS-3 | GUI | Posture display, held review/verdict/pending, Settings → Network fixes, daemon config | GS-C1, GS-C2, GS-2 |
 | GS-4 | GUI | Wire debt: RK-D1 adoption, `get_info` decode, mining on the owner leg | GS-2 |
-| GS-5 | GUI | macOS installer Tor | the macOS pin (TB-11); its form is `GS-Q6` |
+| GS-5 | GUI | macOS installer Tor: carried by GS-1, by the same mechanism (`GS-Q6`) | GS-1 |
 
 ## 6. Acceptance (real pathways, every platform with an installer)
 
