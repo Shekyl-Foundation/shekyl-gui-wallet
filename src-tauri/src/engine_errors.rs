@@ -12,7 +12,10 @@
 //! nothing was written, because an error a user cannot act on is a failure
 //! of the wallet, not of the user (rule 82).
 
+use serde::Serialize;
+use shekyl_crypto_pq::wallet_envelope::WalletEnvelopeError;
 use shekyl_engine_core::{FirstStakeError, IoError, OpenError, RefreshError};
+use shekyl_engine_file::WalletFileError;
 use shekyl_rpc_client::DaemonFault;
 use shekyl_wallet_contract::error::WalletRpcError;
 
@@ -22,6 +25,59 @@ use shekyl_wallet_contract::error::WalletRpcError;
 /// the engine's own rendering can ("lock held on {path}").
 pub(crate) fn map_open_err(e: OpenError) -> String {
     WalletRpcError::from(e).message()
+}
+
+/// What the Unlock page says when a file predates this release's format.
+///
+/// The engine refuses such a file and never reinterprets it (core
+/// `NETWORK_IDENTITY.md` NI-Q8). Its backup does not bring it back either:
+/// an earlier testnet wallet's hex seed is refused on restore, and earlier
+/// 24 words derive other keys under this release, opening a different,
+/// empty wallet. So the sentence points at a new wallet, not at a restore.
+pub(crate) const EARLIER_RELEASE: &str = "This wallet file was made by an earlier \
+release, and this release cannot open it. Its backup words will not bring this \
+wallet back here either. Create a new wallet to continue.";
+
+/// Why a wallet did not open, typed so the Unlock page branches on the
+/// kind and never on the words (rule 82).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OpenRefusal {
+    /// The file predates this release's format: [`EARLIER_RELEASE`].
+    EarlierRelease { message: String },
+    /// The password does not open the file.
+    WrongPassword { message: String },
+    /// Any other refusal, in the wallet contract's words.
+    Other { message: String },
+}
+
+impl From<String> for OpenRefusal {
+    fn from(message: String) -> Self {
+        Self::Other { message }
+    }
+}
+
+/// An open failure as a typed refusal. The earlier-release case is read
+/// from the envelope's own variant, before the contract mapping folds it
+/// into "version unsupported" with a file that is too new.
+pub(crate) fn open_refusal(e: OpenError) -> OpenRefusal {
+    if matches!(
+        e,
+        OpenError::Io(IoError::WalletFile(WalletFileError::Envelope(
+            WalletEnvelopeError::FormatVersionRetired { .. }
+        )))
+    ) {
+        return OpenRefusal::EarlierRelease {
+            message: EARLIER_RELEASE.to_owned(),
+        };
+    }
+    let contract = WalletRpcError::from(e);
+    let message = contract.message();
+    if matches!(contract, WalletRpcError::InvalidPassword) {
+        OpenRefusal::WrongPassword { message }
+    } else {
+        OpenRefusal::Other { message }
+    }
 }
 
 /// Refresh failures as operator text, by the same contract mapping: a
@@ -239,5 +295,40 @@ mod tests {
             msg.contains("another process"),
             "the remedy names the cause: {msg}"
         );
+    }
+
+    /// The Unlock page reads `kind`; each refusal carries its sentence.
+    #[test]
+    fn a_refusal_crosses_to_the_page_as_its_kind_and_sentence() {
+        let cases = [
+            (
+                OpenRefusal::EarlierRelease {
+                    message: EARLIER_RELEASE.into(),
+                },
+                "earlier_release",
+            ),
+            (
+                OpenRefusal::WrongPassword {
+                    message: "w".into(),
+                },
+                "wrong_password",
+            ),
+            (OpenRefusal::from(String::from("o")), "other"),
+        ];
+        for (refusal, kind) in cases {
+            let wire = serde_json::to_value(&refusal).unwrap();
+            assert_eq!(wire["kind"], kind);
+            assert!(wire["message"].is_string());
+        }
+    }
+
+    /// A wrong password reads as one, by the contract's typed code.
+    #[test]
+    fn a_wrong_password_is_its_own_kind() {
+        use shekyl_engine_core::IoError;
+        let e = OpenError::Io(IoError::WalletFile(WalletFileError::Envelope(
+            WalletEnvelopeError::InvalidPasswordOrCorrupt,
+        )));
+        assert!(matches!(open_refusal(e), OpenRefusal::WrongPassword { .. }));
     }
 }

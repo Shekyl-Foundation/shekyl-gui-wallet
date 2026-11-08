@@ -30,6 +30,30 @@ export interface OpenedWallet {
 }
 
 /**
+ * Why `open_wallet` refused, as the backend types it (`OpenRefusal` in
+ * `src-tauri/src/engine_errors.rs`). The page branches on `kind`, never on
+ * the words.
+ */
+export type OpenRefusal =
+  | { kind: "earlier_release"; message: string }
+  | { kind: "wrong_password"; message: string }
+  | { kind: "other"; message: string };
+
+/** A rejected `open_wallet` as an [`OpenRefusal`]; anything else is `other`. */
+export function asOpenRefusal(e: unknown): OpenRefusal {
+  if (typeof e === "object" && e !== null) {
+    const { kind, message } = e as { kind?: unknown; message?: unknown };
+    if (
+      typeof message === "string" &&
+      (kind === "earlier_release" || kind === "wrong_password" || kind === "other")
+    ) {
+      return { kind, message };
+    }
+  }
+  return { kind: "other", message: String(e) };
+}
+
+/**
  * Wire object `create_wallet` returns. The contract carries the backup once,
  * as `mnemonic` — the seed's 24 BIP-39 words, on every network.
  * [`createdWalletFromWire`] is what the app holds.

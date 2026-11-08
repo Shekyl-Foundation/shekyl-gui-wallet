@@ -21,6 +21,7 @@ use shekyl_engine_core::Capability;
 use tauri::State;
 use zeroize::Zeroizing;
 
+use crate::engine_errors::OpenRefusal;
 use crate::engine_session;
 use crate::seed_phrase;
 use crate::state::{AppState, NetworkType};
@@ -147,7 +148,16 @@ pub async fn open_wallet(
     state: State<'_, AppState>,
     filename: String,
     password: String,
-) -> Result<OpenedWallet, String> {
+) -> Result<OpenedWallet, OpenRefusal> {
+    open_wallet_in(&state, filename, password).await
+}
+
+/// `open_wallet`'s body, on the state alone, so a test can drive it.
+pub(crate) async fn open_wallet_in(
+    state: &AppState,
+    filename: String,
+    password: String,
+) -> Result<OpenedWallet, OpenRefusal> {
     validate::validate_password(&password)?;
 
     let network = *state.network.read().await;
@@ -160,7 +170,8 @@ pub async fn open_wallet(
     if !engine_session::engine_wallet_exists(&wallet_dir, &sanitized) {
         return Err(format!(
             "no wallet found for '{sanitized}' (expected {sanitized}.wallet.keys)"
-        ));
+        )
+        .into());
     }
 
     let daemon = state.daemon_http_base().await;
@@ -330,5 +341,55 @@ mod tests {
             opened.get("address").is_none(),
             "the address has one source: get_primary_address"
         );
+    }
+
+    /// A wallet file made by the alpha.11 release (`tests/fixtures/alpha11-wallet`),
+    /// opened through the command's own body. It is refused as an earlier
+    /// release's file, with the sentence and not a code, and nothing opens.
+    /// The daemon is unreachable on purpose: an outage lets open go on to
+    /// the file, so the verdict is the file's.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_earlier_releases_wallet_is_refused_in_words_that_point_to_a_new_wallet() {
+        use crate::engine_errors::EARLIER_RELEASE;
+
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/alpha11-wallet");
+        let dir = std::env::temp_dir().join(format!(
+            "shekyl-gui-alpha11-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["alpha11.wallet", "alpha11.wallet.keys"] {
+            std::fs::copy(fixture.join(f), dir.join(f)).unwrap();
+        }
+
+        let state = AppState::new();
+        *state.wallet_dir.write().await = dir.clone();
+        *state.network.write().await = NetworkType::Testnet;
+        *state.daemon_url.write().await = "http://127.0.0.1:1/json_rpc".into();
+
+        let refused = open_wallet_in(&state, "alpha11".into(), "fixture-password".into())
+            .await
+            .expect_err("an alpha.11 wallet file does not open");
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(
+            refused,
+            OpenRefusal::EarlierRelease {
+                message: EARLIER_RELEASE.to_owned()
+            }
+        );
+        let wire = serde_json::to_value(&refused).unwrap();
+        assert_eq!(wire["kind"], "earlier_release");
+        assert!(!wire["message"]
+            .as_str()
+            .unwrap()
+            .contains(dir.to_str().unwrap()));
+        assert!(!*state.wallet_open.read().await);
+        assert!(state.wallet_name.read().await.is_none());
     }
 }

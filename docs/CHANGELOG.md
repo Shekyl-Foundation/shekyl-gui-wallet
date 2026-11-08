@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- **An earlier release's wallet file says what to do next.** Opening a
+  wallet file made by an earlier release (alpha.11 and before) now says that
+  this release cannot open it and that its backup words will not bring it
+  back here, and offers "Create a new wallet" on the same screen. Before,
+  it said only that the files were written by a version this build cannot
+  read, and the help line suggested restoring from the 24 words. The Unlock
+  page now reads why a wallet did not open from a typed refusal, not by
+  searching the message for "password".
 - **Every wallet backs up as 24 words, on every network.** Built against
   shekyl-core's network-identity change (one secret, one derivation): a
   wallet's secret is 32 bytes on every network, shown as 24 BIP-39 English

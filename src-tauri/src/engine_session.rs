@@ -20,7 +20,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::engine_daemon::make_daemon;
 use crate::engine_errors::{
-    is_identity_refusal, map_first_stake_err, map_open_err, map_refresh_err,
+    is_identity_refusal, map_first_stake_err, map_open_err, map_refresh_err, open_refusal,
+    OpenRefusal,
 };
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::{
@@ -228,7 +229,9 @@ impl EngineSession {
         Ok(capability)
     }
 
-    /// Open an existing Engine wallet.
+    /// Open an existing Engine wallet. The refusal is typed so the Unlock
+    /// page can tell an earlier release's file and a wrong password from
+    /// the rest without reading the words.
     pub async fn open(
         &mut self,
         wallet_dir: &Path,
@@ -236,12 +239,12 @@ impl EngineSession {
         password: &str,
         network: NetworkType,
         daemon_http_base: &str,
-    ) -> Result<WalletFacts, String> {
+    ) -> Result<WalletFacts, OpenRefusal> {
         self.reject_if_open()?;
 
         let base = engine_wallet_base(wallet_dir, name);
         if !keys_path_from(&base).exists() {
-            return Err("Wallet file not found".into());
+            return Err(String::from("Wallet file not found").into());
         }
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
@@ -258,7 +261,7 @@ impl EngineSession {
                 SafetyOverrides::none(),
             )
         })
-        .map_err(map_open_err)?;
+        .map_err(open_refusal)?;
 
         // Loaded omits the hint. Restored reports `from_height`, including zero.
         let (engine, ledger) = match opened {

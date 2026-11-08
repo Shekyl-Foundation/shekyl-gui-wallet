@@ -1,10 +1,18 @@
 import { useState, useCallback } from "react";
+import { useNavigate } from "react-router";
 import { Lock, Eye, EyeOff, ChevronDown } from "lucide-react";
 import { useWallet } from "../context/useWallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
+import { asOpenRefusal, type OpenRefusal } from "../types/wallet";
+
+/** What the page says for a refusal: a wrong password in the page's own words. */
+function refusalText(r: OpenRefusal): string {
+  return r.kind === "wrong_password" ? "Incorrect password. Please try again." : r.message;
+}
 
 export default function Unlock() {
   const { walletFiles, openWallet, setPhase, error: ctxError } = useWallet();
+  const navigate = useNavigate();
 
   const [selectedFile, setSelectedFile] = useState(
     walletFiles[0]?.name ?? "",
@@ -12,25 +20,17 @@ export default function Unlock() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<OpenRefusal | null>(null);
   const [showPicker, setShowPicker] = useState(false);
 
   const handleUnlock = useCallback(async () => {
     if (!selectedFile || password.length === 0) return;
-    setError(null);
+    setRefusal(null);
     setLoading(true);
     try {
       await openWallet(selectedFile, password);
     } catch (e) {
-      const msg = String(e);
-      if (
-        msg.toLowerCase().includes("password") ||
-        msg.toLowerCase().includes("decrypt")
-      ) {
-        setError("Incorrect password. Please try again.");
-      } else {
-        setError(msg);
-      }
+      setRefusal(asOpenRefusal(e));
     } finally {
       setLoading(false);
     }
@@ -56,10 +56,23 @@ export default function Unlock() {
           <h1 className="text-xl font-bold text-white">Unlock Wallet</h1>
         </div>
 
-        {(error || ctxError) && (
+        {(refusal || ctxError) && (
           <div className="rounded-lg border border-red-500/40 bg-red-900/30 p-3 text-xs text-red-200">
-            {error || ctxError}
+            {refusal ? refusalText(refusal) : ctxError}
           </div>
+        )}
+
+        {/* An earlier release's file: the next step is a new wallet. */}
+        {refusal?.kind === "earlier_release" && (
+          <button
+            onClick={() => {
+              setPhase("no_wallet");
+              navigate("/create");
+            }}
+            className="btn btn-primary w-full"
+          >
+            Create a new wallet
+          </button>
         )}
 
         <div className="card space-y-4">
@@ -155,10 +168,12 @@ export default function Unlock() {
 
         {/* Help links */}
         <div className="space-y-2 text-center text-[11px] text-purple-400">
-          <p>
-            Forgot your password? You can restore your wallet using your 24-word
-            recovery phrase.
-          </p>
+          {refusal?.kind !== "earlier_release" && (
+            <p>
+              Forgot your password? You can restore your wallet using your
+              24-word recovery phrase.
+            </p>
+          )}
           <button
             onClick={() => setPhase("no_wallet")}
             className="text-gold-400 hover:underline"
