@@ -82,6 +82,11 @@ jobs:
       - name: Command-surface gate — three legs
         run: scripts/ci/check_command_surface.sh
 
+      # The release's archive stager: every check that refuses, refuses.
+      # The network legs run in the release dry run.
+      - name: Core archive stager tests
+        run: python3 scripts/release/test_core_archive.py
+
       - name: ESLint
         run: npm run lint
 

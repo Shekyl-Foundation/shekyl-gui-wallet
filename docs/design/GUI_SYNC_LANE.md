@@ -211,11 +211,11 @@ carry Tor's own bytes as pinned.
 | GS-C2 | core | `GS-Q4`: Status' Tor part and Health's boolean on `get_info`; posture types and `render` into `shekyl-rpc-types`; a typed reason for `Held` beside a usable link (an exhausted epoch pin, or no address-hiding peer yet), in the shape IG-Q72 rules (core `INPUT_GRAMMAR.md`, draft #1162) | increment 3 (#1151), GS-C1 |
 | GS-C3 | core | `GS-Q1`'s leg: the owning connection as an RPC listener kind, owner grant, host-only stop | — |
 | GS-C4 | core | Correct `TSR-Q12`, `TOR_SUPERVISOR.md` §11 and core's FOLLOWUPS row for the RW naming: no leg carries Status to the GUI yet | — |
-| GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file`, on every platform (`GS-Q6`) | The archive at the paired core tag; for macOS, that cut carries core #1310 (TSR-F18), without which the hardened runtime kills the signed `tor` at its first onion proof-of-work. `tor-file` is read on core `dev` (`sections/posture.rs` `managed_binary`, `shekyl-daemon/src/tor.rs` `discover_and_verify_at`) and the named path passes the same pin gate as discovery, so the resource must be that target's pinned bundle |
+| GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file`, on every platform (`GS-Q6`). Built: `release.yml` job `core-archives` with `scripts/release/core_archive.py` checks each archive's digest before unpacking (the Foundation-signed `SHA256SUMS` on a tag, GitHub's artifact digest for a dry run's gitian run); `DaemonManager` names the bundled Tor with `tor-file`; after bundling, the release reads Tor back out of every installer and checks it against core's pins and the bundled daemon's `--config-verify` (`src-tauri/binaries/README.md`) | The cut: `SHEKYL_CORE_REF` at the paired core tag, and for macOS that cut carries core #1310 (TSR-F18), without which the hardened runtime kills the signed `tor` at its first onion proof-of-work |
 | GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented" | GS-C3 |
 | GS-3 | GUI | Posture display, held review/verdict/pending, Settings → Network fixes, daemon config | GS-C1, GS-C2, GS-2 |
 | GS-4 | GUI | Wire debt: RK-D1 adoption, `get_info` decode, mining on the owner leg | GS-2 |
-| GS-5 | GUI | macOS installer Tor: carried by GS-1, by the same mechanism (`GS-Q6`) | GS-1 |
+| GS-5 | GUI | macOS installer Tor: carried by GS-1, by the same mechanism (`GS-Q6`) | As GS-1 |
 
 ## 6. Acceptance (real pathways, every platform with an installer)
 

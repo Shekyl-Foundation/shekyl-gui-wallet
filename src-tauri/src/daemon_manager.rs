@@ -1,12 +1,13 @@
 // Copyright (c) 2026, The Shekyl Foundation
 // BSD-3-Clause license (see LICENSE)
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::RwLock;
 
@@ -14,6 +15,47 @@ use crate::state::NetworkType;
 
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const HEALTH_POLL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Tor's file name in the installer's `tor/` resource directory: core's
+/// gitian archive for the target, staged by `scripts/release/core_archive.py`.
+const TOR_FILE: &str = if cfg!(windows) { "tor.exe" } else { "tor" };
+
+/// The bundled Tor: `tor/` under the app's resource directory, wherever the
+/// bundle type puts that (`Contents/Resources` in the `.app`, beside the
+/// executable on Windows, `/usr/lib/<product>` in the `.deb`).
+fn bundled_tor(resource_dir: &Path) -> PathBuf {
+    resource_dir.join("tor").join(TOR_FILE)
+}
+
+/// The sidecar's command line.
+///
+/// The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md` §5): one
+/// view listener on loopback for the wallet and no admin listener, so
+/// nothing on this machine can mine or ban through the sidecar. Nothing
+/// reads the daemon's stdin without `--console`.
+///
+/// `--tor-file` names the bundled Tor explicitly, one mechanism on every
+/// platform (GUI_SYNC_LANE.md §4, GS-1). The daemon checks that file
+/// against its pin at every spawn; a file it cannot pin is a warning and
+/// the node holds its own transactions until Tor is up (core TB-2), never
+/// a refusal to start.
+fn sidecar_args(config: &DaemonConfig, tor_file: Option<&Path>) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec![
+        "--rpc-admin-listen".into(),
+        "none".into(),
+        "--rpc-view-listen".into(),
+        format!("127.0.0.1:{}", config.rpc_port).into(),
+    ];
+    if let Some(dir) = &config.data_dir {
+        args.push("--data-dir".into());
+        args.push(dir.into());
+    }
+    if let Some(tor) = tor_file {
+        args.push("--tor-file".into());
+        args.push(tor.into());
+    }
+    args
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -108,20 +150,17 @@ impl DaemonManager {
             }
         };
 
-        // The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md`
-        // §5): one view listener on loopback for the wallet and no admin
-        // listener, so nothing on this machine can mine or ban through the
-        // sidecar. Nothing reads the daemon's stdin without `--console`.
-        let mut args = vec![
-            "--rpc-admin-listen".to_string(),
-            "none".to_string(),
-            "--rpc-view-listen".to_string(),
-            format!("127.0.0.1:{}", config.rpc_port),
-        ];
-        if let Some(ref dir) = config.data_dir {
-            args.push("--data-dir".to_string());
-            args.push(dir.clone());
-        }
+        let tor_file = match app.path().resource_dir() {
+            Ok(dir) => Some(bundled_tor(&dir)),
+            Err(e) => {
+                // Without the resource directory the GUI cannot name its
+                // Tor; the daemon then searches for one and announces what
+                // it found.
+                tracing::warn!("no resource directory for the bundled Tor: {e}");
+                None
+            }
+        };
+        let args = sidecar_args(&config, tor_file.as_deref());
 
         match sidecar.args(&args).spawn() {
             Ok((mut rx, child)) => {
@@ -232,5 +271,53 @@ impl DaemonManager {
         let _ = std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
             .status();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(data_dir: Option<&str>) -> DaemonConfig {
+        DaemonConfig {
+            keep_running_on_exit: false,
+            data_dir: data_dir.map(str::to_owned),
+            rpc_port: 12029,
+        }
+    }
+
+    #[test]
+    fn the_sidecar_names_the_bundled_tor() {
+        let tor = bundled_tor(Path::new("/res"));
+        let args = sidecar_args(&config(None), Some(&tor));
+        let want: Vec<OsString> = [
+            "--rpc-admin-listen",
+            "none",
+            "--rpc-view-listen",
+            "127.0.0.1:12029",
+            "--tor-file",
+        ]
+        .iter()
+        .map(OsString::from)
+        .chain([tor.clone().into_os_string()])
+        .collect();
+        assert_eq!(args, want);
+        assert_eq!(tor, Path::new("/res").join("tor").join(TOR_FILE));
+    }
+
+    #[test]
+    fn the_data_dir_comes_before_the_tor_file() {
+        let tor = PathBuf::from("/res/tor/tor");
+        let args = sidecar_args(&config(Some("/data")), Some(&tor));
+        assert_eq!(
+            args[4..],
+            ["--data-dir", "/data", "--tor-file", "/res/tor/tor"].map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn without_a_resource_directory_no_tor_file_is_named() {
+        let args = sidecar_args(&config(None), None);
+        assert!(!args.iter().any(|a| a == "--tor-file"));
     }
 }
