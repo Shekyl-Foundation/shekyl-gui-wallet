@@ -21,6 +21,7 @@ import Welcome from "./pages/Welcome";
 import CreateWallet from "./pages/CreateWallet";
 import ImportWallet from "./pages/ImportWallet";
 import Unlock from "./pages/Unlock";
+import { OpenAttemptProvider } from "./pages/OpenAttemptProvider";
 import LoadingScreen from "./components/LoadingScreen";
 
 function App() {
@@ -31,7 +32,25 @@ function App() {
   );
 }
 
-function WalletGate() {
+/**
+ * Routes for a wallet file that exists and is not open. The attempt lives
+ * on this shell: create is a child route, so the refusal survives the
+ * trip to the create screen and back, and it stays tied to its file.
+ */
+function UnlockPhaseRoutes() {
+  return (
+    <OpenAttemptProvider>
+      <Routes>
+        <Route index element={<Unlock />} />
+        <Route path="create" element={<CreateWallet />} />
+        <Route path="import" element={<ImportWallet />} />
+        <Route path="*" element={<Unlock />} />
+      </Routes>
+    </OpenAttemptProvider>
+  );
+}
+
+export function WalletGate() {
   const { phase } = useWallet();
 
   switch (phase) {
@@ -52,13 +71,7 @@ function WalletGate() {
 
     case "unlock":
     case "select_wallet":
-      return (
-        <Routes>
-          <Route index element={<Unlock />} />
-          <Route path="import" element={<ImportWallet />} />
-          <Route path="*" element={<Unlock />} />
-        </Routes>
-      );
+      return <UnlockPhaseRoutes />;
 
     case "ready":
       return (

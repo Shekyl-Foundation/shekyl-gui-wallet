@@ -30,6 +30,73 @@ export interface OpenedWallet {
 }
 
 /**
+ * `OpenRefusalKind` in `src-tauri/src/engine_errors.rs`. One list, so a new
+ * kind fails the affordance switch until the page decides what it does.
+ */
+const OPEN_REFUSAL_KINDS = [
+  "earlier_release",
+  "wrong_password",
+  "other",
+] as const;
+
+export type OpenRefusalKind = (typeof OPEN_REFUSAL_KINDS)[number];
+
+/**
+ * Why `open_wallet` refused. `message` is the sentence to show, for every
+ * kind. The page reads `kind` only to choose the next action.
+ */
+export interface OpenRefusal {
+  kind: OpenRefusalKind;
+  message: string;
+}
+
+function isOpenRefusalKind(kind: unknown): kind is OpenRefusalKind {
+  return (
+    typeof kind === "string" &&
+    (OPEN_REFUSAL_KINDS as readonly string[]).includes(kind)
+  );
+}
+
+/**
+ * A rejected `open_wallet` as an [`OpenRefusal`]. Anything without a known
+ * `kind` is `other`, keeping its `message` when it has one (a transport
+ * error is an object with a message and no kind).
+ */
+export function asOpenRefusal(e: unknown): OpenRefusal {
+  if (typeof e === "object" && e !== null) {
+    const { kind, message } = e as { kind?: unknown; message?: unknown };
+    if (typeof message === "string") {
+      if (isOpenRefusalKind(kind)) {
+        return { kind, message };
+      }
+      return { kind: "other", message };
+    }
+  }
+  return { kind: "other", message: String(e) };
+}
+
+/**
+ * What the Unlock page does with a refusal besides showing `message`.
+ * A new wallet replaces the 24-word hint: the hint would send the person
+ * down a restore that cannot bring this file back.
+ */
+export interface OpenRefusalAffordance {
+  offerNewWallet: boolean;
+}
+
+export function openRefusalAffordance(
+  kind: OpenRefusalKind,
+): OpenRefusalAffordance {
+  switch (kind) {
+    case "earlier_release":
+      return { offerNewWallet: true };
+    case "wrong_password":
+    case "other":
+      return { offerNewWallet: false };
+  }
+}
+
+/**
  * Wire object `create_wallet` returns. The contract carries the backup once,
  * as `mnemonic` — the seed's 24 BIP-39 words, on every network.
  * [`createdWalletFromWire`] is what the app holds.

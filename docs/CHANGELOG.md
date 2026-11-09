@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **An earlier release's wallet file says what to do next.** Opening a
+  wallet file made by an earlier release (alpha.11 and before) now says that
+  this release cannot open it and that its backup words will not bring it
+  back here, and offers "Create a new wallet" on the same screen. That
+  screen stays with the other wallets: the warning belongs to the file
+  that was refused, and coming back from create returns to it. Before,
+  it said only that the files were written by a version this build cannot
+  read, and the help line suggested restoring from the 24 words. The Unlock
+  page now shows the refusal's own sentence, and reads the kind only to
+  choose that next step.
 - **Every installer carries core's daemon and Tor.** The `.deb`, `.rpm`,
   AppImage, Windows setup and `.dmg` now carry shekyl-core's gitian-built
   `shekyld` and its pinned Tor, and the wallet starts the daemon with
