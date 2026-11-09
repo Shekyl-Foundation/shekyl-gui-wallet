@@ -30,14 +30,32 @@ export interface OpenedWallet {
 }
 
 /**
- * Why `open_wallet` refused, as the backend types it (`OpenRefusal` in
- * `src-tauri/src/engine_errors.rs`). The page branches on `kind`, never on
- * the words.
+ * `OpenRefusalKind` in `src-tauri/src/engine_errors.rs`. One list, so a new
+ * kind fails the affordance switch until the page decides what it does.
  */
-export type OpenRefusal =
-  | { kind: "earlier_release"; message: string }
-  | { kind: "wrong_password"; message: string }
-  | { kind: "other"; message: string };
+const OPEN_REFUSAL_KINDS = [
+  "earlier_release",
+  "wrong_password",
+  "other",
+] as const;
+
+export type OpenRefusalKind = (typeof OPEN_REFUSAL_KINDS)[number];
+
+/**
+ * Why `open_wallet` refused. `message` is the sentence to show, for every
+ * kind. The page reads `kind` only to choose the next action.
+ */
+export interface OpenRefusal {
+  kind: OpenRefusalKind;
+  message: string;
+}
+
+function isOpenRefusalKind(kind: unknown): kind is OpenRefusalKind {
+  return (
+    typeof kind === "string" &&
+    (OPEN_REFUSAL_KINDS as readonly string[]).includes(kind)
+  );
+}
 
 /**
  * A rejected `open_wallet` as an [`OpenRefusal`]. Anything without a known
@@ -48,13 +66,34 @@ export function asOpenRefusal(e: unknown): OpenRefusal {
   if (typeof e === "object" && e !== null) {
     const { kind, message } = e as { kind?: unknown; message?: unknown };
     if (typeof message === "string") {
-      if (kind === "earlier_release" || kind === "wrong_password" || kind === "other") {
+      if (isOpenRefusalKind(kind)) {
         return { kind, message };
       }
       return { kind: "other", message };
     }
   }
   return { kind: "other", message: String(e) };
+}
+
+/**
+ * What the Unlock page does with a refusal besides showing `message`.
+ * A new wallet replaces the 24-word hint: the hint would send the person
+ * down a restore that cannot bring this file back.
+ */
+export interface OpenRefusalAffordance {
+  offerNewWallet: boolean;
+}
+
+export function openRefusalAffordance(
+  kind: OpenRefusalKind,
+): OpenRefusalAffordance {
+  switch (kind) {
+    case "earlier_release":
+      return { offerNewWallet: true };
+    case "wrong_password":
+    case "other":
+      return { offerNewWallet: false };
+  }
 }
 
 /**

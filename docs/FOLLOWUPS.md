@@ -8,6 +8,23 @@ shekyl-core).
 
 ---
 
+## A retired wallet format is its own contract error — target: pre-genesis
+
+`open_wallet` tells an earlier release's file from a file this build
+cannot read. The contract folds both into `WalletFileVersionUnsupported`
+(`from_envelope_error` groups `FormatVersionRetired` with
+`FormatVersionTooNew`). `envelope_format_retired` in
+`src-tauri/src/engine_errors.rs` is the only match on the envelope, and
+it is deleted once the contract carries the discriminant. The GUI
+sentence for the retired file stays on the refusal. The variant's own
+`Display` still says to restore from 24 words, which this release cannot
+do; that text is the contract's, for the CLI and wallet RPC.
+
+**Blocker:** a `shekyl-wallet-contract` arm, or `data` on `-29012`, that
+separates a retired format from a file that is too new.
+
+---
+
 ## One target and one stop for the sidecar (`GS-2`) — target: pre-genesis
 
 Start takes anything answering HTTP on the port as an external daemon, the

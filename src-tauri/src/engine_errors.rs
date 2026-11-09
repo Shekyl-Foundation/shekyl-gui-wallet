@@ -27,56 +27,103 @@ pub(crate) fn map_open_err(e: OpenError) -> String {
     WalletRpcError::from(e).message()
 }
 
-/// What the Unlock page says when a file predates this release's format.
+/// Sentence for a file that predates this release's format.
 ///
 /// The engine refuses such a file and never reinterprets it (core
 /// `NETWORK_IDENTITY.md` NI-Q8). Its backup does not bring it back either:
 /// an earlier testnet wallet's hex seed is refused on restore, and earlier
 /// 24 words derive other keys under this release, opening a different,
-/// empty wallet. So the sentence points at a new wallet, not at a restore.
+/// empty wallet. The sentence points at a new wallet.
 pub(crate) const EARLIER_RELEASE: &str = "This wallet file was made by an earlier \
 release, and this release cannot open it. Its backup words will not bring this \
 wallet back here either. Create a new wallet to continue.";
 
-/// Why a wallet did not open, typed so the Unlock page branches on the
-/// kind and never on the words (rule 82).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum OpenRefusal {
-    /// The file predates this release's format: [`EARLIER_RELEASE`].
-    EarlierRelease { message: String },
+/// Sentence for a password that does not open the file.
+///
+/// The contract's `InvalidPassword` text ("invalid password") names the
+/// failure and not the next action, so the refusal carries this sentence
+/// instead (rule 82).
+pub(crate) const WRONG_PASSWORD: &str = "Incorrect password. Please try again.";
+
+/// Which open refusal this is. The page shows `message` for every kind
+/// and reads the kind only to choose the next action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenRefusalKind {
+    /// The file predates this release's format.
+    EarlierRelease,
     /// The password does not open the file.
-    WrongPassword { message: String },
+    WrongPassword,
     /// Any other refusal, in the wallet contract's words.
-    Other { message: String },
+    Other,
 }
 
-impl From<String> for OpenRefusal {
-    fn from(message: String) -> Self {
-        Self::Other { message }
+/// Why `open_wallet` refused. `message` is the sentence to show.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OpenRefusal {
+    pub kind: OpenRefusalKind,
+    pub message: String,
+}
+
+impl OpenRefusal {
+    pub(crate) fn earlier_release() -> Self {
+        Self {
+            kind: OpenRefusalKind::EarlierRelease,
+            message: EARLIER_RELEASE.to_owned(),
+        }
+    }
+
+    pub(crate) fn wrong_password() -> Self {
+        Self {
+            kind: OpenRefusalKind::WrongPassword,
+            message: WRONG_PASSWORD.to_owned(),
+        }
+    }
+
+    pub(crate) fn other(message: impl Into<String>) -> Self {
+        Self {
+            kind: OpenRefusalKind::Other,
+            message: message.into(),
+        }
     }
 }
 
-/// An open failure as a typed refusal. The earlier-release case is read
-/// from the envelope's own variant, before the contract mapping folds it
-/// into "version unsupported" with a file that is too new.
-pub(crate) fn open_refusal(e: OpenError) -> OpenRefusal {
-    if matches!(
+/// An untyped open failure is [`OpenRefusalKind::Other`]: validation, a
+/// missing file, a daemon that did not answer. The words pass through.
+impl From<String> for OpenRefusal {
+    fn from(message: String) -> Self {
+        Self::other(message)
+    }
+}
+
+/// `true` when the envelope's format predates this release.
+///
+/// The contract folds this together with a file that is too new, as
+/// `WalletFileVersionUnsupported`. The kind is read from the envelope
+/// variant until that contract grows a discriminant of its own
+/// (`docs/FOLLOWUPS.md`). This is the only match on [`WalletEnvelopeError`]
+/// in the crate.
+fn envelope_format_retired(e: &OpenError) -> bool {
+    matches!(
         e,
         OpenError::Io(IoError::WalletFile(WalletFileError::Envelope(
             WalletEnvelopeError::FormatVersionRetired { .. }
         )))
-    ) {
-        return OpenRefusal::EarlierRelease {
-            message: EARLIER_RELEASE.to_owned(),
-        };
+    )
+}
+
+/// An open failure as a typed refusal.
+///
+/// `message` is the sentence to show. `kind` is how the page chooses the
+/// next action. A retired format is separated here; a file that is too new
+/// stays [`OpenRefusalKind::Other`], in the contract's words.
+pub(crate) fn open_refusal(e: OpenError) -> OpenRefusal {
+    if envelope_format_retired(&e) {
+        return OpenRefusal::earlier_release();
     }
-    let contract = WalletRpcError::from(e);
-    let message = contract.message();
-    if matches!(contract, WalletRpcError::InvalidPassword) {
-        OpenRefusal::WrongPassword { message }
-    } else {
-        OpenRefusal::Other { message }
+    match WalletRpcError::from(e) {
+        WalletRpcError::InvalidPassword => OpenRefusal::wrong_password(),
+        other => OpenRefusal::other(other.message()),
     }
 }
 
@@ -297,38 +344,62 @@ mod tests {
         );
     }
 
-    /// The Unlock page reads `kind`; each refusal carries its sentence.
+    fn envelope(error: WalletEnvelopeError) -> OpenError {
+        OpenError::Io(IoError::WalletFile(WalletFileError::Envelope(error)))
+    }
+
+    /// A retired format is its own kind and sentence. The version bytes ride
+    /// along and are not a code. A file that is too new shares the contract's
+    /// "version unsupported" sentence and stays `other`, so the page does not
+    /// tell that person to abandon the file.
     #[test]
-    fn a_refusal_crosses_to_the_page_as_its_kind_and_sentence() {
-        let cases = [
-            (
-                OpenRefusal::EarlierRelease {
-                    message: EARLIER_RELEASE.into(),
-                },
-                "earlier_release",
-            ),
-            (
-                OpenRefusal::WrongPassword {
-                    message: "w".into(),
-                },
-                "wrong_password",
-            ),
-            (OpenRefusal::from(String::from("o")), "other"),
-        ];
-        for (refusal, kind) in cases {
+    fn a_retired_format_is_an_earlier_release_and_a_newer_file_stays_other() {
+        for error in [
+            WalletEnvelopeError::FormatVersionRetired { got: 1, current: 2 },
+            WalletEnvelopeError::FormatVersionRetired { got: 4, current: 5 },
+        ] {
+            let refusal = open_refusal(envelope(error));
+            assert_eq!(refusal, OpenRefusal::earlier_release());
             let wire = serde_json::to_value(&refusal).unwrap();
-            assert_eq!(wire["kind"], kind);
-            assert!(wire["message"].is_string());
+            assert_eq!(wire["kind"], "earlier_release");
+            assert_eq!(wire["message"], EARLIER_RELEASE);
+        }
+
+        let newer = open_refusal(envelope(WalletEnvelopeError::FormatVersionTooNew {
+            got: 9,
+            max: 2,
+        }));
+        assert_eq!(newer.kind, OpenRefusalKind::Other);
+        assert_eq!(
+            newer.message,
+            WalletRpcError::WalletFileVersionUnsupported.message()
+        );
+        let wire = serde_json::to_value(&newer).unwrap();
+        assert_eq!(wire["kind"], "other");
+    }
+
+    /// Both producers of a bad password — the envelope and the engine's own
+    /// variant — are one kind, and the sentence is the one the page shows.
+    #[test]
+    fn a_wrong_password_is_its_own_kind_and_sentence() {
+        for error in [
+            envelope(WalletEnvelopeError::InvalidPasswordOrCorrupt),
+            OpenError::IncorrectPassword,
+        ] {
+            let refusal = open_refusal(error);
+            assert_eq!(refusal, OpenRefusal::wrong_password());
+            let wire = serde_json::to_value(&refusal).unwrap();
+            assert_eq!(wire["kind"], "wrong_password");
+            assert_eq!(wire["message"], WRONG_PASSWORD);
         }
     }
 
-    /// A wrong password reads as one, by the contract's typed code.
+    /// A string the command already wrote (validation, a missing file) stays
+    /// that sentence, as `other`.
     #[test]
-    fn a_wrong_password_is_its_own_kind() {
-        use shekyl_engine_core::IoError;
-        let e = OpenError::Io(IoError::WalletFile(WalletFileError::Envelope(
-            WalletEnvelopeError::InvalidPasswordOrCorrupt,
-        )));
-        assert!(matches!(open_refusal(e), OpenRefusal::WrongPassword { .. }));
+    fn a_string_refusal_is_other_and_keeps_its_words() {
+        let refusal = OpenRefusal::from(String::from("Wallet file not found"));
+        assert_eq!(refusal.kind, OpenRefusalKind::Other);
+        assert_eq!(refusal.message, "Wallet file not found");
     }
 }

@@ -229,9 +229,9 @@ impl EngineSession {
         Ok(capability)
     }
 
-    /// Open an existing Engine wallet. The refusal is typed so the Unlock
-    /// page can tell an earlier release's file and a wrong password from
-    /// the rest without reading the words.
+    /// Open an existing Engine wallet. The refusal carries its sentence and
+    /// a kind, so a caller tells an earlier release's file and a wrong
+    /// password from every other failure without reading the words.
     pub async fn open(
         &mut self,
         wallet_dir: &Path,

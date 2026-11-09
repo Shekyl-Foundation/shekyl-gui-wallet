@@ -359,8 +359,6 @@ mod tests {
     /// the file, so the verdict is the file's.
     #[tokio::test(flavor = "multi_thread")]
     async fn an_earlier_releases_wallet_is_refused_in_words_that_point_to_a_new_wallet() {
-        use crate::engine_errors::EARLIER_RELEASE;
-
         let fixture =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/alpha11-wallet");
         let dir = ScratchDir(std::env::temp_dir().join(format!(
@@ -387,12 +385,7 @@ mod tests {
             .await
             .expect_err("an alpha.11 wallet file does not open");
 
-        assert_eq!(
-            refused,
-            OpenRefusal::EarlierRelease {
-                message: EARLIER_RELEASE.to_owned()
-            }
-        );
+        assert_eq!(refused, OpenRefusal::earlier_release());
         let wire = serde_json::to_value(&refused).unwrap();
         assert_eq!(wire["kind"], "earlier_release");
         assert!(!wire["message"]
