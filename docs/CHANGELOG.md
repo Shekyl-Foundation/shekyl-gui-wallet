@@ -10,6 +10,16 @@
   read, and the help line suggested restoring from the 24 words. The Unlock
   page now reads why a wallet did not open from a typed refusal, not by
   searching the message for "password".
+- **Every installer carries core's daemon and Tor.** The `.deb`, `.rpm`,
+  AppImage, Windows setup and `.dmg` now carry shekyl-core's gitian-built
+  `shekyld` and its pinned Tor, and the wallet starts the daemon with
+  `--tor-file` naming that Tor. Before this, the installers carried a daemon
+  built on the release runner and no Tor, so the daemon held every own
+  transaction and said why only in a log. On macOS, Tor is the
+  Foundation's Developer ID-signed build. The release takes core's archives
+  from its signed release (a dry run takes a core gitian run by id), checks
+  each digest before unpacking, and fails if the bundled daemon cannot pin
+  the bundled Tor.
 - **Every wallet backs up as 24 words, on every network.** Built against
   shekyl-core's network-identity change (one secret, one derivation): a
   wallet's secret is 32 bytes on every network, shown as 24 BIP-39 English
