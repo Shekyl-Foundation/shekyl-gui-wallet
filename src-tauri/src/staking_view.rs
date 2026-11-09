@@ -322,6 +322,7 @@ mod tests {
                 first_at_height: BlockHeight::from_raw(5_000),
                 attempts: 2,
             }),
+            reserved: Some(AtomicUnits::from_raw(2_500_000_000)),
         };
         let rejected = ReportedOutcome {
             kind: RecordKind::Post,
