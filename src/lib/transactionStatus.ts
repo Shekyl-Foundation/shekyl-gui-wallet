@@ -28,12 +28,26 @@ const STATE_META: Record<TransferState, { label: string; className: string; titl
   },
 };
 
-/** Which half of a received-but-unspendable output failed, in ordinary language. */
+/** Which check on a received-but-unspendable output failed, in ordinary language. */
 const UNSPENDABLE_TITLE: Record<UnspendableReason, string> = {
   PQC_LEAF_MISMATCH:
     "Received on chain, but it was not created for this wallet, so it can never be spent. It is counted in no balance.",
   PQC_LEAF_ENTRY_ABSENT:
     "Received on chain, but the transaction is missing what a spend needs, so this wallet can never spend it. It is counted in no balance.",
+  MULTISIG_ENTRY_ABSENT:
+    "Received on chain, but the transaction has no record this group can spend, so this wallet can never spend it. It is counted in no balance.",
+  MULTISIG_GROUP_SIZE:
+    "Received on chain, but it was built for a different group, so this wallet can never spend it. It is counted in no balance.",
+  MULTISIG_HASHES_UNDECRYPTABLE:
+    "Received on chain, but this wallet cannot open the group's record, so it can never spend it. It is counted in no balance.",
+  MULTISIG_MEMBER_DECAP:
+    "Received on chain, but this wallet cannot open its part of the payment, so it can never spend it. It is counted in no balance.",
+  MULTISIG_MEMBER_KEY_HASH:
+    "Received on chain, but the payment names a different key for this wallet, so it can never spend it. It is counted in no balance.",
+  MULTISIG_DUPLICATE_KEY_HASH:
+    "Received on chain, but the payment repeats a member of this group, so this wallet can never spend it. It is counted in no balance.",
+  MULTISIG_LEAF_MISMATCH:
+    "Received on chain, but the record does not match this group, so this wallet can never spend it. It is counted in no balance.",
 };
 
 export function statusLabel(state: TransferState): string {
