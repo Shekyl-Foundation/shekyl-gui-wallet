@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **A group payment this wallet cannot spend says which check failed.**
+  A receive that belongs to a multisig group and can never be spent keeps
+  its own reason: the record is missing, the group is different, the record
+  will not open, this wallet's part will not open, the key does not match,
+  a member is repeated, or the record does not match the group. Each
+  sentence says the output can never be spent and is counted in no balance.
 - **An earlier release's wallet file says what to do next.** Opening a
   wallet file made by an earlier release (alpha.11 and before) now says that
   this release cannot open it and that its backup words will not bring it

@@ -66,7 +66,7 @@ pub enum TransferState {
     /// Receive-side output already spent on chain (incoming only).
     Spent,
     /// Receive-side output whose chain leaf can never be spent (incoming only).
-    /// [`TransferRow::unspendable_reason`] names which half failed.
+    /// [`TransferRow::unspendable_reason`] names which check failed.
     Unspendable,
 }
 
@@ -80,6 +80,20 @@ pub enum UnspendableReason {
     PqcLeafMismatch,
     /// The transaction carries no leaf entry for this output.
     PqcLeafEntryAbsent,
+    /// The transaction paid this group and carries no group record.
+    MultisigEntryAbsent,
+    /// The record names a different group than this wallet.
+    MultisigGroupSize,
+    /// This wallet cannot open the group's record.
+    MultisigHashesUndecryptable,
+    /// This wallet cannot open its own part of the payment.
+    MultisigMemberDecap,
+    /// The record names a different key for this wallet.
+    MultisigMemberKeyHash,
+    /// The record repeats a member of this group.
+    MultisigDuplicateKeyHash,
+    /// The published record does not match this group.
+    MultisigLeafMismatch,
 }
 
 impl From<LedgerUnspendableReason> for UnspendableReason {
@@ -87,6 +101,15 @@ impl From<LedgerUnspendableReason> for UnspendableReason {
         match reason {
             LedgerUnspendableReason::PqcLeafMismatch => Self::PqcLeafMismatch,
             LedgerUnspendableReason::PqcLeafEntryAbsent => Self::PqcLeafEntryAbsent,
+            LedgerUnspendableReason::MultisigEntryAbsent => Self::MultisigEntryAbsent,
+            LedgerUnspendableReason::MultisigGroupSize => Self::MultisigGroupSize,
+            LedgerUnspendableReason::MultisigHashesUndecryptable => {
+                Self::MultisigHashesUndecryptable
+            }
+            LedgerUnspendableReason::MultisigMemberDecap => Self::MultisigMemberDecap,
+            LedgerUnspendableReason::MultisigMemberKeyHash => Self::MultisigMemberKeyHash,
+            LedgerUnspendableReason::MultisigDuplicateKeyHash => Self::MultisigDuplicateKeyHash,
+            LedgerUnspendableReason::MultisigLeafMismatch => Self::MultisigLeafMismatch,
         }
     }
 }
@@ -826,6 +849,48 @@ mod tests {
             serde_json::to_value(&row).expect("serialize")["unspendable_reason"],
             "PQC_LEAF_ENTRY_ABSENT"
         );
+
+        let multisig = [
+            (
+                LedgerUnspendableReason::MultisigEntryAbsent,
+                UnspendableReason::MultisigEntryAbsent,
+                "MULTISIG_ENTRY_ABSENT",
+            ),
+            (
+                LedgerUnspendableReason::MultisigGroupSize,
+                UnspendableReason::MultisigGroupSize,
+                "MULTISIG_GROUP_SIZE",
+            ),
+            (
+                LedgerUnspendableReason::MultisigHashesUndecryptable,
+                UnspendableReason::MultisigHashesUndecryptable,
+                "MULTISIG_HASHES_UNDECRYPTABLE",
+            ),
+            (
+                LedgerUnspendableReason::MultisigMemberDecap,
+                UnspendableReason::MultisigMemberDecap,
+                "MULTISIG_MEMBER_DECAP",
+            ),
+            (
+                LedgerUnspendableReason::MultisigMemberKeyHash,
+                UnspendableReason::MultisigMemberKeyHash,
+                "MULTISIG_MEMBER_KEY_HASH",
+            ),
+            (
+                LedgerUnspendableReason::MultisigDuplicateKeyHash,
+                UnspendableReason::MultisigDuplicateKeyHash,
+                "MULTISIG_DUPLICATE_KEY_HASH",
+            ),
+            (
+                LedgerUnspendableReason::MultisigLeafMismatch,
+                UnspendableReason::MultisigLeafMismatch,
+                "MULTISIG_LEAF_MISMATCH",
+            ),
+        ];
+        for (ledger, projected, wire) in multisig {
+            assert_eq!(UnspendableReason::from(ledger), projected);
+            assert_eq!(serde_json::to_value(projected).expect("serialize"), wire);
+        }
 
         let mut spent = incoming(3, 10, 100, 0, true, true);
         spent.unspendable = Some(LedgerUnspendableReason::PqcLeafMismatch);

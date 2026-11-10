@@ -17,7 +17,16 @@ export type TransferState =
   | "ABANDONED";
 
 /** `Transfer.unspendable_reason`. Present exactly when `state` is `UNSPENDABLE`. */
-export type UnspendableReason = "PQC_LEAF_MISMATCH" | "PQC_LEAF_ENTRY_ABSENT";
+export type UnspendableReason =
+  | "PQC_LEAF_MISMATCH"
+  | "PQC_LEAF_ENTRY_ABSENT"
+  | "MULTISIG_ENTRY_ABSENT"
+  | "MULTISIG_GROUP_SIZE"
+  | "MULTISIG_HASHES_UNDECRYPTABLE"
+  | "MULTISIG_MEMBER_DECAP"
+  | "MULTISIG_MEMBER_KEY_HASH"
+  | "MULTISIG_DUPLICATE_KEY_HASH"
+  | "MULTISIG_LEAF_MISMATCH";
 
 /**
  * Which payment request an incoming transfer arrived against.
