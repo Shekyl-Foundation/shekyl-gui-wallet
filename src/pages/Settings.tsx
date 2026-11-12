@@ -188,7 +188,7 @@ export default function Settings() {
         ))}
         {health && (
           <p className="text-center text-[10px] text-emerald-400">
-            Connected — Block {health.height.toLocaleString()}
+            Connected — Height {health.height.toLocaleString()}
           </p>
         )}
       </div>

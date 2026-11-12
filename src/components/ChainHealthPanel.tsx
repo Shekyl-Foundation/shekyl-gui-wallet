@@ -153,7 +153,7 @@ export default function ChainHealthPanel({ compact = false }: Props) {
         </div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
           <div className="flex justify-between">
-            <span className="text-purple-300">Block height</span>
+            <span className="text-purple-300">Height</span>
             <span className="font-mono text-white">{health.height.toLocaleString()}</span>
           </div>
           <div className="flex justify-between">

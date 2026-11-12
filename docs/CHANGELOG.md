@@ -17,6 +17,12 @@
   no longer takes an address or a background switch: the node mines to the
   address it was started with, the page shows it, and when the node refuses
   the wallet's mining controls the page says so in the node's words.
+- **Heights are block counts, as the CLI prints them.** The chain's height
+  at the top of the wallet, in Settings and on the Chain Health panel, and
+  the wallet's height after a refresh or rescan, are the number of blocks:
+  the newest block's height plus one. A synced wallet now shows its node's
+  number and the same numbers `shekyl-cli` shows; the wallet's height read
+  one lower than the CLI's for the same wallet.
 - **A group payment this wallet cannot spend says which check failed.**
   A receive that belongs to a multisig group and can never be spent keeps
   its own reason: the record is missing, the group is different, the record

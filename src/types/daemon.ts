@@ -1,13 +1,12 @@
 /**
  * The chain as the node reports it (`get_chain_health`): the node's
  * `daemon_status` on the 4.0 wire, with the tip's header and curve tree.
- * Heights are ordinals. Ratios are millionths. Amounts are atomic-unit
+ * `height` is the chain's block count (the tip's height plus one, as the
+ * CLI prints it). Ratios are millionths. Amounts are atomic-unit
  * decimal strings. A read the node did not answer is `null`, never zero.
  */
 export interface ChainHealth {
   height: number;
-  /** `null` when the node has no target. */
-  target_height: number | null;
   hash: string;
   /** A 128-bit value, as a decimal string. */
   difficulty: string;
@@ -51,10 +50,6 @@ export interface WalletStatus {
   daemon_address: string | null;
   network: string;
   synced: boolean;
-  /** The node's tip height; `null` while it cannot be reached. */
-  height: number | null;
-  /** `null` when the node has no target. */
-  target_height: number | null;
 }
 
 /**

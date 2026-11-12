@@ -11,7 +11,6 @@ import { useDaemon } from "../../context/useDaemon";
 
 const baseHealth: ChainHealth = {
   height: 0,
-  target_height: null,
   hash: "",
   difficulty: "0",
   tx_count: 0,

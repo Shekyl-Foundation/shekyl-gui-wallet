@@ -32,7 +32,7 @@ export default function Header() {
               />
               {synced ? "Synced" : "Syncing..."}
             </span>
-            <span>Block {health!.height.toLocaleString()}</span>
+            <span>Height {health!.height.toLocaleString()}</span>
           </>
         ) : (
           <span className="flex items-center gap-1.5">

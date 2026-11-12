@@ -65,10 +65,6 @@ pub struct WalletStatus {
     pub network: String,
     /// The node's own flag that it has caught up (`daemon_status`).
     pub synced: bool,
-    /// The node's tip height: an ordinal, `null` while it cannot be reached.
-    pub height: Option<u64>,
-    /// The height the node is syncing toward, `null` when it has none.
-    pub target_height: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -123,8 +119,6 @@ pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatu
             daemon_address: Some(url),
             network: network.as_str().into(),
             synced: status.synchronized,
-            height: Some(status.height.0),
-            target_height: status.target_height.0.map(|h| h.0),
         }),
         Err(_) => Ok(WalletStatus {
             connected: false,
@@ -133,8 +127,6 @@ pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatu
             daemon_address: Some(url),
             network: network.as_str().into(),
             synced: false,
-            height: None,
-            target_height: None,
         }),
     }
 }

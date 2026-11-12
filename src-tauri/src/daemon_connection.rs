@@ -98,13 +98,13 @@ pub async fn daemon_connection_disclosures(
 /// The chain as the node reports it (`daemon_status`), with the tip's
 /// header (`block_header_show`) and curve tree (`curve_show`). Field names
 /// follow the 4.0 wire (shekyl-core `INPUT_GRAMMAR.md`, the `daemon_status`
-/// table). Heights are ordinals. A read the node did not answer is `null`,
-/// never zero.
+/// table), except `height`, which is the block count (below). A read the
+/// node did not answer is `null`, never zero.
 #[derive(Debug, Serialize)]
 pub struct ChainHealth {
+    /// The chain's block count: the tip's height plus one, the number the
+    /// CLI prints as `Height` and the wallet's synced height compares with.
     pub height: u64,
-    /// `null` when the node has no target.
-    pub target_height: Option<u64>,
     pub hash: String,
     /// A 128-bit value, as a decimal string.
     pub difficulty: String,
@@ -177,8 +177,7 @@ fn chain_health(
     network: &str,
 ) -> ChainHealth {
     ChainHealth {
-        height: status.height.0,
-        target_height: status.target_height.0.map(|h| h.0),
+        height: status.height.0.saturating_add(1),
         hash: status.hash.to_string(),
         difficulty: status.difficulty.get().to_string(),
         tx_count: status.tx_count.0,
@@ -221,8 +220,9 @@ mod chain_health_tests {
             "testnet",
         );
         let v = serde_json::to_value(&health).unwrap();
-        assert_eq!(v["height"], 1199);
-        assert_eq!(v["target_height"], 1203);
+        // The vector's tip is 1199: 1200 blocks.
+        assert_eq!(v["height"], 1200);
+        assert!(v.get("target_height").is_none(), "nothing reads it");
         assert_eq!(
             v["difficulty"],
             (0x2a3f1c_u64).to_string(),

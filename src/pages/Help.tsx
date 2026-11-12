@@ -317,7 +317,7 @@ const GLOSSARY: GlossaryEntry[] = [
   {
     term: "Block Height",
     definition:
-      "The sequential number of a block in the blockchain, starting from 0 (genesis).",
+      "A block's height is its sequential number in the blockchain, starting from 0 (genesis). The chain's height, shown at the top of the wallet, is how many blocks it holds: the newest block's height plus one. A synced wallet shows the same number.",
   },
   {
     term: "Difficulty",
