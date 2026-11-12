@@ -145,7 +145,13 @@ export default function Mining() {
             value={hashRatePct}
             label="Hash Rate"
             display={
-              status?.active && status.hash_rate !== null ? formatHashRate(status.hash_rate) : "0 H/s"
+              status === null
+                ? "—"
+                : !status.active
+                  ? "0 H/s"
+                  : status.hash_rate === null
+                    ? "—"
+                    : formatHashRate(status.hash_rate)
             }
             size={70}
           />
@@ -160,7 +166,7 @@ export default function Mining() {
             <Gauge className="h-5 w-5 text-gold-400" />
             <span className="text-sm font-bold text-white">
               {status?.active && status.hash_rate !== null
-                ? `${Math.round(status.hash_rate)} H/s`
+                ? formatHashRate(status.hash_rate)
                 : "—"}
             </span>
             <span className="text-[10px] text-purple-300">
@@ -219,7 +225,9 @@ export default function Mining() {
         <div className="space-y-1">
           <p className="text-xs text-purple-300">Pays to</p>
           <p className="break-all font-mono text-sm text-white">
-            {status?.address ?? "No mining address is set on this node."}
+            {status === null
+              ? "—"
+              : (status.address ?? "No mining address is set on this node.")}
           </p>
           <p className="text-[10px] text-purple-400">
             The node mines to the address it was started with.

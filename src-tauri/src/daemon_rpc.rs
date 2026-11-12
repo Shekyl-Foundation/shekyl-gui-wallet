@@ -62,14 +62,30 @@ pub(crate) async fn call<M: RpcMethod>(
 where
     M::Request: Send,
 {
-    let rpc = HttpRpc::new(base(url).to_owned())
+    call_within::<M>(url, request, what, CALL_TIMEOUT).await
+}
+
+async fn call_within<M: RpcMethod>(
+    url: &str,
+    request: M::Request,
+    what: &str,
+    deadline: Duration,
+) -> Result<M::Reply, String>
+where
+    M::Request: Send,
+{
+    // One deadline for the whole exchange: with credentials in the URL,
+    // `HttpRpc::new` already talks to the node (its authentication
+    // challenge), and a node that stalls there must not hold the poll.
+    let exchange = async {
+        let rpc = HttpRpc::new(base(url).to_owned())
+            .await
+            .map_err(|e| format!("Could not reach the node for {what}: {e}"))?;
+        rpc.call::<M>(request).await.map_err(|e| said(&e, what))
+    };
+    tokio::time::timeout(deadline, exchange)
         .await
-        .map_err(|e| format!("Could not reach the node for {what}: {e}"))?;
-    match tokio::time::timeout(CALL_TIMEOUT, rpc.call::<M>(request)).await {
-        Ok(Ok(reply)) => Ok(reply),
-        Ok(Err(e)) => Err(said(&e, what)),
-        Err(_) => Err(format!("The node did not answer in time for {what}.")),
-    }
+        .unwrap_or_else(|_| Err(format!("The node did not answer in time for {what}.")))
 }
 
 /// A failed call in the person's words, read from the error's type: a
@@ -141,6 +157,42 @@ mod tests {
             "the node has no mining address",
         );
         assert_eq!(said(&e, "mining"), "the node has no mining address");
+    }
+
+    /// With credentials in the URL the client's construction already talks
+    /// to the node; a node that accepts and then never answers is still
+    /// bounded by the call's deadline.
+    #[tokio::test]
+    async fn a_node_that_stalls_the_authentication_challenge_times_out() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let held = tokio::spawn(async move {
+            let mut open = Vec::new();
+            loop {
+                let (socket, _) = listener.accept().await.unwrap();
+                open.push(socket);
+            }
+        });
+        let url = format!("http://wallet:secret@127.0.0.1:{port}/json_rpc");
+        let started = std::time::Instant::now();
+        let err = call_within::<shekyl_rpc_client::wire::Version>(
+            &url,
+            shekyl_rpc_types::kinds::NoParams,
+            "the node's version",
+            Duration::from_millis(300),
+        )
+        .await
+        .expect_err("a silent node is not an answer");
+        held.abort();
+        assert_eq!(
+            err,
+            "The node did not answer in time for the node's version."
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
     }
 
     #[test]

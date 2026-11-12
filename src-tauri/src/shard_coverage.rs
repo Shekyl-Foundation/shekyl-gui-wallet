@@ -44,9 +44,6 @@ pub struct ShardCoverageList {
     pub settled_epoch: u64,
     pub budget_atomic: Option<AtomicUnitsString>,
     pub sigma_work_milli: Option<u64>,
-    /// Every shard carries a profit estimate. The wire says it per shard,
-    /// as a `null` profit; the list is summed only when all are estimated.
-    pub profit_estimate_available: bool,
     pub shards: Vec<ShardCoverageRow>,
 }
 
@@ -148,8 +145,6 @@ fn coverage_list_from_rpc(res: Coverage) -> ShardCoverageList {
         settled_epoch: res.settled_epoch.0,
         budget_atomic: res.budget.0,
         sigma_work_milli: res.work.0.map(|w| w.0),
-        profit_estimate_available: !shards.is_empty()
-            && shards.iter().all(|s| s.expected_profit_atomic.is_some()),
         shards,
     }
 }
@@ -240,7 +235,6 @@ mod tests {
             "JSON number would lose 2^53+1: {profit}"
         );
         assert_eq!(profit, "9007199254740993");
-        assert_eq!(v["profit_estimate_available"], true);
     }
 
     /// Before the first settlement pass the node estimates nothing: the
@@ -253,7 +247,6 @@ mod tests {
         assert!(v["shards"][0]["expected_profit_atomic"].is_null());
         assert!(v["budget_atomic"].is_null());
         assert!(v["sigma_work_milli"].is_null());
-        assert_eq!(v["profit_estimate_available"], false);
     }
 
     /// Core's own `shard_coverage` vector maps field for field.

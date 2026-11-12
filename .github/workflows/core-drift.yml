@@ -200,6 +200,23 @@ jobs:
           mkdir -p src-tauri/binaries
           touch "src-tauri/binaries/shekyld-$triple$exe"
 
+      # The committed Cargo.lock records core's crate graph, and every cargo
+      # run in a wallet checkout rewrites it to match whatever core is beside
+      # it, so a lock that stopped tracking core dev shows up only as a
+      # stray modified file on someone's machine. The daily run against dev
+      # says so instead. Schedule only: on a core pull request that adds a
+      # crate, a stale wallet lock is expected until the wallet follows.
+      # Before `cargo check`, which is unlocked and would rewrite a stale
+      # lock first, so this step would read the repaired one and pass.
+      - name: The lock tracks core dev
+        if: github.event_name == 'schedule'
+        working-directory: ./gui/src-tauri
+        run: |
+          if ! cargo metadata --locked --format-version 1 > /dev/null; then
+            echo "::error::src-tauri/Cargo.lock no longer matches shekyl-core dev; commit the lock cargo writes against dev"
+            exit 1
+          fi
+
       # No `npm ci` / `npm run build`: the frontend bundle is a bundle-time
       # resource, and `cargo check` completes without `dist/` (verified).
       # This job asks one question — does the wallet still compile against
@@ -212,21 +229,6 @@ jobs:
       - name: cargo check against core
         working-directory: ./gui/src-tauri
         run: cargo check --all-targets
-
-      # The committed Cargo.lock records core's crate graph, and every cargo
-      # run in a wallet checkout rewrites it to match whatever core is beside
-      # it, so a lock that stopped tracking core dev shows up only as a
-      # stray modified file on someone's machine. The daily run against dev
-      # says so instead. Schedule only: on a core pull request that adds a
-      # crate, a stale wallet lock is expected until the wallet follows.
-      - name: The lock tracks core dev
-        if: github.event_name == 'schedule'
-        working-directory: ./gui/src-tauri
-        run: |
-          if ! cargo metadata --locked --format-version 1 > /dev/null; then
-            echo "::error::src-tauri/Cargo.lock no longer matches shekyl-core dev; commit the lock cargo writes against dev"
-            exit 1
-          fi
 
       # The command surface reads the wallet contract from the core checkout
       # above (`../shekyl-core` resolves from `gui/`). A core PR that REJECTs

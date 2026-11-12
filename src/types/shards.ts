@@ -19,8 +19,8 @@ export interface ShardCoverageRow {
 /**
  * Full coverage list. `frozen_count === 0` is an honest empty, not a fault.
  * `budget_atomic` and `sigma_work_milli` are `null` before the first
- * settlement pass. `profit_estimate_available` is true when every shard
- * carries an estimate.
+ * settlement pass. Each shard's `expected_profit_atomic` is `null` when the
+ * node has no estimate for it; the page reads that per shard.
  */
 export interface ShardCoverageList {
   as_of_height: number;
@@ -29,7 +29,6 @@ export interface ShardCoverageList {
   settled_epoch: number;
   budget_atomic: string | null;
   sigma_work_milli: number | null;
-  profit_estimate_available: boolean;
   shards: ShardCoverageRow[];
 }
 

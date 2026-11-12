@@ -79,15 +79,19 @@ describe("formatMultiplier", () => {
 
 describe("formatHashRate", () => {
   it("formats H/s for small values", () => {
-    expect(formatHashRate(1200)).toBe("10 H/s");
+    expect(formatHashRate(10)).toBe("10 H/s");
+  });
+
+  it("takes a rate, not a difficulty", () => {
+    expect(formatHashRate(1200)).toBe("1.20 KH/s");
   });
 
   it("formats MH/s for medium values", () => {
-    expect(formatHashRate(120_000_000)).toBe("1.00 MH/s");
+    expect(formatHashRate(1_000_000)).toBe("1.00 MH/s");
   });
 
   it("formats GH/s for large values", () => {
-    expect(formatHashRate(120_000_000_000)).toBe("1.00 GH/s");
+    expect(formatHashRate(1_000_000_000)).toBe("1.00 GH/s");
   });
 });
 

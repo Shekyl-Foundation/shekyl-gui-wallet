@@ -115,6 +115,8 @@ describe("Mining", () => {
     expect(
       await screen.findByText("This node does not let this wallet see or change mining."),
     ).toBeInTheDocument();
+    // A refused read says nothing about the node's address.
+    expect(screen.queryByText("No mining address is set on this node.")).toBeNull();
   });
 
   it("shows why no job is posted", async () => {
@@ -131,7 +133,7 @@ describe("Mining", () => {
   it("shows the hash rate from the node's window", async () => {
     mockMiningStatus(true);
     renderMining();
-    expect(await screen.findByText("1200 H/s")).toBeInTheDocument();
+    expect(await screen.findAllByText("1.20 KH/s")).toHaveLength(2);
   });
 
   it("renders the algorithm name", async () => {

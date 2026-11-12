@@ -101,8 +101,8 @@ export function formatMultiplier(fixedPoint: number, scale = FIXED_POINT_SCALE):
   return `${value.toFixed(2)}x`;
 }
 
-export function formatHashRate(difficulty: number, blockTimeSeconds = 120): string {
-  const hashRate = difficulty / blockTimeSeconds;
+/** A rate in hashes per second, scaled to its largest whole unit. */
+export function formatHashRate(hashRate: number): string {
   if (hashRate >= 1e12) return `${(hashRate / 1e12).toFixed(2)} TH/s`;
   if (hashRate >= 1e9) return `${(hashRate / 1e9).toFixed(2)} GH/s`;
   if (hashRate >= 1e6) return `${(hashRate / 1e6).toFixed(2)} MH/s`;
