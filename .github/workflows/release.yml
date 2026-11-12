@@ -266,9 +266,10 @@ jobs:
       # `--ignored` as "run ignored doctests"), which is how alpha.8's
       # Linux job died after the .deb had already been built.
       # Unit tests already ran on CI. Linux-only: daemon-interaction logic
-      # is platform-agnostic, so one canonical run suffices. (No such test
-      # exists yet — this is the standing runner, so an `#[ignore]` test
-      # lands already wired to execute rather than silently running nowhere.)
+      # is platform-agnostic, so one canonical run suffices. The live tests
+      # (`src-tauri/src/live_daemon_tests.rs`) start the placed sidecar the
+      # way the wallet does and read it through the wallet's own calls, so
+      # a GUI paired with a core whose wire it does not speak fails here.
       - name: Backend integration tests (sidecar, Linux)
         if: startsWith(matrix.platform, 'ubuntu')
         working-directory: src-tauri

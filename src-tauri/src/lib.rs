@@ -44,6 +44,8 @@ mod engine_session;
 mod features;
 mod gui_config;
 mod lifecycle;
+#[cfg(test)]
+mod live_daemon_tests;
 mod message_signing;
 mod mining;
 #[cfg(feature = "multisig")]
