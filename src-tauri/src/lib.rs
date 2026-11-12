@@ -45,6 +45,7 @@ mod features;
 mod gui_config;
 mod lifecycle;
 mod message_signing;
+mod mining;
 #[cfg(feature = "multisig")]
 mod multisig;
 mod proofs;
@@ -62,6 +63,8 @@ mod tx_journal;
 mod validate;
 mod wallet_care;
 mod wallet_name;
+#[cfg(test)]
+mod wire_vectors;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -98,9 +101,9 @@ pub fn run() {
             clipboard::copy_to_clipboard,
             clipboard::clear_clipboard,
             // Mining
-            commands::get_mining_status,
-            commands::start_mining_cmd,
-            commands::stop_mining_cmd,
+            mining::get_mining_status,
+            mining::start_mining_cmd,
+            mining::stop_mining_cmd,
             // Wallet startup
             commands::check_wallet_files,
             commands::ensure_wallet_dir,

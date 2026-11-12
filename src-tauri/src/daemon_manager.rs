@@ -133,7 +133,7 @@ impl DaemonManager {
 
     pub async fn start(&self, app: &AppHandle) {
         let config = self.config.read().await.clone();
-        let rpc_url = format!("http://127.0.0.1:{}/get_info", config.rpc_port);
+        let rpc_url = format!("http://127.0.0.1:{}", config.rpc_port);
 
         if Self::check_health(&rpc_url).await {
             tracing::info!(port = config.rpc_port, "external daemon detected");
@@ -226,7 +226,7 @@ impl DaemonManager {
 
     pub async fn status(&self) -> DaemonStatus {
         let config = self.config.read().await;
-        let rpc_url = format!("http://127.0.0.1:{}/get_info", config.rpc_port);
+        let rpc_url = format!("http://127.0.0.1:{}", config.rpc_port);
         drop(config);
 
         let ready = Self::check_health(&rpc_url).await;
@@ -247,12 +247,18 @@ impl DaemonManager {
         Ok(())
     }
 
+    /// Whether a daemon answers at `rpc_url`: its `version` read, which
+    /// every connection is served (shekyl-core `RPC_CHANNEL.md` §6.1).
     async fn check_health(rpc_url: &str) -> bool {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(2))
-            .build();
-        let Ok(client) = client else { return false };
-        client.get(rpc_url).send().await.is_ok()
+        let probe = crate::daemon_rpc::call::<shekyl_rpc_client::wire::Version>(
+            rpc_url,
+            shekyl_rpc_types::kinds::NoParams,
+            "the node's version",
+        );
+        matches!(
+            tokio::time::timeout(Duration::from_secs(2), probe).await,
+            Ok(Ok(_))
+        )
     }
 
     #[cfg(unix)]

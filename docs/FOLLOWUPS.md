@@ -66,17 +66,16 @@ types in `shekyl-rpc-types`), and `GS-2`. Source:
 
 ---
 
-## Take the daemon wire from `shekyl-rpc-types` (`GS-4`) — target: pre-genesis
+## Control mining on the owner leg (`GS-4`) — target: pre-genesis
 
-`daemon_rpc.rs` carries its own reply types for the daemon wire, against
-core's RK-D1 (one definition in `shekyl-rpc-types`); `get_info` does not
-decode against core `dev`; the Mining page calls admin-only paths on the
-view-only listener; the health probe is a REST `GET /get_info`, which core's
-RW-Q2 retires (`GS-F8`). The GUI's types go, `shekyl-rpc-client` is the
-client, mining moves to the owner leg, and the GUI tracks core `dev` in CI
-so it can pair with the RW rename PR.
+The wallet reads the daemon through core's 4.0 types and client (RK-D1).
+What remains of `GS-4` is mining control: `mine_start`, `mine_stop` and
+`mine_status` need the `mining-control` grant, which the sidecar's view
+listener does not hold, so the wallet's own node refuses them and the
+Mining page says so. The miner pays the node's `mine-address`, set when the
+node starts (`mine_start` takes no address, core IG-F23).
 
-**Blocker:** `GS-2` (the owner leg). Source:
+**Blocker:** `GS-2` (the owner leg, core RT-W10 step 3). Source:
 [`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4.
 
 ---

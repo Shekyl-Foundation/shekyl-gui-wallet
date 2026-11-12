@@ -18,7 +18,13 @@ use tauri::State;
 
 use crate::daemon_rpc;
 use crate::state::{AppState, NetworkType};
-use shekyl_units::{AtomicUnits, AtomicUnitsString};
+use shekyl_rpc_client::wire::block::{BlockHeader, BlockSelect, HeaderSelect};
+use shekyl_rpc_client::wire::chain::{Curve, CurveSelect};
+use shekyl_rpc_client::wire::daemon::DaemonStatus as Status;
+use shekyl_rpc_client::wire::shared::Selector;
+use shekyl_rpc_client::wire::{BlockHeaderShow, CurveShow, DaemonStatus};
+use shekyl_rpc_types::kinds::NoParams;
+use shekyl_units::AtomicUnitsString;
 
 /// What setting a daemon URL exposes, returned to the panel that set it.
 ///
@@ -89,80 +95,157 @@ pub async fn daemon_connection_disclosures(
     Ok(DaemonConnection { url, warnings })
 }
 
+/// The chain as the node reports it (`daemon_status`), with the tip's
+/// header (`block_header_show`) and curve tree (`curve_show`). Field names
+/// follow the 4.0 wire (shekyl-core `INPUT_GRAMMAR.md`, the `daemon_status`
+/// table). Heights are ordinals. A read the node did not answer is `null`,
+/// never zero.
 #[derive(Debug, Serialize)]
 pub struct ChainHealth {
     pub height: u64,
-    pub target_height: u64,
-    pub top_block_hash: String,
-    pub difficulty: u64,
+    /// `null` when the node has no target.
+    pub target_height: Option<u64>,
+    pub hash: String,
+    /// A 128-bit value, as a decimal string.
+    pub difficulty: String,
     pub tx_count: u64,
-    pub tx_pool_size: u64,
-    pub database_size: u64,
-    pub version: String,
+    /// `null` while the node's pool is retired.
+    pub txpool_count: Option<u64>,
     pub synchronized: bool,
-    pub already_generated_coins: String,
-    pub release_multiplier: u64,
-    pub burn_pct: u64,
-    pub stake_ratio: u64,
-    pub total_burned: AtomicUnitsString,
-    pub staker_pool_balance: AtomicUnitsString,
-    pub staker_emission_share_effective: u64,
-    pub last_block_reward: AtomicUnitsString,
-    pub last_block_timestamp: u64,
-    pub last_block_hash: String,
-    pub last_block_size: u64,
-    pub total_staked: AtomicUnitsString,
-    pub tier_0_lock_blocks: u64,
-    pub tier_1_lock_blocks: u64,
-    pub tier_2_lock_blocks: u64,
+    /// Coins emitted so far.
+    pub emission: AtomicUnitsString,
+    /// The emission multiplier, in millionths.
+    pub emission_multiplier: u64,
+    /// The burn rate, in millionths.
+    pub burn: u64,
+    pub burn_total: AtomicUnitsString,
+    /// The stakers' effective share of emission, in millionths.
+    pub stake_share: u64,
+    /// The chain's block spacing, seconds.
+    pub block_spacing: u64,
     pub network: String,
-    pub curve_tree_root: String,
-    pub curve_tree_leaf_count: u64,
-    pub curve_tree_depth: u8,
+    pub last_block: Option<LastBlock>,
+    pub curve_tree: Option<CurveTree>,
+}
+
+/// The tip's header.
+#[derive(Debug, Serialize)]
+pub struct LastBlock {
+    pub reward: AtomicUnitsString,
+    /// Unix seconds.
+    pub time: u64,
+    pub hash: String,
+    /// Bytes.
+    pub weight: u64,
+}
+
+/// The curve tree at the tip.
+#[derive(Debug, Serialize)]
+pub struct CurveTree {
+    pub root: String,
+    pub layers: u64,
+    pub leaf_count: u64,
 }
 
 #[tauri::command]
 pub async fn get_chain_health(state: State<'_, AppState>) -> Result<ChainHealth, String> {
     let url = state.url().await;
-    let network = state.network.read().await;
+    let network = *state.network.read().await;
 
-    let info = daemon_rpc::get_info(&state.http, &url).await?;
-    let block = daemon_rpc::get_last_block_header(&state.http, &url)
+    let status = daemon_rpc::call::<DaemonStatus>(&url, NoParams, "the node's status").await?;
+    let tip = HeaderSelect(BlockSelect {
+        select: Selector::Tip,
+        pow: false,
+        prune: None,
+    });
+    let header = daemon_rpc::call::<BlockHeaderShow>(&url, tip, "the last block")
         .await
         .ok();
-    let staking = daemon_rpc::get_staking_info(&state.http, &url).await.ok();
-    let tree = daemon_rpc::get_curve_tree_info(&state.http, &url)
+    let curve = daemon_rpc::call::<CurveShow>(&url, CurveSelect(Selector::Tip), "the curve tree")
         .await
         .ok();
+    Ok(chain_health(status, header, curve, network.as_str()))
+}
 
-    Ok(ChainHealth {
-        height: info.height,
-        target_height: info.target_height,
-        top_block_hash: info.top_block_hash,
-        difficulty: info.difficulty,
-        tx_count: info.tx_count,
-        tx_pool_size: info.tx_pool_size,
-        database_size: info.database_size,
-        version: info.version,
-        synchronized: info.synchronized,
-        already_generated_coins: info.already_generated_coins.unwrap_or_default(),
-        release_multiplier: info.release_multiplier,
-        burn_pct: info.burn_pct,
-        stake_ratio: info.stake_ratio,
-        total_burned: AtomicUnits::from_raw(info.total_burned).into(),
-        staker_pool_balance: AtomicUnits::from_raw(info.staker_pool_balance).into(),
-        staker_emission_share_effective: info.staker_emission_share_effective,
-        last_block_reward: AtomicUnits::from_raw(block.as_ref().map_or(0, |b| b.reward)).into(),
-        last_block_timestamp: block.as_ref().map_or(0, |b| b.timestamp),
-        last_block_hash: block.as_ref().map_or_else(String::new, |b| b.hash.clone()),
-        last_block_size: block.as_ref().map_or(0, |b| b.block_size),
-        total_staked: AtomicUnits::from_raw(staking.as_ref().map_or(0, |s| s.total_staked)).into(),
-        tier_0_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_0_lock_blocks),
-        tier_1_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_1_lock_blocks),
-        tier_2_lock_blocks: staking.as_ref().map_or(0, |s| s.tier_2_lock_blocks),
-        network: network.as_str().into(),
-        curve_tree_root: tree.as_ref().map_or_else(String::new, |t| t.root.clone()),
-        curve_tree_leaf_count: tree.as_ref().map_or(0, |t| t.leaf_count),
-        curve_tree_depth: tree.as_ref().map_or(0, |t| t.depth),
-    })
+/// The chain read from the node's three replies. The header and the curve
+/// are `None` when the node did not answer them, and stay `null` on the
+/// page.
+fn chain_health(
+    status: Status,
+    header: Option<BlockHeader>,
+    curve: Option<Curve>,
+    network: &str,
+) -> ChainHealth {
+    ChainHealth {
+        height: status.height.0,
+        target_height: status.target_height.0.map(|h| h.0),
+        hash: status.hash.to_string(),
+        difficulty: status.difficulty.get().to_string(),
+        tx_count: status.tx_count.0,
+        txpool_count: status.txpool_count.0.map(|c| c.0),
+        synchronized: status.synchronized,
+        emission: status.emission,
+        emission_multiplier: status.emission_multiplier.0,
+        burn: status.burn.0,
+        burn_total: status.burn_total,
+        stake_share: status.stake_share.0,
+        block_spacing: status.block_spacing.0,
+        network: network.into(),
+        last_block: header.map(|h| LastBlock {
+            reward: h.reward,
+            time: h.time.0,
+            hash: h.hash.to_string(),
+            weight: h.weight.0,
+        }),
+        curve_tree: curve.map(|c| CurveTree {
+            root: c.root.to_string(),
+            layers: c.layers.0,
+            leaf_count: c.leaf_count.0,
+        }),
+    }
+}
+
+#[cfg(test)]
+mod chain_health_tests {
+    use super::*;
+    use crate::wire_vectors::reply;
+
+    /// Core's own 4.0 replies become the page's chain read, each figure
+    /// from its 4.0 field (`INPUT_GRAMMAR.md`'s `daemon_status` table).
+    #[test]
+    fn the_chain_read_is_built_from_core_s_4_0_replies() {
+        let health = chain_health(
+            reply("daemon_status"),
+            Some(reply("block_header_show")),
+            Some(reply("curve_show")),
+            "testnet",
+        );
+        let v = serde_json::to_value(&health).unwrap();
+        assert_eq!(v["height"], 1199);
+        assert_eq!(v["target_height"], 1203);
+        assert_eq!(
+            v["difficulty"],
+            (0x2a3f1c_u64).to_string(),
+            "the hex128, as decimal"
+        );
+        assert_eq!(v["emission"], "50212500000000");
+        assert_eq!(v["emission_multiplier"], 1_000_000);
+        assert_eq!(v["burn"], 50_000);
+        assert_eq!(v["burn_total"], "1250000000");
+        assert_eq!(v["stake_share"], 300_000);
+        assert_eq!(v["txpool_count"], 2);
+        assert_eq!(v["block_spacing"], 120);
+        assert!(v["last_block"]["reward"].is_string());
+        assert!(v["curve_tree"]["layers"].is_u64());
+        assert_eq!(v["network"], "testnet");
+    }
+
+    /// A header or curve the node did not answer is `null`, never zeros.
+    #[test]
+    fn an_unanswered_header_or_curve_is_null() {
+        let v = serde_json::to_value(chain_health(reply("daemon_status"), None, None, "mainnet"))
+            .unwrap();
+        assert!(v["last_block"].is_null());
+        assert!(v["curve_tree"].is_null());
+    }
 }

@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+- **The wallet speaks the daemon's 4.0 interface.** shekyl-core alpha.12
+  renamed the daemon's methods and fields (`CORE_RPC_VERSION` 4.0). The
+  wallet now reads the node through core's own client and types, so a
+  renamed field is a build error, not a figure that silently reads zero:
+  the chain read is `daemon_status` with the tip's header and curve tree,
+  the shard list is `shard_coverage`, and the sidecar health check is the
+  node's `version` read. Figures the node does not report are no longer
+  shown as zero: the stake ratio, staker pool, total staked and tier lock
+  lengths are gone from the Chain Health panel and the Staking page (no
+  daemon ever served them), the node's build string is gone (the wallet's
+  own node does not share it), and a last block, curve tree, shard profit
+  or settlement budget the node has not reported reads "—". The Mining page
+  no longer takes an address or a background switch: the node mines to the
+  address it was started with, the page shows it, and when the node refuses
+  the wallet's mining controls the page says so in the node's words.
 - **A group payment this wallet cannot spend says which check failed.**
   A receive that belongs to a multisig group and can never be spent keeps
   its own reason: the record is missing, the group is different, the record

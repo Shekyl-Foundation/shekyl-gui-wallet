@@ -385,29 +385,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-lc-rs"
-version = "1.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faac5829c2b74c28f830747e7818ccfb684261b5f48a1118b1e2a13d36dfab13"
-dependencies = [
- "aws-lc-sys",
- "zeroize",
-]
-
-[[package]]
-name = "aws-lc-sys"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1622d8446a2d4b2ce0c7eefc73dd43a99779028d5ee5c2dd8073a658ba8a2bc"
-dependencies = [
- "cc",
- "cmake",
- "dunce",
- "fs_extra",
- "pkg-config",
-]
-
-[[package]]
 name = "base16ct"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -880,15 +857,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "052af7878466feccda12ba7a6a67d019d712f296809559b47c12c8cc196d3a9a"
 dependencies = [
  "error-code",
-]
-
-[[package]]
-name = "cmake"
-version = "0.1.58"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -1937,12 +1905,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fs_extra"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
-
-[[package]]
 name = "full-chain-membership-proofs"
 version = "0.1.0"
 dependencies = [
@@ -2263,11 +2225,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi 6.0.0",
  "rand_core 0.10.1",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -2543,9 +2503,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "hex-conservative"
@@ -3079,36 +3036,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jni"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498"
-dependencies = [
- "cfg-if",
- "combine",
- "jni-macros",
- "jni-sys 0.4.1",
- "log",
- "simd_cesu8",
- "thiserror 2.0.21",
- "walkdir",
- "windows-link",
-]
-
-[[package]]
-name = "jni-macros"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3"
-dependencies = [
- "proc-macro2",
- "quote",
- "rustc_version",
- "simd_cesu8",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "jni-sys"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3352,12 +3279,6 @@ checksum = "0fae87c125b03c1d2c0150c90365d7d6bcc53fb73a9acaef207d2d065860f062"
 dependencies = [
  "imgref",
 ]
-
-[[package]]
-name = "lru-slab"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "markup5ever"
@@ -4481,63 +4402,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quinn"
-version = "0.11.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4051e23e9185c255a7e33ef59cdbca87a22d359052eecd22fc6b901fb37d9d11"
-dependencies = [
- "bytes",
- "cfg_aliases",
- "pin-project-lite",
- "quinn-proto",
- "quinn-udp",
- "rustc-hash",
- "rustls",
- "socket2",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "web-time",
-]
-
-[[package]]
-name = "quinn-proto"
-version = "0.11.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e750cca55fe4f0439a15d0bb529da9651e79993e8e72c61a899a36d462befbe"
-dependencies = [
- "aws-lc-rs",
- "bytes",
- "getrandom 0.4.3",
- "lru-slab",
- "rand 0.10.3",
- "rand_pcg",
- "ring",
- "rustc-hash",
- "rustls",
- "rustls-pki-types",
- "slab",
- "thiserror 2.0.21",
- "tinyvec",
- "tracing",
- "web-time",
-]
-
-[[package]]
-name = "quinn-udp"
-version = "0.5.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af66907df18639dcf4db56ca65490cabc4b27a97dbadd96f2926cca73298f016"
-dependencies = [
- "cfg_aliases",
- "libc",
- "once_cell",
- "socket2",
- "tracing",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4591,7 +4455,6 @@ version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
 dependencies = [
- "chacha20 0.10.2",
  "getrandom 0.4.3",
  "rand_core 0.10.1",
 ]
@@ -4648,15 +4511,6 @@ checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
  "rand 0.8.8",
-]
-
-[[package]]
-name = "rand_pcg"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
-dependencies = [
- "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -4856,21 +4710,15 @@ dependencies = [
  "http-body",
  "http-body-util",
  "hyper",
- "hyper-rustls",
  "hyper-util",
  "js-sys",
  "log",
  "percent-encoding",
  "pin-project-lite",
- "quinn",
- "rustls",
- "rustls-pki-types",
- "rustls-platform-verifier",
  "serde",
  "serde_json",
  "sync_wrapper",
  "tokio",
- "tokio-rustls",
  "tokio-util",
  "tower",
  "tower-http",
@@ -4960,7 +4808,6 @@ version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
- "aws-lc-rs",
  "log",
  "once_cell",
  "ring",
@@ -4988,36 +4835,8 @@ version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f4925028c7eb5d1fcdaf196971378ed9d2c1c4efc7dc5d011256f76c99c0a96"
 dependencies = [
- "web-time",
  "zeroize",
 ]
-
-[[package]]
-name = "rustls-platform-verifier"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98"
-dependencies = [
- "core-foundation",
- "core-foundation-sys",
- "jni 0.22.4",
- "log",
- "once_cell",
- "rustls",
- "rustls-native-certs",
- "rustls-platform-verifier-android",
- "rustls-webpki",
- "security-framework",
- "security-framework-sys",
- "webpki-root-certs",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "rustls-platform-verifier-android"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
@@ -5025,7 +4844,6 @@ version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
- "aws-lc-rs",
  "ring",
  "rustls-pki-types",
  "untrusted",
@@ -5439,7 +5257,6 @@ name = "shekyl-archival-retention"
 version = "3.1.0"
 dependencies = [
  "curve25519-dalek",
- "rand 0.8.8",
  "serde",
  "serde_json",
  "sha3",
@@ -5448,10 +5265,10 @@ dependencies = [
  "shekyl-curve-generators",
  "shekyl-curve-io",
  "shekyl-fcmp",
+ "shekyl-network",
  "shekyl-types",
  "shekyl-units",
  "thiserror 2.0.21",
- "zeroize",
 ]
 
 [[package]]
@@ -5484,11 +5301,6 @@ dependencies = [
 [[package]]
 name = "shekyl-consensus"
 version = "3.1.0"
-dependencies = [
- "serde",
- "shekyl-difficulty",
- "thiserror 2.0.21",
-]
 
 [[package]]
 name = "shekyl-crypto-hash"
@@ -5519,7 +5331,6 @@ dependencies = [
  "fn-dsa-sign",
  "fn-dsa-vrfy",
  "helioselene",
- "hex",
  "hkdf",
  "postcard-schema",
  "rand 0.8.8",
@@ -5531,7 +5342,11 @@ dependencies = [
  "shekyl-crypto-hash",
  "shekyl-curve-generators",
  "shekyl-curve-primitives",
+ "shekyl-heap-secret",
+ "shekyl-network",
+ "shekyl-onion-key",
  "shekyl-types",
+ "subtle",
  "thiserror 2.0.21",
  "x25519-dalek",
  "zeroize",
@@ -5599,14 +5414,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shekyl-difficulty"
-version = "3.1.0"
-dependencies = [
- "serde_json",
- "shekyl-types",
-]
-
-[[package]]
 name = "shekyl-economics"
 version = "3.1.0"
 dependencies = [
@@ -5657,6 +5464,7 @@ dependencies = [
  "shekyl-engine-prefs",
  "shekyl-engine-state",
  "shekyl-fcmp-proofs",
+ "shekyl-network",
  "shekyl-operator-alarm",
  "shekyl-p-host",
  "shekyl-p-store",
@@ -5757,6 +5565,7 @@ dependencies = [
  "shekyl-crypto-pq",
  "shekyl-curve-generators",
  "shekyl-fcmp-proofs",
+ "shekyl-types",
  "thiserror 2.0.21",
  "tracing",
  "zeroize",
@@ -5780,7 +5589,15 @@ dependencies = [
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
  "shekyl-curve-generators",
+ "shekyl-types",
  "std-shims",
+ "zeroize",
+]
+
+[[package]]
+name = "shekyl-heap-secret"
+version = "3.1.0"
+dependencies = [
  "zeroize",
 ]
 
@@ -5790,6 +5607,17 @@ version = "3.1.0"
 dependencies = [
  "serde",
  "shekyl-crypto-hash",
+]
+
+[[package]]
+name = "shekyl-onion-key"
+version = "3.1.0"
+dependencies = [
+ "curve25519-dalek",
+ "rand 0.8.8",
+ "sha2",
+ "shekyl-heap-secret",
+ "zeroize",
 ]
 
 [[package]]
@@ -5858,13 +5686,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shekyl-portable-storage"
-version = "3.1.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "shekyl-proofs"
 version = "3.1.0"
 dependencies = [
@@ -5874,6 +5695,7 @@ dependencies = [
  "sha2",
  "shekyl-crypto-pq",
  "shekyl-curve-generators",
+ "shekyl-network",
  "thiserror 2.0.21",
  "zeroize",
 ]
@@ -5888,6 +5710,7 @@ dependencies = [
  "shekyl-economics",
  "shekyl-rpc-types",
  "shekyl-types",
+ "shekyl-units",
  "std-shims",
  "thiserror 2.0.21",
  "zeroize",
@@ -5921,12 +5744,12 @@ dependencies = [
 name = "shekyl-rpc-types"
 version = "3.1.0"
 dependencies = [
+ "base64 0.22.1",
  "serde",
  "serde_json",
  "sha2",
  "shekyl-address",
  "shekyl-network",
- "shekyl-portable-storage",
  "shekyl-rpc-grants",
  "shekyl-units",
 ]
@@ -6004,10 +5827,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-timing-engine"
+version = "3.1.0"
+dependencies = [
+ "shekyl-thread-ledger",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "shekyl-tor-control-client"
 version = "3.1.0"
 dependencies = [
- "ed25519-dalek",
  "futures-core",
  "getrandom 0.2.17",
  "hmac",
@@ -6015,7 +5845,9 @@ dependencies = [
  "libc",
  "serde_json",
  "sha2",
+ "shekyl-onion-key",
  "shekyl-onion-v3",
+ "shekyl-timing-engine",
  "shekyl-win-sec",
  "tokio",
  "windows-sys 0.61.2",
@@ -6039,9 +5871,7 @@ dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",
  "fips204",
- "hex",
  "rand_core 0.6.4",
- "serde",
  "shekyl-bulletproofs",
  "shekyl-crypto-hash",
  "shekyl-crypto-pq",
@@ -6050,6 +5880,7 @@ dependencies = [
  "shekyl-curve-io",
  "shekyl-curve-primitives",
  "shekyl-fcmp",
+ "shekyl-network",
  "shekyl-types",
  "shekyl-units",
  "shekyl-wire",
@@ -6099,7 +5930,6 @@ dependencies = [
  "libc",
  "proptest",
  "rand 0.8.8",
- "reqwest",
  "serde",
  "serde_json",
  "sha2",
@@ -6111,6 +5941,7 @@ dependencies = [
  "shekyl-engine-state",
  "shekyl-rpc-client",
  "shekyl-rpc-transport",
+ "shekyl-rpc-types",
  "shekyl-scanner",
  "shekyl-shard-visual",
  "shekyl-types",
@@ -6163,6 +5994,7 @@ dependencies = [
  "shekyl-bulletproofs",
  "shekyl-crypto-hash",
  "shekyl-curve-generators",
+ "shekyl-network",
  "shekyl-types",
 ]
 
@@ -6209,16 +6041,6 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
-
-[[package]]
-name = "simd_cesu8"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11031e251abf8611c80f460e19dbdeb54a66db918e49c65a7065b46ac7aec520"
-dependencies = [
- "rustc_version",
- "simdutf8",
-]
 
 [[package]]
 name = "simd_helpers"
@@ -6489,7 +6311,7 @@ dependencies = [
  "gdkwayland-sys",
  "gdkx11-sys",
  "gtk",
- "jni 0.21.1",
+ "jni",
  "libc",
  "log",
  "ndk",
@@ -6551,7 +6373,7 @@ dependencies = [
  "gtk",
  "heck 0.5.0",
  "http",
- "jni 0.21.1",
+ "jni",
  "libc",
  "log",
  "mime",
@@ -6777,7 +6599,7 @@ dependencies = [
  "dpi",
  "gtk",
  "http",
- "jni 0.21.1",
+ "jni",
  "objc2",
  "objc2-ui-kit",
  "objc2-web-kit",
@@ -6800,7 +6622,7 @@ checksum = "e1aa9d8b7a120f879f44fdc1053f7b7dbf416bf0bbc6a72b714dec46b782b52f"
 dependencies = [
  "gtk",
  "http",
- "jni 0.21.1",
+ "jni",
  "log",
  "objc2",
  "objc2-app-kit",
@@ -7702,15 +7524,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "webpki-root-certs"
-version = "1.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a"
-dependencies = [
- "rustls-pki-types",
-]
-
-[[package]]
 name = "webpki-roots"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8242,7 +8055,7 @@ dependencies = [
  "gtk",
  "http",
  "javascriptcore-rs",
- "jni 0.21.1",
+ "jni",
  "libc",
  "ndk",
  "objc2",

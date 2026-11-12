@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import TestnetBanner from "../TestnetBanner";
+import type { ChainHealth } from "../../types/daemon";
 
 vi.mock("../../context/useDaemon", () => ({
   useDaemon: vi.fn(),
@@ -8,32 +9,23 @@ vi.mock("../../context/useDaemon", () => ({
 
 import { useDaemon } from "../../context/useDaemon";
 
-const baseHealth = {
-  height: 100,
-  target_height: 100,
-  top_block_hash: "abc",
-  difficulty: 1000,
-  tx_count: 50,
-  tx_pool_size: 0,
-  database_size: 0,
-  version: "0.1.0",
+const baseHealth: ChainHealth = {
+  height: 0,
+  target_height: null,
+  hash: "",
+  difficulty: "0",
+  tx_count: 0,
+  txpool_count: 0,
   synchronized: true,
-  already_generated_coins: "0",
-  release_multiplier: 1_000_000,
-  burn_pct: 50_000,
-  stake_ratio: 200_000,
-  total_burned: "0",
-  staker_pool_balance: "0",
-  staker_emission_share_effective: 100_000,
-  last_block_reward: "0",
-  last_block_timestamp: 0,
-  last_block_hash: "",
-  last_block_size: 0,
-  total_staked: "0",
-  tier_0_lock_blocks: 0,
-  tier_1_lock_blocks: 0,
-  tier_2_lock_blocks: 0,
+  emission: "0",
+  emission_multiplier: 1_000_000,
+  burn: 0,
+  burn_total: "0",
+  stake_share: 0,
+  block_spacing: 120,
   network: "mainnet",
+  last_block: null,
+  curve_tree: null,
 };
 
 describe("TestnetBanner", () => {

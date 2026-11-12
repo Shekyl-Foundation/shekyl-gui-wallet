@@ -124,9 +124,10 @@ export default function ShardCard({
     setAttempt((n) => n + 1);
   };
 
-  const profitLabel = profitAvailable
-    ? `${formatSklCompact(row.expected_profit_atomic)} SKL / epoch`
-    : "profit estimate unavailable";
+  const profitLabel =
+    profitAvailable && row.expected_profit_atomic !== null
+      ? `${formatSklCompact(row.expected_profit_atomic)} SKL / epoch`
+      : "profit estimate unavailable";
 
   return (
     <div

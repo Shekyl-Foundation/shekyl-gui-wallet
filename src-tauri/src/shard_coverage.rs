@@ -7,7 +7,7 @@
 //! `SHARD_VIEW_FETCH.md` SV-D).
 //!
 //! The GUI never fetches shard bodies. `list_shards` is the daemon's
-//! `get_archival_shard_coverage` projection (app shell: no wallet method
+//! `shard_coverage` projection (app shell: no wallet method
 //! lists coverage). `get_shard_view` is the contract adapter: the open
 //! wallet's daemon fetches the shard from a holder and answers the
 //! aggregate (`shekyl_wallet_contract::shard_view::fetch_shard_view`, the
@@ -24,28 +24,35 @@ use shekyl_wallet_contract::shard_view::{fetch_shard_view, ShardViewResult};
 use tauri::{AppHandle, State};
 
 use crate::contract_error::{open_engine, ContractError};
-use crate::daemon_rpc::{self, GetArchivalShardCoverageResponse, ShardCoverageRow as RpcRow};
+use crate::daemon_rpc;
 use crate::shard_visual::{
     cache_digest, recipe_for, render_cached, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE,
 };
 use crate::state::AppState;
-use shekyl_units::{AtomicUnits, AtomicUnitsString};
+use shekyl_rpc_client::wire::archival::{Coverage, CoverageShard};
+use shekyl_rpc_client::wire::ShardCoverage;
+use shekyl_rpc_types::kinds::NoParams;
+use shekyl_units::AtomicUnitsString;
 
+/// The coverage list on this edge. `budget` and `work` are `null` before
+/// the first settlement pass, never zero (`shard_coverage`, IG-Q61).
 #[derive(Debug, Serialize)]
 pub struct ShardCoverageList {
     pub as_of_height: u64,
     pub leaf_count: u64,
     pub frozen_count: u64,
     pub settled_epoch: u64,
-    pub budget_atomic: AtomicUnitsString,
-    pub sigma_work_milli: u64,
+    pub budget_atomic: Option<AtomicUnitsString>,
+    pub sigma_work_milli: Option<u64>,
+    /// Every shard carries a profit estimate. The wire says it per shard,
+    /// as a `null` profit; the list is summed only when all are estimated.
     pub profit_estimate_available: bool,
     pub shards: Vec<ShardCoverageRow>,
 }
 
-/// Tauri-wire row. Daemon JSON still carries `expected_profit_atomic` as a
-/// number (`RpcRow`); on this edge it is an `AtomicUnitsString` (see `wire`)
-/// and the frontend sums with `bigint`.
+/// One shard on this edge. The profit is an `AtomicUnitsString` (the
+/// frontend sums with `bigint`), or `null` when the node has not
+/// estimated it.
 #[derive(Debug, Serialize)]
 pub struct ShardCoverageRow {
     pub shard_id: u64,
@@ -53,18 +60,18 @@ pub struct ShardCoverageRow {
     pub served_count: u64,
     pub freeze_height: u64,
     pub join_scarcity_micro: u64,
-    pub expected_profit_atomic: AtomicUnitsString,
+    pub expected_profit_atomic: Option<AtomicUnitsString>,
 }
 
-impl From<RpcRow> for ShardCoverageRow {
-    fn from(row: RpcRow) -> Self {
+impl From<CoverageShard> for ShardCoverageRow {
+    fn from(row: CoverageShard) -> Self {
         Self {
-            shard_id: row.shard_id,
-            bonded_count: row.bonded_count,
-            served_count: row.served_count,
-            freeze_height: row.freeze_height,
-            join_scarcity_micro: row.join_scarcity_micro,
-            expected_profit_atomic: AtomicUnits::from_raw(row.expected_profit_atomic).into(),
+            shard_id: row.id.0,
+            bonded_count: row.bonded_count.0,
+            served_count: row.served_count.0,
+            freeze_height: row.freeze_height.0,
+            join_scarcity_micro: row.scarcity.0,
+            expected_profit_atomic: row.profit.0,
         }
     }
 }
@@ -72,7 +79,7 @@ impl From<RpcRow> for ShardCoverageRow {
 #[tauri::command]
 pub async fn list_shards(state: State<'_, AppState>) -> Result<ShardCoverageList, String> {
     let url = state.url().await;
-    let res = daemon_rpc::get_archival_shard_coverage(&state.http, &url).await?;
+    let res = daemon_rpc::call::<ShardCoverage>(&url, NoParams, "the shard coverage").await?;
     Ok(coverage_list_from_rpc(res))
 }
 
@@ -132,16 +139,18 @@ pub async fn get_shard_view(
     })
 }
 
-fn coverage_list_from_rpc(res: GetArchivalShardCoverageResponse) -> ShardCoverageList {
+fn coverage_list_from_rpc(res: Coverage) -> ShardCoverageList {
+    let shards: Vec<ShardCoverageRow> = res.shard.into_iter().map(ShardCoverageRow::from).collect();
     ShardCoverageList {
-        as_of_height: res.as_of_height,
-        leaf_count: res.leaf_count,
-        frozen_count: res.frozen_count,
-        settled_epoch: res.settled_epoch,
-        budget_atomic: AtomicUnits::from_raw(res.budget_atomic).into(),
-        sigma_work_milli: res.sigma_work_milli,
-        profit_estimate_available: res.profit_estimate_available,
-        shards: res.shards.into_iter().map(ShardCoverageRow::from).collect(),
+        as_of_height: res.height.0,
+        leaf_count: res.leaf_count.0,
+        frozen_count: res.frozen_count.0,
+        settled_epoch: res.settled_epoch.0,
+        budget_atomic: res.budget.0,
+        sigma_work_milli: res.work.0.map(|w| w.0),
+        profit_estimate_available: !shards.is_empty()
+            && shards.iter().all(|s| s.expected_profit_atomic.is_some()),
+        shards,
     }
 }
 
@@ -197,26 +206,33 @@ mod tests {
         }
     }
 
+    /// A 4.0 `shard_coverage` reply, as the node sends it.
+    fn coverage(profit: serde_json::Value, budget: serde_json::Value) -> Coverage {
+        serde_json::from_value(serde_json::json!({
+            "height": 1,
+            "leaf_count": 0,
+            "frozen_count": 1,
+            "settled_epoch": 0,
+            "budget": budget,
+            "work": null,
+            "shard": [{
+                "id": 7,
+                "bonded_count": 0,
+                "served_count": 0,
+                "freeze_height": 1,
+                "scarcity": 1,
+                "profit": profit,
+            }],
+        }))
+        .expect("a 4.0 coverage reply")
+    }
+
     #[test]
     fn coverage_list_serializes_profit_as_decimal_string() {
-        let rpc = GetArchivalShardCoverageResponse {
-            as_of_height: 1,
-            leaf_count: 0,
-            frozen_count: 1,
-            settled_epoch: 0,
-            budget_atomic: 0,
-            sigma_work_milli: 0,
-            profit_estimate_available: true,
-            shards: vec![RpcRow {
-                shard_id: 7,
-                bonded_count: 0,
-                served_count: 0,
-                freeze_height: 1,
-                join_scarcity_micro: 1,
-                expected_profit_atomic: (1u64 << 53) + 1,
-            }],
-        };
-        let list = coverage_list_from_rpc(rpc);
+        let list = coverage_list_from_rpc(coverage(
+            serde_json::json!("9007199254740993"),
+            serde_json::json!("0"),
+        ));
         let v = serde_json::to_value(&list).expect("serialize");
         let profit = &v["shards"][0]["expected_profit_atomic"];
         assert!(
@@ -224,5 +240,32 @@ mod tests {
             "JSON number would lose 2^53+1: {profit}"
         );
         assert_eq!(profit, "9007199254740993");
+        assert_eq!(v["profit_estimate_available"], true);
+    }
+
+    /// Before the first settlement pass the node estimates nothing: the
+    /// list says so, and never carries a zero in its place.
+    #[test]
+    fn an_unestimated_coverage_is_null_not_zero() {
+        let list =
+            coverage_list_from_rpc(coverage(serde_json::Value::Null, serde_json::Value::Null));
+        let v = serde_json::to_value(&list).expect("serialize");
+        assert!(v["shards"][0]["expected_profit_atomic"].is_null());
+        assert!(v["budget_atomic"].is_null());
+        assert!(v["sigma_work_milli"].is_null());
+        assert_eq!(v["profit_estimate_available"], false);
+    }
+
+    /// Core's own `shard_coverage` vector maps field for field.
+    #[test]
+    fn core_s_coverage_vector_maps_to_the_list() {
+        let list = coverage_list_from_rpc(crate::wire_vectors::reply("shard_coverage"));
+        let v = serde_json::to_value(&list).expect("serialize");
+        assert!(v["as_of_height"].is_u64());
+        assert!(v["shards"].is_array());
+        for row in v["shards"].as_array().unwrap() {
+            let profit = &row["expected_profit_atomic"];
+            assert!(profit.is_null() || profit.is_string(), "{profit}");
+        }
     }
 }

@@ -28,7 +28,6 @@
 
 use std::path::PathBuf;
 
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -99,7 +98,6 @@ pub struct AppState {
     // Daemon
     pub daemon_url: RwLock<String>,
     pub network: RwLock<NetworkType>,
-    pub http: Client,
 
     // Wallet directory / open metadata
     pub wallet_dir: RwLock<PathBuf>,
@@ -125,10 +123,6 @@ impl AppState {
                 net.default_rpc_port()
             )),
             network: RwLock::new(net),
-            http: Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-                .expect("failed to create HTTP client"),
             wallet_dir: RwLock::new(resolved.dir),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
             wallet_open: RwLock::new(false),
@@ -146,9 +140,8 @@ impl AppState {
         self.daemon_url.read().await.clone()
     }
 
-    /// Base URL without the `/json_rpc` suffix, for plain HTTP endpoints
-    /// like `/mining_status`, `/start_mining`, `/stop_mining`, and as the
-    /// Engine daemon-client base.
+    /// Base URL without the `/json_rpc` suffix: the Engine daemon-client
+    /// base.
     ///
     /// Trailing slashes are stripped *before* the `/json_rpc` suffix so a
     /// configured URL like `http://host:port/json_rpc/` collapses to

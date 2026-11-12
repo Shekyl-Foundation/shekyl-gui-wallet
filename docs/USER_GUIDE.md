@@ -426,9 +426,11 @@ contribute to the network while going about your day.
 
 ### Important requirement
 
-Mining requires that your daemon is running in **unrestricted mode**. If you
-started `shekyld` with the `--restricted-rpc` flag, mining controls won't
-work. For normal home use, the default (unrestricted) mode is fine.
+The node mines to the address it was started with (its `mine-address`); the
+Mining page shows that address and cannot change it. The node the wallet
+starts for you does not let the wallet control mining, and the Mining page
+says so. To mine from the wallet, connect it to a node you run yourself,
+started with your mining address.
 
 ---
 
