@@ -187,12 +187,22 @@ async fn the_wallet_s_own_node_refuses_mining_control_in_words() {
 async fn a_wallet_on_a_genesis_only_chain_has_scanned_nothing() {
     let d = start_on("testnet").await;
     let wallets = d.dir.join("wallets");
+    // A throwaway wallet in the run's own directory: its password is made
+    // per run, never written into the source.
+    let password = format!(
+        "live-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
     let mut session = crate::engine_session::EngineSession::new();
     session
         .create(
             &wallets,
             "live",
-            "correct horse battery",
+            &password,
             crate::state::NetworkType::Testnet,
             &d.url,
         )
