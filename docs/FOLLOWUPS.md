@@ -72,11 +72,15 @@ The wallet reads the daemon through core's 4.0 types and client (RK-D1).
 What remains of `GS-4` is mining control: `mine_start`, `mine_stop` and
 `mine_status` need the `mining-control` grant, which the sidecar's view
 listener does not hold, so the wallet's own node refuses them and the
-Mining page says so. The miner pays the node's `mine-address`, set when the
-node starts (`mine_start` takes no address, core IG-F23).
+Mining page says so (`grant_reach_tests.rs` lists them as waiting on
+`GS-C3`). The miner pays the node's `mine-address`, set when the node
+starts (`mine_start` takes no address, core IG-F23), so the GUI passes the
+open wallet's address when it launches its node, and a wallet switch
+relaunches it (Rick, 2026-11-12).
 
-**Blocker:** `GS-2` (the owner leg, core RT-W10 step 3). Source:
-[`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4.
+**Blocker:** `GS-C3` (the owning connection, core RT-W10 step 3) and
+`GS-2` (the launch carries `mine-address`). Source:
+[`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §5.
 
 ---
 

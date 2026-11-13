@@ -68,3 +68,7 @@ libc = "0.2"
 
 [dev-dependencies]
 proptest = "1"
+# The node's own admission check (`Authority::VIEW_LISTENER`), so the
+# grant-reach test asks the daemon's code what the wallet's own node lets
+# it call, never a copy of its grant set.
+shekyl-daemon-rpc = { path = "../../shekyl-core/rust/shekyl-daemon-rpc" }

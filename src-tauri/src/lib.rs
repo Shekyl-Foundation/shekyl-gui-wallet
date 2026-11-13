@@ -42,6 +42,8 @@ mod engine_daemon;
 mod engine_errors;
 mod engine_session;
 mod features;
+#[cfg(test)]
+mod grant_reach_tests;
 mod gui_config;
 mod lifecycle;
 #[cfg(test)]

@@ -211,8 +211,9 @@ carry Tor's own bytes as pinned.
 | GS-C2 | core | `GS-Q4`: Status' Tor part and Health's boolean on `get_info`; posture types and `render` into `shekyl-rpc-types`; a typed reason for `Held` beside a usable link (an exhausted epoch pin, or no address-hiding peer yet), in the shape IG-Q72 rules (core `INPUT_GRAMMAR.md`, draft #1162) | increment 3 (#1151), GS-C1 |
 | GS-C3 | core | `GS-Q1`'s leg: the owning connection as an RPC listener kind, owner grant, host-only stop | — |
 | GS-C4 | core | Correct `TSR-Q12`, `TOR_SUPERVISOR.md` §11 and core's FOLLOWUPS row for the RW naming: no leg carries Status to the GUI yet | — |
+| GS-C5 | core | The chain-wide staking figures: total bonded principal (ESR-8) and the per-block staker inflow (`ARCHIVAL_BUDGET_SCHEDULE.md`), in `daemon_status`'s economics part beside `stake_share`. The GUI shows nothing for them until core's types carry them | the daemon's bond accounting |
 | GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file`, on every platform (`GS-Q6`). Built: `release.yml` job `core-archives` with `scripts/release/core_archive.py` checks each archive's digest before unpacking (the Foundation-signed `SHA256SUMS` on a tag, GitHub's artifact digest for a dry run's gitian run); `DaemonManager` names the bundled Tor with `tor-file`; after bundling, the release reads Tor back out of every installer and checks it against core's pins and the bundled daemon's `--config-verify` (`src-tauri/binaries/README.md`) | The cut: `SHEKYL_CORE_REF` at the paired core tag, and for macOS that cut carries core #1310 (TSR-F18), without which the hardened runtime kills the signed `tor` at its first onion proof-of-work |
-| GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented" | GS-C3 |
+| GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented"; the open wallet's address passed as `mine-address` when the GUI launches its node (IG-12: `mine-address` is set only at start, so switching wallets relaunches the node) | GS-C3 |
 | GS-3 | GUI | Posture display, held review/verdict/pending, Settings → Network fixes, daemon config | GS-C1, GS-C2, GS-2 |
 | GS-4 | GUI | Wire debt: RK-D1 adoption and the 4.0 reads (`daemon_status`, `block_header_show`, `curve_show`, `shard_coverage`, the `version` health probe) through `shekyl-rpc-client`, built; mining control on the owner leg remains | GS-2 for mining control |
 | GS-5 | GUI | macOS installer Tor: carried by GS-1, by the same mechanism (`GS-Q6`) | As GS-1 |
@@ -234,3 +235,33 @@ in the GUI and in the daemon's log with the same words:
    orphan holds the lock.
 6. A transaction accepted while Tor is up but before any onion peer is
    handshaken is shown held until it leaves (GS-F3's falsifier).
+
+## 7. Alpha resync
+
+Until the full wallet adjustment lands, every cut resyncs the GUI with the
+core it ships beside. It runs once per cut, not on a calendar, and retires
+when that adjustment lands.
+
+1. Early in the cut week, dispatch core's `gitian.yml` with
+   `package_dry_run` on the head of `dev`, dispatched from `dev` with the
+   commit as `tag`. Never dispatch it from a tag ref: the publish step keys
+   on the ref, not the event, so a dispatch from a tag publishes.
+2. Run this repo's release dry run (`release.yml`, `core_gitian_run`)
+   against that run id. It compiles the GUI against the commit the run
+   built and runs the live tests (`live_daemon_tests.rs`) against its
+   daemon.
+3. Fix whatever is red in one GUI resync PR for the cut, and sweep two
+   things no build sees:
+   - the grant-reach test's `AWAITING` list (`grant_reach_tests.rs`): is
+     each entry still waiting on the increment it names?
+   - chain facts written into GUI text (lock windows, block spacing,
+     descriptions of mechanisms): each comes from core, never a copy.
+4. The CLI's half is in core's tree. Its daemon calls are typed and its
+   `--json` is the wire's reply, so it has no vocabulary of its own to
+   resync; the sweep checks its human lines' words against core's
+   `HEIGHT_SEMANTICS.md` §1.
+5. The GUI is tagged beside core. Steps 1 and 2 run again at the freeze.
+
+Caught without the resync: a wire name or shape change breaks the GUI's
+build on the core PR that makes it (core's `gui-drift.yml`), and the GUI's
+lock is checked against core `dev` daily (`core-drift.yml`).
