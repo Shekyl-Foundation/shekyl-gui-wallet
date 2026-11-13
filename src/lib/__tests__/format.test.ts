@@ -8,6 +8,8 @@ import {
   formatPercent,
   formatMultiplier,
   formatHashRate,
+  blockNumberOfCount,
+  coinbaseLockText,
   formatDuration,
   emissionProgress,
 } from "../format";
@@ -162,5 +164,34 @@ describe("SKL_AMOUNT_PATTERN", () => {
       expect(pattern.test(s), s).toBe(false);
       expect(() => parseSkl(s), s).toThrow(RangeError);
     }
+  });
+});
+
+describe("blockNumberOfCount", () => {
+  it("is no block for an empty count", () => {
+    expect(blockNumberOfCount(0)).toBeNull();
+  });
+
+  it("is genesis for one block", () => {
+    expect(blockNumberOfCount(1)).toBe(0);
+  });
+
+  it("is the newest block's number", () => {
+    expect(blockNumberOfCount(1200)).toBe(1199);
+  });
+});
+
+describe("coinbaseLockText", () => {
+  it("reads the window and the spacing it is given", () => {
+    expect(coinbaseLockText({ coinbase_lock_window: 60, block_spacing: 120 })).toBe(
+      "60 blocks (about 2 hours)",
+    );
+    expect(coinbaseLockText({ coinbase_lock_window: 10, block_spacing: 60 })).toBe(
+      "10 blocks (about 10 minutes)",
+    );
+  });
+
+  it("names no number before the node is read", () => {
+    expect(coinbaseLockText(null)).toBeNull();
   });
 });

@@ -48,11 +48,11 @@ describe("Mining", () => {
     expect(screen.getByText("Mining")).toBeInTheDocument();
   });
 
-  it("shows privacy note about mining rewards", () => {
+  it("names no lock window before the node is read", () => {
     mockMiningStatus(false);
     renderMining();
     expect(screen.getByText("Mining and Privacy")).toBeInTheDocument();
-    expect(screen.getByText(/locked for 60 blocks/)).toBeInTheDocument();
+    expect(screen.getByText(/wait a fixed number of blocks/)).toBeInTheDocument();
   });
 
   it("shows idle status when not mining", async () => {
@@ -128,6 +128,23 @@ describe("Mining", () => {
     });
     renderMining();
     expect(await screen.findByText("the node is still syncing")).toBeInTheDocument();
+  });
+
+  it("takes the lock window and spacing from core, and names no ring", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "get_wallet_status") return { connected: true };
+      if (cmd === "get_chain_health") {
+        return { coinbase_lock_window: 7, block_spacing: 60, difficulty: "0" };
+      }
+      if (cmd === "get_mining_status") return miningStatus(false);
+      return null;
+    });
+    renderMining();
+    expect(
+      await screen.findByText(/Mining rewards can be spent after 7 blocks \(about 7 minutes\)\./),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Shekyl has no rings/)).toBeInTheDocument();
+    expect(screen.queryByText(/mix ring/)).toBeNull();
   });
 
   it("shows the hash rate from the node's window", async () => {

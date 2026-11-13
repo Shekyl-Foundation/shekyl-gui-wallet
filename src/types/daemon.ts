@@ -23,6 +23,8 @@ export interface ChainHealth {
   stake_share: number;
   /** Seconds. */
   block_spacing: number;
+  /** Blocks a mined reward waits before it can be spent (core's constant). */
+  coinbase_lock_window: number;
   network: string;
   last_block: LastBlock | null;
   curve_tree: CurveTree | null;

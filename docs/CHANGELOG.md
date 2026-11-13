@@ -17,12 +17,19 @@
   no longer takes an address or a background switch: the node mines to the
   address it was started with, the page shows it, and when the node refuses
   the wallet's mining controls the page says so in the node's words.
-- **Heights are block counts, as the CLI prints them.** The chain's height
-  at the top of the wallet, in Settings and on the Chain Health panel, and
-  the wallet's height after a refresh or rescan, are the number of blocks:
-  the newest block's height plus one. A synced wallet now shows its node's
-  number and the same numbers `shekyl-cli` shows; the wallet's height read
-  one lower than the CLI's for the same wallet.
+- **Blocks are shown by their number.** What the wallet shows people says
+  "block" and a block's own number, counted from 0 at genesis, never
+  "height": the newest block in the header, Settings and the Chain Health
+  panel, where a refresh or rescan synced to, where the persona scan reached,
+  when a staked output unlocks, and where a restore starts. A tooltip says
+  how blocks are numbered, and Help has "Block number" and "Block count".
+  A synced wallet shows its node's block. Two numbers were one off: after a
+  refresh the wallet showed the block before the one it had synced to, and
+  the persona scan showed the first block it had not scanned.
+- **The Mining page and Help take chain facts from core.** The coinbase lock
+  window is core's constant and the time is the node's block spacing; the
+  page no longer says mined outputs join a "mix ring", since Shekyl has no
+  rings.
 - **A group payment this wallet cannot spend says which check failed.**
   A receive that belongs to a multisig group and can never be spent keeps
   its own reason: the record is missing, the group is different, the record

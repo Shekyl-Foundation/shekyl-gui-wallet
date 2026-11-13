@@ -98,12 +98,11 @@ pub async fn daemon_connection_disclosures(
 /// The chain as the node reports it (`daemon_status`), with the tip's
 /// header (`block_header_show`) and curve tree (`curve_show`). Field names
 /// follow the 4.0 wire (shekyl-core `INPUT_GRAMMAR.md`, the `daemon_status`
-/// table), except `height`, which is the block count (below). A read the
-/// node did not answer is `null`, never zero.
+/// table). A read the node did not answer is `null`, never zero.
 #[derive(Debug, Serialize)]
 pub struct ChainHealth {
-    /// The chain's block count: the tip's height plus one, the number the
-    /// CLI prints as `Height` and the wallet's synced height compares with.
+    /// The wire's `height` unchanged: the tip's own block number (genesis
+    /// is 0), shown as "Block number".
     pub height: u64,
     pub hash: String,
     /// A 128-bit value, as a decimal string.
@@ -123,6 +122,11 @@ pub struct ChainHealth {
     pub stake_share: u64,
     /// The chain's block spacing, seconds.
     pub block_spacing: u64,
+    /// Blocks a mined reward waits before it can be spent: core's
+    /// consensus constant (`shekyl_consensus::COINBASE_LOCK_WINDOW`), not a
+    /// figure the node reports, carried here beside the spacing so a page
+    /// never holds its own copy.
+    pub coinbase_lock_window: u64,
     pub network: String,
     pub last_block: Option<LastBlock>,
     pub curve_tree: Option<CurveTree>,
@@ -177,7 +181,7 @@ fn chain_health(
     network: &str,
 ) -> ChainHealth {
     ChainHealth {
-        height: status.height.0.saturating_add(1),
+        height: status.height.0,
         hash: status.hash.to_string(),
         difficulty: status.difficulty.get().to_string(),
         tx_count: status.tx_count.0,
@@ -189,6 +193,8 @@ fn chain_health(
         burn_total: status.burn_total,
         stake_share: status.stake_share.0,
         block_spacing: status.block_spacing.0,
+        coinbase_lock_window: u64::try_from(shekyl_consensus::COINBASE_LOCK_WINDOW)
+            .expect("the coinbase lock window fits u64"),
         network: network.into(),
         last_block: header.map(|h| LastBlock {
             reward: h.reward,
@@ -220,8 +226,12 @@ mod chain_health_tests {
             "testnet",
         );
         let v = serde_json::to_value(&health).unwrap();
-        // The vector's tip is 1199: 1200 blocks.
-        assert_eq!(v["height"], 1200);
+        // The tip's own number, unchanged: tip 1199 shows 1,199.
+        assert_eq!(v["height"], 1199);
+        assert_eq!(
+            v["coinbase_lock_window"],
+            shekyl_consensus::COINBASE_LOCK_WINDOW as u64
+        );
         assert!(v.get("target_height").is_none(), "nothing reads it");
         assert_eq!(
             v["difficulty"],

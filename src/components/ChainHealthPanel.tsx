@@ -6,6 +6,7 @@ import {
   formatMultiplier,
   formatHashRate,
   emissionProgress,
+  BLOCK_NUMBER_TIP,
 } from "../lib/format";
 import EmissionGauge from "./EmissionGauge";
 import { Activity, Flame, Layers, Info, ShieldCheck } from "lucide-react";
@@ -153,7 +154,9 @@ export default function ChainHealthPanel({ compact = false }: Props) {
         </div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
           <div className="flex justify-between">
-            <span className="text-purple-300">Height</span>
+            <span className="text-purple-300" title={BLOCK_NUMBER_TIP}>
+              Block number
+            </span>
             <span className="font-mono text-white">{health.height.toLocaleString()}</span>
           </div>
           <div className="flex justify-between">

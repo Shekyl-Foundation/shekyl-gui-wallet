@@ -5848,6 +5848,7 @@ dependencies = [
  "shekyl-onion-key",
  "shekyl-onion-v3",
  "shekyl-timing-engine",
+ "shekyl-tor-status",
  "shekyl-win-sec",
  "tokio",
  "windows-sys 0.61.2",
@@ -5862,6 +5863,13 @@ dependencies = [
  "kameo",
  "shekyl-tor-control-client",
  "tokio",
+]
+
+[[package]]
+name = "shekyl-tor-status"
+version = "3.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -5934,6 +5942,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "shekyl-address",
+ "shekyl-consensus",
  "shekyl-crypto-pq",
  "shekyl-engine-core",
  "shekyl-engine-file",

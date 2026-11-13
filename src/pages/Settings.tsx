@@ -4,6 +4,7 @@ import { Globe, Server, Shield, ShieldCheck, Settings2 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
 import SecurityPanel from "../components/SecurityPanel";
 import WalletCare from "../components/WalletCare";
+import { BLOCK_NUMBER_TIP } from "../lib/format";
 
 interface DaemonSettings {
   keep_running_on_exit: boolean;
@@ -187,8 +188,8 @@ export default function Settings() {
           </p>
         ))}
         {health && (
-          <p className="text-center text-[10px] text-emerald-400">
-            Connected — Height {health.height.toLocaleString()}
+          <p className="text-center text-[10px] text-emerald-400" title={BLOCK_NUMBER_TIP}>
+            Connected — block {health.height.toLocaleString()}
           </p>
         )}
       </div>

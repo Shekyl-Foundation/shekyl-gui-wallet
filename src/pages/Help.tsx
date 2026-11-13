@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 
 import CollapsibleSection from "../components/CollapsibleSection";
+import { useDaemon } from "../context/useDaemon";
+import { coinbaseLockText } from "../lib/format";
 import GlossaryList, { type GlossaryEntry } from "../components/help/GlossaryList";
 import { MultisigHelpSection } from "../components/multisig";
 
@@ -34,6 +36,8 @@ function Section({ icon, title, id, children, open, onToggle }: SectionProps) {
 }
 
 export default function Help() {
+  const { health } = useDaemon();
+  const lockWindow = coinbaseLockText(health);
   const [open, setOpen] = useState<string | null>("getting-started");
 
   function toggle(id: string) {
@@ -143,10 +147,18 @@ export default function Help() {
             <h4 className="font-semibold text-white">Block Rewards</h4>
             <p>
               When you mine a block, you receive the block reward plus
-              transaction fees. However, mined coins are{" "}
-              <strong>locked for 60 blocks</strong> (~2 hours) before they
-              become spendable. This lock period is a consensus rule that
-              prevents double-spending during chain reorganizations.
+              transaction fees. However, mined coins are locked
+              {lockWindow === null ? (
+                " for a fixed number of blocks "
+              ) : (
+                <>
+                  {" "}
+                  for <strong>{lockWindow}</strong>{" "}
+                </>
+              )}
+              before they become spendable. This lock period is a consensus
+              rule that prevents double-spending during chain
+              reorganizations.
             </p>
           </div>
           <div>
@@ -315,14 +327,19 @@ const GLOSSARY: GlossaryEntry[] = [
       "The smallest indivisible unit of SKL. 1 SKL = 1,000,000,000 atomic units (9 decimal places).",
   },
   {
-    term: "Block Height",
+    term: "Block count",
     definition:
-      "A block's height is its sequential number in the blockchain, starting from 0 (genesis). The chain's height, shown at the top of the wallet, is how many blocks it holds: the newest block's height plus one. A synced wallet shows the same number.",
+      "How many blocks the chain holds: one more than the newest block's number, because numbering starts at 0.",
+  },
+  {
+    term: "Block number",
+    definition:
+      "A block's own number in the chain, counted from 0, the genesis block. The top of the wallet shows the newest block's number; a synced wallet shows the same number as its node.",
   },
   {
     term: "Difficulty",
     definition:
-      "A measure of how hard it is to mine a block. Adjusts automatically to maintain the 2-minute target block time.",
+      "A measure of how hard it is to mine a block. Adjusts automatically to keep blocks at the chain's target spacing.",
   },
   {
     term: "Emission Era",

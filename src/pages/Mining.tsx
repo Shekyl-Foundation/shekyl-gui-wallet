@@ -10,12 +10,13 @@ import {
   Info,
 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
-import { formatSkl, formatHashRate } from "../lib/format";
+import { coinbaseLockText, formatSkl, formatHashRate } from "../lib/format";
 import EmissionGauge from "../components/EmissionGauge";
 import type { MiningStatus } from "../types/daemon";
 
 export default function Mining() {
   const { health } = useDaemon();
+  const lockWindow = coinbaseLockText(health);
   const [status, setStatus] = useState<MiningStatus | null>(null);
   const [threads, setThreads] = useState(2);
   const [loading, setLoading] = useState(false);
@@ -96,9 +97,12 @@ export default function Mining() {
               Mining and Privacy
             </p>
             <p className="mt-1 text-xs leading-relaxed text-emerald-200/80">
-              Mining rewards are locked for 60 blocks (~2 hours) before
-              becoming spendable. Mined outputs enter the normal mix ring,
-              preserving transaction privacy.
+              {lockWindow === null
+                ? "Mining rewards wait a fixed number of blocks before they can be spent."
+                : `Mining rewards can be spent after ${lockWindow}.`}{" "}
+              Shekyl has no rings: every output, a mined one included, is in
+              the full-chain set each spend proves membership in, so spending
+              a reward looks like any other spend.
             </p>
           </div>
         </div>

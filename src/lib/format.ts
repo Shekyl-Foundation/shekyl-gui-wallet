@@ -121,3 +121,37 @@ export function emissionProgress(generatedCoins: string): number {
   const supply = generated / ATOMIC_DIVISOR;
   return Math.min((supply / MAX_SUPPLY) * 100, 100);
 }
+
+/**
+ * The tooltip every block number carries. Blocks are numbered from 0, so a
+ * block's number is one less than the count of blocks up to and including it.
+ */
+export const BLOCK_NUMBER_TIP =
+  "The number of a block. Blocks are numbered from 0, the genesis block, so block 1,199 is the newest of 1,200 blocks.";
+
+/**
+ * The block number of the last block a count covers: a count of blocks (the
+ * wallet's synced height, a scan's exclusive frontier) shown as the newest
+ * block it includes. `null` for 0: no block yet. The one place a count
+ * becomes a block number.
+ */
+export function blockNumberOfCount(count: number): number | null {
+  return count > 0 ? count - 1 : null;
+}
+
+/**
+ * How long a mined reward waits before it can be spent, from core: the
+ * consensus lock window and the node's block spacing (`ChainHealth`). `null`
+ * while the node has not been read; the page then names no number rather
+ * than a copy.
+ */
+export function coinbaseLockText(
+  health: { coinbase_lock_window: number; block_spacing: number } | null,
+): string | null {
+  if (health === null) return null;
+  const blocks = health.coinbase_lock_window;
+  const minutes = (blocks * health.block_spacing) / 60;
+  const about =
+    minutes < 120 ? `${Math.round(minutes)} minutes` : formatDuration(minutes / 60);
+  return `${blocks.toLocaleString()} blocks (about ${about})`;
+}

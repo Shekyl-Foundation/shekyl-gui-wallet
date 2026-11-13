@@ -296,13 +296,14 @@ describe("Staking view panel (GUI-PR3b)", () => {
     expect(screen.getByText("2.000000")).toBeInTheDocument();
     expect(screen.getByText("Rewards (unspent)")).toBeInTheDocument();
     expect(screen.getByText("3.000000")).toBeInTheDocument();
-    // Output row: slot, amount, unlock height.
+    // Output row: slot, amount, the block it unlocks at.
     expect(screen.getByText("Staked outputs (1)")).toBeInTheDocument();
     expect(screen.getByText("Slot 3")).toBeInTheDocument();
     expect(screen.getByText("4.000000 SKL")).toBeInTheDocument();
-    expect(screen.getByText(/unlocks at 12,345/)).toBeInTheDocument();
+    expect(screen.getByText(/unlocks at block 12,345/)).toBeInTheDocument();
+    // The frontier 99,000 is the first block not scanned (exclusive).
     expect(
-      screen.getByText(/Persona scan synced to block 99,000/),
+      screen.getByText(/Persona scan scanned through block 98,999\./),
     ).toBeInTheDocument();
   });
 
@@ -347,6 +348,24 @@ describe("Staking view panel (GUI-PR3b)", () => {
 
     expect(await screen.findByText("Your stake")).toBeInTheDocument();
     expect(screen.queryByText(/reopen the wallet to finish/)).toBeNull();
+  });
+
+  it("reads a frontier of 0 as nothing scanned, not a block", async () => {
+    mockStakerWithView({
+      staking_enabled: true,
+      bonded_principal_confirmed: "1000000000",
+      bonded_principal_pending: "0",
+      rewards_received_unspent: "0",
+      staked_outputs: [],
+      pscan_synced_height: 0,
+      recovery_pending_reopen: false,
+      in_flight: [],
+      outcomes: [],
+    });
+    renderStaking({ phase: "ready", walletName: "alice" });
+    expect(
+      await screen.findByText(/Persona scan has scanned nothing yet/),
+    ).toBeInTheDocument();
   });
 
   it("shows an honest empty state when a staker has no staked outputs", async () => {
