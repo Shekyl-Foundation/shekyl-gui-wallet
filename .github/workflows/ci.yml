@@ -62,6 +62,15 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # One spawn lock per process (shekyl-core #1372): the committed lock
+      # holds at most one shekyl-spawn, read before any cargo step can rewrite
+      # it. The selftest first: a gate that cannot go red is not one.
+      - name: One spawn lock — negative controls
+        run: python3 scripts/ci/check_one_spawn_lock.py --selftest
+
+      - name: One spawn lock
+        run: python3 scripts/ci/check_one_spawn_lock.py
+
       # Structural anti-drift (composition discipline): production modules
       # stay under NEW_FILE_CAP unless baselined; baselined ceilings can only
       # shrink. Same family as shekyl-core's engine decomposition ratchet.
