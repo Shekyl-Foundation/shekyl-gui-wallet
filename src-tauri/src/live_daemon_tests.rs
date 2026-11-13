@@ -70,6 +70,12 @@ impl Drop for Daemon {
 /// listeners: no admin listener, one view listener on loopback), on
 /// regtest with no network, and wait for its `version` read.
 async fn start() -> Daemon {
+    start_on("regtest").await
+}
+
+/// [`start`] on `network`, still with no network traffic: no clearnet, no
+/// Tor, so the chain is its genesis block alone.
+async fn start_on(network: &str) -> Daemon {
     let port = TcpListener::bind("127.0.0.1:0")
         .and_then(|l| l.local_addr())
         .expect("a free loopback port")
@@ -84,7 +90,7 @@ async fn start() -> Daemon {
     ));
     std::fs::create_dir_all(&dir).unwrap();
     let child = Command::new(sidecar())
-        .args(["--network", "regtest", "--clearnet", "off", "--tor", "off"])
+        .args(["--network", network, "--clearnet", "off", "--tor", "off"])
         .args(["--rpc-admin-listen", "none"])
         .arg("--rpc-view-listen")
         .arg(format!("127.0.0.1:{port}"))
@@ -162,4 +168,64 @@ async fn the_wallet_s_own_node_refuses_mining_control_in_words() {
         refused,
         "This node does not let this wallet see or change mining."
     );
+}
+
+/// The wallet's own pathway against the bundled node: a wallet created
+/// through `EngineSession` refreshes, and on a chain that is its genesis
+/// block alone it has scanned nothing (a wallet starts from genesis and scans
+/// from block 1, `local_refresh.rs`), so its count is 0 and the page says
+/// "nothing scanned yet" beside the node's block 0.
+///
+/// What this cannot show is a synced wallet naming its node's block past
+/// genesis: that needs blocks, the levers that make them serve only regtest
+/// (NI-R6), and the wallet has no regtest network. That equality is held by
+/// `blockNumberOfCount`'s tests (1200 blocks end at block 1199), the chain
+/// read's vector test (tip 1199 shows 1199) and core's
+/// `synced_count_is_the_daemon_count_of_the_scanned_chain`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs the bundled shekyld sidecar"]
+async fn a_wallet_on_a_genesis_only_chain_has_scanned_nothing() {
+    let d = start_on("testnet").await;
+    let wallets = d.dir.join("wallets");
+    let mut session = crate::engine_session::EngineSession::new();
+    session
+        .create(
+            &wallets,
+            "live",
+            "correct horse battery",
+            crate::state::NetworkType::Testnet,
+            &d.url,
+        )
+        .await
+        .expect("a wallet created against the bundled node");
+    let shared = session.shared_engine().expect("the wallet is open");
+    // The create's own catch-up keeps going past a failed refresh (it logs
+    // and leaves the wallet open); this one must succeed, so a failure is
+    // the test's, in its own words.
+    let summary = shekyl_engine_core::Engine::start_refresh(
+        shared.clone(),
+        shekyl_engine_core::RefreshOptions::default(),
+    )
+    .await
+    .expect("a refresh starts")
+    .join()
+    .await
+    .expect("the wallet refreshes against the bundled node");
+    let synced = shared
+        .read()
+        .await
+        .ledger()
+        .ledger
+        .synced_count()
+        .expect("a chain count")
+        .to_raw();
+    let status = daemon_rpc::call::<DaemonStatus>(&d.url, NoParams, "the node's status")
+        .await
+        .expect("daemon_status");
+    assert_eq!(status.height.0, 0, "no traffic: the chain is genesis alone");
+    assert_eq!(summary.blocks_processed, 0, "nothing past genesis to scan");
+    assert_eq!(synced, 0, "the wallet's count: nothing scanned");
+    // A close waits for every holder of the engine: this test's is the last.
+    drop(shared);
+    session.close().await.expect("the wallet closes");
 }

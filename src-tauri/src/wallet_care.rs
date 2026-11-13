@@ -103,9 +103,10 @@ fn accept_passwords(old_password: &str, new_password: &str) -> Result<(), Contra
 
 /// The block count the wallet is synced through
 /// ([`LedgerBlock::synced_count`](shekyl_engine_state::LedgerBlock::synced_count)):
-/// the number the CLI and the wallet RPC report as the wallet's height, and
-/// the node's height on the Chain Health panel, so a synced wallet reads
-/// its node's number. `0` for a wallet that has scanned nothing.
+/// the contract's count, as the CLI and the wallet RPC report it. The page
+/// shows it as the block number it reaches (`blockNumberOfCount`), so a
+/// synced wallet shows its node's block. `0` for a wallet that has scanned
+/// nothing.
 async fn synced_height(shared: &SharedEngine) -> Result<u64, ContractError> {
     shared
         .read()
