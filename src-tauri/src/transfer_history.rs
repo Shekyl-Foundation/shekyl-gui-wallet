@@ -697,6 +697,7 @@ mod tests {
             inputs: vec![],
             lock_baseline: None,
             state,
+            tx_bytes: None,
         }
     }
 
@@ -801,6 +802,7 @@ mod tests {
             inputs: vec![],
             lock_baseline: None,
             state: SendState::Dispatched,
+            tx_bytes: None,
         };
         let err = project_outgoing_row(&[0u8; 32], &bad).expect_err("overflow");
         assert!(err.contains("do not sum"), "{err}");
@@ -977,6 +979,7 @@ mod tests {
                 inputs: vec![],
                 lock_baseline: None,
                 state: SendState::Dispatched,
+                tx_bytes: None,
             },
         );
         let err = merge_transfer_history(std::iter::empty(), &journal).expect_err("overflow");

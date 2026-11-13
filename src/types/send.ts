@@ -36,6 +36,8 @@ export type SubmitVerdict = "ACCEPTED" | "ALREADY_IN_POOL" | "ALREADY_IN_CHAIN";
 export interface SubmitResult {
   tx_hash: string;
   verdict: SubmitVerdict;
+  /** False when the send went out and stands but the wallet could not save the node's answer. */
+  verdict_saved: boolean;
   confirmed_height: number | null;
 }
 

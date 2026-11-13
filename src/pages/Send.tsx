@@ -59,15 +59,18 @@ function paymentLinkNotice(link: ParsedPaymentUri): string {
 }
 
 function verdictLine(r: SubmitResult): string {
+  const unsaved = r.verdict_saved
+    ? ""
+    : " The wallet could not save your node's answer; it will on its next save, and if it stops first it will ask you about this send when it reopens.";
   switch (r.verdict) {
     case "ACCEPTED":
-      return "Transaction accepted by your node.";
+      return `Transaction accepted by your node.${unsaved}`;
     case "ALREADY_IN_POOL":
-      return "Transaction already in the network's mempool.";
+      return `Transaction already in the network's mempool.${unsaved}`;
     case "ALREADY_IN_CHAIN":
       return r.confirmed_height !== null
-        ? `Transaction already confirmed on chain (reported height ${r.confirmed_height}).`
-        : "Transaction already confirmed on chain.";
+        ? `Transaction already confirmed on chain (reported height ${r.confirmed_height}).${unsaved}`
+        : `Transaction already confirmed on chain.${unsaved}`;
   }
 }
 
