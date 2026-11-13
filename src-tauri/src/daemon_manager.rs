@@ -140,6 +140,11 @@ pub struct DaemonStatus {
 pub struct DaemonManager {
     /// The network the node was started on (or is being started on).
     network: RwLock<NetworkType>,
+    /// Held across a whole start or relaunch, so two of them never
+    /// interleave: a switch made while a start is still waiting for its
+    /// node runs after it, and can never take a child pid that start has
+    /// not stored yet (two nodes, one orphaned).
+    lifecycle: tokio::sync::Mutex<()>,
     child_pid: RwLock<Option<u32>>,
     mode: RwLock<DaemonMode>,
     config: RwLock<DaemonConfig>,
@@ -151,6 +156,7 @@ impl DaemonManager {
         let config = DaemonConfig::load(&config_dir);
         Arc::new(Self {
             network: RwLock::new(NetworkType::default()),
+            lifecycle: tokio::sync::Mutex::new(()),
             child_pid: RwLock::new(None),
             mode: RwLock::new(DaemonMode::Unavailable),
             config: RwLock::new(config),
@@ -161,6 +167,11 @@ impl DaemonManager {
     /// Start the node on `network`: an answering daemon at the network's
     /// port is used as found, and otherwise the bundled one is started.
     pub async fn start(&self, app: &AppHandle, network: NetworkType) {
+        let _lifecycle = self.lifecycle.lock().await;
+        self.start_locked(app, network).await;
+    }
+
+    async fn start_locked(&self, app: &AppHandle, network: NetworkType) {
         *self.network.write().await = network;
         let config = self.config.read().await.clone();
         let rpc_port = network.rpc_port();
@@ -241,6 +252,7 @@ impl DaemonManager {
     /// rides the same relaunch once GS-2 carries it (IG-12: neither is
     /// changeable at runtime).
     pub async fn relaunch(&self, app: &AppHandle, network: NetworkType) {
+        let _lifecycle = self.lifecycle.lock().await;
         if *self.network.read().await == network {
             return;
         }
@@ -251,10 +263,12 @@ impl DaemonManager {
                 "relaunching shekyld on another network"
             );
             // `kill_process` waits out the node's stop; not on the runtime.
-            let _ = tokio::task::spawn_blocking(move || Self::kill_process(pid)).await;
+            if let Err(e) = tokio::task::spawn_blocking(move || Self::kill_process(pid)).await {
+                tracing::error!(pid, error = %e, "stopping shekyld for the relaunch failed");
+            }
         }
         *self.mode.write().await = DaemonMode::Unavailable;
-        self.start(app, network).await;
+        self.start_locked(app, network).await;
     }
 
     pub async fn shutdown(&self) {
