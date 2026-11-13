@@ -270,10 +270,12 @@ jobs:
       # (`src-tauri/src/live_daemon_tests.rs`) start the placed sidecar the
       # way the wallet does and read it through the wallet's own calls, so
       # a GUI paired with a core whose wire it does not speak fails here.
+      # One at a time: each test starts its own node, and nodes starting
+      # together on a loaded host have missed their 60 s startup read.
       - name: Backend integration tests (sidecar, Linux)
         if: startsWith(matrix.platform, 'ubuntu')
         working-directory: src-tauri
-        run: cargo test --release --lib --bins --tests -- --ignored
+        run: cargo test --release --lib --bins --tests -- --ignored --test-threads=1
 
       # Both runs fail here if a bundle is missing; only a tag push uploads.
       - name: Locate Linux bundles
