@@ -10,6 +10,7 @@ import {
 import CollapsibleSection from "../components/CollapsibleSection";
 import { useDaemon } from "../context/useDaemon";
 import { coinbaseLockText } from "../lib/format";
+import { useChainConstants } from "../hooks/useChainConstants";
 import GlossaryList, { type GlossaryEntry } from "../components/help/GlossaryList";
 import { MultisigHelpSection } from "../components/multisig";
 
@@ -37,7 +38,11 @@ function Section({ icon, title, id, children, open, onToggle }: SectionProps) {
 
 export default function Help() {
   const { health } = useDaemon();
-  const lockWindow = coinbaseLockText(health);
+  const constants = useChainConstants();
+  const lockWindow = coinbaseLockText(
+    constants?.coinbase_lock_window ?? null,
+    health?.block_spacing ?? null,
+  );
   const [open, setOpen] = useState<string | null>("getting-started");
 
   function toggle(id: string) {
@@ -73,9 +78,11 @@ export default function Help() {
             <h4 className="font-semibold text-white">Connecting to the Daemon</h4>
             <p>
               The wallet connects to a <code>shekyld</code> daemon to read
-              blockchain data. By default it looks for a local daemon at{" "}
-              <code>127.0.0.1:11029</code>. You can change this in{" "}
-              <strong>Settings &gt; Daemon Connection</strong>.
+              blockchain data. By default it starts the daemon it carries, on
+              this computer, on the network chosen in{" "}
+              <strong>Settings &gt; Network</strong>; switching network
+              restarts it on that network. You can point the wallet at another
+              daemon in <strong>Settings &gt; Daemon Connection</strong>.
             </p>
           </div>
           <div>

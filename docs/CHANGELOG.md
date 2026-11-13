@@ -26,8 +26,17 @@
   A synced wallet shows its node's block. Two numbers were one off: after a
   refresh the wallet showed the block before the one it had synced to, and
   the persona scan showed the first block it had not scanned.
+- **The wallet's own node runs the wallet's network.** It ran mainnet
+  whatever the wallet was on, so a testnet wallet's node was not its node.
+  The node now starts on the network chosen in Settings (mainnet by
+  default), and a switch restarts it on that network, at that network's
+  port and, with a configured data directory, in that network's own store.
+  While a wallet is open, a switch to another network waits until it is
+  closed. Ports and network names come from core; the wallet keeps no table
+  of them.
 - **The Mining page and Help take chain facts from core.** The coinbase lock
-  window is core's constant and the time is the node's block spacing; the
+  window is core's constant, named even when the node is down, and the time
+  is the node's block spacing; the
   page no longer says mined outputs join a "mix ring", since Shekyl has no
   rings.
 - **A group payment this wallet cannot spend says which check failed.**

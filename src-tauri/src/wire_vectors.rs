@@ -3,7 +3,7 @@
 // All rights reserved.
 // BSD-3-Clause
 
-//! Core's 4.0 wire vectors, for this crate's tests.
+//! Core's wire vectors, for this crate's tests.
 //!
 //! The wallet reads the daemon through core's types, and its tests read
 //! core's own hand-written replies (`shekyl-rpc-types/tests/vectors/rpc`),
@@ -17,7 +17,7 @@ use serde::de::DeserializeOwned;
 /// The vectors' directory in the core checkout beside this one.
 fn vectors() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../shekyl-core/rust/shekyl-rpc-types/tests/vectors/rpc/4.0")
+        .join("../../shekyl-core/rust/shekyl-rpc-types/tests/vectors/rpc/wire")
 }
 
 /// Core's reply vector for `method`, decoded as `T`.

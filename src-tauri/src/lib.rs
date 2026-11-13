@@ -31,6 +31,7 @@ use std::sync::Arc;
 use tauri::Manager;
 
 mod balance;
+mod chain_constants;
 mod clipboard;
 mod commands;
 mod contract_error;
@@ -89,7 +90,8 @@ pub fn run() {
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                dm.start(&handle).await;
+                dm.start(&handle, crate::state::NetworkType::default())
+                    .await;
             });
             Ok(())
         })
@@ -105,6 +107,7 @@ pub fn run() {
             clipboard::copy_to_clipboard,
             clipboard::clear_clipboard,
             // Mining
+            chain_constants::get_chain_constants,
             mining::get_mining_status,
             mining::start_mining_cmd,
             mining::stop_mining_cmd,

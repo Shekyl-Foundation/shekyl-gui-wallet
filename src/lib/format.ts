@@ -140,18 +140,20 @@ export function blockNumberOfCount(count: number): number | null {
 }
 
 /**
- * How long a mined reward waits before it can be spent, from core: the
- * consensus lock window and the node's block spacing (`ChainHealth`). `null`
- * while the node has not been read; the page then names no number rather
- * than a copy.
+ * How long a mined reward waits before it can be spent: core's lock window
+ * (`get_chain_constants`, known without the node) and, when the node has
+ * been read, its block spacing for the time. `null` only when the constant
+ * itself could not be read.
  */
 export function coinbaseLockText(
-  health: { coinbase_lock_window: number; block_spacing: number } | null,
+  lockWindow: number | null,
+  blockSpacing: number | null,
 ): string | null {
-  if (health === null) return null;
-  const blocks = health.coinbase_lock_window;
-  const minutes = (blocks * health.block_spacing) / 60;
+  if (lockWindow === null) return null;
+  const blocks = `${lockWindow.toLocaleString()} blocks`;
+  if (blockSpacing === null) return blocks;
+  const minutes = (lockWindow * blockSpacing) / 60;
   const about =
     minutes < 120 ? `${Math.round(minutes)} minutes` : formatDuration(minutes / 60);
-  return `${blocks.toLocaleString()} blocks (about ${about})`;
+  return `${blocks} (about ${about})`;
 }

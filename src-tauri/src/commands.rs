@@ -444,7 +444,6 @@ pub async fn set_daemon_settings(
     dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     keep_running_on_exit: Option<bool>,
     data_dir: Option<String>,
-    rpc_port: Option<u16>,
 ) -> Result<crate::daemon_manager::DaemonConfig, String> {
     let mut config = dm.config().await;
     if let Some(v) = keep_running_on_exit {
@@ -452,9 +451,6 @@ pub async fn set_daemon_settings(
     }
     if let Some(v) = data_dir {
         config.data_dir = if v.is_empty() { None } else { Some(v) };
-    }
-    if let Some(v) = rpc_port {
-        config.rpc_port = v;
     }
     dm.update_config(config.clone()).await?;
     Ok(config)

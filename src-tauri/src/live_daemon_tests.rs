@@ -12,6 +12,7 @@
 //! with, not against vectors alone. Run locally by placing a `shekyld`
 //! built from the paired core at `binaries/shekyld-<target triple>`.
 
+use std::ffi::OsString;
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -25,7 +26,9 @@ use shekyl_rpc_client::wire::{
 };
 use shekyl_rpc_types::kinds::NoParams;
 
+use crate::daemon_manager::{sidecar_args, DaemonConfig};
 use crate::daemon_rpc;
+use crate::state::NetworkType;
 
 /// The bundled sidecar: the one non-empty `binaries/shekyld-*` (CI's
 /// placeholder is empty).
@@ -66,20 +69,8 @@ impl Drop for Daemon {
     }
 }
 
-/// Start the sidecar as the wallet does (`daemon_manager::sidecar_args`'s
-/// listeners: no admin listener, one view listener on loopback), on
-/// regtest with no network, and wait for its `version` read.
-async fn start() -> Daemon {
-    start_on("regtest").await
-}
-
-/// [`start`] on `network`, still with no network traffic: no clearnet, no
-/// Tor, so the chain is its genesis block alone.
-async fn start_on(network: &str) -> Daemon {
-    let port = TcpListener::bind("127.0.0.1:0")
-        .and_then(|l| l.local_addr())
-        .expect("a free loopback port")
-        .port();
+/// A fresh directory for one run's node.
+fn run_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "shekyl-gui-live-{}-{}",
         std::process::id(),
@@ -89,15 +80,52 @@ async fn start_on(network: &str) -> Daemon {
             .as_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// A free loopback port.
+fn free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.local_addr())
+        .expect("a free loopback port")
+        .port()
+}
+
+/// Regtest with no network, on the wallet's listeners (no admin listener,
+/// one view listener on loopback). The wallet has no regtest network, so
+/// this is the harness's own command line for the read tests.
+async fn start() -> Daemon {
+    let port = free_port();
+    let dir = run_dir();
+    let mut args: Vec<OsString> = ["--network", "regtest", "--rpc-admin-listen", "none"]
+        .map(OsString::from)
+        .into();
+    args.push("--rpc-view-listen".into());
+    args.push(format!("127.0.0.1:{port}").into());
+    args.push("--data-dir".into());
+    args.push(dir.join("data").into());
+    launch(args, dir, port).await
+}
+
+/// The node the wallet launches on `network`: `daemon_manager::sidecar_args`
+/// itself, at a free port, with a configured data directory, and no traffic
+/// (no clearnet, no Tor), so the chain is its genesis block alone.
+async fn start_on(network: NetworkType) -> Daemon {
+    let port = free_port();
+    let dir = run_dir();
+    let config = DaemonConfig {
+        keep_running_on_exit: false,
+        data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+    };
+    let args = sidecar_args(&config, network, port, None);
+    launch(args, dir, port).await
+}
+
+async fn launch(mut args: Vec<OsString>, dir: PathBuf, port: u16) -> Daemon {
+    args.extend(["--clearnet", "off", "--tor", "off", "--log-file"].map(OsString::from));
+    args.push(dir.join("shekyld.log").into());
     let child = Command::new(sidecar())
-        .args(["--network", network, "--clearnet", "off", "--tor", "off"])
-        .args(["--rpc-admin-listen", "none"])
-        .arg("--rpc-view-listen")
-        .arg(format!("127.0.0.1:{port}"))
-        .arg("--data-dir")
-        .arg(dir.join("data"))
-        .arg("--log-file")
-        .arg(dir.join("shekyld.log"))
+        .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -126,6 +154,21 @@ async fn start_on(network: &str) -> Daemon {
         "the bundled shekyld did not answer its version read within 60 s; its log ends:\n{}",
         tail.into_iter().rev().collect::<Vec<_>>().join("\n")
     );
+}
+
+/// The node the wallet launches runs the wallet's network, on every
+/// network: its own `version` read names it. Red edit: drop `--network`
+/// from `sidecar_args` (every node then runs mainnet).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs the bundled shekyld sidecar"]
+async fn the_wallet_s_node_runs_the_wallet_s_network() {
+    for network in NetworkType::ALL {
+        let d = start_on(network).await;
+        let version = daemon_rpc::call::<Version>(&d.url, NoParams, "the node's version")
+            .await
+            .expect("version");
+        assert_eq!(version.network, network.network(), "{}", network.as_str());
+    }
 }
 
 /// Every read the wallet makes decodes from the bundled daemon, through
@@ -185,7 +228,7 @@ async fn the_wallet_s_own_node_refuses_mining_control_in_words() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the bundled shekyld sidecar"]
 async fn a_wallet_on_a_genesis_only_chain_has_scanned_nothing() {
-    let d = start_on("testnet").await;
+    let d = start_on(NetworkType::Testnet).await;
     let wallets = d.dir.join("wallets");
     // A throwaway wallet in the run's own directory: its password is made
     // per run, never written into the source.
@@ -199,13 +242,7 @@ async fn a_wallet_on_a_genesis_only_chain_has_scanned_nothing() {
     );
     let mut session = crate::engine_session::EngineSession::new();
     session
-        .create(
-            &wallets,
-            "live",
-            &password,
-            crate::state::NetworkType::Testnet,
-            &d.url,
-        )
+        .create(&wallets, "live", &password, NetworkType::Testnet, &d.url)
         .await
         .expect("a wallet created against the bundled node");
     let shared = session.shared_engine().expect("the wallet is open");

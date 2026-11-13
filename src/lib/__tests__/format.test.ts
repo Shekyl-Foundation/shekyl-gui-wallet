@@ -183,15 +183,15 @@ describe("blockNumberOfCount", () => {
 
 describe("coinbaseLockText", () => {
   it("reads the window and the spacing it is given", () => {
-    expect(coinbaseLockText({ coinbase_lock_window: 60, block_spacing: 120 })).toBe(
-      "60 blocks (about 2 hours)",
-    );
-    expect(coinbaseLockText({ coinbase_lock_window: 10, block_spacing: 60 })).toBe(
-      "10 blocks (about 10 minutes)",
-    );
+    expect(coinbaseLockText(60, 120)).toBe("60 blocks (about 2 hours)");
+    expect(coinbaseLockText(10, 60)).toBe("10 blocks (about 10 minutes)");
   });
 
-  it("names no number before the node is read", () => {
-    expect(coinbaseLockText(null)).toBeNull();
+  it("names the window without a time while the node is unread", () => {
+    expect(coinbaseLockText(60, null)).toBe("60 blocks");
+  });
+
+  it("names nothing when the constant itself is unread", () => {
+    expect(coinbaseLockText(null, 120)).toBeNull();
   });
 });

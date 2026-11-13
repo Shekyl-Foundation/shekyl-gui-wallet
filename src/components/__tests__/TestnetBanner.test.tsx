@@ -22,7 +22,6 @@ const baseHealth: ChainHealth = {
   burn_total: "0",
   stake_share: 0,
   block_spacing: 120,
-  coinbase_lock_window: 60,
   network: "mainnet",
   last_block: null,
   curve_tree: null,

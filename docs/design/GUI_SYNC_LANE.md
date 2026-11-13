@@ -213,7 +213,7 @@ carry Tor's own bytes as pinned.
 | GS-C4 | core | Correct `TSR-Q12`, `TOR_SUPERVISOR.md` §11 and core's FOLLOWUPS row for the RW naming: no leg carries Status to the GUI yet | — |
 | GS-C5 | core | The chain-wide staking figures: total bonded principal (ESR-8) and the per-block staker inflow (`ARCHIVAL_BUDGET_SCHEDULE.md`), in `daemon_status`'s economics part beside `stake_share`. The GUI shows nothing for them until core's types carry them | the daemon's bond accounting |
 | GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file`, on every platform (`GS-Q6`). Built: `release.yml` job `core-archives` with `scripts/release/core_archive.py` checks each archive's digest before unpacking (the Foundation-signed `SHA256SUMS` on a tag, GitHub's artifact digest for a dry run's gitian run); `DaemonManager` names the bundled Tor with `tor-file`; after bundling, the release reads Tor back out of every installer and checks it against core's pins and the bundled daemon's `--config-verify` (`src-tauri/binaries/README.md`) | The cut: `SHEKYL_CORE_REF` at the paired core tag, and for macOS that cut carries core #1310 (TSR-F18), without which the hardened runtime kills the signed `tor` at its first onion proof-of-work |
-| GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented"; the open wallet's address passed as `mine-address` when the GUI launches its node (IG-12: `mine-address` is set only at start, so switching wallets relaunches the node) | GS-C3 |
+| GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented"; the open wallet's address passed as `mine-address` when the GUI launches its node (IG-12: `mine-address` is set only at start, so switching wallets relaunches the node). Built: the node runs the GUI's network (`--network` at launch, mainnet by default, Rick 2026-11-13), a network switch relaunches it on that network's port from core's row and, with a configured data directory, in that network's own store; a switch waits while a wallet of another network is open | GS-C3 |
 | GS-3 | GUI | Posture display, held review/verdict/pending, Settings → Network fixes, daemon config | GS-C1, GS-C2, GS-2 |
 | GS-4 | GUI | Wire debt: RK-D1 adoption and the 4.0 reads (`daemon_status`, `block_header_show`, `curve_show`, `shard_coverage`, the `version` health probe) through `shekyl-rpc-client`, built; mining control on the owner leg remains | GS-2 for mining control |
 | GS-5 | GUI | macOS installer Tor: carried by GS-1, by the same mechanism (`GS-Q6`) | As GS-1 |
@@ -252,8 +252,9 @@ when that adjustment lands.
    daemon.
 3. Fix whatever is red in one GUI resync PR for the cut, and sweep two
    things no build sees:
-   - the grant-reach test's `AWAITING` list (`grant_reach_tests.rs`): is
-     each entry still waiting on the increment it names?
+   - the grant-reach test's `AWAITING` list (`grant_reach_tests.rs`, the
+     GUI's own calls and the engine's `DAEMON_METHODS`): is each entry
+     still waiting on the increment it names?
    - chain facts written into GUI text (lock windows, block spacing,
      descriptions of mechanisms): each comes from core, never a copy.
 4. The CLI's half is in core's tree. Its daemon calls are typed and its

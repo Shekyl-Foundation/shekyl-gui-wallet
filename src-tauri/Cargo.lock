@@ -5642,6 +5642,7 @@ dependencies = [
  "shekyl-logging",
  "shekyl-network",
  "shekyl-options",
+ "shekyl-rpc-channel",
  "shekyl-win-sec",
  "toml 0.8.2",
 ]
@@ -5655,6 +5656,7 @@ dependencies = [
  "hex",
  "hyper",
  "hyper-util",
+ "rand_core 0.6.4",
  "serde",
  "serde_json",
  "shekyl-archival-retention",
@@ -5677,8 +5679,10 @@ dependencies = [
  "shekyl-rpc-transport",
  "shekyl-rpc-types",
  "shekyl-runtime",
+ "shekyl-tor-status",
  "shekyl-types",
  "shekyl-units",
+ "shekyl-win-sec",
  "shekyl-wire",
  "thiserror 2.0.21",
  "tokio",
@@ -6093,6 +6097,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-rpc-channel"
+version = "3.1.0"
+dependencies = [
+ "blake2",
+ "fips203",
+ "rand_core 0.6.4",
+ "shekyl-crypto-hash",
+ "shekyl-noise",
+ "subtle",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "shekyl-rpc-client"
 version = "0.1.0"
 dependencies = [
@@ -6143,6 +6161,7 @@ dependencies = [
  "shekyl-address",
  "shekyl-network",
  "shekyl-rpc-grants",
+ "shekyl-tor-status",
  "shekyl-units",
 ]
 

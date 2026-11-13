@@ -39,16 +39,38 @@ fn bundled_tor(resource_dir: &Path) -> PathBuf {
 /// against its pin at every spawn; a file it cannot pin is a warning and
 /// the node holds its own transactions until Tor is up (core TB-2), never
 /// a refusal to start.
-fn sidecar_args(config: &DaemonConfig, tor_file: Option<&Path>) -> Vec<OsString> {
+/// The node's data directory on `network`, when the GUI names one: the
+/// configured root with the network's subdirectory from core's row, the
+/// layout the daemon's own default keeps. An explicit directory is taken as
+/// given (IG-Q17), so one shared by two networks would be refused by the
+/// network marker at a switch; this keeps each network's store its own.
+fn data_dir_for(root: &Path, network: NetworkType) -> PathBuf {
+    match network.network().subdirectory() {
+        Some(sub) => root.join(sub),
+        None => root.to_path_buf(),
+    }
+}
+
+/// The node's command line: the GUI's network, no admin listener, one view
+/// listener on loopback at `rpc_port`, the data directory when configured,
+/// and the bundled Tor.
+pub(crate) fn sidecar_args(
+    config: &DaemonConfig,
+    network: NetworkType,
+    rpc_port: u16,
+    tor_file: Option<&Path>,
+) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
+        "--network".into(),
+        network.as_str().into(),
         "--rpc-admin-listen".into(),
         "none".into(),
         "--rpc-view-listen".into(),
-        format!("127.0.0.1:{}", config.rpc_port).into(),
+        format!("127.0.0.1:{rpc_port}").into(),
     ];
     if let Some(dir) = &config.data_dir {
         args.push("--data-dir".into());
-        args.push(dir.into());
+        args.push(data_dir_for(Path::new(dir), network).into());
     }
     if let Some(tor) = tor_file {
         args.push("--tor-file".into());
@@ -57,28 +79,30 @@ fn sidecar_args(config: &DaemonConfig, tor_file: Option<&Path>) -> Vec<OsString>
     args
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Whether the GUI may move to `to` while `open` is the open wallet's
+/// network. A wallet is bound to its network, and its node runs that
+/// network: a switch to another waits until the wallet is closed, so a
+/// wallet of one network never gets a node of another.
+pub(crate) fn may_switch(
+    open: Option<shekyl_engine_core::Network>,
+    to: NetworkType,
+) -> Result<(), String> {
+    match open {
+        Some(open) if open != to.network() => Err(format!(
+            "The open wallet is on {}. Close it before switching to {}: a wallet belongs to one network.",
+            open.name(),
+            to.as_str()
+        )),
+        _ => Ok(()),
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DaemonConfig {
     #[serde(default)]
     pub keep_running_on_exit: bool,
     #[serde(default)]
     pub data_dir: Option<String>,
-    #[serde(default = "default_rpc_port")]
-    pub rpc_port: u16,
-}
-
-fn default_rpc_port() -> u16 {
-    NetworkType::default().default_rpc_port()
-}
-
-impl Default for DaemonConfig {
-    fn default() -> Self {
-        Self {
-            keep_running_on_exit: false,
-            data_dir: None,
-            rpc_port: default_rpc_port(),
-        }
-    }
 }
 
 impl DaemonConfig {
@@ -114,6 +138,8 @@ pub struct DaemonStatus {
 }
 
 pub struct DaemonManager {
+    /// The network the node was started on (or is being started on).
+    network: RwLock<NetworkType>,
     child_pid: RwLock<Option<u32>>,
     mode: RwLock<DaemonMode>,
     config: RwLock<DaemonConfig>,
@@ -124,6 +150,7 @@ impl DaemonManager {
     pub fn new(config_dir: PathBuf) -> Arc<Self> {
         let config = DaemonConfig::load(&config_dir);
         Arc::new(Self {
+            network: RwLock::new(NetworkType::default()),
             child_pid: RwLock::new(None),
             mode: RwLock::new(DaemonMode::Unavailable),
             config: RwLock::new(config),
@@ -131,12 +158,16 @@ impl DaemonManager {
         })
     }
 
-    pub async fn start(&self, app: &AppHandle) {
+    /// Start the node on `network`: an answering daemon at the network's
+    /// port is used as found, and otherwise the bundled one is started.
+    pub async fn start(&self, app: &AppHandle, network: NetworkType) {
+        *self.network.write().await = network;
         let config = self.config.read().await.clone();
-        let rpc_url = format!("http://127.0.0.1:{}", config.rpc_port);
+        let rpc_port = network.rpc_port();
+        let rpc_url = format!("http://127.0.0.1:{rpc_port}");
 
         if Self::check_health(&rpc_url).await {
-            tracing::info!(port = config.rpc_port, "external daemon detected");
+            tracing::info!(port = rpc_port, "external daemon detected");
             *self.mode.write().await = DaemonMode::External;
             return;
         }
@@ -160,7 +191,7 @@ impl DaemonManager {
                 None
             }
         };
-        let args = sidecar_args(&config, tor_file.as_deref());
+        let args = sidecar_args(&config, network, rpc_port, tor_file.as_deref());
 
         match sidecar.args(&args).spawn() {
             Ok((mut rx, child)) => {
@@ -204,6 +235,28 @@ impl DaemonManager {
         }
     }
 
+    /// Run the node on `network`: nothing to do when it already does;
+    /// otherwise a node this GUI started is stopped and the node is started
+    /// again on `network`, its own port and its own store. `mine-address`
+    /// rides the same relaunch once GS-2 carries it (IG-12: neither is
+    /// changeable at runtime).
+    pub async fn relaunch(&self, app: &AppHandle, network: NetworkType) {
+        if *self.network.read().await == network {
+            return;
+        }
+        if let Some(pid) = self.child_pid.write().await.take() {
+            tracing::info!(
+                pid,
+                to = network.as_str(),
+                "relaunching shekyld on another network"
+            );
+            // `kill_process` waits out the node's stop; not on the runtime.
+            let _ = tokio::task::spawn_blocking(move || Self::kill_process(pid)).await;
+        }
+        *self.mode.write().await = DaemonMode::Unavailable;
+        self.start(app, network).await;
+    }
+
     pub async fn shutdown(&self) {
         let mode = *self.mode.read().await;
         if mode != DaemonMode::Managed {
@@ -225,9 +278,7 @@ impl DaemonManager {
     }
 
     pub async fn status(&self) -> DaemonStatus {
-        let config = self.config.read().await;
-        let rpc_url = format!("http://127.0.0.1:{}", config.rpc_port);
-        drop(config);
+        let rpc_url = format!("http://127.0.0.1:{}", self.network.read().await.rpc_port());
 
         let ready = Self::check_health(&rpc_url).await;
         DaemonStatus {
@@ -283,20 +334,22 @@ impl DaemonManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shekyl_engine_core::Network;
 
     fn config(data_dir: Option<&str>) -> DaemonConfig {
         DaemonConfig {
             keep_running_on_exit: false,
             data_dir: data_dir.map(str::to_owned),
-            rpc_port: 12029,
         }
     }
 
     #[test]
     fn the_sidecar_names_the_bundled_tor() {
         let tor = bundled_tor(Path::new("/res"));
-        let args = sidecar_args(&config(None), Some(&tor));
+        let args = sidecar_args(&config(None), NetworkType::Testnet, 12029, Some(&tor));
         let want: Vec<OsString> = [
+            "--network",
+            "testnet",
             "--rpc-admin-listen",
             "none",
             "--rpc-view-listen",
@@ -311,19 +364,76 @@ mod tests {
         assert_eq!(tor, Path::new("/res").join("tor").join(TOR_FILE));
     }
 
+    /// Every network's launch names that network and listens on its port
+    /// from core's row. Red edit: drop `--network` (the node then runs
+    /// mainnet whatever the wallet's network).
     #[test]
-    fn the_data_dir_comes_before_the_tor_file() {
-        let tor = PathBuf::from("/res/tor/tor");
-        let args = sidecar_args(&config(Some("/data")), Some(&tor));
+    fn the_launch_carries_the_wallet_s_network_and_its_port() {
+        for net in NetworkType::ALL {
+            let args = sidecar_args(&config(None), net, net.rpc_port(), None);
+            assert_eq!(
+                args[..2],
+                [OsString::from("--network"), OsString::from(net.as_str())]
+            );
+            assert_eq!(
+                args[5],
+                OsString::from(format!("127.0.0.1:{}", net.network().ports().rpc))
+            );
+        }
         assert_eq!(
-            args[4..],
-            ["--data-dir", "/data", "--tor-file", "/res/tor/tor"].map(OsString::from)
+            NetworkType::default(),
+            NetworkType::Mainnet,
+            "Rick, 2026-11-13"
+        );
+    }
+
+    /// A configured data directory is per network: the root for mainnet,
+    /// the network's subdirectory from core's row otherwise, so a switch
+    /// never points two networks at one store.
+    #[test]
+    fn a_configured_data_dir_is_per_network() {
+        let root = Path::new("/data");
+        let dirs: Vec<PathBuf> = NetworkType::ALL
+            .iter()
+            .map(|n| data_dir_for(root, *n))
+            .collect();
+        for (n, dir) in NetworkType::ALL.iter().zip(&dirs) {
+            let want = n
+                .network()
+                .subdirectory()
+                .map_or_else(|| root.to_path_buf(), |sub| root.join(sub));
+            assert_eq!(*dir, want);
+        }
+        let distinct: std::collections::BTreeSet<_> = dirs.iter().collect();
+        assert_eq!(
+            distinct.len(),
+            dirs.len(),
+            "one store per network: {dirs:?}"
+        );
+        let args = sidecar_args(&config(Some("/data")), NetworkType::Testnet, 12029, None);
+        let at = args.iter().position(|a| a == "--data-dir").unwrap();
+        assert_eq!(
+            PathBuf::from(&args[at + 1]),
+            data_dir_for(root, NetworkType::Testnet)
+        );
+    }
+
+    /// The node follows a switch only while no wallet of another network is
+    /// open: a wallet of one network never gets a node of another.
+    #[test]
+    fn a_wallet_of_one_network_never_gets_a_node_of_another() {
+        assert!(may_switch(None, NetworkType::Testnet).is_ok());
+        assert!(may_switch(Some(Network::Testnet), NetworkType::Testnet).is_ok());
+        let refused = may_switch(Some(Network::Testnet), NetworkType::Mainnet).unwrap_err();
+        assert!(
+            refused.contains("Close it before switching to mainnet"),
+            "{refused}"
         );
     }
 
     #[test]
     fn without_a_resource_directory_no_tor_file_is_named() {
-        let args = sidecar_args(&config(None), None);
+        let args = sidecar_args(&config(None), NetworkType::Mainnet, 11029, None);
         assert!(!args.iter().any(|a| a == "--tor-file"));
     }
 }

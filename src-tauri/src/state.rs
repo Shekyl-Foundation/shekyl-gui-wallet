@@ -32,7 +32,17 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::{engine_session, gui_config};
+use shekyl_engine_core::Network;
 
+/// The networks a wallet can be on: the wallet contract's three
+/// (`wallet_rpc.yaml`, `MAINNET` / `TESTNET` / `STAGENET`). Core's
+/// [`Network`] also has regtest, whose row alone serves the test levers
+/// (NI-R6) and which no wallet contract names, so this type stays the
+/// contract's and maps to core's in [`NetworkType::network`], the one
+/// mapping. Every fact about a network (its name, its ports, its data
+/// subdirectory) is read from core's row through it; the GUI holds none.
+///
+/// The default is mainnet (Rick, 2026-11-13).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkType {
@@ -43,20 +53,36 @@ pub enum NetworkType {
 }
 
 impl NetworkType {
-    pub fn default_rpc_port(self) -> u16 {
+    /// Every wallet network.
+    pub const ALL: [Self; 3] = [Self::Mainnet, Self::Testnet, Self::Stagenet];
+
+    /// Core's network: its row holds every fact about it.
+    pub const fn network(self) -> Network {
         match self {
-            Self::Mainnet => 11029,
-            Self::Testnet => 12029,
-            Self::Stagenet => 13029,
+            Self::Mainnet => Network::Mainnet,
+            Self::Testnet => Network::Testnet,
+            Self::Stagenet => Network::Stagenet,
         }
     }
 
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Mainnet => "mainnet",
-            Self::Testnet => "testnet",
-            Self::Stagenet => "stagenet",
-        }
+    /// The daemon's RPC port on this network, from core's row.
+    pub const fn rpc_port(self) -> u16 {
+        self.network().ports().rpc
+    }
+
+    /// The network's name, from core's row (`mainnet`, ...).
+    pub const fn as_str(self) -> &'static str {
+        self.network().name()
+    }
+
+    /// The network a name names, among the wallet's networks.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|n| n.as_str() == name)
+    }
+
+    /// The URL of the node on this computer at the network's RPC port.
+    pub fn local_url(self) -> String {
+        format!("http://127.0.0.1:{}/json_rpc", self.rpc_port())
     }
 }
 
@@ -118,10 +144,7 @@ impl AppState {
         let net = NetworkType::default();
         let resolved = gui_config::resolve_wallet_dir(default_wallet_dir());
         Self {
-            daemon_url: RwLock::new(format!(
-                "http://127.0.0.1:{}/json_rpc",
-                net.default_rpc_port()
-            )),
+            daemon_url: RwLock::new(net.local_url()),
             network: RwLock::new(net),
             wallet_dir: RwLock::new(resolved.dir),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),

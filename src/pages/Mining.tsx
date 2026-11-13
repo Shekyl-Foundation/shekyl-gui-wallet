@@ -11,12 +11,17 @@ import {
 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
 import { coinbaseLockText, formatSkl, formatHashRate } from "../lib/format";
+import { useChainConstants } from "../hooks/useChainConstants";
 import EmissionGauge from "../components/EmissionGauge";
 import type { MiningStatus } from "../types/daemon";
 
 export default function Mining() {
   const { health } = useDaemon();
-  const lockWindow = coinbaseLockText(health);
+  const constants = useChainConstants();
+  const lockWindow = coinbaseLockText(
+    constants?.coinbase_lock_window ?? null,
+    health?.block_spacing ?? null,
+  );
   const [status, setStatus] = useState<MiningStatus | null>(null);
   const [threads, setThreads] = useState(2);
   const [loading, setLoading] = useState(false);

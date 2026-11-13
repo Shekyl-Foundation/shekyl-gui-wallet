@@ -48,11 +48,18 @@ describe("Mining", () => {
     expect(screen.getByText("Mining")).toBeInTheDocument();
   });
 
-  it("names no lock window before the node is read", () => {
-    mockMiningStatus(false);
+  it("names the lock window with no node: it is core's constant", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "get_chain_constants") return { coinbase_lock_window: 60 };
+      if (cmd === "get_mining_status") throw "Could not reach the node for mining";
+      return null;
+    });
     renderMining();
     expect(screen.getByText("Mining and Privacy")).toBeInTheDocument();
-    expect(screen.getByText(/wait a fixed number of blocks/)).toBeInTheDocument();
+    // The node is down: the window is still named, without a time.
+    expect(
+      await screen.findByText(/Mining rewards can be spent after 60 blocks\./),
+    ).toBeInTheDocument();
   });
 
   it("shows idle status when not mining", async () => {
@@ -133,9 +140,8 @@ describe("Mining", () => {
   it("takes the lock window and spacing from core, and names no ring", async () => {
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "get_wallet_status") return { connected: true };
-      if (cmd === "get_chain_health") {
-        return { coinbase_lock_window: 7, block_spacing: 60, difficulty: "0" };
-      }
+      if (cmd === "get_chain_constants") return { coinbase_lock_window: 7 };
+      if (cmd === "get_chain_health") return { block_spacing: 60, difficulty: "0" };
       if (cmd === "get_mining_status") return miningStatus(false);
       return null;
     });

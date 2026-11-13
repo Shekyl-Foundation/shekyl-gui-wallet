@@ -9,7 +9,6 @@ import { BLOCK_NUMBER_TIP } from "../lib/format";
 interface DaemonSettings {
   keep_running_on_exit: boolean;
   data_dir: string | null;
-  rpc_port: number;
 }
 
 interface DaemonStatusInfo {
@@ -32,18 +31,14 @@ interface DaemonConnection {
 
 const NETWORKS = ["mainnet", "testnet", "stagenet"] as const;
 
-const DEFAULT_PORTS: Record<string, number> = {
-  mainnet: 11029,
-  testnet: 12029,
-  stagenet: 13029,
-};
 
 export default function Settings() {
   const { health, refresh } = useDaemon();
   const [network, setNetwork] = useState<string>(health?.network ?? "mainnet");
-  const [daemonUrl, setDaemonUrl] = useState(
-    `http://127.0.0.1:${DEFAULT_PORTS[network]}/json_rpc`,
-  );
+  // The URL in effect comes from the backend (`daemon_connection_disclosures`
+  // below); each network's port is core's, never a copy here.
+  const [daemonUrl, setDaemonUrl] = useState("");
+  const [networkError, setNetworkError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [daemonWarnings, setDaemonWarnings] = useState<string[]>([]);
   const [daemonSettings, setDaemonSettings] = useState<DaemonSettings | null>(null);
@@ -91,19 +86,21 @@ export default function Settings() {
   }
 
   async function handleNetworkSwitch(net: string) {
-    setNetwork(net);
-    const url = `http://127.0.0.1:${DEFAULT_PORTS[net]}/json_rpc`;
-    setDaemonUrl(url);
     setSaving(true);
+    setNetworkError(null);
     try {
+      // No URL: the backend points at the node on this computer at the
+      // network's port, and relaunches the wallet's own node on it.
       const applied = await invoke<DaemonConnection>("set_daemon_connection", {
         network: net,
-        url,
       });
+      setNetwork(net);
+      setDaemonUrl(applied.url);
       setDaemonWarnings(applied.warnings);
       refresh();
-    } catch {
-      // ignore
+    } catch (e) {
+      // A wallet is open on another network: the switch waits for it.
+      setNetworkError(String(e));
     } finally {
       setSaving(false);
     }
@@ -152,6 +149,7 @@ export default function Settings() {
             </button>
           ))}
         </div>
+        {networkError && <p className="text-xs text-amber-200">{networkError}</p>}
       </div>
 
       {/* Daemon */}
