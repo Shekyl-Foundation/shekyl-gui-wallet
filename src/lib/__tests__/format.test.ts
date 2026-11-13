@@ -8,6 +8,8 @@ import {
   formatPercent,
   formatMultiplier,
   formatHashRate,
+  blockNumberOfCount,
+  coinbaseLockText,
   formatDuration,
   emissionProgress,
 } from "../format";
@@ -79,15 +81,19 @@ describe("formatMultiplier", () => {
 
 describe("formatHashRate", () => {
   it("formats H/s for small values", () => {
-    expect(formatHashRate(1200)).toBe("10 H/s");
+    expect(formatHashRate(10)).toBe("10 H/s");
+  });
+
+  it("takes a rate, not a difficulty", () => {
+    expect(formatHashRate(1200)).toBe("1.20 KH/s");
   });
 
   it("formats MH/s for medium values", () => {
-    expect(formatHashRate(120_000_000)).toBe("1.00 MH/s");
+    expect(formatHashRate(1_000_000)).toBe("1.00 MH/s");
   });
 
   it("formats GH/s for large values", () => {
-    expect(formatHashRate(120_000_000_000)).toBe("1.00 GH/s");
+    expect(formatHashRate(1_000_000_000)).toBe("1.00 GH/s");
   });
 });
 
@@ -158,5 +164,34 @@ describe("SKL_AMOUNT_PATTERN", () => {
       expect(pattern.test(s), s).toBe(false);
       expect(() => parseSkl(s), s).toThrow(RangeError);
     }
+  });
+});
+
+describe("blockNumberOfCount", () => {
+  it("is no block for an empty count", () => {
+    expect(blockNumberOfCount(0)).toBeNull();
+  });
+
+  it("is genesis for one block", () => {
+    expect(blockNumberOfCount(1)).toBe(0);
+  });
+
+  it("is the newest block's number", () => {
+    expect(blockNumberOfCount(1200)).toBe(1199);
+  });
+});
+
+describe("coinbaseLockText", () => {
+  it("reads the window and the spacing it is given", () => {
+    expect(coinbaseLockText(60, 120)).toBe("60 blocks (about 2 hours)");
+    expect(coinbaseLockText(10, 60)).toBe("10 blocks (about 10 minutes)");
+  });
+
+  it("names the window without a time while the node is unread", () => {
+    expect(coinbaseLockText(60, null)).toBe("60 blocks");
+  });
+
+  it("names nothing when the constant itself is unread", () => {
+    expect(coinbaseLockText(null, 120)).toBeNull();
   });
 });

@@ -23,9 +23,11 @@ The sidebar **Shards** page is not this Staking-tab preview. It speaks two
 commands:
 
 - `list_shards` (app shell, `command_surface.conf`) → daemon
-  `get_archival_shard_coverage` (no Tor, no bodies). `expected_profit_atomic`
+  `shard_coverage` (no Tor, no bodies). `expected_profit_atomic`
   on each row is a decimal string of atomic units so values above 2^53 stay
-  exact; the gallery sums and formats with BigInt.
+  exact, or `null` when the node has not estimated it; the gallery sums and
+  formats with BigInt, and shows a sum only when every selected shard has an
+  estimate.
 - `get_shard_view` — the wallet contract's method of that name
   (`wallet_rpc.yaml` 0.11.0, shekyl-core `docs/design/SHARD_VIEW_FETCH.md`
   SV-D), adapted in `src-tauri/src/shard_coverage.rs`. The wallet's daemon

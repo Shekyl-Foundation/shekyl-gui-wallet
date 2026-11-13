@@ -1,33 +1,46 @@
+/**
+ * The chain as the node reports it (`get_chain_health`): the node's
+ * `daemon_status` on the 4.0 wire, with the tip's header and curve tree.
+ * `height` is the chain's block count (the tip's height plus one, as the
+ * CLI prints it). Ratios are millionths. Amounts are atomic-unit
+ * decimal strings. A read the node did not answer is `null`, never zero.
+ */
 export interface ChainHealth {
   height: number;
-  target_height: number;
-  top_block_hash: string;
-  difficulty: number;
+  hash: string;
+  /** A 128-bit value, as a decimal string. */
+  difficulty: string;
   tx_count: number;
-  tx_pool_size: number;
-  database_size: number;
-  version: string;
+  /** `null` while the node's pool is retired. */
+  txpool_count: number | null;
   synchronized: boolean;
-  already_generated_coins: string;
-  release_multiplier: number;
-  burn_pct: number;
-  stake_ratio: number;
-  /** Atomic units, decimal string (`AtomicUnitsString`). */
-  total_burned: string;
-  staker_pool_balance: string;
-  staker_emission_share_effective: number;
-  last_block_reward: string;
-  last_block_timestamp: number;
-  last_block_hash: string;
-  last_block_size: number;
-  total_staked: string;
-  tier_0_lock_blocks: number;
-  tier_1_lock_blocks: number;
-  tier_2_lock_blocks: number;
+  /** Coins emitted so far. */
+  emission: string;
+  emission_multiplier: number;
+  burn: number;
+  burn_total: string;
+  /** The stakers' effective share of emission. */
+  stake_share: number;
+  /** Seconds. */
+  block_spacing: number;
   network: string;
-  curve_tree_root?: string;
-  curve_tree_leaf_count?: number;
-  curve_tree_depth?: number;
+  last_block: LastBlock | null;
+  curve_tree: CurveTree | null;
+}
+
+export interface LastBlock {
+  reward: string;
+  /** Unix seconds. */
+  time: number;
+  hash: string;
+  /** Bytes. */
+  weight: number;
+}
+
+export interface CurveTree {
+  root: string;
+  layers: number;
+  leaf_count: number;
 }
 
 export interface WalletStatus {
@@ -37,8 +50,6 @@ export interface WalletStatus {
   daemon_address: string | null;
   network: string;
   synced: boolean;
-  sync_height: number;
-  daemon_height: number;
 }
 
 /**
@@ -86,17 +97,27 @@ export interface TierYield {
   estimated_apy: number;
 }
 
+/**
+ * The node's miner (`get_mining_status`, the node's `mine_status`). The
+ * miner pays the node's own mining address, set when the node starts. The
+ * posted job's figures are `null` while no job is posted, and `cause`
+ * says why.
+ */
 export interface MiningStatus {
   active: boolean;
-  speed: number;
-  threads_count: number;
-  address: string;
-  pow_algorithm: string;
-  is_background_mining_enabled: boolean;
-  block_target: number;
+  /** Hashes per second over the node's last window; `null` before one. */
+  hash_rate: number | null;
+  threads: number;
+  /** The address the miner pays; `null` when the node has none set. */
+  address: string | null;
+  /** Seconds. */
+  block_spacing: number;
+  height: number | null;
   /** Atomic units, decimal string. */
-  block_reward: string;
-  difficulty: number;
+  block_reward: string | null;
+  /** A 128-bit value, as a decimal string. */
+  difficulty: string | null;
+  cause: string | null;
 }
 
 export interface PqcStatus {
@@ -113,9 +134,10 @@ export interface SecurityStatus {
   classical: string;
   post_quantum: string;
   tx_version: number;
-  anonymity_set_size: number;
-  tree_depth: number;
-  tree_root_short: string;
+  /** `null` when the node could not say. */
+  anonymity_set_size: number | null;
+  tree_depth: number | null;
+  tree_root_short: string | null;
   reference_block_window: number;
   proof_type: string;
   max_inputs: number;
@@ -201,3 +223,9 @@ export interface StakingOutcomeView {
   funds: string;
 }
 
+
+/** Core's consensus constants a page names (`get_chain_constants`). */
+export interface ChainConstants {
+  /** Blocks a mined reward waits before it can be spent. */
+  coinbase_lock_window: number;
+}

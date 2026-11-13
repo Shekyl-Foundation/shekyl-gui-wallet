@@ -31,6 +31,7 @@ use std::sync::Arc;
 use tauri::Manager;
 
 mod balance;
+mod chain_constants;
 mod clipboard;
 mod commands;
 mod contract_error;
@@ -42,9 +43,14 @@ mod engine_daemon;
 mod engine_errors;
 mod engine_session;
 mod features;
+#[cfg(test)]
+mod grant_reach_tests;
 mod gui_config;
 mod lifecycle;
+#[cfg(test)]
+mod live_daemon_tests;
 mod message_signing;
+mod mining;
 #[cfg(feature = "multisig")]
 mod multisig;
 mod proofs;
@@ -62,6 +68,8 @@ mod tx_journal;
 mod validate;
 mod wallet_care;
 mod wallet_name;
+#[cfg(test)]
+mod wire_vectors;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -82,7 +90,8 @@ pub fn run() {
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                dm.start(&handle).await;
+                dm.start(&handle, crate::state::NetworkType::default())
+                    .await;
             });
             Ok(())
         })
@@ -98,9 +107,10 @@ pub fn run() {
             clipboard::copy_to_clipboard,
             clipboard::clear_clipboard,
             // Mining
-            commands::get_mining_status,
-            commands::start_mining_cmd,
-            commands::stop_mining_cmd,
+            chain_constants::get_chain_constants,
+            mining::get_mining_status,
+            mining::start_mining_cmd,
+            mining::stop_mining_cmd,
             // Wallet startup
             commands::check_wallet_files,
             commands::ensure_wallet_dir,

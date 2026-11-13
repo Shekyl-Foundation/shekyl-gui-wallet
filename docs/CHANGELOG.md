@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+- **The wallet speaks the daemon's 4.0 interface.** shekyl-core alpha.12
+  renamed the daemon's methods and fields (`CORE_RPC_VERSION` 4.0). The
+  wallet now reads the node through core's own client and types, so a
+  renamed field is a build error, not a figure that silently reads zero:
+  the chain read is `daemon_status` with the tip's header and curve tree,
+  the shard list is `shard_coverage`, and the sidecar health check is the
+  node's `version` read. Figures the node does not report are no longer
+  shown as zero: the stake ratio, staker pool, total staked and tier lock
+  lengths are gone from the Chain Health panel and the Staking page (no
+  daemon ever served them), the node's build string is gone (the wallet's
+  own node does not share it), and a last block, curve tree, shard profit
+  or settlement budget the node has not reported reads "—". The Mining page
+  no longer takes an address or a background switch: the node mines to the
+  address it was started with, the page shows it, and when the node refuses
+  the wallet's mining controls the page says so in the node's words.
+- **Blocks are shown by their number.** What the wallet shows people says
+  "block" and a block's own number, counted from 0 at genesis, never
+  "height": the newest block in the header, Settings and the Chain Health
+  panel, where a refresh or rescan synced to, where the persona scan reached,
+  when a staked output unlocks, and where a restore starts. A tooltip says
+  how blocks are numbered, and Help has "Block number" and "Block count".
+  A synced wallet shows its node's block. Two numbers were one off: after a
+  refresh the wallet showed the block before the one it had synced to, and
+  the persona scan showed the first block it had not scanned.
+- **The wallet's own node runs the wallet's network.** It ran mainnet
+  whatever the wallet was on, so a testnet wallet's node was not its node.
+  The node now starts on the network chosen in Settings (mainnet by
+  default), and a switch restarts it on that network, at that network's
+  port and, with a configured data directory, in that network's own store.
+  While a wallet is open, a switch to another network waits until it is
+  closed. Ports and network names come from core; the wallet keeps no table
+  of them.
+- **The Mining page and Help take chain facts from core.** The coinbase lock
+  window is core's constant, named even when the node is down, and the time
+  is the node's block spacing; the
+  page no longer says mined outputs join a "mix ring", since Shekyl has no
+  rings.
 - **A group payment this wallet cannot spend says which check failed.**
   A receive that belongs to a multisig group and can never be spent keeps
   its own reason: the record is missing, the group is different, the record

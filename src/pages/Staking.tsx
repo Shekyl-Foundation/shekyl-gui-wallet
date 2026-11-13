@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   Coins,
   Lock,
-  TrendingUp,
   ShieldCheck,
   BookOpen,
   KeyRound,
@@ -96,10 +95,7 @@ export default function Staking() {
     };
   }, [walletOpen, status?.staking_enabled, health]);
 
-  const stakeRatioPct = health ? (health.stake_ratio / 1_000_000) * 100 : 0;
-  const emSharePct = health
-    ? (health.staker_emission_share_effective / 1_000_000) * 100
-    : 0;
+  const emSharePct = health ? (health.stake_share / 1_000_000) * 100 : 0;
 
   const canActivate =
     walletOpen &&
@@ -269,31 +265,12 @@ export default function Staking() {
           <p className="mb-4 text-xs text-purple-300">
             Network-wide daemon metrics, not your personal yield.
           </p>
-          <div className="grid grid-cols-4 gap-4">
-            <EmissionGauge
-              value={stakeRatioPct}
-              label="Stake Ratio"
-              display={formatPercent(health.stake_ratio)}
-            />
+          <div className="grid grid-cols-1 gap-4">
             <EmissionGauge
               value={emSharePct}
               label="Emission Share"
-              display={formatPercent(health.staker_emission_share_effective)}
+              display={formatPercent(health.stake_share)}
             />
-            <div className="flex flex-col items-center justify-center gap-1">
-              <Lock className="h-5 w-5 text-gold-400" />
-              <span className="text-sm font-bold text-white">
-                {formatSklCompact(health.total_staked)}
-              </span>
-              <span className="text-[10px] text-purple-300">Total Staked</span>
-            </div>
-            <div className="flex flex-col items-center justify-center gap-1">
-              <TrendingUp className="h-5 w-5 text-gold-400" />
-              <span className="text-sm font-bold text-white">
-                {formatSklCompact(health.staker_pool_balance)}
-              </span>
-              <span className="text-[10px] text-purple-300">Reward Pool</span>
-            </div>
           </div>
         </div>
       )}

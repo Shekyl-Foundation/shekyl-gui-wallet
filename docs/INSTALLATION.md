@@ -176,7 +176,7 @@ Check the daemon status:
 
 ```bash
 curl -s http://127.0.0.1:11029/json_rpc \
-  -d '{"jsonrpc":"2.0","id":"0","method":"get_info"}' \
+  -d '{"jsonrpc":"2.0","id":"0","method":"daemon_status"}' \
   -H 'Content-Type: application/json' | head -c 200
 ```
 

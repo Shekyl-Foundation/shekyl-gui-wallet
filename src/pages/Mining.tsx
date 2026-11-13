@@ -10,18 +10,25 @@ import {
   Info,
 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
-import { formatSkl, formatHashRate } from "../lib/format";
+import { coinbaseLockText, formatSkl, formatHashRate } from "../lib/format";
+import { useChainConstants } from "../hooks/useChainConstants";
 import EmissionGauge from "../components/EmissionGauge";
 import type { MiningStatus } from "../types/daemon";
 
 export default function Mining() {
   const { health } = useDaemon();
+  const constants = useChainConstants();
+  const lockWindow = coinbaseLockText(
+    constants?.coinbase_lock_window ?? null,
+    health?.block_spacing ?? null,
+  );
   const [status, setStatus] = useState<MiningStatus | null>(null);
   const [threads, setThreads] = useState(2);
-  const [background, setBackground] = useState(false);
-  const [address, setAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Why the node's miner could not be read: the node's own sentence, such
+  // as a node that does not let this wallet see or change mining.
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   const maxThreads =
     typeof navigator !== "undefined" && navigator.hardwareConcurrency
@@ -32,12 +39,12 @@ export default function Mining() {
     try {
       const ms = await invoke<MiningStatus>("get_mining_status");
       setStatus(ms);
-      if (ms.address && !address) setAddress(ms.address);
-      setError(null);
-    } catch {
+      setStatusError(null);
+    } catch (e) {
       setStatus(null);
+      setStatusError(String(e));
     }
-  }, [address]);
+  }, []);
 
   useEffect(() => {
     fetchStatus();
@@ -46,14 +53,10 @@ export default function Mining() {
   }, [fetchStatus]);
 
   async function handleStart() {
-    if (!address.trim()) {
-      setError("Enter a miner address");
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
-      await invoke("start_mining_cmd", { address, threads, background });
+      await invoke("start_mining_cmd", { threads });
       await fetchStatus();
     } catch (e) {
       setError(String(e));
@@ -75,9 +78,16 @@ export default function Mining() {
     }
   }
 
-  const hashRatePct = status?.active
-    ? Math.min((status.speed / Math.max(status.difficulty / (status.block_target || 120), 1)) * 100, 100)
-    : 0;
+  // This miner's share of the network's hash rate, estimated from the
+  // posted job's difficulty over the block spacing.
+  const networkRate =
+    status?.difficulty && status.block_spacing > 0
+      ? Number(status.difficulty) / status.block_spacing
+      : null;
+  const hashRatePct =
+    status?.active && status.hash_rate !== null && networkRate
+      ? Math.min((status.hash_rate / Math.max(networkRate, 1)) * 100, 100)
+      : 0;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -92,9 +102,12 @@ export default function Mining() {
               Mining and Privacy
             </p>
             <p className="mt-1 text-xs leading-relaxed text-emerald-200/80">
-              Mining rewards are locked for 60 blocks (~2 hours) before
-              becoming spendable. Mined outputs enter the normal mix ring,
-              preserving transaction privacy.
+              {lockWindow === null
+                ? "Mining rewards wait a fixed number of blocks before they can be spent."
+                : `Mining rewards can be spent after ${lockWindow}.`}{" "}
+              Shekyl has no rings: every output, a mined one included, is in
+              the full-chain set each spend proves membership in, so spending
+              a reward looks like any other spend.
             </p>
           </div>
         </div>
@@ -125,24 +138,45 @@ export default function Mining() {
           </span>
         </div>
 
+        {statusError && (
+          <p className="mb-4 rounded-lg bg-purple-700/30 p-2 text-xs text-purple-200">
+            {statusError}
+          </p>
+        )}
+        {status?.cause && (
+          <p className="mb-4 rounded-lg bg-purple-700/30 p-2 text-xs text-purple-200">
+            {status.cause}
+          </p>
+        )}
+
         <div className="grid grid-cols-4 gap-4">
           <EmissionGauge
             value={hashRatePct}
             label="Hash Rate"
-            display={status?.active ? formatHashRate(status.speed * (status.block_target || 120)) : "0 H/s"}
+            display={
+              status === null
+                ? "—"
+                : !status.active
+                  ? "0 H/s"
+                  : status.hash_rate === null
+                    ? "—"
+                    : formatHashRate(status.hash_rate)
+            }
             size={70}
           />
           <div className="flex flex-col items-center justify-center gap-1">
             <Cpu className="h-5 w-5 text-gold-400" />
             <span className="text-sm font-bold text-white">
-              {status?.threads_count ?? 0}
+              {status?.threads ?? "—"}
             </span>
             <span className="text-[10px] text-purple-300">Threads</span>
           </div>
           <div className="flex flex-col items-center justify-center gap-1">
             <Gauge className="h-5 w-5 text-gold-400" />
             <span className="text-sm font-bold text-white">
-              {status?.active ? `${status.speed} H/s` : "—"}
+              {status?.active && status.hash_rate !== null
+                ? formatHashRate(status.hash_rate)
+                : "—"}
             </span>
             <span className="text-[10px] text-purple-300">
               Speed
@@ -157,7 +191,7 @@ export default function Mining() {
           <div className="flex flex-col items-center justify-center gap-1">
             <Pickaxe className="h-5 w-5 text-gold-400" />
             <span className="text-sm font-bold text-white">
-              {status?.pow_algorithm || "RandomX"}
+              RandomX
             </span>
             <span className="text-[10px] text-purple-300">Algorithm</span>
           </div>
@@ -174,18 +208,18 @@ export default function Mining() {
             <div>
               <p className="text-purple-300">Difficulty</p>
               <p className="font-mono font-bold text-white">
-                {health.difficulty.toLocaleString()}
+                {BigInt(health.difficulty).toLocaleString()}
               </p>
             </div>
             <div>
               <p className="text-purple-300">Block Reward</p>
               <p className="font-mono font-bold text-white">
-                {formatSkl(health.last_block_reward)} SKL
+                {health.last_block ? `${formatSkl(health.last_block.reward)} SKL` : "—"}
               </p>
             </div>
             <div>
               <p className="text-purple-300">Block Time</p>
-              <p className="font-mono font-bold text-white">120s target</p>
+              <p className="font-mono font-bold text-white">{health.block_spacing}s target</p>
             </div>
           </div>
         </div>
@@ -197,50 +231,34 @@ export default function Mining() {
           Mining Controls
         </h2>
 
-        <div className="space-y-2">
-          <label className="text-xs text-purple-300">Miner Address</label>
-          <input
-            type="text"
-            className="input font-mono text-sm"
-            placeholder="SKL1..."
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            disabled={status?.active}
-          />
+        <div className="space-y-1">
+          <p className="text-xs text-purple-300">Pays to</p>
+          <p className="break-all font-mono text-sm text-white">
+            {status === null
+              ? "—"
+              : (status.address ?? "No mining address is set on this node.")}
+          </p>
+          <p className="text-[10px] text-purple-400">
+            The node mines to the address it was started with.
+          </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-xs text-purple-300">
-              Threads (1–{maxThreads})
-            </label>
-            <input
-              type="range"
-              min={1}
-              max={maxThreads}
-              value={threads}
-              onChange={(e) => setThreads(Number(e.target.value))}
-              className="w-full accent-gold-400"
-              disabled={status?.active}
-            />
-            <p className="text-center text-xs font-semibold text-white">
-              {threads}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={background}
-                onChange={(e) => setBackground(e.target.checked)}
-                className="accent-gold-400"
-                disabled={status?.active}
-              />
-              <span className="text-xs text-purple-300">
-                Background mining
-              </span>
-            </label>
-          </div>
+        <div className="space-y-2">
+          <label className="text-xs text-purple-300">
+            Threads (1–{maxThreads})
+          </label>
+          <input
+            type="range"
+            min={1}
+            max={maxThreads}
+            value={threads}
+            onChange={(e) => setThreads(Number(e.target.value))}
+            className="w-full accent-gold-400"
+            disabled={status?.active}
+          />
+          <p className="text-center text-xs font-semibold text-white">
+            {threads}
+          </p>
         </div>
 
         {error && (
@@ -268,10 +286,6 @@ export default function Mining() {
             {loading ? "Starting..." : "Start Mining"}
           </button>
         )}
-
-        <p className="text-center text-[10px] text-purple-400">
-          Requires an unrestricted daemon (do not use --restricted-rpc).
-        </p>
       </div>
     </div>
   );

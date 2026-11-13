@@ -4,6 +4,7 @@ import { ArrowLeft, Eye, EyeOff, Loader2, Check } from "lucide-react";
 import { useWallet } from "../context/useWallet";
 import { BIP39_RECOVERY_PHRASE_WORD_COUNT, hasRecoveryPhraseShape } from "../constants/wallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
+import { BLOCK_NUMBER_TIP } from "../lib/format";
 
 /**
  * Restore a wallet from its seed backup — the contract's `restore_wallet`
@@ -171,10 +172,10 @@ export default function ImportWallet() {
                 </div>
               </div>
 
-              {/* Restore height */}
+              {/* Restore from block */}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-purple-200">
-                  Restore Height <span className="text-purple-400">(optional)</span>
+                <label className="text-xs font-medium text-purple-200" title={BLOCK_NUMBER_TIP}>
+                  Restore from block <span className="text-purple-400">(optional)</span>
                 </label>
                 <input
                   type="number"
@@ -185,8 +186,7 @@ export default function ImportWallet() {
                   min={0}
                 />
                 <p className="text-[10px] text-purple-400">
-                  Block height to start scanning from. Leave at 0 to scan the entire
-                  blockchain (slower but safest).
+                  The first block to scan. Leave at 0 to scan from the genesis block.
                 </p>
               </div>
 

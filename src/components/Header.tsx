@@ -1,6 +1,7 @@
 import { useDaemon } from "../context/useDaemon";
 import NetworkBadge from "./NetworkBadge";
 import SecurityBadge from "./SecurityBadge";
+import { BLOCK_NUMBER_TIP } from "../lib/format";
 
 export default function Header() {
   const { health, loading } = useDaemon();
@@ -32,7 +33,7 @@ export default function Header() {
               />
               {synced ? "Synced" : "Syncing..."}
             </span>
-            <span>Block {health!.height.toLocaleString()}</span>
+            <span title={BLOCK_NUMBER_TIP}>Block {health!.height.toLocaleString()}</span>
           </>
         ) : (
           <span className="flex items-center gap-1.5">

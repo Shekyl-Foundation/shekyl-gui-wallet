@@ -75,6 +75,11 @@ impl EngineSession {
         self.engine.clone()
     }
 
+    /// The open wallet's network, `None` with no wallet open.
+    pub fn open_network(&self) -> Option<Network> {
+        self.network
+    }
+
     pub fn is_open(&self) -> bool {
         self.engine.is_some()
     }
@@ -726,11 +731,7 @@ pub fn engine_wallet_exists(wallet_dir: &Path, name: &str) -> bool {
 }
 
 pub(crate) fn map_network(n: NetworkType) -> Network {
-    match n {
-        NetworkType::Mainnet => Network::Mainnet,
-        NetworkType::Testnet => Network::Testnet,
-        NetworkType::Stagenet => Network::Stagenet,
-    }
+    n.network()
 }
 
 /// Path for a wallet that does not exist yet, and the directory that holds it.
