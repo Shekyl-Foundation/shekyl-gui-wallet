@@ -14,7 +14,12 @@ const QUOTE: FeeTierQuote = {
 };
 const BUILT: BuiltPendingTx = { pending_tx_id: "42", fee: "250000000", content_gen: 0 };
 const REBUILT: BuiltPendingTx = { pending_tx_id: "43", fee: "250000001", content_gen: 0 };
-const ACCEPTED: SubmitResult = { tx_hash: "ab".repeat(32), verdict: "ACCEPTED", confirmed_height: null };
+const ACCEPTED: SubmitResult = {
+  tx_hash: "ab".repeat(32),
+  verdict: "ACCEPTED",
+  verdict_saved: true,
+  confirmed_height: null,
+};
 const MISMATCH: SendError = { code: "CONTENT_GEN_MISMATCH", message: "content generation mismatch", reservation_retained: true };
 const AMBIGUOUS: SendError = { code: "SUBMIT_AMBIGUOUS", message: "daemon submit ambiguous", reservation_retained: true };
 const DISCARD_FAILED: SendError = { code: "INTERNAL_ERROR", message: "discard transaction: io", reservation_retained: true };
@@ -112,6 +117,16 @@ describe("Send page", () => {
     expect(await screen.findByText("Transaction accepted by your node.")).toBeInTheDocument();
     expect(calls("submit_pending_tx")).toEqual([["submit_pending_tx", { pendingTxId: "42", seenGen: 0 }]]);
     expect(calls("discard_pending_tx")).toHaveLength(0);
+  });
+
+  it("a send whose verdict was not saved says so beside the verdict", async () => {
+    const unsaved: SubmitResult = { ...ACCEPTED, verdict_saved: false };
+    route({ get_default_fee_priority: () => QUOTE, build_pending_tx: () => BUILT, submit_pending_tx: () => unsaved });
+    const u = user();
+    render(<Send />);
+    await reachReview(u);
+    await confirm(u);
+    expect(await screen.findByText(/^Transaction accepted by your node\. The wallet could not save/)).toBeInTheDocument();
   });
 
   it("Cancel discards the reservation and returns to the form", async () => {

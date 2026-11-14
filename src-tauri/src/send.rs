@@ -148,6 +148,10 @@ pub struct BuiltPendingTx {
 pub struct SubmitResult {
     pub tx_hash: String,
     pub verdict: &'static str,
+    /// `false` when the send went out and stands but the wallet could not
+    /// save what the node's verdict changed (shekyl-core A19). The send is
+    /// not undone; the next save writes it.
+    pub verdict_saved: bool,
     /// Present iff `verdict` is `ALREADY_IN_CHAIN`: the daemon-claimed height,
     /// display metadata only — refresh remains the settlement authority.
     pub confirmed_height: Option<u64>,
@@ -284,7 +288,7 @@ pub async fn build_pending_tx(
     };
     let engine = shared.read().await;
     let pending = engine
-        .build_pending_tx_async(&request)
+        .build_pending_tx(&request)
         .await
         .map_err(|e| SendError::from_contract(e.into(), false))?;
     Ok(BuiltPendingTx {
@@ -303,8 +307,9 @@ pub async fn submit_pending_tx(
     let id = parse_pending_tx_id(&pending_tx_id)?;
     let shared = shared_engine(&state).await?;
     let engine = shared.read().await;
-    match engine.submit_pending_tx_async(id, seen_gen).await {
-        Ok(outcome) => {
+    match engine.submit_pending_tx(id, seen_gen).await {
+        Ok(receipt) => {
+            let outcome = receipt.outcome;
             let (verdict, confirmed_height) = match &outcome {
                 SubmitOutcome::Accepted { .. } => (contract::VERDICT_ACCEPTED, None),
                 SubmitOutcome::AlreadyInPool { .. } => (contract::VERDICT_ALREADY_IN_POOL, None),
@@ -315,6 +320,7 @@ pub async fn submit_pending_tx(
             Ok(SubmitResult {
                 tx_hash: outcome.hash().to_string(),
                 verdict,
+                verdict_saved: receipt.verdict_saved,
                 confirmed_height,
             })
         }

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **A send whose verdict could not be saved says so.** shekyl-core now
+  saves a send before its bytes leave and saves the node's verdict before
+  the submit returns (A19). When that second save fails the send still
+  stands, and the Send page says, beside the verdict, that the wallet could
+  not save the node's answer and will ask about the send if it stops before
+  its next save. The wallet builds against core's renamed submit and build
+  calls and its `SubmitReceipt`.
 - **The wallet speaks the daemon's 4.0 interface.** shekyl-core alpha.12
   renamed the daemon's methods and fields (`CORE_RPC_VERSION` 4.0). The
   wallet now reads the node through core's own client and types, so a
