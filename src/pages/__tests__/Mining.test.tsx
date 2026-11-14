@@ -19,21 +19,24 @@ function renderMining() {
   );
 }
 
+/** A 4.0 `get_mining_status` answer: the node's `mine_status`. */
+function miningStatus(active: boolean) {
+  return {
+    active,
+    hash_rate: active ? 1200 : null,
+    threads: active ? 4 : 2,
+    address: active ? "SKL1test..." : null,
+    block_spacing: 120,
+    height: 10,
+    block_reward: "5000000000",
+    difficulty: "100000",
+    cause: null,
+  };
+}
+
 function mockMiningStatus(active: boolean) {
   vi.mocked(invoke).mockImplementation(async (cmd: string) => {
-    if (cmd === "get_mining_status") {
-      return {
-        active,
-        speed: active ? 1200 : 0,
-        threads_count: active ? 4 : 0,
-        address: active ? "SKL1test..." : "",
-        pow_algorithm: "RandomX",
-        is_background_mining_enabled: false,
-        block_target: 120,
-        block_reward: "5000000000",
-        difficulty: 100000,
-      };
-    }
+    if (cmd === "get_mining_status") return miningStatus(active);
     return null;
   });
 }
@@ -45,11 +48,18 @@ describe("Mining", () => {
     expect(screen.getByText("Mining")).toBeInTheDocument();
   });
 
-  it("shows privacy note about mining rewards", () => {
-    mockMiningStatus(false);
+  it("names the lock window with no node: it is core's constant", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "get_chain_constants") return { coinbase_lock_window: 60 };
+      if (cmd === "get_mining_status") throw "Could not reach the node for mining";
+      return null;
+    });
     renderMining();
     expect(screen.getByText("Mining and Privacy")).toBeInTheDocument();
-    expect(screen.getByText(/locked for 60 blocks/)).toBeInTheDocument();
+    // The node is down: the window is still named, without a time.
+    expect(
+      await screen.findByText(/Mining rewards can be spent after 60 blocks\./),
+    ).toBeInTheDocument();
   });
 
   it("shows idle status when not mining", async () => {
@@ -68,15 +78,16 @@ describe("Mining", () => {
     });
   });
 
-  it("renders mining controls", () => {
+  it("renders mining controls without an address to type", () => {
     mockMiningStatus(false);
     renderMining();
     expect(screen.getByText("Mining Controls")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("SKL1...")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("SKL1...")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Background mining/)).not.toBeInTheDocument();
     expect(screen.getByText("Start Mining")).toBeInTheDocument();
   });
 
-  it("shows error when starting without address", async () => {
+  it("starts the node's miner with the thread count alone", async () => {
     mockMiningStatus(false);
     renderMining();
     await waitFor(() => {
@@ -84,8 +95,68 @@ describe("Mining", () => {
     });
     fireEvent.click(screen.getByText("Start Mining"));
     await waitFor(() => {
-      expect(screen.getByText("Enter a miner address")).toBeInTheDocument();
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("start_mining_cmd", { threads: 2 });
     });
+  });
+
+  it("names the address the node's miner pays", async () => {
+    mockMiningStatus(true);
+    renderMining();
+    expect(await screen.findByText("SKL1test...")).toBeInTheDocument();
+  });
+
+  it("says when the node has no mining address", async () => {
+    mockMiningStatus(false);
+    renderMining();
+    expect(await screen.findByText("No mining address is set on this node.")).toBeInTheDocument();
+  });
+
+  it("shows the node's sentence when it refuses the miner's status", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "get_mining_status") {
+        throw "This node does not let this wallet see or change mining.";
+      }
+      return null;
+    });
+    renderMining();
+    expect(
+      await screen.findByText("This node does not let this wallet see or change mining."),
+    ).toBeInTheDocument();
+    // A refused read says nothing about the node's address.
+    expect(screen.queryByText("No mining address is set on this node.")).toBeNull();
+  });
+
+  it("shows why no job is posted", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "get_mining_status") {
+        return { ...miningStatus(false), cause: "the node is still syncing" };
+      }
+      return null;
+    });
+    renderMining();
+    expect(await screen.findByText("the node is still syncing")).toBeInTheDocument();
+  });
+
+  it("takes the lock window and spacing from core, and names no ring", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "get_wallet_status") return { connected: true };
+      if (cmd === "get_chain_constants") return { coinbase_lock_window: 7 };
+      if (cmd === "get_chain_health") return { block_spacing: 60, difficulty: "0" };
+      if (cmd === "get_mining_status") return miningStatus(false);
+      return null;
+    });
+    renderMining();
+    expect(
+      await screen.findByText(/Mining rewards can be spent after 7 blocks \(about 7 minutes\)\./),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Shekyl has no rings/)).toBeInTheDocument();
+    expect(screen.queryByText(/mix ring/)).toBeNull();
+  });
+
+  it("shows the hash rate from the node's window", async () => {
+    mockMiningStatus(true);
+    renderMining();
+    expect(await screen.findAllByText("1.20 KH/s")).toHaveLength(2);
   });
 
   it("renders the algorithm name", async () => {
@@ -94,13 +165,5 @@ describe("Mining", () => {
     await waitFor(() => {
       expect(screen.getByText("RandomX")).toBeInTheDocument();
     });
-  });
-
-  it("renders the daemon requirement note", () => {
-    mockMiningStatus(false);
-    renderMining();
-    expect(
-      screen.getByText(/unrestricted daemon/),
-    ).toBeInTheDocument();
   });
 });

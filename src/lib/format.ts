@@ -101,8 +101,8 @@ export function formatMultiplier(fixedPoint: number, scale = FIXED_POINT_SCALE):
   return `${value.toFixed(2)}x`;
 }
 
-export function formatHashRate(difficulty: number, blockTimeSeconds = 120): string {
-  const hashRate = difficulty / blockTimeSeconds;
+/** A rate in hashes per second, scaled to its largest whole unit. */
+export function formatHashRate(hashRate: number): string {
   if (hashRate >= 1e12) return `${(hashRate / 1e12).toFixed(2)} TH/s`;
   if (hashRate >= 1e9) return `${(hashRate / 1e9).toFixed(2)} GH/s`;
   if (hashRate >= 1e6) return `${(hashRate / 1e6).toFixed(2)} MH/s`;
@@ -120,4 +120,40 @@ export function emissionProgress(generatedCoins: string): number {
   const generated = parseInt(generatedCoins, 10) || 0;
   const supply = generated / ATOMIC_DIVISOR;
   return Math.min((supply / MAX_SUPPLY) * 100, 100);
+}
+
+/**
+ * The tooltip every block number carries. Blocks are numbered from 0, so a
+ * block's number is one less than the count of blocks up to and including it.
+ */
+export const BLOCK_NUMBER_TIP =
+  "The number of a block. Blocks are numbered from 0, the genesis block, so block 1,199 is the newest of 1,200 blocks.";
+
+/**
+ * The block number of the last block a count covers: a count of blocks (the
+ * wallet's synced height, a scan's exclusive frontier) shown as the newest
+ * block it includes. `null` for 0: no block yet. The one place a count
+ * becomes a block number.
+ */
+export function blockNumberOfCount(count: number): number | null {
+  return count > 0 ? count - 1 : null;
+}
+
+/**
+ * How long a mined reward waits before it can be spent: core's lock window
+ * (`get_chain_constants`, known without the node) and, when the node has
+ * been read, its block spacing for the time. `null` only when the constant
+ * itself could not be read.
+ */
+export function coinbaseLockText(
+  lockWindow: number | null,
+  blockSpacing: number | null,
+): string | null {
+  if (lockWindow === null) return null;
+  const blocks = `${lockWindow.toLocaleString()} blocks`;
+  if (blockSpacing === null) return blocks;
+  const minutes = (lockWindow * blockSpacing) / 60;
+  const about =
+    minutes < 120 ? `${Math.round(minutes)} minutes` : formatDuration(minutes / 60);
+  return `${blocks} (about ${about})`;
 }

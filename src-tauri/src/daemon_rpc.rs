@@ -26,382 +26,182 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//! Async JSON-RPC client for the shekyld daemon.
+//! The daemon's wire (`CORE_RPC_VERSION` 4.0), read through core's client.
 //!
-//! All responses mirror the field names from `core_rpc_server_commands_defs.h`.
-//! Fixed-point u64 economic values use SCALE = 1_000_000.
+//! Every call is a row of `shekyl_rpc_types::wire`, made with
+//! [`Rpc::call`] over [`HttpRpc`], and every reply is core's own type
+//! (shekyl-core RK-D1). The wallet keeps no reply type of its own, so a
+//! wire change is a compile error here, never a field that silently reads
+//! zero.
 
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
-// ─── JSON-RPC envelope ───────────────────────────────────────────────────────
+use shekyl_rpc_client::{ErrorClass, Rpc, RpcError, RpcMethod};
+use shekyl_rpc_transport::HttpRpc;
 
-#[derive(Serialize)]
-struct JsonRpcRequest<P: Serialize> {
-    jsonrpc: &'static str,
-    id: &'static str,
-    method: &'static str,
-    params: P,
+/// How long one read may take before the wallet treats the node as gone.
+const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The node's base URL: the configured daemon URL without `/json_rpc`,
+/// which the client adds itself.
+fn base(url: &str) -> &str {
+    let trimmed = url.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/json_rpc")
+        .unwrap_or(trimmed)
+        .trim_end_matches('/')
 }
 
-#[derive(Deserialize)]
-struct JsonRpcResponse<R> {
-    result: Option<R>,
-    error: Option<JsonRpcError>,
-}
-
-#[derive(Deserialize)]
-struct JsonRpcError {
-    message: String,
-}
-
-async fn rpc_call<P: Serialize, R: for<'de> Deserialize<'de>>(
-    client: &Client,
+/// Call `M` on the node at `url`. `what` names, in the person's words,
+/// what the call was for; a refusal or failure is said in terms of it.
+pub(crate) async fn call<M: RpcMethod>(
     url: &str,
-    method: &'static str,
-    params: P,
-) -> Result<R, String> {
-    let body = JsonRpcRequest {
-        jsonrpc: "2.0",
-        id: "0",
-        method,
-        params,
+    request: M::Request,
+    what: &str,
+) -> Result<M::Reply, String>
+where
+    M::Request: Send,
+{
+    call_within::<M>(url, request, what, CALL_TIMEOUT).await
+}
+
+async fn call_within<M: RpcMethod>(
+    url: &str,
+    request: M::Request,
+    what: &str,
+    deadline: Duration,
+) -> Result<M::Reply, String>
+where
+    M::Request: Send,
+{
+    // One deadline for the whole exchange: with credentials in the URL,
+    // `HttpRpc::new` already talks to the node (its authentication
+    // challenge), and a node that stalls there must not hold the poll.
+    let exchange = async {
+        let rpc = HttpRpc::new(base(url).to_owned())
+            .await
+            .map_err(|e| format!("Could not reach the node for {what}: {e}"))?;
+        rpc.call::<M>(request).await.map_err(|e| said(&e, what))
     };
-
-    let resp = client
-        .post(url)
-        .json(&body)
-        .send()
+    tokio::time::timeout(deadline, exchange)
         .await
-        .map_err(|e| format!("Daemon connection failed: {e}"))?;
+        .unwrap_or_else(|_| Err(format!("The node did not answer in time for {what}.")))
+}
 
-    if !resp.status().is_success() {
-        return Err(format!("Daemon returned HTTP {}", resp.status()));
+/// A failed call in the person's words, read from the error's type: a
+/// refusal by its class (`RPC_WIRE.md` RW-Q3), never by its message.
+pub(crate) fn said(e: &RpcError, what: &str) -> String {
+    match e {
+        // The connection does not hold the method's grant (`RPC_CHANNEL.md`
+        // §6.1): the wallet's own node gives it the view grants only.
+        RpcError::Refused(refusal) if refusal.class == ErrorClass::OutsideTheGrant => {
+            format!("This node does not let this wallet see or change {what}.")
+        }
+        RpcError::Refused(refusal) => refusal.diagnostic.message.clone(),
+        RpcError::NoSuchMethod(_) => format!(
+            "This node runs a different version of the daemon than this wallet, so it cannot \
+             answer for {what}. Update the node or the wallet so they match."
+        ),
+        other => format!("Could not read {what} from the node: {other}"),
     }
-
-    let rpc: JsonRpcResponse<R> = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse daemon response: {e}"))?;
-
-    if let Some(err) = rpc.error {
-        return Err(format!("Daemon RPC error: {}", err.message));
-    }
-
-    rpc.result
-        .ok_or_else(|| "Daemon returned empty result".into())
-}
-
-// ─── get_info ────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct GetInfoResponse {
-    pub height: u64,
-    pub target_height: u64,
-    pub top_block_hash: String,
-    pub difficulty: u64,
-    pub tx_count: u64,
-    pub tx_pool_size: u64,
-    pub database_size: u64,
-    pub version: String,
-    #[serde(default)]
-    pub synchronized: bool,
-    pub already_generated_coins: Option<String>,
-    #[serde(default)]
-    pub release_multiplier: u64,
-    #[serde(default)]
-    pub burn_pct: u64,
-    #[serde(default)]
-    pub stake_ratio: u64,
-    #[serde(default)]
-    pub total_burned: u64,
-    #[serde(default)]
-    pub staker_pool_balance: u64,
-    #[serde(default)]
-    pub staker_emission_share_effective: u64,
-}
-
-pub async fn get_info(client: &Client, url: &str) -> Result<GetInfoResponse, String> {
-    rpc_call(client, url, "get_info", serde_json::json!({})).await
-}
-
-// ─── get_last_block_header ───────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct BlockHeader {
-    pub height: u64,
-    pub hash: String,
-    pub timestamp: u64,
-    pub reward: u64,
-    pub difficulty: u64,
-    pub block_size: u64,
-    #[serde(default)]
-    pub curve_tree_root: String,
-}
-
-#[derive(Deserialize)]
-struct BlockHeaderWrapper {
-    block_header: BlockHeader,
-}
-
-pub async fn get_last_block_header(client: &Client, url: &str) -> Result<BlockHeader, String> {
-    let wrapper: BlockHeaderWrapper =
-        rpc_call(client, url, "get_last_block_header", serde_json::json!({})).await?;
-    Ok(wrapper.block_header)
-}
-
-// ─── get_staking_info ────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct GetStakingInfoResponse {
-    pub height: u64,
-    #[serde(default)]
-    pub stake_ratio: u64,
-    #[serde(default)]
-    pub total_staked: u64,
-    #[serde(default)]
-    pub staker_pool_balance: u64,
-    #[serde(default)]
-    pub staker_emission_share: u64,
-    #[serde(default)]
-    pub tier_0_lock_blocks: u64,
-    #[serde(default)]
-    pub tier_1_lock_blocks: u64,
-    #[serde(default)]
-    pub tier_2_lock_blocks: u64,
-}
-
-pub async fn get_staking_info(
-    client: &Client,
-    url: &str,
-) -> Result<GetStakingInfoResponse, String> {
-    rpc_call(client, url, "get_staking_info", serde_json::json!({})).await
-}
-
-// ─── get_curve_tree_info ─────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CurveTreeInfo {
-    #[serde(default)]
-    pub root: String,
-    #[serde(default)]
-    pub depth: u8,
-    #[serde(default)]
-    pub leaf_count: u64,
-    #[serde(default)]
-    pub height: u64,
-}
-
-pub async fn get_curve_tree_info(client: &Client, url: &str) -> Result<CurveTreeInfo, String> {
-    rpc_call(client, url, "get_curve_tree_info", serde_json::json!({})).await
-}
-
-// ─── get_archival_shard_coverage (SL-D4 / SL-D7) ────────────────────────────
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ShardCoverageRow {
-    pub shard_id: u64,
-    pub bonded_count: u64,
-    pub served_count: u64,
-    pub freeze_height: u64,
-    pub join_scarcity_micro: u64,
-    pub expected_profit_atomic: u64,
-}
-
-/// 3.31 coverage fields are mandatory. A truncated `{}` must not deserialize
-/// as an honest-empty gallery (`frozen_count: 0`); that would hide a daemon
-/// that is not speaking the contract.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct GetArchivalShardCoverageResponse {
-    pub as_of_height: u64,
-    pub leaf_count: u64,
-    pub frozen_count: u64,
-    pub settled_epoch: u64,
-    pub budget_atomic: u64,
-    pub sigma_work_milli: u64,
-    pub profit_estimate_available: bool,
-    pub shards: Vec<ShardCoverageRow>,
-}
-
-pub async fn get_archival_shard_coverage(
-    client: &Client,
-    url: &str,
-) -> Result<GetArchivalShardCoverageResponse, String> {
-    rpc_call(
-        client,
-        url,
-        "get_archival_shard_coverage",
-        serde_json::json!({}),
-    )
-    .await
-}
-
-// ─── estimate_claim_reward ───────────────────────────────────────────────────
-
-#[allow(dead_code)]
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct EstimateClaimRewardResponse {
-    pub reward: u64,
-    pub tier: u8,
-    pub staked_amount: u64,
-}
-
-// ─── Plain HTTP JSON helpers (non-JSON-RPC endpoints) ────────────────────────
-
-async fn http_json_call<P: Serialize, R: for<'de> Deserialize<'de>>(
-    client: &Client,
-    base_url: &str,
-    path: &str,
-    params: P,
-) -> Result<R, String> {
-    let url = format!("{}{}", base_url, path);
-    let resp = client
-        .post(&url)
-        .json(&params)
-        .send()
-        .await
-        .map_err(|e| format!("Daemon connection failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("Daemon returned HTTP {}", resp.status()));
-    }
-
-    resp.json()
-        .await
-        .map_err(|e| format!("Failed to parse daemon response: {e}"))
-}
-
-// ─── mining_status ───────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct MiningStatusResponse {
-    #[serde(default)]
-    pub active: bool,
-    #[serde(default)]
-    pub speed: u64,
-    #[serde(default)]
-    pub threads_count: u32,
-    #[serde(default)]
-    pub address: String,
-    #[serde(default)]
-    pub pow_algorithm: String,
-    #[serde(default)]
-    pub is_background_mining_enabled: bool,
-    #[serde(default)]
-    pub block_target: u32,
-    #[serde(default)]
-    pub block_reward: u64,
-    #[serde(default)]
-    pub difficulty: u64,
-}
-
-pub async fn mining_status(
-    client: &Client,
-    base_url: &str,
-) -> Result<MiningStatusResponse, String> {
-    http_json_call(client, base_url, "/mining_status", serde_json::json!({})).await
-}
-
-// ─── start_mining ────────────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-struct DaemonStatusResponse {
-    status: String,
-}
-
-pub async fn start_mining(
-    client: &Client,
-    base_url: &str,
-    miner_address: &str,
-    threads_count: u32,
-    do_background_mining: bool,
-    ignore_battery: bool,
-) -> Result<(), String> {
-    let resp: DaemonStatusResponse = http_json_call(
-        client,
-        base_url,
-        "/start_mining",
-        serde_json::json!({
-            "miner_address": miner_address,
-            "threads_count": threads_count,
-            "do_background_mining": do_background_mining,
-            "ignore_battery": ignore_battery,
-        }),
-    )
-    .await?;
-
-    if resp.status == "OK" {
-        Ok(())
-    } else {
-        Err(format!("Daemon rejected start_mining: {}", resp.status))
-    }
-}
-
-// ─── stop_mining ─────────────────────────────────────────────────────────────
-
-pub async fn stop_mining(client: &Client, base_url: &str) -> Result<(), String> {
-    let resp: DaemonStatusResponse =
-        http_json_call(client, base_url, "/stop_mining", serde_json::json!({})).await?;
-
-    if resp.status == "OK" {
-        Ok(())
-    } else {
-        Err(format!("Daemon rejected stop_mining: {}", resp.status))
-    }
-}
-
-// ─── estimate_claim_reward ───────────────────────────────────────────────────
-
-#[allow(dead_code)]
-pub async fn estimate_claim_reward(
-    client: &Client,
-    url: &str,
-    staked_output_index: u64,
-    from_height: u64,
-    to_height: u64,
-) -> Result<EstimateClaimRewardResponse, String> {
-    rpc_call(
-        client,
-        url,
-        "estimate_claim_reward",
-        serde_json::json!({
-            "staked_output_index": staked_output_index,
-            "from_height": from_height,
-            "to_height": to_height,
-        }),
-    )
-    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shekyl_rpc_client::{Diagnostic, Refusal};
 
-    const COMPLETE_COVERAGE: &str = r#"{
-        "as_of_height": 50,
-        "leaf_count": 0,
-        "frozen_count": 0,
-        "settled_epoch": 0,
-        "budget_atomic": 0,
-        "sigma_work_milli": 0,
-        "profit_estimate_available": false,
-        "shards": []
-    }"#;
+    fn refused(class: ErrorClass, code: &str, message: &str) -> RpcError {
+        RpcError::Refused(Refusal::new(
+            class,
+            Diagnostic {
+                code: code.into(),
+                parameter: Default::default(),
+                message: message.into(),
+            },
+        ))
+    }
 
     #[test]
-    fn coverage_empty_object_is_a_fault() {
-        assert!(
-            serde_json::from_str::<GetArchivalShardCoverageResponse>("{}").is_err(),
-            "truncated JSON must not become frozen_count=0"
+    fn the_base_drops_json_rpc_and_slashes() {
+        assert_eq!(
+            base("http://127.0.0.1:12029/json_rpc"),
+            "http://127.0.0.1:12029"
+        );
+        assert_eq!(
+            base("http://127.0.0.1:12029/json_rpc/"),
+            "http://127.0.0.1:12029"
+        );
+        assert_eq!(base("http://127.0.0.1:12029/"), "http://127.0.0.1:12029");
+        assert_eq!(base("http://127.0.0.1:12029"), "http://127.0.0.1:12029");
+    }
+
+    #[test]
+    fn a_grant_refusal_is_read_by_its_class_not_its_message() {
+        let e = refused(
+            ErrorClass::OutsideTheGrant,
+            "grant.outside",
+            "anything at all",
+        );
+        assert_eq!(
+            said(&e, "mining"),
+            "This node does not let this wallet see or change mining."
         );
     }
 
     #[test]
-    fn coverage_complete_honest_empty_deserializes() {
-        let res: GetArchivalShardCoverageResponse =
-            serde_json::from_str(COMPLETE_COVERAGE).expect("complete 3.31 empty");
-        assert_eq!(res.frozen_count, 0);
-        assert!(res.shards.is_empty());
-        assert!(!res.profit_estimate_available);
+    fn another_refusal_carries_the_node_s_own_sentence() {
+        let e = refused(
+            ErrorClass::RefusedByMethod,
+            "mine.address.unset",
+            "the node has no mining address",
+        );
+        assert_eq!(said(&e, "mining"), "the node has no mining address");
+    }
+
+    /// With credentials in the URL the client's construction already talks
+    /// to the node; a node that accepts and then never answers is still
+    /// bounded by the call's deadline.
+    #[tokio::test]
+    async fn a_node_that_stalls_the_authentication_challenge_times_out() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let held = tokio::spawn(async move {
+            let mut open = Vec::new();
+            loop {
+                let (socket, _) = listener.accept().await.unwrap();
+                open.push(socket);
+            }
+        });
+        let url = format!("http://wallet:secret@127.0.0.1:{port}/json_rpc");
+        let started = std::time::Instant::now();
+        let err = call_within::<shekyl_rpc_client::wire::Version>(
+            &url,
+            shekyl_rpc_types::kinds::NoParams,
+            "the node's version",
+            Duration::from_millis(300),
+        )
+        .await
+        .expect_err("a silent node is not an answer");
+        held.abort();
+        assert_eq!(
+            err,
+            "The node did not answer in time for the node's version."
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_method_the_node_lacks_names_the_version_gap() {
+        let msg = said(
+            &RpcError::NoSuchMethod("daemon_status"),
+            "the node's status",
+        );
+        assert!(msg.contains("different version"), "{msg}");
+        assert!(!msg.contains("daemon_status"), "no protocol names: {msg}");
     }
 }

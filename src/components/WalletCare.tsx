@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { describeError } from "../lib/errors";
+import { blockNumberOfCount } from "../lib/format";
 
 interface RefreshOut {
   blocks_processed: number;
@@ -22,7 +23,11 @@ function scanSentence(
   label: string,
   result: { blocks_processed: number; transfers_detected: number; synced_height: number },
 ): string {
-  return `${label} finished: ${result.blocks_processed} blocks, ${result.transfers_detected} transfers, height ${result.synced_height}.`;
+  // `synced_height` is the contract's count (`LedgerBlock::synced_count`).
+  const block = blockNumberOfCount(result.synced_height);
+  const where =
+    block === null ? "nothing scanned yet" : `synced to block ${block.toLocaleString()}`;
+  return `${label} finished: ${result.blocks_processed} blocks, ${result.transfers_detected} transfers, ${where}.`;
 }
 
 /** Password change, and a manual refresh or rescan beside background sync. */

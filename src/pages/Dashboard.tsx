@@ -14,7 +14,7 @@ export default function Dashboard() {
 
       <BalanceCard />
 
-      {security && security.anonymity_set_size > 0 && (
+      {security?.anonymity_set_size != null && security.anonymity_set_size > 0 && (
         <button
           onClick={() => navigate("/settings")}
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300 transition-colors hover:bg-emerald-500/10"

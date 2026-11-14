@@ -96,7 +96,7 @@ export default function ShardCoverageGallery() {
       {selectedCount > 0 && (
         <p className="text-sm text-purple-200">
           {selectedCount} of {MAX_HOLDINGS_SHARDS} archives selected
-          {load.kind === "ready" && load.value.profit_estimate_available
+          {load.kind === "ready" && expectedProfitSumAtomic !== null
             ? ` · about ${formatSklCompact(expectedProfitSumAtomic)} SKL / epoch (hint, not a payout)`
             : ""}
         </p>
@@ -147,7 +147,6 @@ export default function ShardCoverageGallery() {
                 key={row.shard_id}
                 row={row}
                 selected={isSelected(row.shard_id)}
-                profitAvailable={load.value.profit_estimate_available}
                 onToggle={() => onToggle(row)}
               />
             ))}

@@ -25,8 +25,23 @@ describe("WalletCare", () => {
     expect(invoke).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Rebuild history" }));
     await user.click(screen.getByRole("button", { name: "Rebuild now" }));
-    expect(await screen.findByText(/Rescan finished/)).toBeInTheDocument();
+    // The contract's synced height is a count: 4 blocks end at block 3.
+    expect(
+      await screen.findByText(/Rescan finished: 1 blocks, 0 transfers, synced to block 3\./),
+    ).toBeInTheDocument();
     expect(vi.mocked(invoke).mock.calls.map(([cmd]) => cmd)).toEqual(["rescan_blockchain"]);
+  });
+
+  it("says a wallet with nothing scanned has no block", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      blocks_processed: 0,
+      transfers_detected: 0,
+      synced_height: 0,
+    });
+    const user = userEvent.setup();
+    render(<WalletCare />);
+    await user.click(screen.getByRole("button", { name: "Refresh now" }));
+    expect(await screen.findByText(/nothing scanned yet\./)).toBeInTheDocument();
   });
 
   it("asks for the new password twice and refuses a short one", async () => {

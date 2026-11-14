@@ -8,6 +8,9 @@ import {
 } from "lucide-react";
 
 import CollapsibleSection from "../components/CollapsibleSection";
+import { useDaemon } from "../context/useDaemon";
+import { coinbaseLockText } from "../lib/format";
+import { useChainConstants } from "../hooks/useChainConstants";
 import GlossaryList, { type GlossaryEntry } from "../components/help/GlossaryList";
 import { MultisigHelpSection } from "../components/multisig";
 
@@ -34,6 +37,12 @@ function Section({ icon, title, id, children, open, onToggle }: SectionProps) {
 }
 
 export default function Help() {
+  const { health } = useDaemon();
+  const constants = useChainConstants();
+  const lockWindow = coinbaseLockText(
+    constants?.coinbase_lock_window ?? null,
+    health?.block_spacing ?? null,
+  );
   const [open, setOpen] = useState<string | null>("getting-started");
 
   function toggle(id: string) {
@@ -69,9 +78,11 @@ export default function Help() {
             <h4 className="font-semibold text-white">Connecting to the Daemon</h4>
             <p>
               The wallet connects to a <code>shekyld</code> daemon to read
-              blockchain data. By default it looks for a local daemon at{" "}
-              <code>127.0.0.1:11029</code>. You can change this in{" "}
-              <strong>Settings &gt; Daemon Connection</strong>.
+              blockchain data. By default it starts the daemon it carries, on
+              this computer, on the network chosen in{" "}
+              <strong>Settings &gt; Network</strong>; switching network
+              restarts it on that network. You can point the wallet at another
+              daemon in <strong>Settings &gt; Daemon Connection</strong>.
             </p>
           </div>
           <div>
@@ -143,10 +154,18 @@ export default function Help() {
             <h4 className="font-semibold text-white">Block Rewards</h4>
             <p>
               When you mine a block, you receive the block reward plus
-              transaction fees. However, mined coins are{" "}
-              <strong>locked for 60 blocks</strong> (~2 hours) before they
-              become spendable. This lock period is a consensus rule that
-              prevents double-spending during chain reorganizations.
+              transaction fees. However, mined coins are locked
+              {lockWindow === null ? (
+                " for a fixed number of blocks "
+              ) : (
+                <>
+                  {" "}
+                  for <strong>{lockWindow}</strong>{" "}
+                </>
+              )}
+              before they become spendable. This lock period is a consensus
+              rule that prevents double-spending during chain
+              reorganizations.
             </p>
           </div>
           <div>
@@ -315,14 +334,19 @@ const GLOSSARY: GlossaryEntry[] = [
       "The smallest indivisible unit of SKL. 1 SKL = 1,000,000,000 atomic units (9 decimal places).",
   },
   {
-    term: "Block Height",
+    term: "Block count",
     definition:
-      "The sequential number of a block in the blockchain, starting from 0 (genesis).",
+      "How many blocks the chain holds: one more than the newest block's number, because numbering starts at 0.",
+  },
+  {
+    term: "Block number",
+    definition:
+      "A block's own number in the chain, counted from 0, the genesis block. The top of the wallet shows the newest block's number; a synced wallet shows the same number as its node.",
   },
   {
     term: "Difficulty",
     definition:
-      "A measure of how hard it is to mine a block. Adjusts automatically to maintain the 2-minute target block time.",
+      "A measure of how hard it is to mine a block. Adjusts automatically to keep blocks at the chain's target spacing.",
   },
   {
     term: "Emission Era",

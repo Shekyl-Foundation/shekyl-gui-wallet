@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -103,6 +103,46 @@ describe("Settings — daemon disclosure", () => {
     );
     expect(
       await screen.findByText(/is not a loopback address/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("Settings — network", () => {
+  it("switches by network alone and shows the URL the backend chose", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "daemon_connection_disclosures") {
+        return { url: "http://127.0.0.1:11029/json_rpc", warnings: [] };
+      }
+      if (cmd === "set_daemon_connection") {
+        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [] };
+      }
+      return null;
+    });
+    renderSettings();
+    fireEvent.click(await screen.findByRole("button", { name: "testnet" }));
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("http://127.0.0.1:12029/json_rpc")).toBeInTheDocument();
+    });
+    // No URL rides the switch: the port is core's, chosen by the backend.
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_daemon_connection", {
+      network: "testnet",
+    });
+  });
+
+  it("shows why a switch waits while a wallet is open", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "daemon_connection_disclosures") {
+        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [] };
+      }
+      if (cmd === "set_daemon_connection") {
+        throw "The open wallet is on testnet. Close it before switching to mainnet: a wallet belongs to one network.";
+      }
+      return null;
+    });
+    renderSettings();
+    fireEvent.click(await screen.findByRole("button", { name: "mainnet" }));
+    expect(
+      await screen.findByText(/Close it before switching to mainnet/),
     ).toBeInTheDocument();
   });
 });

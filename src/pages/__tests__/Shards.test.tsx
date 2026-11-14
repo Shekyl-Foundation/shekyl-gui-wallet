@@ -27,7 +27,6 @@ const SAMPLE_LIST: ShardCoverageList = {
   settled_epoch: 1,
   budget_atomic: "1",
   sigma_work_milli: 1,
-  profit_estimate_available: true,
   shards: [SAMPLE_ROW],
 };
 
@@ -63,6 +62,24 @@ describe("Shards", () => {
     await waitFor(() => {
       expect(screen.getByText(/No frozen archives yet/)).toBeInTheDocument();
     });
+  });
+
+  it("reads each shard's estimate on its own: one null row hides no other", async () => {
+    const user = userEvent.setup();
+    mockCoverage({
+      ...SAMPLE_LIST,
+      frozen_count: 2,
+      shards: [SAMPLE_ROW, { ...SAMPLE_ROW, shard_id: 3, expected_profit_atomic: null }],
+    });
+    renderShards();
+    await waitFor(() => {
+      expect(screen.getByText("Archive #3")).toBeInTheDocument();
+    });
+    expect(screen.getByText("5.000000 SKL / epoch")).toBeInTheDocument();
+    expect(screen.getByText("profit estimate unavailable")).toBeInTheDocument();
+    // Selecting only the estimated shard totals it.
+    await user.click(screen.getByRole("button", { name: /Archive #2/i }));
+    expect(screen.getByText(/about 5\.000000 SKL \/ epoch/)).toBeInTheDocument();
   });
 
   it("lists profit, not regime or tier fields, and does not fetch PNGs on mount", async () => {

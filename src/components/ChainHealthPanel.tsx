@@ -6,9 +6,10 @@ import {
   formatMultiplier,
   formatHashRate,
   emissionProgress,
+  BLOCK_NUMBER_TIP,
 } from "../lib/format";
 import EmissionGauge from "./EmissionGauge";
-import { Activity, Flame, TrendingUp, Layers, Coins, Info, ShieldCheck } from "lucide-react";
+import { Activity, Flame, Layers, Info, ShieldCheck } from "lucide-react";
 
 interface Props {
   compact?: boolean;
@@ -41,9 +42,11 @@ export default function ChainHealthPanel({ compact = false }: Props) {
     );
   }
 
-  const progress = emissionProgress(health.already_generated_coins);
-  const stakeRatioPct = (health.stake_ratio / 1_000_000) * 100;
-  const emSharePct = (health.staker_emission_share_effective / 1_000_000) * 100;
+  const progress = emissionProgress(health.emission);
+  const emSharePct = (health.stake_share / 1_000_000) * 100;
+  // The network's hash rate, estimated from difficulty over block spacing.
+  const hashRate =
+    health.block_spacing > 0 ? Number(health.difficulty) / health.block_spacing : null;
 
   if (compact) {
     return (
@@ -59,27 +62,22 @@ export default function ChainHealthPanel({ compact = false }: Props) {
             </span>
           </h3>
         </div>
-        <div className="grid grid-cols-4 gap-3 text-center">
+        <div className="grid grid-cols-3 gap-3 text-center">
           <EmissionGauge
-            value={stakeRatioPct}
-            label="Stake Ratio"
-            display={formatPercent(health.stake_ratio)}
-          />
-          <EmissionGauge
-            value={health.release_multiplier / 1_000_000 * 50}
+            value={health.emission_multiplier / 1_000_000 * 50}
             max={100}
             label="Release Tempo"
-            display={formatMultiplier(health.release_multiplier)}
+            display={formatMultiplier(health.emission_multiplier)}
           />
           <EmissionGauge
-            value={(health.burn_pct / 1_000_000) * 100}
+            value={(health.burn / 1_000_000) * 100}
             label="Burn Rate"
-            display={formatPercent(health.burn_pct)}
+            display={formatPercent(health.burn)}
           />
           <EmissionGauge
             value={emSharePct}
             label="Emission Share"
-            display={formatPercent(health.staker_emission_share_effective)}
+            display={formatPercent(health.stake_share)}
           />
         </div>
       </div>
@@ -112,52 +110,39 @@ export default function ChainHealthPanel({ compact = false }: Props) {
 
       {/* Gauges */}
       <div className="card">
-        <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+        <div className="grid grid-cols-3 gap-6">
           <EmissionGauge
-            value={stakeRatioPct}
-            label="Stake Ratio"
-            display={formatPercent(health.stake_ratio)}
-          />
-          <EmissionGauge
-            value={health.release_multiplier / 1_000_000 * 50}
+            value={health.emission_multiplier / 1_000_000 * 50}
             max={100}
             label="Release Tempo"
-            display={formatMultiplier(health.release_multiplier)}
+            display={formatMultiplier(health.emission_multiplier)}
           />
           <EmissionGauge
-            value={(health.burn_pct / 1_000_000) * 100}
+            value={(health.burn / 1_000_000) * 100}
             label="Burn Rate"
-            display={formatPercent(health.burn_pct)}
+            display={formatPercent(health.burn)}
           />
           <EmissionGauge
             value={emSharePct}
             label="Staker Emission Share"
-            display={formatPercent(health.staker_emission_share_effective)}
+            display={formatPercent(health.stake_share)}
           />
         </div>
       </div>
 
       {/* Counters */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4">
         <div className="card text-center">
           <Flame className="mx-auto mb-1 h-4 w-4 text-red-400" />
           <p className="text-[10px] text-purple-300">Total Burned</p>
-          <p className="text-sm font-bold text-white">{formatSklCompact(health.total_burned)} SKL</p>
-        </div>
-        <div className="card text-center">
-          <Coins className="mx-auto mb-1 h-4 w-4 text-gold-400" />
-          <p className="text-[10px] text-purple-300">Staker Pool</p>
-          <p className="text-sm font-bold text-white">{formatSklCompact(health.staker_pool_balance)} SKL</p>
-        </div>
-        <div className="card text-center">
-          <TrendingUp className="mx-auto mb-1 h-4 w-4 text-emerald-400" />
-          <p className="text-[10px] text-purple-300">Total Staked</p>
-          <p className="text-sm font-bold text-white">{formatSklCompact(health.total_staked)} SKL</p>
+          <p className="text-sm font-bold text-white">{formatSklCompact(health.burn_total)} SKL</p>
         </div>
         <div className="card text-center">
           <ShieldCheck className="mx-auto mb-1 h-4 w-4 text-emerald-400" />
           <p className="text-[10px] text-purple-300">Anonymity Set</p>
-          <p className="text-sm font-bold text-white">{(health.curve_tree_leaf_count ?? 0).toLocaleString()} outputs</p>
+          <p className="text-sm font-bold text-white">
+            {health.curve_tree ? `${health.curve_tree.leaf_count.toLocaleString()} outputs` : "—"}
+          </p>
         </div>
       </div>
 
@@ -169,41 +154,43 @@ export default function ChainHealthPanel({ compact = false }: Props) {
         </div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
           <div className="flex justify-between">
-            <span className="text-purple-300">Block height</span>
+            <span className="text-purple-300" title={BLOCK_NUMBER_TIP}>
+              Block number
+            </span>
             <span className="font-mono text-white">{health.height.toLocaleString()}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-purple-300">Hash rate</span>
-            <span className="font-mono text-white">{formatHashRate(health.difficulty)}</span>
+            <span className="font-mono text-white">
+              {hashRate === null ? "—" : formatHashRate(hashRate)}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-purple-300">Last reward</span>
-            <span className="font-mono text-white">{formatSkl(health.last_block_reward)} SKL</span>
+            <span className="font-mono text-white">
+              {health.last_block ? `${formatSkl(health.last_block.reward)} SKL` : "—"}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-purple-300">Tx pool</span>
-            <span className="font-mono text-white">{health.tx_pool_size}</span>
+            <span className="font-mono text-white">{health.txpool_count ?? "—"}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-purple-300">Release tempo</span>
             <span className="font-mono text-white">
-              {formatMultiplier(health.release_multiplier)} — {tempoLabel(health.release_multiplier)}
+              {formatMultiplier(health.emission_multiplier)} — {tempoLabel(health.emission_multiplier)}
             </span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-purple-300">Node version</span>
-            <span className="font-mono text-white">{health.version}</span>
-          </div>
-          {(health.curve_tree_depth ?? 0) > 0 && (
+          {health.curve_tree && (
             <>
               <div className="flex justify-between">
-                <span className="text-purple-300">Curve tree depth</span>
-                <span className="font-mono text-white">{health.curve_tree_depth}</span>
+                <span className="text-purple-300">Curve tree layers</span>
+                <span className="font-mono text-white">{health.curve_tree.layers}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-purple-300">Tree root</span>
                 <span className="font-mono text-white">
-                  {health.curve_tree_root?.slice(0, 8)}...
+                  {health.curve_tree.root.slice(0, 8)}...
                 </span>
               </div>
             </>
