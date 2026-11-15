@@ -5656,6 +5656,8 @@ dependencies = [
  "hyper",
  "hyper-util",
  "rand_core 0.6.4",
+ "redb",
+ "rustix",
  "serde",
  "serde_json",
  "shekyl-archival-retention",
@@ -5672,10 +5674,14 @@ dependencies = [
  "shekyl-hasher",
  "shekyl-mempool",
  "shekyl-network",
+ "shekyl-noise",
  "shekyl-options",
  "shekyl-peerlist",
  "shekyl-pow-randomx",
+ "shekyl-rpc-channel",
+ "shekyl-rpc-grants",
  "shekyl-rpc-rendezvous",
+ "shekyl-rpc-stream",
  "shekyl-rpc-transport",
  "shekyl-rpc-types",
  "shekyl-runtime",
@@ -5688,6 +5694,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]
@@ -5829,6 +5836,7 @@ dependencies = [
  "shekyl-consensus",
  "shekyl-crypto-pq",
  "shekyl-curve-primitives",
+ "shekyl-curve-tree",
  "shekyl-types",
  "shekyl-units",
  "thiserror 2.0.21",
@@ -6116,6 +6124,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-rpc-channel"
+version = "3.1.0"
+dependencies = [
+ "blake2",
+ "fips203",
+ "rand_core 0.6.4",
+ "shekyl-crypto-hash",
+ "shekyl-noise",
+ "shekyl-rpc-grants",
+ "subtle",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "shekyl-rpc-client"
 version = "0.1.0"
 dependencies = [
@@ -6125,7 +6148,6 @@ dependencies = [
  "shekyl-economics",
  "shekyl-rpc-types",
  "shekyl-types",
- "shekyl-units",
  "std-shims",
  "thiserror 2.0.21",
  "zeroize",
@@ -6140,6 +6162,15 @@ name = "shekyl-rpc-rendezvous"
 version = "3.1.0"
 dependencies = [
  "shekyl-crypto-hash",
+]
+
+[[package]]
+name = "shekyl-rpc-stream"
+version = "3.1.0"
+dependencies = [
+ "shekyl-noise",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]

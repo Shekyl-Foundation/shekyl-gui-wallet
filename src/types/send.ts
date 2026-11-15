@@ -12,14 +12,17 @@ export type AtomicUnitsString = string;
 
 /** `get_default_fee_priority`: tier quotes for the canonical 2-in/2-out shape. */
 export interface FeeTierQuote {
-  default_priority: "STANDARD";
-  economy_fee: AtomicUnitsString;
-  standard_fee: AtomicUnitsString;
-  priority_fee: AtomicUnitsString;
+  economy: AtomicUnitsString;
+  standard: AtomicUnitsString;
+  high: AtomicUnitsString;
   tree_depth: number;
 }
 
-export type FeePriorityTier = "ECONOMY" | "STANDARD" | "PRIORITY";
+/** The fee tiers, lowercase, one spelling each (IG-Q52). */
+export type FeePriorityTier = "economy" | "standard" | "high";
+
+/** The tier a send uses when the user picks none. */
+export const DEFAULT_TIER: FeePriorityTier = "standard";
 
 /** `build_pending_tx`: the reservation the user is asked to confirm. */
 export interface BuiltPendingTx {

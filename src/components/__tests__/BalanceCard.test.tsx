@@ -5,15 +5,18 @@ import BalanceCard from "../BalanceCard";
 import type { Balance } from "../../types/daemon";
 
 const FULL: Balance = {
-  liquid: "5250000000",
-  unlocked: "5000000000",
-  pending: "250000000",
+  balance: "5250000000",
+  spendable: "5000000000",
+  incoming: "200000000",
+  incoming_wait: 4,
+  parked: "50000000",
+  outgoing: "0",
   unspendable: "0",
   staked: "1500000000",
   claimable_rewards: "9007199254740993",
 };
 
-const DASHES = 5;
+const DASHES = 6; // the headline, three legs, two staking figures
 
 function mockBalance(...reads: Array<Balance | Error | "hang">) {
   vi.mocked(invoke).mockImplementation((cmd: string) => {
@@ -32,12 +35,15 @@ describe("BalanceCard", () => {
   it("renders the contract's figures as SKL, exactly, each under its own label", async () => {
     mockBalance(FULL);
     render(<BalanceCard />);
-    expect(await screen.findByText("5.250000 SKL")).toBeInTheDocument(); // liquid headline
-    expect(screen.getByText("5.000000 SKL")).toBeInTheDocument(); // unlocked = Available
-    expect(screen.getByText("0.250000 SKL")).toBeInTheDocument();
+    expect(await screen.findByText("5.250000 SKL")).toBeInTheDocument(); // the balance headline
+    expect(screen.getByText("5.000000 SKL")).toBeInTheDocument(); // spendable
+    expect(screen.getByText("0.200000 SKL")).toBeInTheDocument(); // incoming
+    expect(screen.getByTestId("incoming-wait")).toHaveTextContent("first spendable in 4 blocks");
+    expect(screen.getByText("0.050000 SKL")).toBeInTheDocument(); // parked
     expect(screen.getByText("1.500000 SKL")).toBeInTheDocument();
     expect(screen.getByText("9007199.254740 SKL")).toBeInTheDocument();
     expect(screen.queryByTestId("unspendable")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("outgoing")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -47,13 +53,20 @@ describe("BalanceCard", () => {
     expect(await screen.findByTestId("unspendable")).toHaveTextContent("Unspendable: 0.000000007 SKL");
   });
 
+  it("shows sends in flight beside the balance, only when there are some", async () => {
+    mockBalance({ ...FULL, outgoing: "300000000" });
+    render(<BalanceCard />);
+    expect(await screen.findByTestId("outgoing")).toHaveTextContent("Outgoing: 0.300000 SKL");
+  });
+
   it("renders absent staking figures as unavailable, never as zero", async () => {
-    mockBalance({ liquid: "40", unlocked: "30", pending: "0", unspendable: "0" });
+    mockBalance({ balance: "40", spendable: "30", incoming: "10", parked: "0", outgoing: "0", unspendable: "0" });
     render(<BalanceCard />);
     await waitFor(() => {
       expect(screen.getAllByText("Unavailable")).toHaveLength(2);
     });
-    expect(screen.getAllByText("0.000000 SKL")).toHaveLength(3); // liquid, unlocked, pending: formatted, not "Unavailable"
+    expect(screen.getAllByText("0.000000 SKL")).toHaveLength(4); // balance and the three legs: formatted, not "Unavailable"
+    expect(screen.queryByTestId("incoming-wait")).not.toBeInTheDocument(); // absent, not 0
     expect(screen.getAllByTitle(/could not be read/i)).toHaveLength(2);
   });
 

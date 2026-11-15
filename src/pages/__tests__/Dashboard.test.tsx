@@ -35,7 +35,16 @@ describe("Dashboard", () => {
   it("renders the BalanceCard", () => {
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "get_balance") {
-        return { liquid: "0", unlocked: "0", pending: "0", unspendable: "0", staked: "0", claimable_rewards: "0" };
+        return {
+          balance: "0",
+          spendable: "0",
+          incoming: "0",
+          parked: "0",
+          outgoing: "0",
+          unspendable: "0",
+          staked: "0",
+          claimable_rewards: "0",
+        };
       }
       throw new Error(`unexpected: ${cmd}`);
     });

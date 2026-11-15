@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+- **The balance shows its legs, and the fee tiers have one spelling.**
+  shekyl-core's wallet PR 2 (A17, A18) makes the balance
+  `spendable + incoming + parked`, each leg once, with the wait until
+  incoming money is spendable and the sends in flight beside it; the
+  card's headline is the balance, and "Available" and "Pending" are gone
+  with the fields they read (`liquid`, `unlocked`, `pending`). The fee
+  tiers are `economy`, `standard` and `high`, lowercase, read through
+  core's one `FeePriority`; the third is "High", and the quote's fields
+  are `economy`, `standard` and `high`.
 - **A send whose verdict could not be saved says so.** shekyl-core now
   saves a send before its bytes leave and saves the node's verdict before
   the submit returns (A19). When that second save fails the send still

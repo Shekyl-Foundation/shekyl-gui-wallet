@@ -23,10 +23,10 @@ function figure(atomic: string | undefined, read: BalanceRead, precision: 6 | 9 
 }
 
 /**
- * The contract's `get_balance` at a glance. The headline is `liquid`; the
- * grid binds "Available" to `unlocked`, the spendable-now figure, so the two
- * stay honest if the engine ever splits them. A failed read is shown with a
- * retry, not swallowed into zeros.
+ * The contract's `get_balance` at a glance. The headline is `balance`
+ * (spendable + incoming + parked); the grid shows each leg once, with the
+ * staking figures beside them, and outgoing sends below. A failed read is
+ * shown with a retry, not swallowed into zeros.
  */
 export default function BalanceCard() {
   const [read, setRead] = useState<BalanceRead>({ kind: "loading" });
@@ -55,6 +55,7 @@ export default function BalanceCard() {
   const balance = read.kind === "ready" ? read.balance : undefined;
   const stakingRead = balance?.staked !== undefined;
   const unspendable = balance && atomicAmount(balance.unspendable) > 0n ? balance.unspendable : undefined;
+  const outgoing = balance && atomicAmount(balance.outgoing) > 0n ? balance.outgoing : undefined;
 
   return (
     <div className="card space-y-4">
@@ -62,22 +63,38 @@ export default function BalanceCard() {
         <img src="/assets/shekyl_symbol.svg" alt="SKL" className="h-8 w-8" />
         <div>
           <p className="text-xs text-purple-300">Balance</p>
-          <p className="text-2xl font-bold text-gold-400">{figure(balance?.liquid, read)}</p>
+          <p className="text-2xl font-bold text-gold-400">{figure(balance?.balance, read)}</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4 border-t border-purple-700/50 pt-4">
+      <div className="grid grid-cols-3 gap-4 border-t border-purple-700/50 pt-4">
         <div>
-          <p className="text-xs text-purple-300" title="Spendable right now.">
-            Available
+          <p className="text-xs text-purple-300" title="What a send can use now.">
+            Spendable
           </p>
-          <p className="text-sm font-semibold text-white">{figure(balance?.unlocked, read)}</p>
+          <p className="text-sm font-semibold text-white">{figure(balance?.spendable, read)}</p>
         </div>
         <div>
-          <p className="text-xs text-purple-300" title="Committed to a send that is awaiting confirmation.">
-            Pending
+          <p
+            className="text-xs text-purple-300"
+            title="Received and not spendable yet, and the change of your sends in flight."
+          >
+            Incoming
           </p>
-          <p className="text-sm font-semibold text-white">{figure(balance?.pending, read)}</p>
+          <p className="text-sm font-semibold text-white">{figure(balance?.incoming, read)}</p>
+          {balance?.incoming_wait !== undefined && (
+            <p className="text-[11px] text-purple-300" data-testid="incoming-wait">
+              {balance.incoming_wait === 1
+                ? "first spendable in 1 block"
+                : `first spendable in ${balance.incoming_wait} blocks`}
+            </p>
+          )}
+        </div>
+        <div>
+          <p className="text-xs text-purple-300" title="Outputs you parked: kept in your balance, never spent.">
+            Parked
+          </p>
+          <p className="text-sm font-semibold text-white">{figure(balance?.parked, read)}</p>
         </div>
         <div>
           <p
@@ -102,6 +119,16 @@ export default function BalanceCard() {
           <p className="text-sm font-semibold text-white">{figure(balance?.claimable_rewards, read)}</p>
         </div>
       </div>
+
+      {outgoing && (
+        <p
+          className="text-[11px] text-purple-300"
+          title="Sends on their way, with their fees. Not in your balance."
+          data-testid="outgoing"
+        >
+          Outgoing: {figure(outgoing, read)}
+        </p>
+      )}
 
       {unspendable && (
         <p
