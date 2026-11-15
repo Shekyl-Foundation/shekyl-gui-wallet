@@ -5641,7 +5641,7 @@ dependencies = [
  "shekyl-logging",
  "shekyl-network",
  "shekyl-options",
- "shekyl-rpc-channel",
+ "shekyl-rpc-rendezvous",
  "shekyl-win-sec",
  "toml 0.8.2",
 ]
@@ -5669,12 +5669,13 @@ dependencies = [
  "shekyl-difficulty",
  "shekyl-economics",
  "shekyl-fcmp",
- "shekyl-hash-budget",
+ "shekyl-hasher",
  "shekyl-mempool",
  "shekyl-network",
  "shekyl-options",
  "shekyl-peerlist",
  "shekyl-pow-randomx",
+ "shekyl-rpc-rendezvous",
  "shekyl-rpc-transport",
  "shekyl-rpc-types",
  "shekyl-runtime",
@@ -5887,6 +5888,16 @@ name = "shekyl-hash-budget"
 version = "3.1.0"
 
 [[package]]
+name = "shekyl-hasher"
+version = "3.1.0"
+dependencies = [
+ "shekyl-hash-budget",
+ "shekyl-pow-randomx",
+ "shekyl-thread-ledger",
+ "tokio",
+]
+
+[[package]]
 name = "shekyl-heap-secret"
 version = "3.1.0"
 dependencies = [
@@ -5928,6 +5939,7 @@ version = "3.1.0"
 dependencies = [
  "serde",
  "shekyl-crypto-hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -5979,6 +5991,14 @@ dependencies = [
  "strsim",
  "toml 0.8.2",
  "zeroize",
+]
+
+[[package]]
+name = "shekyl-os-account"
+version = "3.1.0"
+dependencies = [
+ "libc",
+ "shekyl-win-sec",
 ]
 
 [[package]]
@@ -6096,20 +6116,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shekyl-rpc-channel"
-version = "3.1.0"
-dependencies = [
- "blake2",
- "fips203",
- "rand_core 0.6.4",
- "shekyl-crypto-hash",
- "shekyl-noise",
- "subtle",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
 name = "shekyl-rpc-client"
 version = "0.1.0"
 dependencies = [
@@ -6130,6 +6136,13 @@ name = "shekyl-rpc-grants"
 version = "3.1.0"
 
 [[package]]
+name = "shekyl-rpc-rendezvous"
+version = "3.1.0"
+dependencies = [
+ "shekyl-crypto-hash",
+]
+
+[[package]]
 name = "shekyl-rpc-transport"
 version = "0.1.0"
 dependencies = [
@@ -6141,9 +6154,13 @@ dependencies = [
  "hyper-util",
  "serde",
  "serde_json",
+ "shekyl-network",
+ "shekyl-os-account",
  "shekyl-rpc-client",
+ "shekyl-rpc-rendezvous",
  "shekyl-rpc-types",
  "shekyl-socks",
+ "shekyl-win-sec",
  "tokio",
  "tower-service",
  "zeroize",
@@ -6221,6 +6238,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "shekyl-spawn"
+version = "3.1.0"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "shekyl-standoff"
 version = "3.1.0"
 
@@ -6266,6 +6291,7 @@ dependencies = [
  "sha2",
  "shekyl-onion-key",
  "shekyl-onion-v3",
+ "shekyl-spawn",
  "shekyl-timing-engine",
  "shekyl-tor-status",
  "shekyl-win-sec",
