@@ -5,18 +5,17 @@ import BalanceCard from "../BalanceCard";
 import type { Balance } from "../../types/daemon";
 
 const FULL: Balance = {
-  balance: "5250000000",
+  balance: "5200000000",
   spendable: "5000000000",
   incoming: "200000000",
   incoming_wait: 4,
-  parked: "50000000",
   outgoing: "0",
   unspendable: "0",
   staked: "1500000000",
   claimable_rewards: "9007199254740993",
 };
 
-const DASHES = 6; // the headline, three legs, two staking figures
+const DASHES = 5; // the headline, two legs, two staking figures
 
 function mockBalance(...reads: Array<Balance | Error | "hang">) {
   vi.mocked(invoke).mockImplementation((cmd: string) => {
@@ -35,11 +34,11 @@ describe("BalanceCard", () => {
   it("renders the contract's figures as SKL, exactly, each under its own label", async () => {
     mockBalance(FULL);
     render(<BalanceCard />);
-    expect(await screen.findByText("5.250000 SKL")).toBeInTheDocument(); // the balance headline
+    expect(await screen.findByText("5.200000 SKL")).toBeInTheDocument(); // the balance headline
     expect(screen.getByText("5.000000 SKL")).toBeInTheDocument(); // spendable
     expect(screen.getByText("0.200000 SKL")).toBeInTheDocument(); // incoming
     expect(screen.getByTestId("incoming-wait")).toHaveTextContent("first spendable in 4 blocks");
-    expect(screen.getByText("0.050000 SKL")).toBeInTheDocument(); // parked
+    expect(screen.queryByText(/parked/i)).not.toBeInTheDocument();
     expect(screen.getByText("1.500000 SKL")).toBeInTheDocument();
     expect(screen.getByText("9007199.254740 SKL")).toBeInTheDocument();
     expect(screen.queryByTestId("unspendable")).not.toBeInTheDocument();
@@ -60,12 +59,12 @@ describe("BalanceCard", () => {
   });
 
   it("renders absent staking figures as unavailable, never as zero", async () => {
-    mockBalance({ balance: "40", spendable: "30", incoming: "10", parked: "0", outgoing: "0", unspendable: "0" });
+    mockBalance({ balance: "40", spendable: "30", incoming: "10", outgoing: "0", unspendable: "0" });
     render(<BalanceCard />);
     await waitFor(() => {
       expect(screen.getAllByText("Unavailable")).toHaveLength(2);
     });
-    expect(screen.getAllByText("0.000000 SKL")).toHaveLength(4); // balance and the three legs: formatted, not "Unavailable"
+    expect(screen.getAllByText("0.000000 SKL")).toHaveLength(3); // balance and the two legs: formatted, not "Unavailable"
     expect(screen.queryByTestId("incoming-wait")).not.toBeInTheDocument(); // absent, not 0
     expect(screen.getAllByTitle(/could not be read/i)).toHaveLength(2);
   });
@@ -85,7 +84,7 @@ describe("BalanceCard", () => {
     expect(screen.getAllByText("— SKL")).toHaveLength(DASHES);
 
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByText("5.250000 SKL")).toBeInTheDocument();
+    expect(await screen.findByText("5.200000 SKL")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(vi.mocked(invoke)).toHaveBeenCalledTimes(2);
   });

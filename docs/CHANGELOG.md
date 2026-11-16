@@ -4,7 +4,7 @@
 
 - **The balance shows its legs, and the fee tiers have one spelling.**
   shekyl-core's wallet PR 2 (A17, A18) makes the balance
-  `spendable + incoming + parked`, each leg once, with the wait until
+  `spendable + incoming`, each leg once, with the wait until
   incoming money is spendable and the sends in flight beside it; the
   card's headline is the balance, and "Available" and "Pending" are gone
   with the fields they read (`liquid`, `unlocked`, `pending`). The fee

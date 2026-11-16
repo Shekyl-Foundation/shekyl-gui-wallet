@@ -22,11 +22,11 @@ use shekyl_engine_core::BalanceView;
 use shekyl_units::AtomicUnitsString;
 
 /// The contract's `GetBalanceResult` (0.19.0): the balance and each leg
-/// once. `balance` = `spendable` + `incoming` + `parked`; `outgoing` and
+/// once. `balance` = `spendable` + `incoming`; `outgoing` and
 /// `unspendable` sit beside it, never in it.
 #[derive(Debug, Serialize)]
 pub struct Balance {
-    /// `spendable + incoming + parked`.
+    /// `spendable + incoming`.
     pub balance: AtomicUnitsString,
     /// What a send could use now.
     pub spendable: AtomicUnitsString,
@@ -36,8 +36,6 @@ pub struct Balance {
     /// absent, not 0, when none is on chain.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub incoming_wait: Option<u64>,
-    /// The user's parked outputs: in the balance, out of coin selection.
-    pub parked: AtomicUnitsString,
     /// Recipients plus fee of the in-flight sends. Beside the balance.
     pub outgoing: AtomicUnitsString,
     /// Received but never spendable by this wallet. Beside the balance.
@@ -60,7 +58,6 @@ impl From<BalanceView> for Balance {
             spendable: legs.spendable.into(),
             incoming: legs.incoming.into(),
             incoming_wait: legs.incoming_wait.map(|w| w.to_raw()),
-            parked: legs.parked.into(),
             outgoing: legs.outgoing.into(),
             unspendable: legs.unspendable.into(),
             staked: view.staking.map(|s| s.staked.into()),
@@ -82,7 +79,6 @@ mod tests {
                 spendable: AtomicUnits::from_raw(40),
                 incoming: AtomicUnits::from_raw(9),
                 incoming_wait: None,
-                parked: AtomicUnits::from_raw(2),
                 outgoing: AtomicUnits::from_raw(5),
                 unspendable: AtomicUnits::from_raw(7),
             },
@@ -100,7 +96,7 @@ mod tests {
         assert_eq!(
             present,
             serde_json::json!({
-                "balance": "51", "spendable": "40", "incoming": "9", "parked": "2",
+                "balance": "49", "spendable": "40", "incoming": "9",
                 "outgoing": "5", "unspendable": "7",
                 "staked": "9007199254740993", "claimable_rewards": "1234"
             })

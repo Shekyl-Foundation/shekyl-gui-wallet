@@ -24,7 +24,7 @@ function figure(atomic: string | undefined, read: BalanceRead, precision: 6 | 9 
 
 /**
  * The contract's `get_balance` at a glance. The headline is `balance`
- * (spendable + incoming + parked); the grid shows each leg once, with the
+ * (spendable + incoming); the grid shows each leg once, with the
  * staking figures beside them, and outgoing sends below. A failed read is
  * shown with a retry, not swallowed into zeros.
  */
@@ -89,12 +89,6 @@ export default function BalanceCard() {
                 : `first spendable in ${balance.incoming_wait} blocks`}
             </p>
           )}
-        </div>
-        <div>
-          <p className="text-xs text-purple-300" title="Outputs you parked: kept in your balance, never spent.">
-            Parked
-          </p>
-          <p className="text-sm font-semibold text-white">{figure(balance?.parked, read)}</p>
         </div>
         <div>
           <p

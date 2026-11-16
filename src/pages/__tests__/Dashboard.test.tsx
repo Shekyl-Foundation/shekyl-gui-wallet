@@ -39,7 +39,6 @@ describe("Dashboard", () => {
           balance: "0",
           spendable: "0",
           incoming: "0",
-          parked: "0",
           outgoing: "0",
           unspendable: "0",
           staked: "0",

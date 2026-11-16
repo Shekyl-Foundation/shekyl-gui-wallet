@@ -57,7 +57,7 @@ export interface WalletStatus {
  * projected once in engine-core for this wallet and wallet-rpc alike. Atomic
  * amounts are decimal strings; format with `formatSkl`.
  *
- * `balance` = `spendable` + `incoming` + `parked`, each leg once; `outgoing`
+ * `balance` = `spendable` + `incoming`, each leg once; `outgoing`
  * and `unspendable` sit beside the balance, never in it. `staked` and
  * `claimable_rewards` are **absent, never `"0"`,** when the wallet's staking
  * state could not be read: the ledger's legs stay authoritative while the
@@ -65,7 +65,7 @@ export interface WalletStatus {
  * "nothing staked".
  */
 export interface Balance {
-  /** spendable + incoming + parked. */
+  /** spendable + incoming. */
   balance: string;
   /** What a send could use now. */
   spendable: string;
@@ -73,8 +73,6 @@ export interface Balance {
   incoming: string;
   /** Blocks until the soonest on-chain incoming output is spendable; absent when none is on chain. */
   incoming_wait?: number;
-  /** Outputs the user parked: in the balance, out of coin selection. */
-  parked: string;
   /** Recipients plus fee of the sends in flight. Beside the balance. */
   outgoing: string;
   /** Received but never spendable by this wallet. Beside the balance. */
