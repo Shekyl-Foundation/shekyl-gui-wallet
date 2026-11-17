@@ -51,7 +51,8 @@ pub(crate) fn data_dir_for(root: &Path, network: NetworkType) -> PathBuf {
 /// What a launch names besides the network and the configuration.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct LaunchNames {
-    /// The bundled Tor (`--tor-file`).
+    /// The bundled Tor (`--tor-file`, where the Tor fix in force runs a
+    /// managed Tor).
     pub tor_file: Option<PathBuf>,
     /// The address the node's miner pays (`--mine-address`). The daemon
     /// reads it only at its start (shekyl-core `INPUT_GRAMMAR.md` IG-12),
@@ -96,10 +97,10 @@ pub(crate) fn sidecar_args(
         args.push("--data-dir".into());
         args.push(data_dir_for(Path::new(dir), network).into());
     }
-    if let Some(tor) = &names.tor_file {
-        args.push("--tor-file".into());
-        args.push(tor.into());
-    }
+    args.extend(crate::tor_fix::tor_args(
+        config.tor_fix.as_ref(),
+        names.tor_file.as_deref(),
+    ));
     if let Some(address) = &names.mine_address {
         args.push("--mine-address".into());
         args.push(address.into());
@@ -140,6 +141,10 @@ pub(crate) const KEEP_RUNNING_NOT_YET: &str =
 pub struct DaemonConfig {
     #[serde(default)]
     pub data_dir: Option<String>,
+    /// The Tor fix a person took; none is the node's own defaults with the
+    /// bundled Tor (`crate::tor_fix`).
+    #[serde(default)]
+    pub tor_fix: Option<crate::tor_fix::TorFix>,
 }
 
 impl DaemonConfig {
@@ -648,20 +653,32 @@ impl DaemonManager {
         if !pays_another {
             return Ok(());
         }
-        // Not the wallet's own node, or not ready: nothing of its is mining.
-        let Ok(leg) = self.own_target().await else {
+        let Some(threads) = self.running_miner().await? else {
             return Ok(());
+        };
+        self.mine_to(address).await?;
+        self.start_miner(threads).await
+    }
+
+    /// The threads of the wallet's own node's miner while it runs. `None`
+    /// when it does not, and when the wallet has no node of its own ready:
+    /// nothing of its is mining then.
+    async fn running_miner(&self) -> Result<Option<u64>, String> {
+        let Ok(leg) = self.own_target().await else {
+            return Ok(None);
         };
         let miner = tokio::task::spawn_blocking(move || leg.call::<MineStatus>(&NoParams))
             .await
             .map_err(|e| e.to_string())?
             .map_err(|e| format!("The node's miner could not be read: {e}"))?;
-        if !miner.active {
-            return Ok(());
-        }
-        self.mine_to(address).await?;
+        Ok(miner.active.then_some(miner.threads.0))
+    }
+
+    /// Start the miner of the node just started again, with the threads it
+    /// had before.
+    async fn start_miner(&self, threads: u64) -> Result<(), String> {
         let leg = self.own_target().await?;
-        let threads = Threads::Count(Count(miner.threads.0));
+        let threads = Threads::Count(Count(threads));
         tokio::task::spawn_blocking(move || {
             leg.call::<shekyl_rpc_client::wire::MineStart>(&MineStart { threads })
         })
@@ -669,6 +686,36 @@ impl DaemonManager {
         .map_err(|e| e.to_string())?
         .map(drop)
         .map_err(|e| format!("The miner did not start again: {e}"))
+    }
+
+    /// The node's settings changed (a Tor fix taken or put back): the
+    /// daemon reads them only at its start, so a node this wallet started
+    /// is stopped and started again with them, and a miner that was
+    /// running goes on. A node that had failed to start is started. A node
+    /// of this account the wallet found is left alone: it is not the
+    /// wallet's, and the settings are for the wallet's own.
+    pub async fn relaunch_for_settings(self: &Arc<Self>) -> Result<(), String> {
+        let miner = self.running_miner().await?;
+        {
+            let _lifecycle = self.lifecycle.lock().await;
+            {
+                let inner = self.inner.read().await;
+                match &inner.state {
+                    NodeState::Found => return Err(found_words(inner.network)),
+                    NodeState::Refused(words) | NodeState::Unavailable(words) => {
+                        return Err(words.clone())
+                    }
+                    _ => {}
+                }
+            }
+            self.stop_own_locked().await;
+            self.start_locked().await;
+            self.ready_or_words().await?;
+        }
+        match miner {
+            Some(threads) => self.start_miner(threads).await,
+            None => Ok(()),
+        }
     }
 
     /// Wait for the node just started to be ready, or say why it is not.

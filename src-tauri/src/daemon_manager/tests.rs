@@ -7,6 +7,7 @@ use shekyl_engine_core::Network;
 fn config(data_dir: Option<&str>) -> DaemonConfig {
     DaemonConfig {
         data_dir: data_dir.map(str::to_owned),
+        ..DaemonConfig::default()
     }
 }
 

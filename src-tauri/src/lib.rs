@@ -66,6 +66,7 @@ mod shard_visual;
 mod staking_actions;
 mod staking_view;
 mod state;
+mod tor_fix;
 mod tor_status;
 mod transfer_history;
 mod transfer_lookup;
@@ -200,6 +201,7 @@ pub fn run() {
             node_commands::start_node,
             node_commands::force_stop_node,
             node_commands::stop_waiting_for_node,
+            node_commands::set_tor_fix,
             tor_status::get_tor_status,
         ])
         .on_window_event(|window, event| {
