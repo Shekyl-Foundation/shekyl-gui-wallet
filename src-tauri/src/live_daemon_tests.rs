@@ -338,10 +338,8 @@ async fn process_goes(pid: u32, dir: &Path) {
 /// and `daemon_status` with its Status part shown, the Tor fields among
 /// them. Then the miner's address: the node is stopped and started again
 /// with it, the new start waiting only for the old node to be gone, and
-/// `mine_status` names it. Red edits: launch without `--owning-connection`
-/// (no ready line: the state never leaves `starting`); or run against a
-/// daemon that closes its owning end when its stop begins (the second start
-/// meets a locked data directory and fails).
+/// `mine_status` names it. Red edit: launch without `--owning-connection`
+/// (no ready line: the state never leaves `starting`).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the bundled shekyld sidecar"]
 async fn the_wallet_s_node_answers_on_its_owner_s_leg_and_relaunches_for_mining() {
@@ -498,6 +496,79 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
     let pid = dm.node_pid().await.expect("the node's pid");
     dm.shutdown().await;
     process_goes(pid, &dir).await;
+    drop(std::fs::remove_dir_all(&dir));
+}
+
+/// **A start that meets a held data directory fails in the node's own
+/// words, and those words carry the code the replacement waits on.** A node
+/// started by hand holds the wallet's data directory from another socket
+/// directory, so nothing answers at the wallet's "this computer" and the
+/// wallet launches. The launch is refused, the state is `failed` with the
+/// daemon's sentence, and the sentence carries `config.data-dir.locked`:
+/// the code `replace_found` reads to start again while a stopped node still
+/// holds the directory. The engine's way stays closed. Unix: Windows has
+/// one rendezvous an account, so a second node there is found, not missed.
+/// Red edit: change `DATA_DIR_LOCKED` by a letter.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs the bundled shekyld sidecar"]
+async fn a_held_data_directory_refuses_the_start_in_the_node_s_words() {
+    let dir = run_dir();
+    let port = free_port();
+    let (dm, gate) = manager(&dir, port);
+
+    // The same data directory, another socket directory and port.
+    let other = dir.join("other");
+    let names = LaunchNames {
+        socket_dir: Some(socket_dir(&other)),
+        ..LaunchNames::default()
+    };
+    let config = DaemonConfig {
+        data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+    };
+    let hand_port = free_port();
+    let mut args = sidecar_args(&config, NetworkType::Testnet, hand_port, &names);
+    args.extend(no_traffic(&other));
+    let mut command = Command::new(sidecar());
+    command
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut hand = shekyl_spawn::spawn_lock::with(|| command.spawn()).expect("the node starts");
+    let url = format!("http://127.0.0.1:{hand_port}/json_rpc");
+    let deadline = Instant::now() + SETTLES;
+    while daemon_rpc::call::<Version>(&url, NoParams, "the node's version")
+        .await
+        .is_err()
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the hand-started node: {}",
+            log_tail(&other)
+        );
+        tokio::time::sleep(POLL).await;
+    }
+
+    dm.start(NetworkType::Testnet).await;
+    state_becomes(&dm, &dir, "failed").await;
+    let words = dm.status().await.message.expect("the node's words");
+    assert!(
+        words.contains(crate::daemon_manager::DATA_DIR_LOCKED),
+        "the refusal carries its code: {words}"
+    );
+    assert!(
+        words.contains("another daemon is using the data directory"),
+        "{words}"
+    );
+    let state = crate::state::AppState {
+        node_gate: gate,
+        ..crate::state::AppState::new()
+    };
+    assert_eq!(state.engine_base().await.err(), Some(words));
+
+    drop(hand.kill());
+    drop(hand.wait());
     drop(std::fs::remove_dir_all(&dir));
 }
 

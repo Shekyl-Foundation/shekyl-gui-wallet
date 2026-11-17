@@ -388,6 +388,7 @@ mod tests {
         *state.wallet_dir.write().await = dir.0.clone();
         *state.network.write().await = NetworkType::Testnet;
         *state.daemon_url.write().await = "http://127.0.0.1:1/json_rpc".into();
+        *state.typed_node.write().await = true;
 
         let refused = open_wallet_in(&state, "alpha11".into(), password)
             .await

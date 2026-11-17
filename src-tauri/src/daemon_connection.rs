@@ -77,6 +77,7 @@ pub async fn set_daemon_connection(
         .ok_or("Invalid network: must be mainnet, testnet, or stagenet")?;
     crate::daemon_manager::may_switch(state.engine.lock().await.open_network(), net)?;
 
+    *state.typed_node.write().await = url.is_some();
     let new_url = url.unwrap_or_else(|| net.local_url());
 
     let warnings = daemon_disclosures(&new_url);

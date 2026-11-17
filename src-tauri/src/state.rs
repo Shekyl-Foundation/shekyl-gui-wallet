@@ -121,9 +121,10 @@ pub fn default_wallet_dir() -> PathBuf {
 }
 
 /// Why the wallet engine may not dial the node on this computer, when it may
-/// not: a node of this account that the wallet did not start answers there,
-/// or something failed the local address's check. The daemon manager writes
-/// it; the engine's URL reads it. Until the engine's calls move to the
+/// not. It may only while the node there is the one this wallet started:
+/// not before that node starts, not while a node of this account that the
+/// wallet did not start answers there, not after a failed check or a failed
+/// start. The daemon manager writes it; the engine's URL reads it. Until the engine's calls move to the
 /// owner's leg (shekyl-core `RPC_CHANNEL.md` RT-W10 step 5), the engine never
 /// uses a listener on a node the wallet did not launch (Rick, 2026-11-17).
 #[derive(Clone, Default)]
@@ -150,6 +151,9 @@ pub struct AppState {
     pub daemon_url: RwLock<String>,
     /// Closed while the node on this computer is not the wallet's own.
     pub node_gate: NodeGate,
+    /// Whether `daemon_url` is a node address a person typed. Otherwise it
+    /// is the node on this computer, the wallet's own.
+    pub typed_node: RwLock<bool>,
     pub network: RwLock<NetworkType>,
 
     // Wallet directory / open metadata
@@ -173,6 +177,7 @@ impl AppState {
         Self {
             daemon_url: RwLock::new(net.local_url()),
             node_gate: NodeGate::default(),
+            typed_node: RwLock::new(false),
             network: RwLock::new(net),
             wallet_dir: RwLock::new(resolved.dir),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
@@ -187,9 +192,11 @@ impl AppState {
     }
 
     /// Whether the wallet is pointed at the node on this computer, the
-    /// default, and not at a node address a person typed.
+    /// default, and not at a node address a person typed. An address a
+    /// person typed is theirs even when it names this computer: it is
+    /// called as any explicit node is, over HTTP, with what it grants.
     pub async fn targets_this_computer(&self) -> bool {
-        *self.daemon_url.read().await == self.network.read().await.local_url()
+        !*self.typed_node.read().await
     }
 
     /// The wallet engine's daemon base URL, without the `/json_rpc` suffix.

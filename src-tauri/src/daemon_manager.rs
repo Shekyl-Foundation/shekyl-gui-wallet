@@ -23,7 +23,13 @@ const FOUND_NODE_POLL: Duration = Duration::from_millis(500);
 
 /// The diagnostic a node refuses its start with while another process
 /// holds its data directory (shekyl-core `shekyl-options`, `DataDirLocked`).
-const DATA_DIR_LOCKED: &str = "config.data-dir.locked";
+pub(crate) const DATA_DIR_LOCKED: &str = "config.data-dir.locked";
+
+/// What is said of a node that went without a word of its own.
+const NODE_STOPPED: &str = "The wallet's node stopped.";
+
+/// What the engine's way to the node says before the node has started.
+const NODE_NOT_STARTED: &str = "The wallet's node has not started.";
 
 const TOR_FILE: &str = if cfg!(windows) { "tor.exe" } else { "tor" };
 const NODE_FILE: &str = if cfg!(windows) {
@@ -245,7 +251,8 @@ impl LaunchEnv {
         let program = tauri::utils::platform::current_exe()
             .ok()
             .and_then(|exe| exe.parent().map(|dir| dir.join(NODE_FILE)))
-            .filter(|node| node.is_file());
+            // A build with no node has none, or CI's empty placeholder.
+            .filter(|node| std::fs::metadata(node).is_ok_and(|m| m.is_file() && m.len() > 0));
         Self {
             program,
             tor_file: resource_dir.map(bundled_tor),
@@ -286,6 +293,7 @@ pub struct DaemonManager {
 impl DaemonManager {
     pub(crate) fn new(config_dir: PathBuf, env: LaunchEnv, gate: NodeGate) -> Arc<Self> {
         let config = DaemonConfig::load(&config_dir);
+        gate.set(Some(NODE_NOT_STARTED.to_owned()));
         Arc::new(Self {
             env,
             lifecycle: tokio::sync::Mutex::new(()),
@@ -321,9 +329,8 @@ impl DaemonManager {
         let inner = self.inner.read().await;
         match &inner.state {
             NodeState::Running => self.target(inner.network).map_err(|e| e.to_string()),
-            NodeState::Idle | NodeState::Starting => {
-                Err("The wallet's node is starting.".to_owned())
-            }
+            NodeState::Idle => Err(NODE_NOT_STARTED.to_owned()),
+            NodeState::Starting => Err("The wallet's node is starting.".to_owned()),
             NodeState::Stopping => Err("The node is stopping.".to_owned()),
             NodeState::Found => Err(found_words(inner.network)),
             NodeState::Refused(words)
@@ -334,10 +341,16 @@ impl DaemonManager {
 
     async fn set_state(&self, state: NodeState) {
         let mut inner = self.inner.write().await;
+        // The engine's way to the node on this computer is open only while
+        // the node there is the one this wallet started.
         self.gate.set(match &state {
+            NodeState::Starting | NodeState::Running => None,
+            NodeState::Idle => Some(NODE_NOT_STARTED.to_owned()),
+            NodeState::Stopping => Some("The node is stopping.".to_owned()),
             NodeState::Found => Some(found_words(inner.network)),
-            NodeState::Refused(words) => Some(words.clone()),
-            _ => None,
+            NodeState::Refused(words)
+            | NodeState::Failed(words)
+            | NodeState::Unavailable(words) => Some(words.clone()),
         });
         inner.state = state;
     }
@@ -488,9 +501,9 @@ impl DaemonManager {
                     if inner.launch == id {
                         inner.node = None;
                         if inner.state != NodeState::Stopping {
-                            let words =
-                                refusal.unwrap_or_else(|| "The wallet's node stopped.".to_owned());
+                            let words = refusal.unwrap_or_else(|| NODE_STOPPED.to_owned());
                             tracing::warn!("the wallet's node is gone: {words}");
+                            self.gate.set(Some(words.clone()));
                             inner.state = NodeState::Failed(words);
                         }
                     }
@@ -584,14 +597,23 @@ impl DaemonManager {
         if let Some(node) = node {
             let mut life = node.life();
             drop(life.wait_for(|l| !matches!(l, Life::Starting)).await);
-            if *life.borrow() == Life::Ready {
-                // The follower writes the same state; this does not wait
-                // for it.
-                let mut inner = self.inner.write().await;
-                if inner.state == NodeState::Starting {
-                    inner.state = NodeState::Running;
+            let now = life.borrow().clone();
+            match now {
+                Life::Ready => {
+                    // The follower writes the same state; this does not
+                    // wait for it.
+                    let mut inner = self.inner.write().await;
+                    if inner.state == NodeState::Starting {
+                        inner.state = NodeState::Running;
+                    }
+                    return Ok(());
                 }
-                return Ok(());
+                // The node's own words, from the read that ended: the
+                // follower may not have written the state yet.
+                Life::Gone { refusal } => {
+                    return Err(refusal.unwrap_or_else(|| NODE_STOPPED.to_owned()))
+                }
+                Life::Starting => {}
             }
         }
         let inner = self.inner.read().await;
@@ -877,5 +899,81 @@ mod tests {
         let config: DaemonConfig =
             serde_json::from_str(r#"{"keep_running_on_exit": true, "data_dir": "/d"}"#).unwrap();
         assert_eq!(config.data_dir.as_deref(), Some("/d"));
+    }
+
+    /// A test's own directory, removed when it goes.
+    #[cfg(unix)]
+    struct TestDir(PathBuf);
+
+    #[cfg(unix)]
+    impl TestDir {
+        fn new(what: &str) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = std::env::temp_dir().join(format!(
+                "shekyl-gui-{what}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(dir.join("s")).unwrap();
+            std::fs::set_permissions(dir.join("s"), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            Self(dir)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            drop(std::fs::remove_dir_all(&self.0));
+        }
+    }
+
+    /// The engine's way to the node on this computer is open only while the
+    /// node there is the wallet's own. Before the start it is closed; with
+    /// nothing at "this computer" and no node in the build, the wallet
+    /// starts nothing, says so, and the way stays closed, with the same
+    /// words. Red edit: close the gate only for `Found` and `Refused`, as it
+    /// first was; the engine could then dial whatever listens at the port.
+    /// Unix: the test names its own socket directory, which Windows refuses.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_engine_s_way_is_closed_unless_the_node_is_the_wallet_s_own() {
+        let dir = TestDir::new("gate");
+        let gate = NodeGate::default();
+        let env = LaunchEnv {
+            program: None,
+            tor_file: None,
+            socket_dir: Some(dir.0.join("s")),
+            rpc_port: None,
+            extra_args: Vec::new(),
+        };
+        let state = crate::state::AppState {
+            node_gate: gate.clone(),
+            ..crate::state::AppState::new()
+        };
+        assert!(state.engine_base().await.is_ok(), "no manager yet");
+        let dm = DaemonManager::new(dir.0.join("settings"), env, gate);
+        assert_eq!(
+            state.engine_base().await.err().as_deref(),
+            Some(NODE_NOT_STARTED),
+            "closed before the start"
+        );
+        assert_eq!(dm.status().await.state, "idle");
+
+        dm.start(NetworkType::Testnet).await;
+        let status = dm.status().await;
+        assert_eq!(status.state, "unavailable", "{status:?}");
+        let words = status.message.expect("why");
+        assert_eq!(state.engine_base().await.err(), Some(words.clone()));
+        assert_eq!(dm.own_target().await.err(), Some(words));
+        assert!(!status.can_force_stop);
+
+        // A node address a person typed is theirs: the gate is about the
+        // node on this computer alone.
+        *state.typed_node.write().await = true;
+        assert!(state.engine_base().await.is_ok());
     }
 }

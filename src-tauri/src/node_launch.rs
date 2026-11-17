@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use shekyl_spawn::inherit::stdio_only;
 use shekyl_spawn::owning::read_ready;
 use shekyl_spawn::pair::{keep_in_child, End, EndPair, WindowError};
 use tokio::sync::watch;
@@ -133,6 +134,11 @@ pub(crate) fn launch(launch: &Launch) -> Result<OwnNode, String> {
     let pair = EndPair::new().map_err(|e| format!("The node could not be started: {e}"))?;
     let (child, ours) = match EndPair::spawn(pair, |number| {
         command.arg("--owning-connection").arg(number.to_string());
+        // In this order: every descriptor above the standard streams is
+        // marked close-on-exec, then the node's end alone is kept. The
+        // wallet's process holds a webview's descriptors; the node gets
+        // none of them.
+        stdio_only(&mut command);
         keep_in_child(&mut command, number);
         command.spawn()
     }) {
@@ -148,10 +154,16 @@ pub(crate) fn launch(launch: &Launch) -> Result<OwnNode, String> {
             spawned: mut child,
             error,
         }) => {
-            // This process still holds the node's end, so the connection
-            // could never report the node's death. It cannot be held by it.
-            drop(child.kill());
-            drop(child.wait());
+            // This process's copy of the node's end did not close cleanly,
+            // so the connection could not be trusted to report the node's
+            // death, and the node is not held by it. This process's own end
+            // went with the failed window: the node reads end of stream and
+            // stops cleanly. It is reaped beside, not waited for here.
+            drop(
+                std::thread::Builder::new()
+                    .name("shekyld-reap".to_owned())
+                    .spawn(move || drop(child.wait())),
+            );
             return Err(format!("The node could not be started: {error}"));
         }
     };
