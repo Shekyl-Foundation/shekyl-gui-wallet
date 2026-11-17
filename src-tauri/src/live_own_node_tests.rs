@@ -319,9 +319,9 @@ async fn a_wallet_opened_while_the_miner_runs_moves_the_miner_to_it() {
 /// idle, nothing was killed (the lock is still held, and the found node's
 /// exit was its own clean stop), and nothing of the wallet's runs. Retry
 /// waits again, and starts the wallet's node once the lock is released.
-/// Red edit: in `launch_waiting_locked`, drop the `asked_to_stop_waiting`
-/// branch for a plain sleep (the wait never ends: the replacement never
-/// returns).
+/// Red edit: in `launch_waiting_locked`, sleep in place of
+/// `asked_to_stop_waiting` (the replacement does not return when the wait
+/// is ended).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the bundled shekyld sidecar"]
 async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
@@ -390,8 +390,9 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
     assert_eq!(dm.status().await.state, "waiting");
 
     dm.stop_waiting().await.expect("the wait is ended");
-    replacing
+    tokio::time::timeout(Duration::from_secs(30), replacing)
         .await
+        .expect("the replacement returns when the wait is ended")
         .unwrap()
         .expect("ending the wait is no failure");
     let status = dm.status().await;
