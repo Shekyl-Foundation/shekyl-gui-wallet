@@ -7,9 +7,10 @@
 //! (`docs/design/GUI_SYNC_LANE.md` GS-3). `#[ignore]`, and run with
 //! [`crate::live_daemon_tests`].
 //!
-//! No node here reaches a network: clearnet is off throughout, the build
-//! under test has no Tor beside its node, and the one operator's Tor named
-//! is a closed port on this computer.
+//! No node here reaches a network: clearnet is off throughout, the Tor the
+//! launch names is a file that does not exist (so the node never looks for
+//! one this computer may have), and the one operator's Tor named is a
+//! closed port on this computer.
 
 use std::ffi::OsString;
 use std::net::TcpListener;
@@ -35,6 +36,36 @@ fn clearnet_off(dir: &Path) -> Vec<OsString> {
     args
 }
 
+/// The Tor the wallet's launch names: a file that is not there. The node
+/// starts all the same and its managed Tor waits, with the install cause
+/// that offers the fixes; and each fix is taken from a launch line that
+/// carried `--tor-file`, as an installed wallet's does.
+fn no_tor(dir: &Path) -> std::path::PathBuf {
+    dir.join("no-tor-here").join("tor")
+}
+
+/// The node's Tor status once its managed Tor names the cause that offers
+/// fixes. The supervisor names it shortly after the node is ready.
+async fn tor_offering_fixes(dm: &DaemonManager, dir: &Path) -> TorStatus {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    loop {
+        let status = tor(dm).await;
+        if status
+            .tor
+            .as_ref()
+            .is_some_and(|managed| !managed.fix.is_empty())
+        {
+            return status;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no fix is offered: {status:?} in {}",
+            dir.display()
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+}
+
 /// The Tor status of the wallet's node, read on its owner's leg.
 async fn tor(dm: &DaemonManager) -> TorStatus {
     let leg = dm.own_target().await.expect("the wallet's node is ready");
@@ -56,7 +87,7 @@ fn closed_port() -> u16 {
 }
 
 /// **A fix is taken from the read, kept in the wallet's settings, passed
-/// on the launch line, and put back.** A node with no Tor beside it runs a
+/// on the launch line, and put back.** A node whose named Tor is not there runs a
 /// managed Tor that is missing: its read offers the fixes, `operator`
 /// among them. The person takes `operator`: the node is a new process
 /// whose Tor setting is `operator`, its read offers no fix, and the
@@ -70,16 +101,16 @@ fn closed_port() -> u16 {
 async fn a_tor_fix_is_taken_kept_and_put_back() {
     let dir = run_dir();
     let port = free_port();
-    let (dm, _gate) = manager_with(&dir, port, clearnet_off(&dir));
+    let (dm, _gate) = manager_with(&dir, port, clearnet_off(&dir), Some(no_tor(&dir)));
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
 
-    let before = tor(&dm).await;
+    let before = tor_offering_fixes(&dm, &dir).await;
     assert_eq!(before.posture.tor, TorSetting::Managed);
     let offered = before.tor.as_ref().expect("a managed Tor").fix.clone();
     assert!(
         offered.contains(&Fix::Operator) && offered.contains(&Fix::ClearnetOnly),
-        "a node with no Tor beside it offers the fixes: {before:?}"
+        "a node whose Tor is missing offers the fixes: {before:?}"
     );
     assert!(!before.own_tx_hides_address());
     let first = dm.node_pid().await.expect("the node's pid");
@@ -103,7 +134,7 @@ async fn a_tor_fix_is_taken_kept_and_put_back() {
     // A wallet started later launches with the fix it kept.
     dm.shutdown().await;
     process_goes(second, &dir).await;
-    let (dm, _gate) = manager_with(&dir, port, clearnet_off(&dir));
+    let (dm, _gate) = manager_with(&dir, port, clearnet_off(&dir), Some(no_tor(&dir)));
     assert_eq!(dm.config().await.tor_fix, Some(fix));
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
@@ -118,13 +149,13 @@ async fn a_tor_fix_is_taken_kept_and_put_back() {
         .await
         .expect_err("the node refuses that address");
     assert!(words.contains("tor-socks"), "the node's own words: {words}");
-    assert_eq!(dm.status().await.state, "failed");
+    state_becomes(&dm, &dir, "failed").await;
     assert_eq!(DaemonConfig::load(&settings).tor_fix, Some(refused));
 
     // The way back works with the node down.
     dm.set_tor_fix(None).await.expect("the bundled Tor again");
     assert_eq!(dm.status().await.state, "running");
-    let back = tor(&dm).await;
+    let back = tor_offering_fixes(&dm, &dir).await;
     assert_eq!(back.posture.tor, TorSetting::Managed);
     assert_eq!(DaemonConfig::load(&settings).tor_fix, None);
 

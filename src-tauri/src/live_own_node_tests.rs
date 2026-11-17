@@ -53,7 +53,7 @@ pub(crate) fn manager(
     dir: &Path,
     port: u16,
 ) -> (std::sync::Arc<DaemonManager>, crate::state::NodeGate) {
-    manager_with(dir, port, no_traffic(dir))
+    manager_with(dir, port, no_traffic(dir), None)
 }
 
 /// [`manager`], with the test's own further arguments for the node.
@@ -61,6 +61,7 @@ pub(crate) fn manager_with(
     dir: &Path,
     port: u16,
     extra_args: Vec<OsString>,
+    tor_file: Option<PathBuf>,
 ) -> (std::sync::Arc<DaemonManager>, crate::state::NodeGate) {
     let config_dir = dir.join("settings");
     // A second manager in the same directory reads what the first kept.
@@ -74,7 +75,7 @@ pub(crate) fn manager_with(
     }
     let env = LaunchEnv {
         program: Some(sidecar()),
-        tor_file: None,
+        tor_file,
         socket_dir: cfg!(unix).then(|| socket_dir(dir)),
         rpc_port: Some(port),
         extra_args,

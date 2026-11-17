@@ -20,7 +20,7 @@ use serde::Serialize;
 use shekyl_rpc_client::wire::daemon::DaemonStatus as Status;
 use shekyl_rpc_client::wire::DaemonStatus;
 use shekyl_rpc_types::kinds::NoParams;
-use shekyl_tor_status::{Carriage, Clearnet, Origination, TorSetting, TorStatus};
+use shekyl_tor_status::{Clearnet, Origination, TorSetting, TorStatus};
 use tauri::State;
 
 use crate::daemon_rpc;
@@ -65,16 +65,14 @@ fn sends(tor: &TorStatus) -> Sends {
         TorSetting::Managed | TorSetting::Operator | TorSetting::Off
     ) && matches!(tor.posture.clearnet, Clearnet::On | Clearnet::Off);
     let tor_on = matches!(tor.posture.tor, TorSetting::Managed | TorSetting::Operator);
-    let carriage_known = tor
-        .tor
-        .as_ref()
-        .is_none_or(|managed| !matches!(managed.carriage, Carriage::Unknown { .. }));
     match &tor.origination {
         Origination::Connecting | Origination::Rebuilding if settings_known => Sends::Held,
         // The relay's verdict still reads `address-hiding` and core says
         // the send is not hidden: the managed link carries nothing, and the
         // node holds, as core's line says.
-        Origination::AddressHiding if settings_known && tor_on && carriage_known => Sends::Held,
+        // A reply with any keyword this build does not know promises
+        // nothing here: the wallet reads no field of its own to tell.
+        Origination::AddressHiding if settings_known && tor_on && !tor.has_unknown() => Sends::Held,
         Origination::ClearnetOnly if settings_known => Sends::OpenNetwork,
         Origination::Offline if settings_known => Sends::Offline,
         _ => Sends::Unknown,
@@ -113,7 +111,14 @@ pub async fn get_tor_status(
     let status =
         daemon_rpc::node_call::<DaemonStatus>(&state, &node, NoParams, "the node's Tor state")
             .await?;
-    Ok(tor_read(&status))
+    let mut read = tor_read(&status);
+    // The fixes are acts on the node this wallet starts. A node address a
+    // person typed is someone's own to fix: its read is shown, and no fix
+    // of its is offered against the wallet's launch line.
+    if !state.targets_this_computer().await {
+        read.fixes.clear();
+    }
+    Ok(read)
 }
 
 /// The Tor read from a `daemon_status` reply. The data directory is not
