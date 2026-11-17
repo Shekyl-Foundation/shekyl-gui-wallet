@@ -97,7 +97,9 @@ pub async fn drain(
 #[tauri::command]
 pub async fn unstake(state: State<'_, AppState>) -> Result<SealedReceipt, ContractError> {
     let shared = open_engine(&state).await?;
-    let daemon = state.base_url().await;
+    // The node this GUI runs, at the address it reaches it on: the exit's
+    // record fetch takes the engine's local-posture transport there.
+    let daemon = shekyl_rpc_transport::DaemonTarget::address(state.base_url().await);
     let outcome = StakeFacade::unstake(shared, &daemon)
         .await
         .map_err(ContractError::from_engine)?;
