@@ -123,6 +123,14 @@ async fn start_on(network: NetworkType) -> Daemon {
 async fn launch(mut args: Vec<OsString>, dir: PathBuf, port: u16) -> Daemon {
     args.extend(["--clearnet", "off", "--tor", "off", "--log-file"].map(OsString::from));
     args.push(dir.join("shekyld.log").into());
+    // Its own socket directory (Unix), so two tests' nodes on one network
+    // never meet at the account's rendezvous, where the second would refuse
+    // its start. Windows refuses a socket directory: there these tests run
+    // one at a time.
+    if cfg!(unix) {
+        args.push("--rpc-socket-dir".into());
+        args.push(socket_dir(&dir).into());
+    }
     let mut command = Command::new(sidecar());
     command
         .args(&args)
