@@ -71,7 +71,10 @@ export interface Balance {
   spendable: string;
   /** Received and not yet spendable, plus in-flight sends' change. */
   incoming: string;
-  /** Blocks until the soonest on-chain incoming output is spendable; absent when none is on chain. */
+  /**
+   * Blocks until the soonest on-chain incoming output is spendable; absent
+   * when none is on chain. Shown as a time (`blocksAsTime`), never as blocks.
+   */
   incoming_wait?: number;
   /** Recipients plus fee of the sends in flight. Beside the balance. */
   outgoing: string;
@@ -236,4 +239,6 @@ export interface StakingOutcomeView {
 export interface ChainConstants {
   /** Blocks a mined reward waits before it can be spent. */
   coinbase_lock_window: number;
+  /** Target seconds between blocks: what a count of blocks is multiplied by to read as a time. */
+  block_spacing: number;
 }

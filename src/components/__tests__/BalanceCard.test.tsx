@@ -17,8 +17,12 @@ const FULL: Balance = {
 
 const DASHES = 5; // the headline, two legs, two staking figures
 
+/** Core's constants as `get_chain_constants` serves them: a 120-second block. */
+const CONSTANTS = { coinbase_lock_window: 60, block_spacing: 120 };
+
 function mockBalance(...reads: Array<Balance | Error | "hang">) {
   vi.mocked(invoke).mockImplementation((cmd: string) => {
+    if (cmd === "get_chain_constants") return Promise.resolve(CONSTANTS);
     if (cmd !== "get_balance") return Promise.reject(new Error(`unexpected: ${cmd}`));
     const read = reads.length > 1 ? reads.shift()! : reads[0];
     if (read === "hang") return new Promise(() => {});
@@ -37,13 +41,23 @@ describe("BalanceCard", () => {
     expect(await screen.findByText("5.200000 SKL")).toBeInTheDocument(); // the balance headline
     expect(screen.getByText("5.000000 SKL")).toBeInTheDocument(); // spendable
     expect(screen.getByText("0.200000 SKL")).toBeInTheDocument(); // incoming
-    expect(screen.getByTestId("incoming-wait")).toHaveTextContent("first spendable in 4 blocks");
+    expect(await screen.findByTestId("incoming-wait")).toHaveTextContent(
+      "first spendable in about 8 minutes",
+    ); // 4 blocks of 120 s, as a time
     expect(screen.queryByText(/parked/i)).not.toBeInTheDocument();
     expect(screen.getByText("1.500000 SKL")).toBeInTheDocument();
     expect(screen.getByText("9007199.254740 SKL")).toBeInTheDocument();
     expect(screen.queryByTestId("unspendable")).not.toBeInTheDocument();
     expect(screen.queryByTestId("outgoing")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows the incoming wait as a time, never as blocks", async () => {
+    mockBalance({ ...FULL, incoming_wait: 1 });
+    render(<BalanceCard />);
+    const wait = await screen.findByTestId("incoming-wait");
+    expect(wait).toHaveTextContent("first spendable in about 2 minutes");
+    expect(wait).not.toHaveTextContent(/block/i);
   });
 
   it("shows an unspendable total only when there is one, at dust precision", async () => {
@@ -86,6 +100,6 @@ describe("BalanceCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("5.200000 SKL")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "get_balance")).toHaveLength(2);
   });
 });

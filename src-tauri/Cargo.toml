@@ -39,6 +39,9 @@ shekyl-engine-file = { path = "../../shekyl-core/rust/shekyl-engine-file" }
 shekyl-engine-prefs = { path = "../../shekyl-core/rust/shekyl-engine-prefs" }
 shekyl-engine-state = { path = "../../shekyl-core/rust/shekyl-engine-state" }
 shekyl-consensus = { path = "../../shekyl-core/rust/shekyl-consensus" }
+# The target block time (`T_SECONDS`) a count of blocks is shown as a time
+# by. A leaf crate, already in the graph through core.
+shekyl-difficulty = { path = "../../shekyl-core/rust/shekyl-difficulty" }
 # The wallet contract's error vocabulary: the engine-error -> code + message
 # mapping the wallet RPC answers with, so the GUI says the same thing.
 shekyl-wallet-contract = { path = "../../shekyl-core/rust/shekyl-wallet-contract" }

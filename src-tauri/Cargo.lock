@@ -6433,6 +6433,7 @@ dependencies = [
  "shekyl-consensus",
  "shekyl-crypto-pq",
  "shekyl-daemon-rpc",
+ "shekyl-difficulty",
  "shekyl-engine-core",
  "shekyl-engine-file",
  "shekyl-engine-prefs",

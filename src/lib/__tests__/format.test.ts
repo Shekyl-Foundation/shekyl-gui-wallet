@@ -9,6 +9,7 @@ import {
   formatMultiplier,
   formatHashRate,
   blockNumberOfCount,
+  blocksAsTime,
   coinbaseLockText,
   formatDuration,
   emissionProgress,
@@ -109,6 +110,30 @@ describe("formatDuration", () => {
   it("formats months", () => {
     expect(formatDuration(24 * 90)).toBe("3 months");
   });
+
+  it("names one of a unit in the singular", () => {
+    expect(formatDuration(1)).toBe("1 hour");
+    expect(formatDuration(30)).toBe("1 day");
+    expect(formatDuration(24 * 40)).toBe("1 month");
+  });
+});
+
+describe("blocksAsTime", () => {
+  it("is the blocks times the spacing, in minutes under two hours", () => {
+    expect(blocksAsTime(4, 120)).toBe("8 minutes");
+    expect(blocksAsTime(59, 120)).toBe("118 minutes");
+  });
+
+  it("is hours, days or months above two hours", () => {
+    expect(blocksAsTime(60, 120)).toBe("2 hours");
+    expect(blocksAsTime(720, 120)).toBe("1 day");
+    expect(blocksAsTime(21_600, 120)).toBe("1 month");
+  });
+
+  it("names one minute in the singular, and never less", () => {
+    expect(blocksAsTime(1, 60)).toBe("1 minute");
+    expect(blocksAsTime(1, 10)).toBe("1 minute");
+  });
 });
 
 describe("emissionProgress", () => {
@@ -182,16 +207,16 @@ describe("blockNumberOfCount", () => {
 });
 
 describe("coinbaseLockText", () => {
-  it("reads the window and the spacing it is given", () => {
-    expect(coinbaseLockText(60, 120)).toBe("60 blocks (about 2 hours)");
-    expect(coinbaseLockText(10, 60)).toBe("10 blocks (about 10 minutes)");
+  it("reads the window and its time at the constants' spacing", () => {
+    expect(coinbaseLockText({ coinbase_lock_window: 60, block_spacing: 120 })).toBe(
+      "60 blocks (about 2 hours)",
+    );
+    expect(coinbaseLockText({ coinbase_lock_window: 10, block_spacing: 60 })).toBe(
+      "10 blocks (about 10 minutes)",
+    );
   });
 
-  it("names the window without a time while the node is unread", () => {
-    expect(coinbaseLockText(60, null)).toBe("60 blocks");
-  });
-
-  it("names nothing when the constant itself is unread", () => {
-    expect(coinbaseLockText(null, 120)).toBeNull();
+  it("names nothing while the constants are unread", () => {
+    expect(coinbaseLockText(null)).toBeNull();
   });
 });

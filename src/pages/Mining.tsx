@@ -18,10 +18,7 @@ import type { MiningStatus } from "../types/daemon";
 export default function Mining() {
   const { health } = useDaemon();
   const constants = useChainConstants();
-  const lockWindow = coinbaseLockText(
-    constants?.coinbase_lock_window ?? null,
-    health?.block_spacing ?? null,
-  );
+  const lockWindow = coinbaseLockText(constants);
   const [status, setStatus] = useState<MiningStatus | null>(null);
   const [threads, setThreads] = useState(2);
   const [loading, setLoading] = useState(false);

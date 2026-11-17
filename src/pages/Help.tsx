@@ -8,7 +8,6 @@ import {
 } from "lucide-react";
 
 import CollapsibleSection from "../components/CollapsibleSection";
-import { useDaemon } from "../context/useDaemon";
 import { coinbaseLockText } from "../lib/format";
 import { useChainConstants } from "../hooks/useChainConstants";
 import GlossaryList, { type GlossaryEntry } from "../components/help/GlossaryList";
@@ -37,12 +36,8 @@ function Section({ icon, title, id, children, open, onToggle }: SectionProps) {
 }
 
 export default function Help() {
-  const { health } = useDaemon();
   const constants = useChainConstants();
-  const lockWindow = coinbaseLockText(
-    constants?.coinbase_lock_window ?? null,
-    health?.block_spacing ?? null,
-  );
+  const lockWindow = coinbaseLockText(constants);
   const [open, setOpen] = useState<string | null>("getting-started");
 
   function toggle(id: string) {

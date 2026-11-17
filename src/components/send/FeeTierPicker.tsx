@@ -10,9 +10,9 @@ interface FeeTierPickerProps {
 }
 
 const TIERS: readonly { tier: FeePriorityTier; label: string; hint: string }[] = [
-  { tier: "economy", label: "Economy", hint: "cheapest; a few blocks" },
+  { tier: "economy", label: "Economy", hint: "cheapest; may take longer" },
   { tier: "standard", label: "Standard", hint: "balanced" },
-  { tier: "high", label: "High", hint: "next block" },
+  { tier: "high", label: "High", hint: "fastest" },
 ];
 
 function quoteFor(quote: FeeTierQuote, tier: FeePriorityTier): string {

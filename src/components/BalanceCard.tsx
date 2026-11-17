@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { describeError } from "../lib/errors";
-import { atomicAmount, formatSkl } from "../lib/format";
+import { atomicAmount, blocksAsTime, formatSkl } from "../lib/format";
+import { useChainConstants } from "../hooks/useChainConstants";
 import type { Balance } from "../types/daemon";
 
 /** Shown in place of a staking figure the engine could not read (absent on the wire). */
@@ -25,11 +26,13 @@ function figure(atomic: string | undefined, read: BalanceRead, precision: 6 | 9 
 /**
  * The contract's `get_balance` at a glance. The headline is `balance`
  * (spendable + incoming); the grid shows each leg once, with the
- * staking figures beside them, and outgoing sends below. A failed read is
- * shown with a retry, not swallowed into zeros.
+ * staking figures beside them, and outgoing sends below. The incoming wait
+ * is shown as a time, its blocks times core's block spacing (rule 81). A
+ * failed read is shown with a retry, not swallowed into zeros.
  */
 export default function BalanceCard() {
   const [read, setRead] = useState<BalanceRead>({ kind: "loading" });
+  const constants = useChainConstants();
   /** Monotonic generation so a late response cannot overwrite a retry. */
   const gen = useRef(0);
 
@@ -82,11 +85,9 @@ export default function BalanceCard() {
             Incoming
           </p>
           <p className="text-sm font-semibold text-white">{figure(balance?.incoming, read)}</p>
-          {balance?.incoming_wait !== undefined && (
+          {balance?.incoming_wait !== undefined && constants !== null && (
             <p className="text-[11px] text-purple-300" data-testid="incoming-wait">
-              {balance.incoming_wait === 1
-                ? "first spendable in 1 block"
-                : `first spendable in ${balance.incoming_wait} blocks`}
+              first spendable in about {blocksAsTime(balance.incoming_wait, constants.block_spacing)}
             </p>
           )}
         </div>

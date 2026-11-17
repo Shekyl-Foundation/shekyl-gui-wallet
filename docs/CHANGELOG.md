@@ -5,12 +5,14 @@
 - **The balance shows its legs, and the fee tiers have one spelling.**
   shekyl-core's wallet PR 2 (A17, A18) makes the balance
   `spendable + incoming`, each leg once, with the wait until
-  incoming money is spendable and the sends in flight beside it; the
+  incoming money is spendable, shown as a time ("about 8 minutes", the
+  blocks times core's block spacing), and the sends in flight beside it; the
   card's headline is the balance, and "Available" and "Pending" are gone
   with the fields they read (`liquid`, `unlocked`, `pending`). The fee
   tiers are `economy`, `standard` and `high`, lowercase, read through
   core's one `FeePriority`; the third is "High", and the quote's fields
-  are `economy`, `standard` and `high`.
+  are `economy`, `standard` and `high`. The tier hints say "may take
+  longer" and "fastest" rather than counting blocks.
 - **A send whose verdict could not be saved says so.** shekyl-core now
   saves a send before its bytes leave and saves the node's verdict before
   the submit returns (A19). When that second save fails the send still
@@ -51,8 +53,9 @@
   closed. Ports and network names come from core; the wallet keeps no table
   of them.
 - **The Mining page and Help take chain facts from core.** The coinbase lock
-  window is core's constant, named even when the node is down, and the time
-  is the node's block spacing; the
+  window is core's constant, named even when the node is down, and so is
+  its time: core's target block spacing (`get_chain_constants`), the same
+  figure the node reports; the
   page no longer says mined outputs join a "mix ring", since Shekyl has no
   rings.
 - **A group payment this wallet cannot spend says which check failed.**
