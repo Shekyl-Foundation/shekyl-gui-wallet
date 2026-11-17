@@ -105,13 +105,17 @@ pub struct SecurityStatus {
 // ─── Daemon-connected commands ───────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatus, String> {
+pub async fn get_wallet_status(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<WalletStatus, String> {
     let url = state.url().await;
     let network = state.network.read().await;
     let wallet_open = *state.wallet_open.read().await;
     let wallet_name = state.wallet_name.read().await.clone();
 
-    match daemon_rpc::call::<DaemonStatus>(&url, NoParams, "the node's status").await {
+    match daemon_rpc::node_call::<DaemonStatus>(&state, &node, NoParams, "the node's status").await
+    {
         Ok(status) => Ok(WalletStatus {
             connected: true,
             wallet_open,
@@ -395,11 +399,18 @@ pub async fn get_primary_address(state: State<'_, AppState>) -> Result<PrimaryAd
 }
 
 #[tauri::command]
-pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityStatus, String> {
-    let url = state.url().await;
-    let tree = daemon_rpc::call::<CurveShow>(&url, CurveSelect(Selector::Tip), "the curve tree")
-        .await
-        .ok();
+pub async fn get_security_status(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<SecurityStatus, String> {
+    let tree = daemon_rpc::node_call::<CurveShow>(
+        &state,
+        &node,
+        CurveSelect(Selector::Tip),
+        "the curve tree",
+    )
+    .await
+    .ok();
     let root_short = tree.as_ref().map(|t| {
         let root = t.root.to_string();
         root.chars().take(8).collect::<String>()
@@ -421,39 +432,6 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
         estimated_proof_size_kb: 4.5,
         paths_precomputed: wallet_refreshed,
     })
-}
-
-// ─── Daemon lifecycle commands ────────────────────────────────────────────────
-
-#[tauri::command]
-pub async fn daemon_status(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-) -> Result<crate::daemon_manager::DaemonStatus, String> {
-    Ok(dm.status().await)
-}
-
-#[tauri::command]
-pub async fn get_daemon_settings(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-) -> Result<crate::daemon_manager::DaemonConfig, String> {
-    Ok(dm.config().await)
-}
-
-#[tauri::command]
-pub async fn set_daemon_settings(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-    keep_running_on_exit: Option<bool>,
-    data_dir: Option<String>,
-) -> Result<crate::daemon_manager::DaemonConfig, String> {
-    let mut config = dm.config().await;
-    if let Some(v) = keep_running_on_exit {
-        config.keep_running_on_exit = v;
-    }
-    if let Some(v) = data_dir {
-        config.data_dir = if v.is_empty() { None } else { Some(v) };
-    }
-    dm.update_config(config.clone()).await?;
-    Ok(config)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

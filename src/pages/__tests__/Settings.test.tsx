@@ -146,3 +146,71 @@ describe("Settings — network", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("Settings — the wallet's node", () => {
+  const NOT_YET =
+    "Keeping the node running after the wallet closes is not yet implemented. " +
+    "The node this wallet starts stops when the wallet closes.";
+
+  /** Core's rendering, as the backend passes it through. */
+  const TOR_TEXT =
+    "Your transactions wait on this node until Tor can carry them. " +
+    "Peers are known; none has answered through Tor for 2 minutes.";
+
+  function mockNode(state: string) {
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === "daemon_connection_disclosures") {
+        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [] };
+      }
+      if (cmd === "get_daemon_settings") return { data_dir: null };
+      if (cmd === "daemon_status") {
+        return { state, message: null, network: "testnet", can_force_stop: state === "running" };
+      }
+      if (cmd === "set_daemon_settings") {
+        expect(args).toEqual({ keepRunningOnExit: true });
+        throw NOT_YET;
+      }
+      if (cmd === "get_tor_status") return { shown: true, text: TOR_TEXT };
+      return null;
+    });
+  }
+
+  it("says where the wallet's node stands, and on which network", async () => {
+    mockNode("running");
+    renderSettings();
+    expect(
+      await screen.findByText("The wallet’s node is running (testnet)"),
+    ).toBeInTheDocument();
+  });
+
+  it("says a found node is not the wallet's own", async () => {
+    mockNode("found");
+    renderSettings();
+    expect(
+      await screen.findByText(
+        "Another node of yours is running; the wallet’s own is not (testnet)",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * The setting stays where people look for it and answers in the backend's
+   * words; it never shows as on.
+   */
+  it("answers the keep-running switch with not yet implemented", async () => {
+    mockNode("running");
+    renderSettings();
+    const toggle = await screen.findByRole("switch");
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    await userEvent.click(toggle);
+    expect(await screen.findByText(NOT_YET)).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
+  /** The Tor read is the backend's text, shown as it came. */
+  it("shows the node's Tor state in the backend's words", async () => {
+    mockNode("running");
+    renderSettings();
+    expect(await screen.findByTestId("tor-read")).toHaveTextContent(TOR_TEXT);
+  });
+});

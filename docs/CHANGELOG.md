@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+- **The wallet holds its own node, and has full access to it.** The wallet
+  starts its node holding an owning connection (shekyl-core's
+  `shekyl-spawn`), and calls it on the owner's leg, where it is the node's
+  administrator. Mining works from the Mining page again: the miner pays
+  the open wallet's address, and the node restarts once to take it.
+  Settings shows the node's Tor state in the node's own words.
+  - Closing the wallet stops the node cleanly; nothing kills it, and a
+    wallet that crashes cannot leave a node behind. Tor's cache is written
+    back, so the next start is a quick one.
+  - Changing network or the miner's address shows "Stopping the node…"
+    until the running node is gone, with a Force stop button. Force stop is
+    the only thing that kills a node.
+  - A node of yours already running on the network is not used. The wallet
+    says so and offers "Stop it and start the wallet's own".
+  - Something else answering at the node's local address is reported as a
+    security failure, and nothing is started or retried.
+  - "Keep daemon running after wallet closes" answers that it is not yet
+    implemented.
 - **The balance shows its legs, and the fee tiers have one spelling.**
   shekyl-core's wallet PR 2 (A17, A18) makes the balance
   `spendable + incoming`, each leg once, with the wait until

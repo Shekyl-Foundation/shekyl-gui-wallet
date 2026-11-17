@@ -68,7 +68,6 @@ fn daemon_disclosures(url: &str) -> Vec<String> {
 /// wallet's network.
 #[tauri::command]
 pub async fn set_daemon_connection(
-    app: tauri::AppHandle,
     state: State<'_, AppState>,
     dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     network: String,
@@ -83,9 +82,10 @@ pub async fn set_daemon_connection(
     let warnings = daemon_disclosures(&new_url);
     *state.daemon_url.write().await = new_url.clone();
     *state.network.write().await = net;
-    // The relaunch waits for the new node's first answer; the page does not.
+    // The relaunch waits for the running node to be gone and the new one to
+    // start; the page does not.
     let dm = std::sync::Arc::clone(&dm);
-    tauri::async_runtime::spawn(async move { dm.relaunch(&app, net).await });
+    tauri::async_runtime::spawn(async move { dm.relaunch(net).await });
 
     Ok(DaemonConnection {
         url: new_url,
@@ -157,22 +157,30 @@ pub struct CurveTree {
 }
 
 #[tauri::command]
-pub async fn get_chain_health(state: State<'_, AppState>) -> Result<ChainHealth, String> {
-    let url = state.url().await;
+pub async fn get_chain_health(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<ChainHealth, String> {
     let network = *state.network.read().await;
 
-    let status = daemon_rpc::call::<DaemonStatus>(&url, NoParams, "the node's status").await?;
+    let status =
+        daemon_rpc::node_call::<DaemonStatus>(&state, &node, NoParams, "the node's status").await?;
     let tip = HeaderSelect(BlockSelect {
         select: Selector::Tip,
         pow: false,
         prune: None,
     });
-    let header = daemon_rpc::call::<BlockHeaderShow>(&url, tip, "the last block")
+    let header = daemon_rpc::node_call::<BlockHeaderShow>(&state, &node, tip, "the last block")
         .await
         .ok();
-    let curve = daemon_rpc::call::<CurveShow>(&url, CurveSelect(Selector::Tip), "the curve tree")
-        .await
-        .ok();
+    let curve = daemon_rpc::node_call::<CurveShow>(
+        &state,
+        &node,
+        CurveSelect(Selector::Tip),
+        "the curve tree",
+    )
+    .await
+    .ok();
     chain_health(status, header, curve, network.as_str())
 }
 

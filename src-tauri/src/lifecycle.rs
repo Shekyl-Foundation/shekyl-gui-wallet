@@ -114,6 +114,7 @@ fn restore_floor(restore_height: Option<u64>) -> Result<u32, String> {
 #[tauri::command]
 pub async fn create_wallet(
     state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     name: String,
     password: String,
 ) -> Result<CreatedWallet, String> {
@@ -129,13 +130,14 @@ pub async fn create_wallet(
     let wallet_dir = state.wallet_dir.read().await.clone();
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
-    let daemon = state.daemon_http_base().await;
+    let daemon = state.engine_base().await?;
     let mut eng = state.engine.lock().await;
     let created = eng
         .create(&wallet_dir, &sanitized, &password, network, &daemon)
         .await?;
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
+    crate::mining::pay_the_open_wallet(&node, eng.primary_address().await.ok());
     let wallet = wallet_handle(sanitized, network, &created.facts);
     Ok(CreatedWallet {
         wallet,
@@ -146,10 +148,14 @@ pub async fn create_wallet(
 #[tauri::command]
 pub async fn open_wallet(
     state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     filename: String,
     password: String,
 ) -> Result<OpenedWallet, OpenRefusal> {
-    open_wallet_in(&state, filename, password).await
+    let opened = open_wallet_in(&state, filename, password).await?;
+    let address = state.engine.lock().await.primary_address().await.ok();
+    crate::mining::pay_the_open_wallet(&node, address);
+    Ok(opened)
 }
 
 /// `open_wallet`'s body, on the state alone, so a test can drive it.
@@ -174,7 +180,7 @@ pub(crate) async fn open_wallet_in(
         .into());
     }
 
-    let daemon = state.daemon_http_base().await;
+    let daemon = state.engine_base().await?;
     let mut eng = state.engine.lock().await;
     let facts = eng
         .open(&wallet_dir, &sanitized, &password, network, &daemon)
@@ -210,6 +216,7 @@ pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
 #[tauri::command]
 pub async fn restore_wallet(
     state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     name: String,
     password: String,
     mnemonic: String,
@@ -230,7 +237,7 @@ pub async fn restore_wallet(
     let wallet_dir = state.wallet_dir.read().await.clone();
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
-    let daemon = state.daemon_http_base().await;
+    let daemon = state.engine_base().await?;
     let mut eng = state.engine.lock().await;
     let facts = eng
         .restore_from_seed(
@@ -245,6 +252,7 @@ pub async fn restore_wallet(
         .await?;
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
+    crate::mining::pay_the_open_wallet(&node, eng.primary_address().await.ok());
     Ok(OpenedWallet {
         wallet: wallet_handle(sanitized, network, &facts),
     })

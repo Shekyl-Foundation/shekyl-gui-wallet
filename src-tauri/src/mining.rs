@@ -48,9 +48,11 @@ pub struct MiningStatus {
 const MINING: &str = "mining";
 
 #[tauri::command]
-pub async fn get_mining_status(state: State<'_, AppState>) -> Result<MiningStatus, String> {
-    let url = state.url().await;
-    let ms = daemon_rpc::call::<MineStatus>(&url, NoParams, MINING).await?;
+pub async fn get_mining_status(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<MiningStatus, String> {
+    let ms = daemon_rpc::node_call::<MineStatus>(&state, &node, NoParams, MINING).await?;
     Ok(mining_status(ms))
 }
 
@@ -72,24 +74,72 @@ fn mining_status(ms: shekyl_rpc_client::wire::node::MineStatus) -> MiningStatus 
     }
 }
 
+/// What starting the miner says with no wallet open: the reward needs an
+/// address to be paid to, and the wallet never mines to one it cannot show.
+const NO_WALLET_TO_PAY: &str =
+    "Open a wallet before mining: the reward is paid to the open wallet's address.";
+
 /// Start the node's miner with `threads` threads, or the node's own
 /// `mine-threads` when none is given.
+///
+/// On the wallet's own node the miner pays the open wallet's address. The
+/// daemon reads `mine-address` only at its start (shekyl-core
+/// `INPUT_GRAMMAR.md` IG-12), so a node running with another address, or
+/// none, is stopped and started again with this one before the miner
+/// starts. A node address a person typed keeps the address its operator
+/// set.
 #[tauri::command]
 pub async fn start_mining_cmd(
     state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     threads: Option<u64>,
 ) -> Result<bool, String> {
-    let url = state.url().await;
+    if state.targets_this_computer().await {
+        let address = {
+            let eng = state.engine.lock().await;
+            if !eng.is_open() {
+                return Err(NO_WALLET_TO_PAY.to_owned());
+            }
+            eng.primary_address().await?
+        };
+        node.mine_to(&address).await?;
+    }
     let threads = threads.map_or(Threads::Auto(AutoWord::Auto), |n| Threads::Count(Count(n)));
-    daemon_rpc::call::<shekyl_rpc_client::wire::MineStart>(&url, MineStart { threads }, MINING)
-        .await?;
+    daemon_rpc::node_call::<shekyl_rpc_client::wire::MineStart>(
+        &state,
+        &node,
+        MineStart { threads },
+        MINING,
+    )
+    .await?;
     Ok(true)
 }
 
+/// A wallet was opened: a node whose miner pays another wallet's address
+/// is started again to pay this one's (Rick, 2026-11-12: a wallet switch
+/// relaunches the node). A node that pays no address yet is left running;
+/// it takes the open wallet's address when mining is first started. The
+/// relaunch waits for the running node to be gone, so it runs beside the
+/// open, never inside it.
+pub(crate) fn pay_the_open_wallet(
+    node: &std::sync::Arc<crate::daemon_manager::DaemonManager>,
+    address: Option<String>,
+) {
+    let Some(address) = address else { return };
+    let node = std::sync::Arc::clone(node);
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = node.follow_wallet(&address).await {
+            tracing::warn!("the node was not restarted for the open wallet's address: {e}");
+        }
+    });
+}
+
 #[tauri::command]
-pub async fn stop_mining_cmd(state: State<'_, AppState>) -> Result<bool, String> {
-    let url = state.url().await;
-    daemon_rpc::call::<MineStop>(&url, NoParams, MINING).await?;
+pub async fn stop_mining_cmd(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<bool, String> {
+    daemon_rpc::node_call::<MineStop>(&state, &node, NoParams, MINING).await?;
     Ok(true)
 }
 

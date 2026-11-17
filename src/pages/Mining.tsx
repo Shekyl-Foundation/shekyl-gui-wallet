@@ -283,6 +283,13 @@ export default function Mining() {
             {loading ? "Starting..." : "Start Mining"}
           </button>
         )}
+        {!status?.active && (
+          <p className="mt-2 text-xs text-purple-400">
+            Mining pays the open wallet’s address. If the wallet’s node is not
+            already set to pay it, the node restarts first, which can take a
+            while.
+          </p>
+        )}
       </div>
     </div>
   );

@@ -120,9 +120,36 @@ pub fn default_wallet_dir() -> PathBuf {
     }
 }
 
+/// Why the wallet engine may not dial the node on this computer, when it may
+/// not: a node of this account that the wallet did not start answers there,
+/// or something failed the local address's check. The daemon manager writes
+/// it; the engine's URL reads it. Until the engine's calls move to the
+/// owner's leg (shekyl-core `RPC_CHANNEL.md` RT-W10 step 5), the engine never
+/// uses a listener on a node the wallet did not launch (Rick, 2026-11-17).
+#[derive(Clone, Default)]
+pub struct NodeGate(std::sync::Arc<std::sync::RwLock<Option<String>>>);
+
+impl NodeGate {
+    pub(crate) fn set(&self, closed: Option<String>) {
+        *self
+            .0
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = closed;
+    }
+
+    fn closed(&self) -> Option<String> {
+        self.0
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
 pub struct AppState {
     // Daemon
     pub daemon_url: RwLock<String>,
+    /// Closed while the node on this computer is not the wallet's own.
+    pub node_gate: NodeGate,
     pub network: RwLock<NetworkType>,
 
     // Wallet directory / open metadata
@@ -145,6 +172,7 @@ impl AppState {
         let resolved = gui_config::resolve_wallet_dir(default_wallet_dir());
         Self {
             daemon_url: RwLock::new(net.local_url()),
+            node_gate: NodeGate::default(),
             network: RwLock::new(net),
             wallet_dir: RwLock::new(resolved.dir),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
@@ -154,24 +182,34 @@ impl AppState {
         }
     }
 
-    /// HTTP base URL for Engine daemon client (no `/json_rpc` suffix).
-    pub async fn daemon_http_base(&self) -> String {
-        self.base_url().await
-    }
-
     pub async fn url(&self) -> String {
         self.daemon_url.read().await.clone()
     }
 
-    /// Base URL without the `/json_rpc` suffix: the Engine daemon-client
-    /// base.
+    /// Whether the wallet is pointed at the node on this computer, the
+    /// default, and not at a node address a person typed.
+    pub async fn targets_this_computer(&self) -> bool {
+        *self.daemon_url.read().await == self.network.read().await.local_url()
+    }
+
+    /// The wallet engine's daemon base URL, without the `/json_rpc` suffix.
     ///
     /// Trailing slashes are stripped *before* the `/json_rpc` suffix so a
     /// configured URL like `http://host:port/json_rpc/` collapses to
     /// `http://host:port` rather than leaving a stray `json_rpc` behind.
-    pub async fn base_url(&self) -> String {
+    ///
+    /// # Errors
+    ///
+    /// The wallet is pointed at this computer and the node there is not the
+    /// wallet's own ([`NodeGate`]): the words say which.
+    pub async fn engine_base(&self) -> Result<String, String> {
+        if self.targets_this_computer().await {
+            if let Some(closed) = self.node_gate.closed() {
+                return Err(closed);
+            }
+        }
         let url = self.daemon_url.read().await.clone();
-        strip_json_rpc(&url).to_owned()
+        Ok(strip_json_rpc(&url).to_owned())
     }
 }
 

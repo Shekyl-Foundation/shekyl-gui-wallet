@@ -5,17 +5,23 @@ import { useDaemon } from "../context/useDaemon";
 import SecurityPanel from "../components/SecurityPanel";
 import WalletCare from "../components/WalletCare";
 import { BLOCK_NUMBER_TIP } from "../lib/format";
+import type { NodeState, NodeStatus } from "../types/node";
 
 interface DaemonSettings {
-  keep_running_on_exit: boolean;
   data_dir: string | null;
 }
 
-interface DaemonStatusInfo {
-  mode: "managed" | "external" | "unavailable";
-  ready: boolean;
-  height: number;
-}
+/** The wallet's own node, in a few words, for the Settings line. */
+const NODE_STATE_WORDS: Record<NodeState, string> = {
+  idle: "The wallet’s node has not started",
+  starting: "The wallet’s node is starting",
+  running: "The wallet’s node is running",
+  stopping: "A node is stopping",
+  found: "Another node of yours is running; the wallet’s own is not",
+  refused: "The node’s local address failed its check",
+  failed: "The wallet’s node is not running",
+  unavailable: "This build carries no node",
+};
 
 /**
  * What the backend says about the daemon URL now in effect. `warnings` is
@@ -42,7 +48,10 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [daemonWarnings, setDaemonWarnings] = useState<string[]>([]);
   const [daemonSettings, setDaemonSettings] = useState<DaemonSettings | null>(null);
-  const [daemonStatus, setDaemonStatus] = useState<DaemonStatusInfo | null>(null);
+  const [daemonStatus, setDaemonStatus] = useState<NodeStatus | null>(null);
+  const [keepRunningAnswer, setKeepRunningAnswer] = useState<string | null>(null);
+  // The node's Tor state, in core's words; or why it cannot be read.
+  const [torRead, setTorRead] = useState<string | null>(null);
 
   const loadDaemonInfo = useCallback(async () => {
     try {
@@ -63,25 +72,36 @@ export default function Settings() {
     try {
       const [settings, status] = await Promise.all([
         invoke<DaemonSettings>("get_daemon_settings"),
-        invoke<DaemonStatusInfo>("daemon_status"),
+        invoke<NodeStatus>("daemon_status"),
       ]);
       setDaemonSettings(settings);
       setDaemonStatus(status);
     } catch {
       // daemon commands not available yet
     }
+    try {
+      const tor = await invoke<{ shown: boolean; text: string } | null>(
+        "get_tor_status",
+      );
+      setTorRead(tor ? tor.text : null);
+    } catch (e) {
+      // The node is not answering: its own notice says why.
+      setTorRead(String(e));
+    }
   }, []);
 
   useEffect(() => { loadDaemonInfo(); }, [loadDaemonInfo]);
 
-  async function handleKeepRunningToggle(value: boolean) {
+  // The node the wallet starts lives as long as the wallet. The setting
+  // stays where people look for it, and the backend answers in words that
+  // a node which outlives the wallet is not built yet.
+  async function handleKeepRunningAsk() {
     try {
-      const updated = await invoke<DaemonSettings>("set_daemon_settings", {
-        keepRunningOnExit: value,
+      await invoke<DaemonSettings>("set_daemon_settings", {
+        keepRunningOnExit: true,
       });
-      setDaemonSettings(updated);
-    } catch {
-      // ignore
+    } catch (e) {
+      setKeepRunningAnswer(String(e));
     }
   }
 
@@ -205,46 +225,49 @@ export default function Settings() {
           <div className="flex items-center gap-2 text-xs">
             <span
               className={`inline-block h-2 w-2 rounded-full ${
-                daemonStatus.ready ? "bg-emerald-400" : "bg-red-400"
+                daemonStatus.state === "running"
+                  ? "bg-emerald-400"
+                  : daemonStatus.state === "starting" || daemonStatus.state === "stopping"
+                    ? "bg-amber-400"
+                    : "bg-red-400"
               }`}
             />
             <span className="text-purple-300">
-              {daemonStatus.mode === "managed"
-                ? "Managed daemon"
-                : daemonStatus.mode === "external"
-                  ? "External daemon"
-                  : "No daemon"}
-              {daemonStatus.ready ? " (connected)" : " (offline)"}
+              {NODE_STATE_WORDS[daemonStatus.state]} ({daemonStatus.network})
             </span>
           </div>
         )}
 
+        {torRead && (
+          <div className="space-y-1">
+            <h3 className="text-xs font-semibold text-purple-200">Tor</h3>
+            <p data-testid="tor-read" className="whitespace-pre-line text-xs text-purple-300">
+              {torRead}
+            </p>
+          </div>
+        )}
+
         {daemonSettings && (
-          <label className="flex items-center justify-between gap-3">
-            <span className="text-xs text-purple-300">
-              Keep daemon running after wallet closes
-            </span>
-            <button
-              role="switch"
-              aria-checked={daemonSettings.keep_running_on_exit}
-              onClick={() =>
-                handleKeepRunningToggle(!daemonSettings.keep_running_on_exit)
-              }
-              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                daemonSettings.keep_running_on_exit
-                  ? "bg-gold-500"
-                  : "bg-purple-700"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                  daemonSettings.keep_running_on_exit
-                    ? "translate-x-4"
-                    : "translate-x-0"
-                }`}
-              />
-            </button>
-          </label>
+          <div className="space-y-1">
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-xs text-purple-300">
+                Keep daemon running after wallet closes
+              </span>
+              <button
+                role="switch"
+                aria-checked={false}
+                onClick={handleKeepRunningAsk}
+                className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-purple-700 transition-colors"
+              >
+                <span className="pointer-events-none inline-block h-4 w-4 translate-x-0 transform rounded-full bg-white shadow transition-transform" />
+              </button>
+            </label>
+            {keepRunningAnswer && (
+              <p role="status" className="text-xs text-amber-200">
+                {keepRunningAnswer}
+              </p>
+            )}
+          </div>
         )}
       </div>
 

@@ -174,10 +174,33 @@ carry Tor's own bytes as pinned.
   Every platform, macOS included (`GS-Q6`): the `.dmg` takes the signed
   `tor/` from core's macOS archive as it is.
 - **One target, one stop (GS-F5, GS-F6).** The GUI's target is "this
-  computer" or an explicit node, never a probe ladder. The sidecar is held
-  by its child handle, never a raw PID. Stop is the owning connection's
-  close (`GS-Q1`), then a wait bounded by core's derived stop timeout; a
-  kill only after that bound, reported.
+  computer" or an explicit node, never a probe ladder. At start it dials
+  "this computer": nothing there, and it launches its own node; a failed
+  peer check is a hard stop, said whole and never retried. The node is
+  launched through core's `shekyl-spawn` holding its owning connection
+  (`GS-Q1`), and is held by its child handle, never a raw PID.
+  - *The GUI's exit* closes the owning connection and does not wait. The
+    node stops cleanly on its own; nothing kills it at exit, and a GUI that
+    dies closes the connection the same way.
+  - *A relaunch* (a network switch, a miner's address, a found node's
+    replacement) shuts down the GUI's writing half and keeps reading. The
+    node holds its end until its process exits (core IG-Q106), so end of
+    stream means the node is gone, its data directory unlocked; the next
+    node starts on that read. There is no stop timeout. The page shows
+    "Stopping the node…" with a Force stop button throughout, and Force
+    stop is the only kill (Rick, 2026-11-17).
+  - *A node of this account already running on the network* is found and
+    not adopted: no call of the wallet's goes to it. The GUI says so and
+    offers "Stop it and start the wallet's own": `daemon_stop` over the
+    owner's leg, then the normal launch. Until the wallet engine's calls
+    move to the owner's leg (core RT-W10 step 5), the engine never uses a
+    listener on a node the GUI did not launch (Rick, 2026-11-17).
+- **Two legs to the wallet's own node.** The GUI's own calls (status, Tor,
+  mining, the stop) go over the owner's leg, which holds every grant: the
+  wallet started that node and is its host's administrator. The wallet
+  engine's calls stay on the loopback view listener until RT-W10 step 5.
+  A node address a person typed is called over HTTP with whatever it
+  grants.
 - **Posture shown, never reworded (TSR-Q12, TSR-Q13).** The GUI reads
   Status on its normal refresh and shows `render(status)` verbatim: a
   persistent posture line in the header whenever `OwnTx` is not
@@ -194,8 +217,10 @@ carry Tor's own bytes as pinned.
   `Offline` is not sent.
 - **The fixes are the person's acts (GS-F7, TSR-Q11).** Settings → Network
   offers exactly the `ManagedTorFix` values in the read, each with the
-  renderer's consequence. Taking one writes the sidecar's daemon config
-  (TOML, the daemon-config slice's file) and restarts it. Nothing is
+  renderer's consequence. Taking one is stored in the GUI's settings and
+  passed on the node's launch line, and the node is relaunched; the
+  daemon's default configuration file is never written (Rick, 2026-11-17:
+  that file is shared with a node the person runs by hand). Nothing is
   pre-selected; `ClearnetOnly` is never a default, a one-click "just work"
   button, or something the GUI does on a timer.
 - **Wire debt (GS-F8).** The GUI's reply types are deleted for
@@ -213,9 +238,9 @@ carry Tor's own bytes as pinned.
 | GS-C4 | core | Correct `TSR-Q12`, `TOR_SUPERVISOR.md` §11 and core's FOLLOWUPS row for the RW naming: no leg carries Status to the GUI yet | — |
 | GS-C5 | core | The chain-wide staking figures: total bonded principal (ESR-8) and the per-block staker inflow (`ARCHIVAL_BUDGET_SCHEDULE.md`), in `daemon_status`'s economics part beside `stake_share`. The GUI shows nothing for them until core's types carry them | the daemon's bond accounting |
 | GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file`, on every platform (`GS-Q6`). Built: `release.yml` job `core-archives` with `scripts/release/core_archive.py` checks each archive's digest before unpacking (the Foundation-signed `SHA256SUMS` on a tag, GitHub's artifact digest for a dry run's gitian run); `DaemonManager` names the bundled Tor with `tor-file`; after bundling, the release reads Tor back out of every installer and checks it against core's pins and the bundled daemon's `--config-verify` (`src-tauri/binaries/README.md`) | The cut: `SHEKYL_CORE_REF` at the paired core tag, and for macOS that cut carries core #1310 (TSR-F18), without which the hardened runtime kills the signed `tor` at its first onion proof-of-work |
-| GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented"; the open wallet's address passed as `mine-address` when the GUI launches its node (IG-12: `mine-address` is set only at start, so switching wallets relaunches the node). Built: the node runs the GUI's network (`--network` at launch, mainnet by default, Rick 2026-11-13), a network switch relaunches it on that network's port from core's row and, with a configured data directory, in that network's own store; a switch waits while a wallet of another network is open | GS-C3 |
+| GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented"; the open wallet's address passed as `mine-address` when the GUI launches its node (IG-12: `mine-address` is set only at start, so switching wallets relaunches the node). Built: the node is launched through `shekyl-spawn` holding its owning connection (`node_launch.rs`), ready on its ready line; the start dials "this computer" first and a node of this account found there is offered for replacement, never adopted; the GUI's exit closes the connection without waiting, a relaunch waits for end of stream, and Force stop is the only kill; `tauri-plugin-shell` is gone. the node runs the GUI's network (`--network` at launch, mainnet by default, Rick 2026-11-13), a network switch relaunches it on that network's port from core's row and, with a configured data directory, in that network's own store; a switch waits while a wallet of another network is open | — |
 | GS-3 | GUI | Posture display, held review/verdict/pending, Settings → Network fixes, daemon config | GS-C1, GS-C2, GS-2 |
-| GS-4 | GUI | Wire debt: RK-D1 adoption and the 4.0 reads (`daemon_status`, `block_header_show`, `curve_show`, `shard_coverage`, the `version` health probe) through `shekyl-rpc-client`, built; mining control on the owner leg remains | GS-2 for mining control |
+| GS-4 | GUI | Wire debt: RK-D1 adoption and the reads (`daemon_status`, `block_header_show`, `curve_show`, `shard_coverage`, the `version` read) through `shekyl-rpc-client`; mining control on the owner's leg, the miner paying the open wallet's address (`mine-address` on the launch line: the node is relaunched when mining starts for an address it does not pay, and when a wallet is opened while it pays another's). Built | — |
 | GS-5 | GUI | macOS installer Tor: carried by GS-1, by the same mechanism (`GS-Q6`) | As GS-1 |
 
 ## 6. Acceptance (real pathways, every platform with an installer)
@@ -252,9 +277,9 @@ when that adjustment lands.
    daemon.
 3. Fix whatever is red in one GUI resync PR for the cut, and sweep two
    things no build sees:
-   - the grant-reach test's `AWAITING` list (`grant_reach_tests.rs`, the
-     GUI's own calls and the engine's `DAEMON_METHODS`): is each entry
-     still waiting on the increment it names?
+   - the grant-reach test (`grant_reach_tests.rs`): the GUI's own calls
+     against the owner's leg, the engine's `DAEMON_METHODS` against the
+     view listener. A call either leg refuses fails it.
    - chain facts written into GUI text (lock windows, block spacing,
      descriptions of mechanisms): each comes from core, never a copy.
 4. The CLI's half is in core's tree. Its daemon calls are typed and its

@@ -3,38 +3,33 @@
 // All rights reserved.
 // BSD-3-Clause
 
-//! Which daemon methods the wallet's own node lets it call.
+//! What the wallet calls on its own node, held against what that node
+//! admits (`docs/design/GUI_SYNC_LANE.md` GS-2, GS-4).
 //!
-//! The wallet starts its node with one view listener and no admin listener
-//! (`daemon_manager::sidecar_args`). Mining failed in silence at alpha.10
-//! and alpha.11 because nothing compared what the wallet calls with what that
-//! connection may call. This test asks the daemon's own admission check,
-//! [`Authority::VIEW_LISTENER`], about every method the wallet calls and
-//! every method its engine calls (`shekyl_engine_core::DAEMON_METHODS`:
-//! version, status, fees, submission, the scan's block reads), so a call
-//! the wallet's node would refuse is a red test, not a page that reads
-//! nothing or a send that fails.
-//!
-//! A method the wallet calls that its node does not admit yet is named in
-//! [`AWAITING`], with the core increment that will grant it. When GS-C3 (the
-//! owning connection) lands, the authority here becomes the owner leg's and
-//! the list empties.
+//! Two legs reach the node the wallet starts. The wallet's own calls go
+//! over the owner's leg, which holds every grant: the wallet started that
+//! node and is its host's administrator. The wallet engine's calls go over
+//! the loopback view listener until they move to the owner's leg
+//! (shekyl-core `RPC_CHANNEL.md` RT-W10 step 5). Each call is held against
+//! the authority of the leg it travels, asked of the daemon's own
+//! admission code, never a copy of a grant set.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use shekyl_daemon_rpc::authority::Authority;
 use shekyl_rpc_client::wire::{
-    BlockHeaderShow, CurveShow, DaemonStatus, MineStart, MineStatus, MineStop, ShardCoverage,
-    Version,
+    BlockHeaderShow, CurveShow, DaemonStatus, DaemonStop, MineStart, MineStatus, MineStop,
+    ShardCoverage, Version,
 };
 use shekyl_rpc_types::method::Row;
 
-/// Every daemon method the wallet calls through `daemon_rpc::call`, by the
-/// type name its call sites spell.
+/// Every daemon method the wallet calls itself, by the type name its call
+/// sites spell.
 const CALLS: &[(&str, Row)] = &[
     ("Version", Row::of::<Version>()),
     ("DaemonStatus", Row::of::<DaemonStatus>()),
+    ("DaemonStop", Row::of::<DaemonStop>()),
     ("BlockHeaderShow", Row::of::<BlockHeaderShow>()),
     ("CurveShow", Row::of::<CurveShow>()),
     ("ShardCoverage", Row::of::<ShardCoverage>()),
@@ -43,57 +38,35 @@ const CALLS: &[(&str, Row)] = &[
     ("MineStop", Row::of::<MineStop>()),
 ];
 
-/// Methods the wallet or its engine calls that its own node does not admit
-/// yet, by wire name, each with the core increment that will grant it
-/// (`docs/design/GUI_SYNC_LANE.md` §5).
-const AWAITING: &[(&str, &str)] = &[
-    ("mine_status", "GS-C3"),
-    ("mine_start", "GS-C3"),
-    ("mine_stop", "GS-C3"),
-];
-
-/// Every method that reaches the wallet's own node: the GUI's own calls,
-/// and the engine's (`shekyl_engine_core::DAEMON_METHODS`, held to the
-/// engine's code by core's test), which go over the same connection.
-fn reaching_the_node() -> Vec<(&'static str, &'static Row)> {
-    CALLS
-        .iter()
-        .map(|(_, row)| ("the wallet", row))
-        .chain(
-            shekyl_engine_core::DAEMON_METHODS
-                .iter()
-                .map(|row| ("the engine", row)),
-        )
-        .collect()
+/// The owner's leg admits every call the wallet makes itself, mining and
+/// the stop among them. The switch for the armed test levers is off, as on
+/// a node the wallet starts. Red edit: hold the calls against
+/// `Authority::VIEW_LISTENER`, the leg the wallet used before GS-2; the
+/// three mining calls and the stop are refused.
+#[test]
+fn the_owner_s_leg_admits_every_call_the_wallet_makes() {
+    let owner = Authority::owner(false);
+    for (name, row) in CALLS {
+        assert!(
+            owner.admit(row).is_ok(),
+            "the owner's leg refuses {name} ({})",
+            row.name
+        );
+    }
 }
 
-/// Every call is admitted by the wallet's own node, or is named as waiting
-/// on an increment; and every waiting entry is still refused, so an entry
-/// whose increment has landed is struck rather than left to hide a gap.
+/// The view listener admits every call the wallet engine makes
+/// (`shekyl_engine_core::DAEMON_METHODS`, held to the engine's code by
+/// core's test).
 #[test]
-fn every_call_is_admitted_or_awaits_a_named_increment() {
-    let node = Authority::VIEW_LISTENER;
-    let calls = reaching_the_node();
-    for (caller, row) in &calls {
-        let admitted = node.admit(row).is_ok();
-        match AWAITING.iter().find(|(waiting, _)| *waiting == row.name) {
-            Some((_, increment)) => assert!(
-                !admitted,
-                "{} ({caller}) is admitted now: strike it from AWAITING ({increment})",
-                row.name
-            ),
-            None => assert!(
-                admitted,
-                "the wallet's own node refuses {} ({caller}): it is outside the view \
-                 listener's grants, and no increment is named for it in AWAITING",
-                row.name
-            ),
-        }
-    }
-    for (waiting, increment) in AWAITING {
+fn the_view_listener_admits_every_call_the_engine_makes() {
+    let view = Authority::VIEW_LISTENER;
+    for row in shekyl_engine_core::DAEMON_METHODS {
         assert!(
-            calls.iter().any(|(_, row)| row.name == *waiting),
-            "AWAITING names {waiting} ({increment}), which neither the wallet nor its engine calls"
+            view.admit(row).is_ok(),
+            "the wallet's own node refuses the engine's {}: it is outside the view \
+             listener's grants",
+            row.name
         );
     }
 }

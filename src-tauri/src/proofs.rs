@@ -231,9 +231,11 @@ async fn proof_daemon(
     state: &AppState,
     network: Network,
 ) -> Result<shekyl_engine_core::DaemonClient, ContractError> {
-    engine_daemon::make_daemon(&state.base_url().await, network)
+    let internal = |err| ContractError::from_rpc(WalletRpcError::InternalError(err));
+    let base = state.engine_base().await.map_err(internal)?;
+    engine_daemon::make_daemon(&base, network)
         .await
-        .map_err(|err| ContractError::from_rpc(WalletRpcError::InternalError(err)))
+        .map_err(internal)
 }
 
 #[cfg(test)]
