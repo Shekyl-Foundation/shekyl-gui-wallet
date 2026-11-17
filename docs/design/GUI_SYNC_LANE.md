@@ -217,12 +217,12 @@ carry Tor's own bytes as pinned.
   state; it does not show an empty posture.
 - **One reading of a send.** The header line, the review card, the verdict
   and the pending list read one value (`tor_status.rs`, `Sends`), from one
-  poll (`TorContext`). A send is hidden exactly when core's accessor
-  `TorStatus::own_tx_hides_address` says so, and the wallet keeps no rule
-  of its own beside it (Rick, 2026-11-17). The rest name why it is not:
-  held, open network, offline, a condition this build does not know, or a
-  state the node withholds. Only held promises that a send stays off the
-  open network.
+  poll (`TorContext`). The value is core's one classification,
+  `TorStatus::own_tx_fate` (hidden, held, open network, offline, unknown),
+  mapped straight through: the wallet reads no setting, origination or
+  carriage of its own (Rick, 2026-11-17). It adds only "withheld", for a
+  node that shows no status, and "unread", for a node it could not read.
+  Only held promises that a send stays off the open network.
 - **Held is a state, not a moment (GS-F2).** Before submit, the review card
   reads `OwnTx`; on `Held` it states the transaction will wait on this node
   until Tor carries it and will not go out over clearnet, and the person

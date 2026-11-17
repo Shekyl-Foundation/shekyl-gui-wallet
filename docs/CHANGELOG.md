@@ -9,7 +9,7 @@
     your node until Tor carries it and does not go out over the open
     network. An offline node's send is not offered.
   - After the node accepts a send, the wallet says whether it is waiting or
-    went out over the open network. Pending sends show as "Held on your
+    is going out over the open network. Pending sends show as "Held on your
     node" for as long as the node holds them.
   - Settings shows the fixes the node offers for its Tor, each in the
     node's words. Taking one restarts the node with it; the wallet keeps

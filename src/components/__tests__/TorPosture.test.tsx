@@ -86,7 +86,13 @@ describe("what the wallet says about a send", () => {
       expect(pendingIsHeld(now)).toBe(now === "held");
     }
     expect(acceptedStatement("held")).toContain("waiting on your node");
-    expect(acceptedStatement("open-network")).toContain("open network");
+    expect(acceptedStatement("open-network")).toBe(
+      "It is going out over the open network, not through Tor.",
+    );
+    // Core's ClearnetOnly sentence says the same of that network.
+    expect(reviewStatement("open-network")).toContain(
+      "Until the encrypted link is in place, that network is unencrypted.",
+    );
     expect(acceptedStatement("hidden")).toBeNull();
   });
 

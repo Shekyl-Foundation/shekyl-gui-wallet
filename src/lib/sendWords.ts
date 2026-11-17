@@ -16,7 +16,7 @@ const BEFORE: Record<SendsNow, string | null> = {
   hidden: null,
   held: "Your node is holding its own transactions. This one will wait on your node until Tor carries it. It will not go out over the open network.",
   "open-network":
-    "Tor is off on your node. This transaction will go out over the open network, not through Tor.",
+    "Tor is off on your node. This transaction will go out over the open network, not through Tor. Until the encrypted link is in place, that network is unencrypted.",
   offline: "Your node is offline. This transaction cannot be sent now.",
   unknown:
     "Your node reports a Tor condition this version does not know, so the wallet cannot say how this transaction will leave.",
@@ -30,7 +30,7 @@ const BEFORE: Record<SendsNow, string | null> = {
 const AFTER: Record<SendsNow, string | null> = {
   hidden: null,
   held: "It is waiting on your node until Tor carries it. It will not go out over the open network.",
-  "open-network": "It went out over the open network, not through Tor.",
+  "open-network": "It is going out over the open network, not through Tor.",
   offline: "Your node is offline: it has not gone out.",
   unknown: null,
   withheld: null,

@@ -20,7 +20,7 @@ use serde::Serialize;
 use shekyl_rpc_client::wire::daemon::DaemonStatus as Status;
 use shekyl_rpc_client::wire::DaemonStatus;
 use shekyl_rpc_types::kinds::NoParams;
-use shekyl_tor_status::{Clearnet, Origination, TorSetting, TorStatus};
+use shekyl_tor_status::{OwnTxFate, TorStatus};
 use tauri::State;
 
 use crate::daemon_rpc;
@@ -50,32 +50,19 @@ pub enum Sends {
     Withheld,
 }
 
-/// What the node's Tor status means for a send.
-///
-/// Hidden is core's one accessor (`own_tx_hides_address`), which fails
-/// closed, and nothing else (Rick, 2026-11-17): the wallet keeps no rule
-/// of its own beside it. The rest only name why a send is not hidden, and
-/// promise nothing on a keyword this build does not know.
+/// What the node's Tor status means for a send: core's one
+/// classification (`TorStatus::own_tx_fate`), mapped straight through
+/// (Rick, 2026-11-17). The wallet reads no setting, origination or
+/// carriage of its own, so it cannot disagree with the text beside it.
+/// [`Sends::Withheld`] is the wallet's one addition, for a node that shows
+/// no status to classify.
 fn sends(tor: &TorStatus) -> Sends {
-    if tor.own_tx_hides_address() {
-        return Sends::Hidden;
-    }
-    let settings_known = matches!(
-        tor.posture.tor,
-        TorSetting::Managed | TorSetting::Operator | TorSetting::Off
-    ) && matches!(tor.posture.clearnet, Clearnet::On | Clearnet::Off);
-    let tor_on = matches!(tor.posture.tor, TorSetting::Managed | TorSetting::Operator);
-    match &tor.origination {
-        Origination::Connecting | Origination::Rebuilding if settings_known => Sends::Held,
-        // The relay's verdict still reads `address-hiding` and core says
-        // the send is not hidden: the managed link carries nothing, and the
-        // node holds, as core's line says.
-        // A reply with any keyword this build does not know promises
-        // nothing here: the wallet reads no field of its own to tell.
-        Origination::AddressHiding if settings_known && tor_on && !tor.has_unknown() => Sends::Held,
-        Origination::ClearnetOnly if settings_known => Sends::OpenNetwork,
-        Origination::Offline if settings_known => Sends::Offline,
-        _ => Sends::Unknown,
+    match tor.own_tx_fate() {
+        OwnTxFate::Hidden => Sends::Hidden,
+        OwnTxFate::Held => Sends::Held,
+        OwnTxFate::OpenNetwork => Sends::OpenNetwork,
+        OwnTxFate::Offline => Sends::Offline,
+        OwnTxFate::Unknown => Sends::Unknown,
     }
 }
 
@@ -173,83 +160,74 @@ mod tests {
         status.tor_status().expect("the Status part is shown")
     }
 
-    /// One reading for the header, the review and the pending list. Hidden
-    /// is core's accessor alone; held promises no clearnet and is said only
-    /// for `connecting` and `rebuilding`; a keyword this build does not
-    /// know promises nothing. Red edit: fold `Unknown` into `Held` (the
-    /// review would promise that a send stays off the open network on a
-    /// node whose state the wallet cannot read).
+    /// The wallet's reading is core's fate, one for one, over the cases
+    /// that matter to a send: it adds nothing and reads no field. A link
+    /// that carries nothing is held, a keyword this build does not know
+    /// promises nothing, and hidden is exactly core's accessor. Red edit:
+    /// map `OwnTxFate::Unknown` to `Sends::Held` (the review would promise
+    /// that a send stays off the open network on a node whose state the
+    /// wallet cannot read).
     #[test]
-    fn a_send_is_classified_once_and_an_unknown_promises_nothing() {
-        let of = |origination: &str, tor: &str, clearnet: &str| {
-            sends(&status(|v| {
+    fn the_wallet_s_reading_is_core_s_fate_and_nothing_else() {
+        let of = |origination: &str, tor: &str, clearnet: &str, carriage: Option<&str>| {
+            status(|v| {
                 v["origination"] = origination.into();
                 v["posture"] = serde_json::json!({"tor": tor, "clearnet": clearnet});
-                v["tor"] = serde_json::Value::Null;
-            }))
-        };
-        assert_eq!(of("address-hiding", "operator", "on"), Sends::Hidden);
-        assert_eq!(of("connecting", "operator", "on"), Sends::Held);
-        assert_eq!(of("rebuilding", "operator", "off"), Sends::Held);
-        assert_eq!(of("clearnet-only", "off", "on"), Sends::OpenNetwork);
-        assert_eq!(of("offline", "off", "off"), Sends::Offline);
-        assert_eq!(of("a-word-from-later", "operator", "on"), Sends::Unknown);
-        assert_eq!(
-            of("connecting", "a-setting-from-later", "on"),
-            Sends::Unknown
-        );
-        // Core's accessor fails closed on Tor off; so does this.
-        assert_eq!(of("address-hiding", "off", "on"), Sends::Unknown);
-        for origination in [
-            "address-hiding",
-            "connecting",
-            "rebuilding",
-            "clearnet-only",
-            "offline",
-        ] {
-            let tor = status(|v| {
-                v["origination"] = origination.into();
-                v["posture"] = serde_json::json!({"tor": "operator", "clearnet": "on"});
-                v["tor"] = serde_json::Value::Null;
-            });
-            assert_eq!(
-                sends(&tor) == Sends::Hidden,
-                tor.own_tx_hides_address(),
-                "{origination}: hidden is core's accessor"
-            );
-        }
-    }
-
-    /// Hidden is core's accessor and nothing beside it, under a managed
-    /// Tor too: over every carriage the wallet reads hidden exactly when
-    /// the accessor does. A link that carries nothing is held, as core's
-    /// line says; a carriage this build does not know promises nothing.
-    /// Red edit: read hidden from the origination (a send over a managed
-    /// link that carries nothing is then reviewed as hidden).
-    #[test]
-    fn under_a_managed_tor_hidden_is_still_core_s_accessor_alone() {
-        let of = |carriage: &str| {
-            status(|v| {
-                v["origination"] = "address-hiding".into();
-                v["posture"] = serde_json::json!({"tor": "managed", "clearnet": "on"});
-                v["tor"]["carriage"] = carriage.into();
+                match carriage {
+                    Some(carriage) => v["tor"]["carriage"] = carriage.into(),
+                    None => v["tor"] = serde_json::Value::Null,
+                }
             })
         };
-        for carriage in ["carries", "open-only", "gone", "a-word-from-later"] {
-            let tor = of(carriage);
-            assert_eq!(
-                sends(&tor) == Sends::Hidden,
-                tor.own_tx_hides_address(),
-                "{carriage}"
-            );
+        let cases = [
+            (
+                of("address-hiding", "managed", "on", Some("carries")),
+                Sends::Hidden,
+            ),
+            (
+                of("address-hiding", "managed", "on", Some("open-only")),
+                Sends::Hidden,
+            ),
+            (of("address-hiding", "operator", "on", None), Sends::Hidden),
+            (
+                of("address-hiding", "managed", "on", Some("gone")),
+                Sends::Held,
+            ),
+            (of("connecting", "operator", "on", None), Sends::Held),
+            (
+                of("rebuilding", "managed", "off", Some("carries")),
+                Sends::Held,
+            ),
+            (of("clearnet-only", "off", "on", None), Sends::OpenNetwork),
+            (of("offline", "off", "off", None), Sends::Offline),
+            (
+                of("a-word-from-later", "operator", "on", None),
+                Sends::Unknown,
+            ),
+            (
+                of("connecting", "a-setting-from-later", "on", None),
+                Sends::Unknown,
+            ),
+            (
+                of("address-hiding", "managed", "on", Some("a-word-from-later")),
+                Sends::Unknown,
+            ),
+            (of("address-hiding", "off", "on", None), Sends::Unknown),
+        ];
+        for (tor, want) in &cases {
+            let got = sends(tor);
+            assert_eq!(got, *want, "{tor:?}");
+            assert_eq!(got == Sends::Hidden, tor.own_tx_hides_address(), "{tor:?}");
+            let fate = match got {
+                Sends::Hidden => OwnTxFate::Hidden,
+                Sends::Held => OwnTxFate::Held,
+                Sends::OpenNetwork => OwnTxFate::OpenNetwork,
+                Sends::Offline => OwnTxFate::Offline,
+                Sends::Unknown => OwnTxFate::Unknown,
+                Sends::Withheld => panic!("a shown status is never withheld"),
+            };
+            assert_eq!(fate, tor.own_tx_fate(), "{tor:?}");
         }
-        assert_eq!(sends(&of("carries")), Sends::Hidden);
-        assert_eq!(sends(&of("open-only")), Sends::Hidden);
-        assert_eq!(sends(&of("gone")), Sends::Held);
-        assert!(
-            shekyl_tor_status::render(&of("gone"), None).contains("holding its own transactions")
-        );
-        assert_eq!(sends(&of("a-word-from-later")), Sends::Unknown);
     }
 
     /// The fixes are the read's, in its order, by core's keywords and in
