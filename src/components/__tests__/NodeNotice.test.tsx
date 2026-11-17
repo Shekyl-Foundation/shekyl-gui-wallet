@@ -8,7 +8,14 @@ const FOUND =
   "A Shekyl node of yours is already running on testnet. This wallet uses only the node it starts itself.";
 
 function node(over: Partial<NodeStatus>): NodeStatus {
-  return { state: "running", message: null, network: "testnet", can_force_stop: true, ...over };
+  return {
+    state: "running",
+    message: null,
+    network: "testnet",
+    can_force_stop: true,
+    can_stop_waiting: false,
+    ...over,
+  };
 }
 
 /** `daemon_status` answers `status`; every other command resolves. */
@@ -75,6 +82,63 @@ describe("NodeNotice", () => {
     render(<NodeNotice />);
     expect(await screen.findByText("Stopping the node…")).toBeInTheDocument();
     expect(screen.queryByText("Force stop")).toBeNull();
+  });
+
+  it("names the held data directory while waiting and offers to stop waiting", async () => {
+    const words =
+      "The node you stopped still holds the data directory /home/a/.shekyl/testnet. The wallet's node starts when it lets go.";
+    mockNode(
+      node({ state: "waiting", message: words, can_force_stop: false, can_stop_waiting: true }),
+    );
+    render(<NodeNotice />);
+    expect(await screen.findByText(words)).toBeInTheDocument();
+    expect(screen.queryByText("Force stop")).toBeNull();
+    fireEvent.click(screen.getByText("Stop waiting"));
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("stop_waiting_for_node"),
+    );
+  });
+
+  it("offers to stop waiting for a found node that has not gone", async () => {
+    mockNode(node({ state: "stopping", can_force_stop: false, can_stop_waiting: true }));
+    render(<NodeNotice />);
+    expect(await screen.findByText("Stopping the node…")).toBeInTheDocument();
+    expect(screen.getByText("Stop waiting")).toBeInTheDocument();
+    expect(screen.queryByText("Force stop")).toBeNull();
+  });
+
+  it("keeps Stop waiting pressable while the replacement it ends is running", async () => {
+    let status = node({ state: "found", message: FOUND, can_force_stop: false });
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "daemon_status") return status;
+      // The replacement does not return while it waits.
+      if (cmd === "replace_found_node") return new Promise(() => {});
+      return null;
+    });
+    render(<NodeNotice />);
+    fireEvent.click(await screen.findByText("Stop it and start the wallet’s own"));
+    status = node({
+      state: "waiting",
+      message: "The node you stopped still holds the data directory /d.",
+      can_force_stop: false,
+      can_stop_waiting: true,
+    });
+    const stop = await screen.findByText("Stop waiting", {}, { timeout: 4000 });
+    expect(stop).toBeEnabled();
+    fireEvent.click(stop);
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("stop_waiting_for_node"),
+    );
+  });
+
+  it("says why the node is idle after the wait was ended, and offers a retry", async () => {
+    const words =
+      "The wallet's node is not started: another program still holds the data directory /d.";
+    mockNode(node({ state: "idle", message: words, can_force_stop: false }));
+    render(<NodeNotice />);
+    expect(await screen.findByText(words)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Retry"));
+    await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("start_node"));
   });
 
   it("says a failed start in the node's own words and offers a start", async () => {

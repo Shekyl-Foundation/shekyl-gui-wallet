@@ -84,3 +84,6 @@ shekyl-daemon-rpc = { path = "../../shekyl-core/rust/shekyl-daemon-rpc" }
 # computer" there (`LocalTarget::resolve`), so it never meets a node of the
 # account it runs under.
 shekyl-rpc-rendezvous = { path = "../../shekyl-core/rust/shekyl-rpc-rendezvous" }
+# A live test holds a data directory's lock as a daemon does (`Lock::take`),
+# so the wallet's node meets a held directory with no second daemon.
+shekyl-daemon-config = { path = "../../shekyl-core/rust/shekyl-daemon-config" }

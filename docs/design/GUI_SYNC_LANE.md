@@ -195,6 +195,14 @@ carry Tor's own bytes as pinned.
     owner's leg, then the normal launch. Until the wallet engine's calls
     move to the owner's leg (core RT-W10 step 5), the engine never uses a
     listener on a node the GUI did not launch (Rick, 2026-11-17).
+  - *A data directory still held after that stop.* The wallet's own start
+    is refused with `config.data-dir.locked` while another process holds
+    the directory. The start is retried after 500 ms, then twice as long
+    each time, up to 4 s. While it waits, the notice names the directory
+    and says the node that was stopped still holds it, and offers "Stop
+    waiting": that ends the wait, kills nothing, and leaves the node idle
+    with a Retry, which waits again. The wallet never kills a node it did
+    not start (Rick, 2026-11-17).
 - **Two legs to the wallet's own node.** The GUI's own calls (status, Tor,
   mining, the stop) go over the owner's leg, which holds every grant: the
   wallet started that node and is its host's administrator. The wallet
@@ -238,9 +246,9 @@ carry Tor's own bytes as pinned.
 | GS-C4 | core | Correct `TSR-Q12`, `TOR_SUPERVISOR.md` §11 and core's FOLLOWUPS row for the RW naming: no leg carries Status to the GUI yet | — |
 | GS-C5 | core | The chain-wide staking figures: total bonded principal (ESR-8) and the per-block staker inflow (`ARCHIVAL_BUDGET_SCHEDULE.md`), in `daemon_status`'s economics part beside `stake_share`. The GUI shows nothing for them until core's types carry them | the daemon's bond accounting |
 | GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file`, on every platform (`GS-Q6`). Built: `release.yml` job `core-archives` with `scripts/release/core_archive.py` checks each archive's digest before unpacking (the Foundation-signed `SHA256SUMS` on a tag, GitHub's artifact digest for a dry run's gitian run); `DaemonManager` names the bundled Tor with `tor-file`; after bundling, the release reads Tor back out of every installer and checks it against core's pins and the bundled daemon's `--config-verify` (`src-tauri/binaries/README.md`) | The cut: `SHEKYL_CORE_REF` at the paired core tag, and for macOS that cut carries core #1310 (TSR-F18), without which the hardened runtime kills the signed `tor` at its first onion proof-of-work |
-| GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented"; the open wallet's address passed as `mine-address` when the GUI launches its node (IG-12: `mine-address` is set only at start, so switching wallets relaunches the node). Built: the node is launched through `shekyl-spawn` holding its owning connection (`node_launch.rs`), ready on its ready line; the start dials "this computer" first and a node of this account found there is offered for replacement, never adopted; the GUI's exit closes the connection without waiting, a relaunch waits for end of stream, and Force stop is the only kill; `tauri-plugin-shell` is gone. the node runs the GUI's network (`--network` at launch, mainnet by default, Rick 2026-11-13), a network switch relaunches it on that network's port from core's row and, with a configured data directory, in that network's own store; a switch waits while a wallet of another network is open | — |
+| GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented"; the open wallet's address passed as `mine-address` when the GUI launches its node (IG-12: `mine-address` is set only at start, so a node whose miner is running is relaunched when a wallet with another address is opened, and its miner goes on; a node that is not mining is left alone until mining is started, Rick 2026-11-17). Built: the node is launched through `shekyl-spawn` holding its owning connection (`node_launch.rs`), ready on its ready line; the start dials "this computer" first and a node of this account found there is offered for replacement, never adopted, and a data directory still held after its stop is waited out with a growing interval and a "Stop waiting"; the GUI's exit closes the connection without waiting, a relaunch waits for end of stream, and Force stop is the only kill; `tauri-plugin-shell` is gone. the node runs the GUI's network (`--network` at launch, mainnet by default, Rick 2026-11-13), a network switch relaunches it on that network's port from core's row and, with a configured data directory, in that network's own store; a switch waits while a wallet of another network is open | — |
 | GS-3 | GUI | Posture display, held review/verdict/pending, Settings → Network fixes, daemon config | GS-C1, GS-C2, GS-2 |
-| GS-4 | GUI | Wire debt: RK-D1 adoption and the reads (`daemon_status`, `block_header_show`, `curve_show`, `shard_coverage`, the `version` read) through `shekyl-rpc-client`; mining control on the owner's leg, the miner paying the open wallet's address (`mine-address` on the launch line: the node is relaunched when mining starts for an address it does not pay, and when a wallet is opened while it pays another's). Built | — |
+| GS-4 | GUI | Wire debt: RK-D1 adoption and the reads (`daemon_status`, `block_header_show`, `curve_show`, `shard_coverage`, the `version` read) through `shekyl-rpc-client`; mining control on the owner's leg, the miner paying the open wallet's address (`mine-address` on the launch line: the node is relaunched when mining starts for an address it does not pay, and when a wallet is opened while its miner is running and pays another's). Built | — |
 | GS-5 | GUI | macOS installer Tor: carried by GS-1, by the same mechanism (`GS-Q6`) | As GS-1 |
 
 ## 6. Acceptance (real pathways, every platform with an installer)
@@ -273,7 +281,7 @@ when that adjustment lands.
    on the ref, not the event, so a dispatch from a tag publishes.
 2. Run this repo's release dry run (`release.yml`, `core_gitian_run`)
    against that run id. It compiles the GUI against the commit the run
-   built and runs the live tests (`live_daemon_tests.rs`) against its
+   built and runs the live tests (`live_daemon_tests.rs`, `live_own_node_tests.rs`) against its
    daemon.
 3. Fix whatever is red in one GUI resync PR for the cut, and sweep two
    things no build sees:

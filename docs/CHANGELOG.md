@@ -15,7 +15,13 @@
     until the running node is gone, with a Force stop button. Force stop is
     the only thing that kills a node.
   - A node of yours already running on the network is not used. The wallet
-    says so and offers "Stop it and start the wallet's own".
+    says so and offers "Stop it and start the wallet's own". If the data
+    directory is still held after that node took its stop, the wallet names
+    the directory and keeps trying at growing intervals; "Stop waiting"
+    ends that, kills nothing, and leaves a Retry.
+  - Opening another wallet restarts the node only while it is mining, so
+    the running miner pays the open wallet. Otherwise the node is left
+    alone until mining is started.
   - Something else answering at the node's local address is reported as a
     security failure, and nothing is started or retried.
   - "Keep daemon running after wallet closes" answers that it is not yet

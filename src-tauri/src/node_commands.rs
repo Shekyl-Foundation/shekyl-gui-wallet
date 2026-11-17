@@ -4,7 +4,7 @@
 // BSD-3-Clause
 
 //! The app's commands for the wallet's own node: where it stands, its
-//! settings, and the three acts a person can take on it
+//! settings, and the four acts a person can take on it
 //! (`docs/design/GUI_SYNC_LANE.md` GS-2). The node's life is
 //! [`crate::daemon_manager`]'s; these are its doors.
 
@@ -48,18 +48,28 @@ pub async fn set_daemon_settings(
 }
 
 /// Stop the node of this account the wallet found running on its network,
-/// and start the wallet's own. Returns once the wallet's node is ready.
+/// and start the wallet's own. Returns once the wallet's node is ready, or
+/// once a person has ended the wait for it.
 #[tauri::command]
 pub async fn replace_found_node(dm: State<'_, Arc<DaemonManager>>) -> Result<DaemonStatus, String> {
     dm.replace_found().await?;
     Ok(dm.status().await)
 }
 
-/// Start the wallet's node again after it failed to start or stopped.
+/// Start the wallet's node again after it failed to start or stopped, or
+/// after a person ended a wait for it.
 #[tauri::command]
 pub async fn start_node(dm: State<'_, Arc<DaemonManager>>) -> Result<DaemonStatus, String> {
     dm.start_again().await;
     Ok(dm.status().await)
+}
+
+/// End the wallet's wait on a node it did not start: the found node that
+/// has not gone yet, or the data directory it still holds. Nothing is
+/// killed; the node is left idle, and `start_node` is the retry.
+#[tauri::command]
+pub async fn stop_waiting_for_node(dm: State<'_, Arc<DaemonManager>>) -> Result<(), String> {
+    dm.stop_waiting().await
 }
 
 /// Kill the wallet's node. Only a person's press reaches this: every other

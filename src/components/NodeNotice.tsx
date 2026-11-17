@@ -16,12 +16,17 @@ const NODE_STATUS_POLL_MS = 2000;
  * - `stopping`: a node is stopping; the wallet's own starts when it is gone.
  *   Force stop is offered throughout, for a node the wallet started, and is
  *   the only thing that kills one.
+ * - `waiting`: the found node took its stop and something still holds the
+ *   data directory. The directory is named, and the wait can be ended:
+ *   "Stop waiting" kills nothing and leaves the node idle, with a retry.
+ * - `idle` with words: a person ended such a wait. The words, and Retry.
  * - `failed`: the node did not start, or stopped. Its own words, and a start.
  * - `refused`: something that is not this account's node answers at the
  *   node's local address. A security failure: said whole, with no act.
  * - `unavailable`: this build carries no node.
  *
- * Nothing is shown while the node is starting or running.
+ * Nothing is shown while the node is starting or running, or idle with
+ * nothing to say.
  */
 export default function NodeNotice() {
   const [status, setStatus] = useState<NodeStatus | null>(null);
@@ -59,15 +64,16 @@ export default function NodeNotice() {
   const replaceFound = () => act(() => invoke("replace_found_node"));
   const startNode = () => act(() => invoke("start_node"));
   const forceStop = () => act(() => invoke("force_stop_node"));
+  const stopWaiting = () => act(() => invoke("stop_waiting_for_node"));
 
   if (!status) return null;
   const { state, message } = status;
-  if (state === "idle" || state === "starting" || state === "running") {
-    return null;
-  }
+  if (state === "starting" || state === "running") return null;
+  if (state === "idle" && !message) return null;
+  const busy = state === "stopping" || state === "waiting";
 
   const security = state === "refused";
-  const Icon = security ? ShieldAlert : state === "stopping" ? Loader2 : AlertTriangle;
+  const Icon = security ? ShieldAlert : busy ? Loader2 : AlertTriangle;
 
   return (
     <div
@@ -76,7 +82,7 @@ export default function NodeNotice() {
         security ? "bg-red-500/25 text-red-100" : "bg-amber-500/15 text-amber-100"
       }`}
     >
-      <Icon className={`h-4 w-4 shrink-0 ${state === "stopping" ? "animate-spin" : ""}`} />
+      <Icon className={`h-4 w-4 shrink-0 ${busy ? "animate-spin" : ""}`} />
       <span className="flex-1">
         {state === "stopping" ? "Stopping the node…" : message}
         {error && <span className="ml-2 text-red-200">{error}</span>}
@@ -97,6 +103,24 @@ export default function NodeNotice() {
           onClick={startNode}
         >
           Start the node
+        </button>
+      )}
+      {state === "idle" && (
+        <button
+          className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40 disabled:opacity-50"
+          disabled={acting}
+          onClick={startNode}
+        >
+          Retry
+        </button>
+      )}
+      {busy && status.can_stop_waiting && (
+        // Never disabled: the act it ends is the one that is running.
+        <button
+          className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40"
+          onClick={stopWaiting}
+        >
+          Stop waiting
         </button>
       )}
       {state === "stopping" && status.can_force_stop && (

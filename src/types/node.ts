@@ -7,6 +7,7 @@ export type NodeState =
   | "starting"
   | "running"
   | "stopping"
+  | "waiting"
   | "found"
   | "refused"
   | "failed"
@@ -20,4 +21,9 @@ export interface NodeStatus {
   network: string;
   /** Whether a force stop has a node to act on: one this wallet started. */
   can_force_stop: boolean;
+  /**
+   * Whether the wallet is waiting on a node it did not start, a wait a
+   * person can end. Ending it kills nothing.
+   */
+  can_stop_waiting: boolean;
 }

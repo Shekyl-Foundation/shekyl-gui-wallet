@@ -115,10 +115,10 @@ pub async fn start_mining_cmd(
     Ok(true)
 }
 
-/// A wallet was opened: a node whose miner pays another wallet's address
-/// is started again to pay this one's (Rick, 2026-11-12: a wallet switch
-/// relaunches the node). A node that pays no address yet is left running;
-/// it takes the open wallet's address when mining is first started. The
+/// A wallet was opened: a node whose miner is running and pays another
+/// wallet's address is started again to pay this one's, and its miner goes
+/// on (Rick, 2026-11-17). A node that is not mining is left alone; it
+/// takes the open wallet's address when mining is next started. The
 /// relaunch waits for the running node to be gone, so it runs beside the
 /// open, never inside it.
 pub(crate) fn pay_the_open_wallet(

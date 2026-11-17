@@ -49,6 +49,8 @@ mod gui_config;
 mod lifecycle;
 #[cfg(test)]
 mod live_daemon_tests;
+#[cfg(test)]
+mod live_own_node_tests;
 mod message_signing;
 mod mining;
 #[cfg(feature = "multisig")]
@@ -197,6 +199,7 @@ pub fn run() {
             node_commands::replace_found_node,
             node_commands::start_node,
             node_commands::force_stop_node,
+            node_commands::stop_waiting_for_node,
             tor_status::get_tor_status,
         ])
         .on_window_event(|window, event| {

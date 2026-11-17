@@ -164,7 +164,7 @@ describe("Settings — the wallet's node", () => {
       }
       if (cmd === "get_daemon_settings") return { data_dir: null };
       if (cmd === "daemon_status") {
-        return { state, message: null, network: "testnet", can_force_stop: state === "running" };
+        return { state, message: null, network: "testnet", can_force_stop: state === "running", can_stop_waiting: false };
       }
       if (cmd === "set_daemon_settings") {
         expect(args).toEqual({ keepRunningOnExit: true });

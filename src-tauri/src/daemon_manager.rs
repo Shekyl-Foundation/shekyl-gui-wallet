@@ -4,22 +4,16 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use shekyl_rpc_client::wire::DaemonStop;
+use shekyl_rpc_client::wire::node::{MineStart, Threads};
+use shekyl_rpc_client::wire::MineStatus;
 use shekyl_rpc_transport::local::{LocalFault, LocalTarget};
-use shekyl_rpc_types::kinds::NoParams;
-use tokio::sync::RwLock;
+use shekyl_rpc_types::kinds::{Count, NoParams};
+use tokio::sync::{watch, RwLock};
 
 use crate::node_launch::{self, Launch, Life, OwnNode};
 use crate::state::{NetworkType, NodeGate};
-
-/// Spacing of the looks at a found node's rendezvous while it stops, and of
-/// the starts retried while it still holds the data directory. This wallet
-/// did not start that node and holds no connection whose end would say it
-/// is gone, so it looks.
-const FOUND_NODE_POLL: Duration = Duration::from_millis(500);
 
 /// The diagnostic a node refuses its start with while another process
 /// holds its data directory (shekyl-core `shekyl-options`, `DataDirLocked`).
@@ -47,7 +41,7 @@ fn bundled_tor(resource_dir: &Path) -> PathBuf {
 /// layout the daemon's own default keeps. An explicit directory is taken as
 /// given (IG-Q17), so one shared by two networks would be refused by the
 /// network marker at a switch; this keeps each network's store its own.
-fn data_dir_for(root: &Path, network: NetworkType) -> PathBuf {
+pub(crate) fn data_dir_for(root: &Path, network: NetworkType) -> PathBuf {
     match network.network().subdirectory() {
         Some(sub) => root.join(sub),
         None => root.to_path_buf(),
@@ -176,6 +170,10 @@ pub(crate) enum NodeState {
     Running,
     /// A node is stopping, and the wallet's own starts when it is gone.
     Stopping,
+    /// The found node took its stop, and something still holds the data
+    /// directory. The wallet's own node is started again at growing
+    /// intervals until it starts or a person ends the wait.
+    Waiting(String),
     /// A node of this account already runs on the network. The wallet did
     /// not start it and does not use it.
     Found,
@@ -195,6 +193,7 @@ impl NodeState {
             Self::Starting => "starting",
             Self::Running => "running",
             Self::Stopping => "stopping",
+            Self::Waiting(_) => "waiting",
             Self::Found => "found",
             Self::Refused(_) => "refused",
             Self::Failed(_) => "failed",
@@ -206,8 +205,8 @@ impl NodeState {
 /// The node's state for the page.
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct DaemonStatus {
-    /// `idle`, `starting`, `running`, `stopping`, `found`, `refused`,
-    /// `failed` or `unavailable`.
+    /// `idle`, `starting`, `running`, `stopping`, `waiting`, `found`,
+    /// `refused`, `failed` or `unavailable`.
     pub state: &'static str,
     /// The state in words, where there is something to say.
     pub message: Option<String>,
@@ -215,6 +214,9 @@ pub struct DaemonStatus {
     pub network: &'static str,
     /// Whether a force stop has a node to act on: one this wallet started.
     pub can_force_stop: bool,
+    /// Whether the wallet is waiting on a node it did not start, a wait a
+    /// person can end. Ending it kills nothing.
+    pub can_stop_waiting: bool,
 }
 
 /// The words for a node of this account the wallet found running.
@@ -277,6 +279,12 @@ struct Inner {
     /// Counts launches, so a launch's follower never writes over a later
     /// launch's state.
     launch: u64,
+    /// The wallet is waiting on a node it did not start: for a found node
+    /// to be gone, or for the data directory it held.
+    waits_on_another: bool,
+    /// Why the node is idle after a person ended such a wait. A start that
+    /// follows waits out a held data directory again.
+    left_waiting: Option<String>,
 }
 
 pub struct DaemonManager {
@@ -288,6 +296,8 @@ pub struct DaemonManager {
     config: RwLock<DaemonConfig>,
     config_dir: PathBuf,
     gate: NodeGate,
+    /// A person's "Stop waiting", read by the flow that waits.
+    stop_waiting: watch::Sender<bool>,
 }
 
 impl DaemonManager {
@@ -303,10 +313,13 @@ impl DaemonManager {
                 state: NodeState::Idle,
                 node: None,
                 launch: 0,
+                waits_on_another: false,
+                left_waiting: None,
             }),
             config: RwLock::new(config),
             config_dir,
             gate,
+            stop_waiting: watch::channel(false).0,
         })
     }
 
@@ -333,7 +346,8 @@ impl DaemonManager {
             NodeState::Starting => Err("The wallet's node is starting.".to_owned()),
             NodeState::Stopping => Err("The node is stopping.".to_owned()),
             NodeState::Found => Err(found_words(inner.network)),
-            NodeState::Refused(words)
+            NodeState::Waiting(words)
+            | NodeState::Refused(words)
             | NodeState::Failed(words)
             | NodeState::Unavailable(words) => Err(words.clone()),
         }
@@ -348,11 +362,25 @@ impl DaemonManager {
             NodeState::Idle => Some(NODE_NOT_STARTED.to_owned()),
             NodeState::Stopping => Some("The node is stopping.".to_owned()),
             NodeState::Found => Some(found_words(inner.network)),
-            NodeState::Refused(words)
+            NodeState::Waiting(words)
+            | NodeState::Refused(words)
             | NodeState::Failed(words)
             | NodeState::Unavailable(words) => Some(words.clone()),
         });
+        if state != NodeState::Idle {
+            inner.left_waiting = None;
+        }
         inner.state = state;
+    }
+
+    /// The node said it is ready: `starting`, or `waiting` on a start
+    /// retried, becomes `running`, and the engine's way opens.
+    fn now_running(&self, inner: &mut Inner) {
+        if matches!(inner.state, NodeState::Starting | NodeState::Waiting(_)) {
+            inner.state = NodeState::Running;
+            self.gate.set(None);
+            tracing::info!("the wallet's node is ready");
+        }
     }
 
     /// Start the node on `network`.
@@ -362,10 +390,24 @@ impl DaemonManager {
         self.start_locked().await;
     }
 
-    /// Start the wallet's own node again after it failed or was stopped.
+    /// Start the wallet's own node again after it failed or was stopped,
+    /// or after a person ended a wait for it. After such a wait the start
+    /// waits out a held data directory again, as the replacement did.
     pub async fn start_again(self: &Arc<Self>) {
         let _lifecycle = self.lifecycle.lock().await;
-        if self.inner.read().await.node.is_none() {
+        let (has_node, waited) = {
+            let inner = self.inner.read().await;
+            (inner.node.is_some(), inner.left_waiting.is_some())
+        };
+        if has_node {
+            return;
+        }
+        if waited {
+            self.stop_waiting.send_replace(false);
+            self.inner.write().await.waits_on_another = true;
+            self.start_waiting_locked(true).await;
+            self.inner.write().await.waits_on_another = false;
+        } else {
             self.start_locked().await;
         }
     }
@@ -375,6 +417,12 @@ impl DaemonManager {
     /// A node of this account there is found and left alone. Anything else
     /// there is a hard stop.
     async fn start_locked(self: &Arc<Self>) {
+        self.start_waiting_locked(false).await;
+    }
+
+    /// [`Self::start_locked`], and with `wait_out_lock` the launch waits
+    /// out a held data directory ([`Self::launch_waiting_locked`]).
+    async fn start_waiting_locked(self: &Arc<Self>, wait_out_lock: bool) {
         let network = self.inner.read().await.network;
         match self.dial(network).await {
             Ok(()) => {
@@ -389,7 +437,11 @@ impl DaemonManager {
                 | LocalFault::NotRunning { .. }
                 | LocalFault::Stale { .. },
             ) => {
-                self.launch_locked().await;
+                if wait_out_lock {
+                    drop(self.launch_waiting_locked().await);
+                } else {
+                    self.launch_locked(false).await;
+                }
             }
             Err(fault) if fault.is_security_failure() => {
                 tracing::error!("the node's local address failed its check: {fault}");
@@ -409,8 +461,10 @@ impl DaemonManager {
             .unwrap_or_else(|e| Err(LocalFault::Unreachable(e.to_string())))
     }
 
-    /// Launch the wallet's own node and follow its life.
-    async fn launch_locked(self: &Arc<Self>) {
+    /// Launch the wallet's own node and follow its life. A `quiet` launch
+    /// is a start retried while the state is `waiting`: the state stays
+    /// there until the node says it is ready.
+    async fn launch_locked(self: &Arc<Self>, quiet: bool) {
         let Some(program) = self.env.program.clone() else {
             self.set_state(NodeState::Unavailable(
                 "This build of the wallet carries no node to start.".to_owned(),
@@ -477,7 +531,9 @@ impl DaemonManager {
             inner.node = Some(node);
             inner.launch
         };
-        self.set_state(NodeState::Starting).await;
+        if !quiet {
+            self.set_state(NodeState::Starting).await;
+        }
         let manager = Arc::clone(self);
         tokio::spawn(async move { manager.follow(id, life).await });
     }
@@ -491,16 +547,17 @@ impl DaemonManager {
                 Life::Starting => {}
                 Life::Ready => {
                     let mut inner = self.inner.write().await;
-                    if inner.launch == id && inner.state == NodeState::Starting {
-                        inner.state = NodeState::Running;
-                        tracing::info!("the wallet's node is ready");
+                    if inner.launch == id {
+                        self.now_running(&mut inner);
                     }
                 }
                 Life::Gone { refusal } => {
                     let mut inner = self.inner.write().await;
                     if inner.launch == id {
                         inner.node = None;
-                        if inner.state != NodeState::Stopping {
+                        // A stop this wallet asked for, and a start retried
+                        // while waiting, leave the state to their flows.
+                        if !matches!(inner.state, NodeState::Stopping | NodeState::Waiting(_)) {
                             let words = refusal.unwrap_or_else(|| NODE_STOPPED.to_owned());
                             tracing::warn!("the wallet's node is gone: {words}");
                             self.gate.set(Some(words.clone()));
@@ -558,9 +615,9 @@ impl DaemonManager {
                 }
                 NodeState::Running => {}
                 NodeState::Found => return Err(found_words(inner.network)),
-                NodeState::Refused(words) | NodeState::Unavailable(words) => {
-                    return Err(words.clone())
-                }
+                NodeState::Waiting(words)
+                | NodeState::Refused(words)
+                | NodeState::Unavailable(words) => return Err(words.clone()),
                 NodeState::Idle
                 | NodeState::Starting
                 | NodeState::Stopping
@@ -573,9 +630,11 @@ impl DaemonManager {
         self.ready_or_words().await
     }
 
-    /// A wallet with `address` was opened. A node whose miner pays another
-    /// address is started again to pay this one; a node that pays none yet
-    /// is left as it is.
+    /// A wallet with `address` was opened. The node is started again for
+    /// it only while its miner is running and pays another address (Rick,
+    /// 2026-11-17): the miner then goes on, with the threads it had, paying
+    /// the open wallet. A node that is not mining is left alone;
+    /// [`Self::mine_to`] gives it the address when mining is started.
     pub async fn follow_wallet(self: &Arc<Self>, address: &str) -> Result<(), String> {
         let pays_another = self
             .inner
@@ -584,11 +643,30 @@ impl DaemonManager {
             .mine_address
             .as_deref()
             .is_some_and(|paid| paid != address);
-        if pays_another {
-            self.mine_to(address).await
-        } else {
-            Ok(())
+        if !pays_another {
+            return Ok(());
         }
+        // Not the wallet's own node, or not ready: nothing of its is mining.
+        let Ok(leg) = self.own_target().await else {
+            return Ok(());
+        };
+        let miner = tokio::task::spawn_blocking(move || leg.call::<MineStatus>(&NoParams))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("The node's miner could not be read: {e}"))?;
+        if !miner.active {
+            return Ok(());
+        }
+        self.mine_to(address).await?;
+        let leg = self.own_target().await?;
+        let threads = Threads::Count(Count(miner.threads.0));
+        tokio::task::spawn_blocking(move || {
+            leg.call::<shekyl_rpc_client::wire::MineStart>(&MineStart { threads })
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map(drop)
+        .map_err(|e| format!("The miner did not start again: {e}"))
     }
 
     /// Wait for the node just started to be ready, or say why it is not.
@@ -602,10 +680,7 @@ impl DaemonManager {
                 Life::Ready => {
                     // The follower writes the same state; this does not
                     // wait for it.
-                    let mut inner = self.inner.write().await;
-                    if inner.state == NodeState::Starting {
-                        inner.state = NodeState::Running;
-                    }
+                    self.now_running(&mut *self.inner.write().await);
                     return Ok(());
                 }
                 // The node's own words, from the read that ended: the
@@ -619,70 +694,12 @@ impl DaemonManager {
         let inner = self.inner.read().await;
         Err(match &inner.state {
             NodeState::Found => found_words(inner.network),
-            NodeState::Refused(words)
+            NodeState::Waiting(words)
+            | NodeState::Refused(words)
             | NodeState::Failed(words)
             | NodeState::Unavailable(words) => words.clone(),
             _ => "The wallet's node did not start.".to_owned(),
         })
-    }
-
-    /// Stop the node of this account the wallet found running, and start
-    /// the wallet's own (Rick, 2026-11-17). The stop is `daemon_stop` over
-    /// the owner's leg. The wallet holds no connection to that node whose
-    /// end would say it is gone, so it looks at the rendezvous until it is,
-    /// and starts its own again while that node still holds the data
-    /// directory.
-    pub async fn replace_found(self: &Arc<Self>) -> Result<(), String> {
-        let _lifecycle = self.lifecycle.lock().await;
-        let network = {
-            let inner = self.inner.read().await;
-            if inner.state != NodeState::Found {
-                return Err("No other node of yours is running to stop.".to_owned());
-            }
-            inner.network
-        };
-        let target = self.target(network).map_err(|e| e.to_string())?;
-        let stop = tokio::task::spawn_blocking(move || target.call::<DaemonStop>(&NoParams))
-            .await
-            .map_err(|e| e.to_string())?;
-        if let Err(e) = stop {
-            let words = format!(
-                "Your node on {} did not take the stop: {e}",
-                network.as_str()
-            );
-            if let shekyl_rpc_transport::JsonRpcError::Transport(fault) = &e {
-                if fault.is_security_failure() {
-                    self.set_state(NodeState::Refused(fault.to_string())).await;
-                }
-            }
-            return Err(words);
-        }
-        self.set_state(NodeState::Stopping).await;
-        tracing::info!(network = network.as_str(), "stopping the found node");
-        loop {
-            match self.dial(network).await {
-                Ok(()) | Err(LocalFault::Unreachable(_)) => {
-                    tokio::time::sleep(FOUND_NODE_POLL).await;
-                }
-                Err(fault) if fault.is_security_failure() => {
-                    self.set_state(NodeState::Refused(fault.to_string())).await;
-                    return Err(fault.to_string());
-                }
-                Err(_) => break,
-            }
-        }
-        loop {
-            self.launch_locked().await;
-            match self.ready_or_words().await {
-                Ok(()) => return Ok(()),
-                // The stopped node is still closing its store.
-                Err(words) if words.contains(DATA_DIR_LOCKED) => {
-                    self.set_state(NodeState::Stopping).await;
-                    tokio::time::sleep(FOUND_NODE_POLL).await;
-                }
-                Err(words) => return Err(words),
-            }
-        }
     }
 
     /// Kill the node this wallet started. A person asks for this; nothing
@@ -713,18 +730,19 @@ impl DaemonManager {
         let inner = self.inner.read().await;
         let message = match &inner.state {
             NodeState::Found => Some(found_words(inner.network)),
-            NodeState::Refused(words)
+            NodeState::Waiting(words)
+            | NodeState::Refused(words)
             | NodeState::Failed(words)
             | NodeState::Unavailable(words) => Some(words.clone()),
-            NodeState::Idle | NodeState::Starting | NodeState::Running | NodeState::Stopping => {
-                None
-            }
+            NodeState::Idle => inner.left_waiting.clone(),
+            NodeState::Starting | NodeState::Running | NodeState::Stopping => None,
         };
         DaemonStatus {
             state: inner.state.keyword(),
             message,
             network: inner.network.as_str(),
             can_force_stop: inner.node.is_some(),
+            can_stop_waiting: inner.waits_on_another,
         }
     }
 
@@ -746,234 +764,7 @@ impl DaemonManager {
     }
 }
 
+mod replace;
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use shekyl_engine_core::Network;
-
-    fn config(data_dir: Option<&str>) -> DaemonConfig {
-        DaemonConfig {
-            data_dir: data_dir.map(str::to_owned),
-        }
-    }
-
-    fn names(tor_file: Option<PathBuf>) -> LaunchNames {
-        LaunchNames {
-            tor_file,
-            ..LaunchNames::default()
-        }
-    }
-
-    #[test]
-    fn the_sidecar_names_the_bundled_tor() {
-        let tor = bundled_tor(Path::new("/res"));
-        let args = sidecar_args(
-            &config(None),
-            NetworkType::Testnet,
-            12029,
-            &names(Some(tor.clone())),
-        );
-        let want: Vec<OsString> = [
-            "--network",
-            "testnet",
-            "--rpc-admin-listen",
-            "none",
-            "--rpc-view-listen",
-            "127.0.0.1:12029",
-            "--tor-file",
-        ]
-        .iter()
-        .map(OsString::from)
-        .chain([tor.clone().into_os_string()])
-        .collect();
-        assert_eq!(args, want);
-        assert_eq!(tor, Path::new("/res").join("tor").join(TOR_FILE));
-    }
-
-    /// Every network's launch names that network and listens on its port
-    /// from core's row. Red edit: drop `--network` (the node then runs
-    /// mainnet whatever the wallet's network).
-    #[test]
-    fn the_launch_carries_the_wallet_s_network_and_its_port() {
-        for net in NetworkType::ALL {
-            let args = sidecar_args(&config(None), net, net.rpc_port(), &names(None));
-            assert_eq!(
-                args[..2],
-                [OsString::from("--network"), OsString::from(net.as_str())]
-            );
-            assert_eq!(
-                args[5],
-                OsString::from(format!("127.0.0.1:{}", net.network().ports().rpc))
-            );
-        }
-        assert_eq!(
-            NetworkType::default(),
-            NetworkType::Mainnet,
-            "Rick, 2026-11-13"
-        );
-    }
-
-    /// A configured data directory is per network: the root for mainnet,
-    /// the network's subdirectory from core's row otherwise, so a switch
-    /// never points two networks at one store.
-    #[test]
-    fn a_configured_data_dir_is_per_network() {
-        let root = Path::new("/data");
-        let dirs: Vec<PathBuf> = NetworkType::ALL
-            .iter()
-            .map(|n| data_dir_for(root, *n))
-            .collect();
-        for (n, dir) in NetworkType::ALL.iter().zip(&dirs) {
-            let want = n
-                .network()
-                .subdirectory()
-                .map_or_else(|| root.to_path_buf(), |sub| root.join(sub));
-            assert_eq!(*dir, want);
-        }
-        let distinct: std::collections::BTreeSet<_> = dirs.iter().collect();
-        assert_eq!(
-            distinct.len(),
-            dirs.len(),
-            "one store per network: {dirs:?}"
-        );
-        let args = sidecar_args(
-            &config(Some("/data")),
-            NetworkType::Testnet,
-            12029,
-            &names(None),
-        );
-        let at = args.iter().position(|a| a == "--data-dir").unwrap();
-        assert_eq!(
-            PathBuf::from(&args[at + 1]),
-            data_dir_for(root, NetworkType::Testnet)
-        );
-    }
-
-    /// The node follows a switch only while no wallet of another network is
-    /// open: a wallet of one network never gets a node of another.
-    #[test]
-    fn a_wallet_of_one_network_never_gets_a_node_of_another() {
-        assert!(may_switch(None, NetworkType::Testnet).is_ok());
-        assert!(may_switch(Some(Network::Testnet), NetworkType::Testnet).is_ok());
-        let refused = may_switch(Some(Network::Testnet), NetworkType::Mainnet).unwrap_err();
-        assert!(
-            refused.contains("Close it before switching to mainnet"),
-            "{refused}"
-        );
-    }
-
-    #[test]
-    fn without_a_resource_directory_no_tor_file_is_named() {
-        let args = sidecar_args(&config(None), NetworkType::Mainnet, 11029, &names(None));
-        assert!(!args.iter().any(|a| a == "--tor-file"));
-    }
-
-    /// The miner's address rides the launch line: the daemon reads it only
-    /// at its start. And the wallet's launch never opens an admin listener:
-    /// its own calls go over the owner's leg.
-    #[test]
-    fn the_launch_names_the_mining_address_and_no_admin_listener() {
-        let args = sidecar_args(
-            &config(None),
-            NetworkType::Testnet,
-            12029,
-            &LaunchNames {
-                mine_address: Some("SKL1abc".to_owned()),
-                ..LaunchNames::default()
-            },
-        );
-        let at = args.iter().position(|a| a == "--mine-address").unwrap();
-        assert_eq!(args[at + 1], OsString::from("SKL1abc"));
-        let admin = args.iter().position(|a| a == "--rpc-admin-listen").unwrap();
-        assert_eq!(args[admin + 1], OsString::from("none"));
-        assert!(
-            !args.iter().any(|a| a == "--owning-connection"),
-            "the launcher's"
-        );
-    }
-
-    /// An old settings file that still carries the keep-running key loads:
-    /// the key is not a setting any more, and is not an error either.
-    #[test]
-    fn a_settings_file_with_the_retired_key_still_loads() {
-        let config: DaemonConfig =
-            serde_json::from_str(r#"{"keep_running_on_exit": true, "data_dir": "/d"}"#).unwrap();
-        assert_eq!(config.data_dir.as_deref(), Some("/d"));
-    }
-
-    /// A test's own directory, removed when it goes.
-    #[cfg(unix)]
-    struct TestDir(PathBuf);
-
-    #[cfg(unix)]
-    impl TestDir {
-        fn new(what: &str) -> Self {
-            use std::os::unix::fs::PermissionsExt;
-            let dir = std::env::temp_dir().join(format!(
-                "shekyl-gui-{what}-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            std::fs::create_dir_all(dir.join("s")).unwrap();
-            std::fs::set_permissions(dir.join("s"), std::fs::Permissions::from_mode(0o700))
-                .unwrap();
-            Self(dir)
-        }
-    }
-
-    #[cfg(unix)]
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            drop(std::fs::remove_dir_all(&self.0));
-        }
-    }
-
-    /// The engine's way to the node on this computer is open only while the
-    /// node there is the wallet's own. Before the start it is closed; with
-    /// nothing at "this computer" and no node in the build, the wallet
-    /// starts nothing, says so, and the way stays closed, with the same
-    /// words. Red edit: close the gate only for `Found` and `Refused`, as it
-    /// first was; the engine could then dial whatever listens at the port.
-    /// Unix: the test names its own socket directory, which Windows refuses.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn the_engine_s_way_is_closed_unless_the_node_is_the_wallet_s_own() {
-        let dir = TestDir::new("gate");
-        let gate = NodeGate::default();
-        let env = LaunchEnv {
-            program: None,
-            tor_file: None,
-            socket_dir: Some(dir.0.join("s")),
-            rpc_port: None,
-            extra_args: Vec::new(),
-        };
-        let state = crate::state::AppState {
-            node_gate: gate.clone(),
-            ..crate::state::AppState::new()
-        };
-        assert!(state.engine_base().await.is_ok(), "no manager yet");
-        let dm = DaemonManager::new(dir.0.join("settings"), env, gate);
-        assert_eq!(
-            state.engine_base().await.err().as_deref(),
-            Some(NODE_NOT_STARTED),
-            "closed before the start"
-        );
-        assert_eq!(dm.status().await.state, "idle");
-
-        dm.start(NetworkType::Testnet).await;
-        let status = dm.status().await;
-        assert_eq!(status.state, "unavailable", "{status:?}");
-        let words = status.message.expect("why");
-        assert_eq!(state.engine_base().await.err(), Some(words.clone()));
-        assert_eq!(dm.own_target().await.err(), Some(words));
-        assert!(!status.can_force_stop);
-
-        // A node address a person typed is theirs: the gate is about the
-        // node on this computer alone.
-        *state.typed_node.write().await = true;
-        assert!(state.engine_base().await.is_ok());
-    }
-}
+mod tests;
