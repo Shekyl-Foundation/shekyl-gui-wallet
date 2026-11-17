@@ -220,7 +220,8 @@ async fn miner(dm: &DaemonManager) -> shekyl_rpc_client::wire::node::MineStatus 
 /// stopped. Another wallet is opened: the node is the same process, still
 /// paying the first address. `mine_to`, which Start mining calls, is what
 /// moves it. Red edit: in `follow_wallet`, drop the `!miner.active` return
-/// (the open restarts the node: a new pid).
+/// (the open restarts the node, then fails asking a miner that had no
+/// threads to start again: `mine.threads-zero`).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the bundled shekyld sidecar"]
 async fn a_wallet_opened_while_not_mining_causes_no_restart() {
