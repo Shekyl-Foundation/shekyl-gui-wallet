@@ -22,9 +22,9 @@ describe("StakeTierCard", () => {
     expect(screen.getByText(/Est. APY/)).toBeInTheDocument();
   });
 
-  it("shows lock duration", () => {
+  it("shows lock duration, one month in the singular", () => {
     render(<StakeTierCard tier={tier} />);
-    expect(screen.getByText(/1 months/)).toBeInTheDocument();
+    expect(screen.getByText(/Lock: 1 month \(/)).toBeInTheDocument();
   });
 
   it("calls onSelect when clicked", () => {

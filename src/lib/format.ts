@@ -1,3 +1,5 @@
+import type { ChainConstants } from "../types/daemon";
+
 const ATOMIC_PER_SKL = 1_000_000_000n;
 const MILLION_SKL_ATOMIC = 1_000_000n * ATOMIC_PER_SKL;
 const THOUSAND_SKL_ATOMIC = 1_000n * ATOMIC_PER_SKL;
@@ -110,10 +112,27 @@ export function formatHashRate(hashRate: number): string {
   return `${hashRate.toFixed(0)} H/s`;
 }
 
+/** `n` of `unit`, singular for exactly one. */
+function counted(n: number, unit: string): string {
+  return n === 1 ? `1 ${unit}` : `${n} ${unit}s`;
+}
+
 export function formatDuration(hours: number): string {
-  if (hours >= 24 * 30) return `${Math.round(hours / (24 * 30))} months`;
-  if (hours >= 24) return `${Math.round(hours / 24)} days`;
-  return `${Math.round(hours)} hours`;
+  if (hours >= 24 * 30) return counted(Math.round(hours / (24 * 30)), "month");
+  if (hours >= 24) return counted(Math.round(hours / 24), "day");
+  return counted(Math.round(hours), "hour");
+}
+
+/**
+ * A count of blocks as the time it takes: the count times core's target
+ * block spacing, in minutes under two hours and in hours, days or months
+ * above. Blocks arrive at the target on average, so this is the estimate a
+ * person reads ("3 minutes", never "1.5 blocks"; rule 81). Never under a
+ * minute: a wait of any blocks is not "now".
+ */
+export function blocksAsTime(blocks: number, blockSpacing: number): string {
+  const minutes = Math.max(1, Math.round((blocks * blockSpacing) / 60));
+  return minutes < 120 ? counted(minutes, "minute") : formatDuration(minutes / 60);
 }
 
 export function emissionProgress(generatedCoins: string): number {
@@ -141,19 +160,12 @@ export function blockNumberOfCount(count: number): number | null {
 
 /**
  * How long a mined reward waits before it can be spent: core's lock window
- * (`get_chain_constants`, known without the node) and, when the node has
- * been read, its block spacing for the time. `null` only when the constant
- * itself could not be read.
+ * and the time it takes at core's block spacing, both constants of this
+ * build (`get_chain_constants`, known without the node). `null` only while
+ * the constants are unread.
  */
-export function coinbaseLockText(
-  lockWindow: number | null,
-  blockSpacing: number | null,
-): string | null {
-  if (lockWindow === null) return null;
-  const blocks = `${lockWindow.toLocaleString()} blocks`;
-  if (blockSpacing === null) return blocks;
-  const minutes = (lockWindow * blockSpacing) / 60;
-  const about =
-    minutes < 120 ? `${Math.round(minutes)} minutes` : formatDuration(minutes / 60);
-  return `${blocks} (about ${about})`;
+export function coinbaseLockText(constants: ChainConstants | null): string | null {
+  if (constants === null) return null;
+  const lock = constants.coinbase_lock_window;
+  return `${lock.toLocaleString()} blocks (about ${blocksAsTime(lock, constants.block_spacing)})`;
 }

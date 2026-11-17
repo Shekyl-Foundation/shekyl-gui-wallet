@@ -48,17 +48,17 @@ describe("Mining", () => {
     expect(screen.getByText("Mining")).toBeInTheDocument();
   });
 
-  it("names the lock window with no node: it is core's constant", async () => {
+  it("names the lock window and its time with no node: both are core's constants", async () => {
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
-      if (cmd === "get_chain_constants") return { coinbase_lock_window: 60 };
+      if (cmd === "get_chain_constants") return { coinbase_lock_window: 60, block_spacing: 120 };
       if (cmd === "get_mining_status") throw "Could not reach the node for mining";
       return null;
     });
     renderMining();
     expect(screen.getByText("Mining and Privacy")).toBeInTheDocument();
-    // The node is down: the window is still named, without a time.
+    // The node is down: the window and its time are still named.
     expect(
-      await screen.findByText(/Mining rewards can be spent after 60 blocks\./),
+      await screen.findByText(/Mining rewards can be spent after 60 blocks \(about 2 hours\)\./),
     ).toBeInTheDocument();
   });
 
@@ -140,8 +140,9 @@ describe("Mining", () => {
   it("takes the lock window and spacing from core, and names no ring", async () => {
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "get_wallet_status") return { connected: true };
-      if (cmd === "get_chain_constants") return { coinbase_lock_window: 7 };
-      if (cmd === "get_chain_health") return { block_spacing: 60, difficulty: "0" };
+      if (cmd === "get_chain_constants") return { coinbase_lock_window: 7, block_spacing: 60 };
+      // The node's own figure is not what the time is read from.
+      if (cmd === "get_chain_health") return { block_spacing: 600, difficulty: "0" };
       if (cmd === "get_mining_status") return miningStatus(false);
       return null;
     });

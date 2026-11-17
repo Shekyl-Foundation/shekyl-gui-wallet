@@ -53,21 +53,32 @@ export interface WalletStatus {
 }
 
 /**
- * The contract's `GetBalanceResult` (`get_balance`), projected once in
- * engine-core for this wallet and wallet-rpc alike. Atomic amounts are decimal
- * strings; format with `formatSkl`. `staked` and `claimable_rewards` are
- * **absent, never `"0"`,** when the wallet's staking state could not be read:
- * the liquid fields stay authoritative while the staking figures degrade, and
- * the card must render "unavailable", not "nothing staked".
+ * The contract's `GetBalanceResult` (`get_balance`, contract 0.19.0),
+ * projected once in engine-core for this wallet and wallet-rpc alike. Atomic
+ * amounts are decimal strings; format with `formatSkl`.
+ *
+ * `balance` = `spendable` + `incoming`, each leg once; `outgoing`
+ * and `unspendable` sit beside the balance, never in it. `staked` and
+ * `claimable_rewards` are **absent, never `"0"`,** when the wallet's staking
+ * state could not be read: the ledger's legs stay authoritative while the
+ * staking figures degrade, and the card must render "unavailable", not
+ * "nothing staked".
  */
 export interface Balance {
-  /** The one-glance figure (engine-core `project_balance`, shekyl-core `48d515145`, assigns it and `unlocked` alike). */
-  liquid: string;
-  /** Spendable right now. */
-  unlocked: string;
-  /** Committed to a send awaiting confirmation: counted, never spendable. */
-  pending: string;
-  /** Received but never spendable by this wallet; counted nowhere else. */
+  /** spendable + incoming. */
+  balance: string;
+  /** What a send could use now. */
+  spendable: string;
+  /** Received and not yet spendable, plus in-flight sends' change. */
+  incoming: string;
+  /**
+   * Blocks until the soonest on-chain incoming output is spendable; absent
+   * when none is on chain. Shown as a time (`blocksAsTime`), never as blocks.
+   */
+  incoming_wait?: number;
+  /** Recipients plus fee of the sends in flight. Beside the balance. */
+  outgoing: string;
+  /** Received but never spendable by this wallet. Beside the balance. */
   unspendable: string;
   /** Bond principal under confirmed and in-flight bonds. */
   staked?: string;
@@ -228,4 +239,6 @@ export interface StakingOutcomeView {
 export interface ChainConstants {
   /** Blocks a mined reward waits before it can be spent. */
   coinbase_lock_window: number;
+  /** Target seconds between blocks: what a count of blocks is multiplied by to read as a time. */
+  block_spacing: number;
 }

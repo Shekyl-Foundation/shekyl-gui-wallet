@@ -11,6 +11,7 @@ import type {
 } from "../types/send";
 import {
   CONTENT_CHANGED_NOTICE,
+  DEFAULT_TIER,
   isSendError,
   RELEASE_FAILED_ADVICE,
   RETAINED_ADVICE,
@@ -78,7 +79,7 @@ export default function Send() {
   const [phase, setPhase] = useState<Phase>("compose");
   const [address, setAddress] = useState("");
   const [amountText, setAmountText] = useState("");
-  const [priority, setPriority] = useState<FeePriorityTier>("STANDARD");
+  const [priority, setPriority] = useState<FeePriorityTier>(DEFAULT_TIER);
   const [quote, setQuote] = useState<FeeTierQuote | null>(null);
   const [built, setBuilt] = useState<BuiltPendingTx | null>(null);
   const [sent, setSent] = useState<SubmitResult | null>(null);

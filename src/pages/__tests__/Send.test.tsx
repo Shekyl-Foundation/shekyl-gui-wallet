@@ -6,10 +6,9 @@ import Send from "../Send";
 import type { BuiltPendingTx, FeeTierQuote, SendError, SubmitResult } from "../../types/send";
 
 const QUOTE: FeeTierQuote = {
-  default_priority: "STANDARD",
-  economy_fee: "100000000",
-  standard_fee: "200000000",
-  priority_fee: "400000000",
+  economy: "100000000",
+  standard: "200000000",
+  high: "400000000",
   tree_depth: 6,
 };
 const BUILT: BuiltPendingTx = { pending_tx_id: "42", fee: "250000000", content_gen: 0 };
@@ -83,10 +82,10 @@ describe("Send page", () => {
     route({ get_default_fee_priority: () => QUOTE, build_pending_tx: () => BUILT });
     const u = user();
     render(<Send />);
-    await u.click(screen.getByRole("radio", { name: /^priority/i }));
+    await u.click(screen.getByRole("radio", { name: /^high/i }));
     await reachReview(u);
     expect(calls("build_pending_tx")).toEqual([
-      ["build_pending_tx", { address: "shekyl1abc123", amount: "1500000000", priority: "PRIORITY" }],
+      ["build_pending_tx", { address: "shekyl1abc123", amount: "1500000000", priority: "high" }],
     ]);
     expect(screen.getByTestId("exact-fee")).toHaveTextContent("0.250000000 SKL");
     expect(screen.getByTestId("total")).toHaveTextContent("1.750000000 SKL");

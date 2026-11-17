@@ -78,12 +78,8 @@ use shekyl_units::AtomicUnitsString;
 /// on the same names the CLI and RPC clients see. Strings, not an enum, because
 /// they cross the Tauri edge as the contract spells them.
 pub mod contract {
-    /// Fee tiers (`build_pending_tx.priority`).
-    pub const TIER_ECONOMY: &str = "ECONOMY";
-    pub const TIER_STANDARD: &str = "STANDARD";
-    pub const TIER_PRIORITY: &str = "PRIORITY";
-    /// The tier a fresh page starts on (`get_default_fee_priority.default_priority`).
-    pub const DEFAULT_TIER: &str = TIER_STANDARD;
+    // Fee tiers are not listed here: their one spelling is the engine's
+    // `FeePriority` (`economy`, `standard`, `high`; IG-Q52).
 
     /// Submit verdicts (`SubmitVerdictView`).
     pub const VERDICT_ACCEPTED: &str = "ACCEPTED";
@@ -102,19 +98,15 @@ pub mod contract {
 const CANONICAL_INPUT_COUNT: usize = 2;
 const CANONICAL_OUTPUT_COUNT: usize = 2;
 
-/// The contract's tier names (`wallet_rpc.yaml`, `build_pending_tx.priority`).
+/// The contract's tier names (`wallet_rpc.yaml`, `build_pending_tx.priority`):
+/// `economy`, `standard`, `high`, lowercase, with one spelling each.
 pub fn parse_priority(tier: &str) -> Result<FeePriority, SendError> {
-    match tier {
-        contract::TIER_ECONOMY => Ok(FeePriority::Economy),
-        contract::TIER_STANDARD => Ok(FeePriority::Standard),
-        contract::TIER_PRIORITY => Ok(FeePriority::Priority),
-        other => Err(SendError::invalid(format!(
-            "unknown fee priority tier: {other} (expected {}, {} or {})",
-            contract::TIER_ECONOMY,
-            contract::TIER_STANDARD,
-            contract::TIER_PRIORITY
-        ))),
-    }
+    FeePriority::from_name(tier).ok_or_else(|| {
+        SendError::invalid(format!(
+            "unknown fee priority tier: {tier} (expected {})",
+            FeePriority::NAMES.join(", ")
+        ))
+    })
 }
 
 /// `get_default_fee_priority` result: the daemon's tier quotes for the
@@ -122,10 +114,9 @@ pub fn parse_priority(tier: &str) -> Result<FeePriority, SendError> {
 /// confirms; that comes from the build.
 #[derive(Debug, Serialize)]
 pub struct FeeTierQuote {
-    pub default_priority: &'static str,
-    pub economy_fee: AtomicUnitsString,
-    pub standard_fee: AtomicUnitsString,
-    pub priority_fee: AtomicUnitsString,
+    pub economy: AtomicUnitsString,
+    pub standard: AtomicUnitsString,
+    pub high: AtomicUnitsString,
     pub tree_depth: u8,
 }
 
@@ -248,10 +239,9 @@ pub async fn get_default_fee_priority(
         .await
         .map_err(|e| SendError::from_contract(e.into(), false))?;
     Ok(FeeTierQuote {
-        default_priority: contract::DEFAULT_TIER,
-        economy_fee: quote.economy_fee.into(),
-        standard_fee: quote.standard_fee.into(),
-        priority_fee: quote.priority_fee.into(),
+        economy: quote.economy.into(),
+        standard: quote.standard.into(),
+        high: quote.high.into(),
         tree_depth: quote.tree_depth,
     })
 }
@@ -389,18 +379,19 @@ mod tests {
     #[test]
     fn tiers_are_the_contracts_names_and_nothing_else() {
         assert!(matches!(
-            parse_priority("ECONOMY"),
+            parse_priority("economy"),
             Ok(FeePriority::Economy)
         ));
         assert!(matches!(
-            parse_priority("STANDARD"),
+            parse_priority("standard"),
             Ok(FeePriority::Standard)
         ));
-        assert!(matches!(
-            parse_priority("PRIORITY"),
-            Ok(FeePriority::Priority)
-        ));
-        for bad in ["standard", "Standard", "", "FAST", "2"] {
+        assert!(matches!(parse_priority("high"), Ok(FeePriority::High)));
+        // One spelling per tier: the uppercase names, the retired
+        // `priority`, and anything else are refused.
+        for bad in [
+            "STANDARD", "Standard", "PRIORITY", "priority", "", "FAST", "2",
+        ] {
             let err = parse_priority(bad).unwrap_err();
             assert_eq!(err.code, WalletRpcErrorCode::InvalidParams.name(), "{bad}");
         }
@@ -423,16 +414,14 @@ mod tests {
         assert_eq!(built["content_gen"], 0);
 
         let quote = serde_json::to_value(FeeTierQuote {
-            default_priority: contract::DEFAULT_TIER,
-            economy_fee: AtomicUnits::from_raw(1).into(),
-            standard_fee: AtomicUnits::from_raw(2).into(),
-            priority_fee: AtomicUnits::from_raw(BEYOND_DOUBLE).into(),
+            economy: AtomicUnits::from_raw(1).into(),
+            standard: AtomicUnits::from_raw(2).into(),
+            high: AtomicUnits::from_raw(BEYOND_DOUBLE).into(),
             tree_depth: 6,
         })
         .unwrap();
-        assert_eq!(quote["default_priority"], "STANDARD");
-        assert_eq!(quote["economy_fee"], "1");
-        assert_eq!(quote["priority_fee"], "9007199254740993");
+        assert_eq!(quote["economy"], "1");
+        assert_eq!(quote["high"], "9007199254740993");
         assert_eq!(quote["tree_depth"], 6);
     }
 
