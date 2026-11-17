@@ -49,20 +49,35 @@ fn no_traffic(dir: &Path) -> Vec<OsString> {
 /// socket directory (Unix; Windows refuses one, so there the tests share
 /// the account's rendezvous and run one at a time), its own data directory
 /// and its own port.
-fn manager(dir: &Path, port: u16) -> (std::sync::Arc<DaemonManager>, crate::state::NodeGate) {
+pub(crate) fn manager(
+    dir: &Path,
+    port: u16,
+) -> (std::sync::Arc<DaemonManager>, crate::state::NodeGate) {
+    manager_with(dir, port, no_traffic(dir))
+}
+
+/// [`manager`], with the test's own further arguments for the node.
+pub(crate) fn manager_with(
+    dir: &Path,
+    port: u16,
+    extra_args: Vec<OsString>,
+) -> (std::sync::Arc<DaemonManager>, crate::state::NodeGate) {
     let config_dir = dir.join("settings");
-    DaemonConfig {
-        data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
-        ..DaemonConfig::default()
+    // A second manager in the same directory reads what the first kept.
+    if !config_dir.join("daemon.json").exists() {
+        DaemonConfig {
+            data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+            ..DaemonConfig::default()
+        }
+        .save(&config_dir)
+        .unwrap();
     }
-    .save(&config_dir)
-    .unwrap();
     let env = LaunchEnv {
         program: Some(sidecar()),
         tor_file: None,
         socket_dir: cfg!(unix).then(|| socket_dir(dir)),
         rpc_port: Some(port),
-        extra_args: no_traffic(dir),
+        extra_args,
     };
     let gate = crate::state::NodeGate::default();
     (DaemonManager::new(config_dir, env, gate.clone()), gate)
@@ -70,7 +85,7 @@ fn manager(dir: &Path, port: u16) -> (std::sync::Arc<DaemonManager>, crate::stat
 
 /// Wait until the manager's state is `want`, and panic with the state and
 /// the node's log when it does not come.
-async fn state_becomes(dm: &DaemonManager, dir: &Path, want: &str) {
+pub(crate) async fn state_becomes(dm: &DaemonManager, dir: &Path, want: &str) {
     let deadline = Instant::now() + SETTLES;
     loop {
         let status = dm.status().await;
@@ -114,7 +129,7 @@ fn process_exists(pid: u32) -> bool {
 }
 
 /// Wait until no process has this id.
-async fn process_goes(pid: u32, dir: &Path) {
+pub(crate) async fn process_goes(pid: u32, dir: &Path) {
     let deadline = Instant::now() + SETTLES;
     while process_exists(pid) {
         assert!(

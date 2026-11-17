@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+- **The wallet says what your node will do with a send.** When your node
+  would not send a transaction hidden behind Tor, the header says why, in
+  the node's own words.
+  - The review card says so before you confirm: a held transaction waits on
+    your node until Tor carries it and does not go out over the open
+    network. An offline node's send is not offered.
+  - After the node accepts a send, the wallet says whether it is waiting or
+    went out over the open network. Pending sends show as "Held on your
+    node" for as long as the node holds them.
+  - Settings shows the fixes the node offers for its Tor, each in the
+    node's words. Taking one restarts the node with it; the wallet keeps
+    it in its own settings and never writes the node's configuration file.
+    "Go back to the bundled Tor" undoes it, even when the node will not
+    start.
+
 - **The wallet holds its own node, and has full access to it.** The wallet
   starts its node holding an owning connection (shekyl-core's
   `shekyl-spawn`), and calls it on the owner's leg, where it is the node's

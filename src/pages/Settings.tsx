@@ -6,9 +6,13 @@ import SecurityPanel from "../components/SecurityPanel";
 import WalletCare from "../components/WalletCare";
 import { BLOCK_NUMBER_TIP } from "../lib/format";
 import type { NodeState, NodeStatus } from "../types/node";
+import type { TorFix } from "../types/tor";
+import TorSettings from "../components/TorSettings";
 
 interface DaemonSettings {
   data_dir: string | null;
+  /** The Tor fix in force; `null` is the node's defaults with the bundled Tor. */
+  tor_fix: TorFix | null;
 }
 
 /** The wallet's own node, in a few words, for the Settings line. */
@@ -51,8 +55,6 @@ export default function Settings() {
   const [daemonSettings, setDaemonSettings] = useState<DaemonSettings | null>(null);
   const [daemonStatus, setDaemonStatus] = useState<NodeStatus | null>(null);
   const [keepRunningAnswer, setKeepRunningAnswer] = useState<string | null>(null);
-  // The node's Tor state, in core's words; or why it cannot be read.
-  const [torRead, setTorRead] = useState<string | null>(null);
 
   const loadDaemonInfo = useCallback(async () => {
     try {
@@ -79,15 +81,6 @@ export default function Settings() {
       setDaemonStatus(status);
     } catch {
       // daemon commands not available yet
-    }
-    try {
-      const tor = await invoke<{ shown: boolean; text: string } | null>(
-        "get_tor_status",
-      );
-      setTorRead(tor ? tor.text : null);
-    } catch (e) {
-      // The node is not answering: its own notice says why.
-      setTorRead(String(e));
     }
   }, []);
 
@@ -241,14 +234,7 @@ export default function Settings() {
           </div>
         )}
 
-        {torRead && (
-          <div className="space-y-1">
-            <h3 className="text-xs font-semibold text-purple-200">Tor</h3>
-            <p data-testid="tor-read" className="whitespace-pre-line text-xs text-purple-300">
-              {torRead}
-            </p>
-          </div>
-        )}
+        <TorSettings inForce={daemonSettings?.tor_fix ?? null} onChanged={loadDaemonInfo} />
 
         {daemonSettings && (
           <div className="space-y-1">

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DaemonProvider } from "../../context/DaemonContext";
+import { TorProvider } from "../../context/TorContext";
 import Settings from "../Settings";
 
 /** The §1 operator statement, as the backend returns it. */
@@ -34,7 +35,9 @@ beforeEach(() => {
 function renderSettings() {
   return render(
     <DaemonProvider>
-      <Settings />
+      <TorProvider>
+        <Settings />
+      </TorProvider>
     </DaemonProvider>,
   );
 }
@@ -162,7 +165,7 @@ describe("Settings — the wallet's node", () => {
       if (cmd === "daemon_connection_disclosures") {
         return { url: "http://127.0.0.1:12029/json_rpc", warnings: [] };
       }
-      if (cmd === "get_daemon_settings") return { data_dir: null };
+      if (cmd === "get_daemon_settings") return { data_dir: null, tor_fix: null };
       if (cmd === "daemon_status") {
         return { state, message: null, network: "testnet", can_force_stop: state === "running", can_stop_waiting: false };
       }
@@ -170,7 +173,9 @@ describe("Settings — the wallet's node", () => {
         expect(args).toEqual({ keepRunningOnExit: true });
         throw NOT_YET;
       }
-      if (cmd === "get_tor_status") return { shown: true, text: TOR_TEXT };
+      if (cmd === "get_tor_status") {
+        return { shown: true, text: TOR_TEXT, sends: "held", fixes: [] };
+      }
       return null;
     });
   }

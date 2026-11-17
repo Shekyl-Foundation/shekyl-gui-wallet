@@ -13,6 +13,10 @@
 //! is never written: that file is shared with a node the person runs by
 //! hand (Rick, 2026-11-17).
 //!
+//! The wallet does not judge a fix's value (a Tor's path, a SOCKS
+//! address): the daemon does, at its start, and its refusal is shown in
+//! its own words.
+//!
 //! A fix is the whole Tor part of the launch line, never arguments added
 //! to another's. The daemon refuses `tor-file` unless `tor` is `managed`,
 //! and `tor-socks` unless it is `operator` (shekyl-core `INPUT_GRAMMAR.md`
@@ -54,29 +58,6 @@ impl TorFix {
             Self::Operator { .. } => "operator",
             Self::ClearnetOn => "clearnet-on",
             Self::ClearnetOnly => "clearnet-only",
-        }
-    }
-
-    /// The fix with its text trimmed, or why it cannot be kept: a path or
-    /// an endpoint that is empty. Whether the value is a usable one is the
-    /// daemon's to say, at the start, in its own words.
-    pub(crate) fn checked(self) -> Result<Self, String> {
-        match self {
-            Self::RestoreManaged { tor_file } => {
-                let tor_file = tor_file.trim().to_owned();
-                if tor_file.is_empty() {
-                    return Err("Name the Tor program's file.".to_owned());
-                }
-                Ok(Self::RestoreManaged { tor_file })
-            }
-            Self::Operator { tor_socks } => {
-                let tor_socks = tor_socks.trim().to_owned();
-                if tor_socks.is_empty() {
-                    return Err("Give your Tor's SOCKS address, such as 127.0.0.1:9050.".to_owned());
-                }
-                Ok(Self::Operator { tor_socks })
-            }
-            fix @ (Self::ClearnetOn | Self::ClearnetOnly) => Ok(fix),
         }
     }
 }
@@ -199,29 +180,6 @@ mod tests {
             shekyl_tor_status::Fix::known().len(),
             4,
             "core's fixes changed: the wallet's settings keep each by name"
-        );
-    }
-
-    #[test]
-    fn an_empty_value_is_refused_before_it_is_kept() {
-        assert!(TorFix::Operator {
-            tor_socks: "  ".to_owned()
-        }
-        .checked()
-        .is_err());
-        assert!(TorFix::RestoreManaged {
-            tor_file: String::new()
-        }
-        .checked()
-        .is_err());
-        assert_eq!(
-            TorFix::Operator {
-                tor_socks: " 127.0.0.1:9050 ".to_owned()
-            }
-            .checked(),
-            Ok(TorFix::Operator {
-                tor_socks: "127.0.0.1:9050".to_owned()
-            })
         );
     }
 }

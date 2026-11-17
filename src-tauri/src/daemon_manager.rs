@@ -688,6 +688,27 @@ impl DaemonManager {
         .map_err(|e| format!("The miner did not start again: {e}"))
     }
 
+    /// Keep `fix` as the Tor fix in force (none: the node's defaults with
+    /// the bundled Tor) and start the node again with it. The setting is
+    /// kept first, so a node that then refuses its start says why and the
+    /// fix can still be put back.
+    pub async fn set_tor_fix(
+        self: &Arc<Self>,
+        fix: Option<crate::tor_fix::TorFix>,
+    ) -> Result<(), String> {
+        let mut config = self.config().await;
+        if config.tor_fix == fix {
+            return Ok(());
+        }
+        tracing::info!(
+            fix = fix.as_ref().map_or("none", crate::tor_fix::TorFix::keyword),
+            "the node's Tor fix changes; the node is started again"
+        );
+        config.tor_fix = fix;
+        self.update_config(config).await?;
+        self.relaunch_for_settings().await
+    }
+
     /// The node's settings changed (a Tor fix taken or put back): the
     /// daemon reads them only at its start, so a node this wallet started
     /// is stopped and started again with them, and a miner that was

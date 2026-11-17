@@ -53,25 +53,16 @@ pub async fn set_daemon_settings(
 /// is kept in the wallet's settings and passed on the node's launch line;
 /// the daemon's own configuration file is never written. The settings are
 /// kept first, so a node that then refuses its start says why and the fix
-/// can still be put back. Returns once the node is ready again.
+/// can still be put back. The wallet does not judge the fix's value: the
+/// daemon's refusal is returned in its own words. Returns once the node is
+/// ready again.
 #[tauri::command]
 pub async fn set_tor_fix(
     dm: State<'_, Arc<DaemonManager>>,
     fix: Option<TorFix>,
 ) -> Result<DaemonConfig, String> {
-    let fix = fix.map(TorFix::checked).transpose()?;
-    let mut config = dm.config().await;
-    if config.tor_fix == fix {
-        return Ok(config);
-    }
-    tracing::info!(
-        fix = fix.as_ref().map_or("none", TorFix::keyword),
-        "the node's Tor fix changes; the node is started again"
-    );
-    config.tor_fix = fix;
-    dm.update_config(config.clone()).await?;
-    dm.relaunch_for_settings().await?;
-    Ok(config)
+    dm.set_tor_fix(fix).await?;
+    Ok(dm.config().await)
 }
 
 /// Stop the node of this account the wallet found running on its network,

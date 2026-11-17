@@ -20,7 +20,7 @@ use serde::Serialize;
 use shekyl_rpc_client::wire::daemon::DaemonStatus as Status;
 use shekyl_rpc_client::wire::DaemonStatus;
 use shekyl_rpc_types::kinds::NoParams;
-use shekyl_tor_status::{Carriage, Clearnet, Fix, Origination, TorSetting, TorStatus};
+use shekyl_tor_status::{Carriage, Clearnet, Origination, TorSetting, TorStatus};
 use tauri::State;
 
 use crate::daemon_rpc;
@@ -53,29 +53,28 @@ pub enum Sends {
 /// What the node's Tor status means for a send.
 ///
 /// Hidden is core's one accessor (`own_tx_hides_address`), which fails
-/// closed, and never anything else. One case is read beside it: while the
-/// link carries nothing (`carriage` is `gone`) the relay's verdict lags a
-/// Tor that ended, and core's renderer speaks the held sentence. The
-/// wallet says what the renderer says, so its header and its review never
-/// disagree with the text beside them.
+/// closed, and nothing else (Rick, 2026-11-17): the wallet keeps no rule
+/// of its own beside it. The rest only name why a send is not hidden, and
+/// promise nothing on a keyword this build does not know.
 fn sends(tor: &TorStatus) -> Sends {
-    let link_gone = tor
-        .tor
-        .as_ref()
-        .is_some_and(|managed| managed.carriage == Carriage::Gone);
     if tor.own_tx_hides_address() {
-        return if link_gone {
-            Sends::Held
-        } else {
-            Sends::Hidden
-        };
+        return Sends::Hidden;
     }
     let settings_known = matches!(
         tor.posture.tor,
         TorSetting::Managed | TorSetting::Operator | TorSetting::Off
     ) && matches!(tor.posture.clearnet, Clearnet::On | Clearnet::Off);
+    let tor_on = matches!(tor.posture.tor, TorSetting::Managed | TorSetting::Operator);
+    let carriage_known = tor
+        .tor
+        .as_ref()
+        .is_none_or(|managed| !matches!(managed.carriage, Carriage::Unknown { .. }));
     match &tor.origination {
         Origination::Connecting | Origination::Rebuilding if settings_known => Sends::Held,
+        // The relay's verdict still reads `address-hiding` and core says
+        // the send is not hidden: the managed link carries nothing, and the
+        // node holds, as core's line says.
+        Origination::AddressHiding if settings_known && tor_on && carriage_known => Sends::Held,
         Origination::ClearnetOnly if settings_known => Sends::OpenNetwork,
         Origination::Offline if settings_known => Sends::Offline,
         _ => Sends::Unknown,
@@ -87,6 +86,8 @@ fn sends(tor: &TorStatus) -> Sends {
 pub struct OfferedFix {
     /// Core's keyword for it.
     pub keyword: String,
+    /// Core's words for it (`shekyl_tor_status::fix_sentence`), verbatim.
+    pub sentence: &'static str,
 }
 
 /// The node's Tor state for the page.
@@ -127,9 +128,13 @@ fn tor_read(status: &Status) -> TorRead {
                 .tor
                 .iter()
                 .flat_map(|managed| &managed.fix)
-                .filter(|fix| !matches!(fix, Fix::Unknown { .. }))
-                .map(|fix| OfferedFix {
-                    keyword: fix.keyword().to_owned(),
+                // A fix this build does not know has no words and no act
+                // here; the text above says the update sentence for it.
+                .filter_map(|fix| {
+                    Some(OfferedFix {
+                        keyword: fix.keyword().to_owned(),
+                        sentence: shekyl_tor_status::fix_sentence(fix)?,
+                    })
                 })
                 .collect(),
         },
@@ -210,33 +215,40 @@ mod tests {
         }
     }
 
-    /// While the managed link carries nothing, core's renderer speaks the
-    /// held sentence even where the relay's verdict still reads
-    /// `address-hiding`. The wallet's reading is the renderer's, so the
-    /// header is never silent beside a text that says holding.
+    /// Hidden is core's accessor and nothing beside it, under a managed
+    /// Tor too: over every carriage the wallet reads hidden exactly when
+    /// the accessor does. A link that carries nothing is held, as core's
+    /// line says; a carriage this build does not know promises nothing.
+    /// Red edit: read hidden from the origination (a send over a managed
+    /// link that carries nothing is then reviewed as hidden).
     #[test]
-    fn a_link_that_carries_nothing_reads_as_held_as_the_renderer_says() {
-        let gone = status(|v| {
-            v["origination"] = "address-hiding".into();
-            v["posture"] = serde_json::json!({"tor": "managed", "clearnet": "on"});
-            v["tor"]["carriage"] = "gone".into();
-        });
-        assert!(gone.own_tx_hides_address());
-        assert_eq!(sends(&gone), Sends::Held);
+    fn under_a_managed_tor_hidden_is_still_core_s_accessor_alone() {
+        let of = |carriage: &str| {
+            status(|v| {
+                v["origination"] = "address-hiding".into();
+                v["posture"] = serde_json::json!({"tor": "managed", "clearnet": "on"});
+                v["tor"]["carriage"] = carriage.into();
+            })
+        };
+        for carriage in ["carries", "open-only", "gone", "a-word-from-later"] {
+            let tor = of(carriage);
+            assert_eq!(
+                sends(&tor) == Sends::Hidden,
+                tor.own_tx_hides_address(),
+                "{carriage}"
+            );
+        }
+        assert_eq!(sends(&of("carries")), Sends::Hidden);
+        assert_eq!(sends(&of("open-only")), Sends::Hidden);
+        assert_eq!(sends(&of("gone")), Sends::Held);
         assert!(
-            shekyl_tor_status::render(&gone, None).contains("holding its own transactions"),
-            "{}",
-            shekyl_tor_status::render(&gone, None)
+            shekyl_tor_status::render(&of("gone"), None).contains("holding its own transactions")
         );
-        let carries = status(|v| {
-            v["origination"] = "address-hiding".into();
-            v["posture"] = serde_json::json!({"tor": "managed", "clearnet": "on"});
-            v["tor"]["carriage"] = "carries".into();
-        });
-        assert_eq!(sends(&carries), Sends::Hidden);
+        assert_eq!(sends(&of("a-word-from-later")), Sends::Unknown);
     }
 
-    /// The fixes are the read's, in its order, by core's keywords.
+    /// The fixes are the read's, in its order, by core's keywords and in
+    /// core's words.
     #[test]
     fn the_offered_fixes_are_the_read_s_in_its_order() {
         let mut value: serde_json::Value = reply("daemon_status");

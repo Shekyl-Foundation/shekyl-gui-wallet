@@ -51,6 +51,8 @@ mod lifecycle;
 mod live_daemon_tests;
 #[cfg(test)]
 mod live_own_node_tests;
+#[cfg(test)]
+mod live_tor_fix_tests;
 mod message_signing;
 mod mining;
 #[cfg(feature = "multisig")]
