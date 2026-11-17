@@ -385,8 +385,10 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
     let exit = hand.wait().expect("the found node's exit");
     assert!(exit.success(), "the found node's own clean stop: {exit}");
 
-    // The wait holds for as long as the lock does: several starts refused.
-    tokio::time::sleep(Duration::from_secs(4)).await;
+    // The wait holds for as long as the lock does: starts are refused at
+    // about 0.5 s and 1.5 s, and this lands inside the 2 s wait that
+    // follows.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
     assert_eq!(dm.status().await.state, "waiting");
 
     dm.stop_waiting().await.expect("the wait is ended");

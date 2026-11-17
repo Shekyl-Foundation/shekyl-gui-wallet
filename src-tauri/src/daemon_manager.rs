@@ -555,9 +555,11 @@ impl DaemonManager {
                     let mut inner = self.inner.write().await;
                     if inner.launch == id {
                         inner.node = None;
-                        // A stop this wallet asked for, and a start retried
-                        // while waiting, leave the state to their flows.
-                        if !matches!(inner.state, NodeState::Stopping | NodeState::Waiting(_)) {
+                        // Only a node that was starting or running has
+                        // failed by going. A stop this wallet asked for, a
+                        // start retried while waiting, and a wait a person
+                        // ended leave the state to their flows.
+                        if matches!(inner.state, NodeState::Starting | NodeState::Running) {
                             let words = refusal.unwrap_or_else(|| NODE_STOPPED.to_owned());
                             tracing::warn!("the wallet's node is gone: {words}");
                             self.gate.set(Some(words.clone()));

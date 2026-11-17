@@ -163,6 +163,10 @@ impl DaemonManager {
             match self.ready_or_words().await {
                 Ok(()) => return Ok(()),
                 Err(words) if words.contains(DATA_DIR_LOCKED) => {
+                    // The refused node's process is gone (its words came
+                    // with the end of its connection); its follower may not
+                    // have run yet, and this flow does not wait for it.
+                    self.inner.write().await.node = None;
                     self.set_state(NodeState::Waiting(waiting_words(&words)))
                         .await;
                     quiet = true;

@@ -6,10 +6,11 @@
 //! The node's miner: `mine_status`, `mine_start` and `mine_stop` on the 4.0
 //! wire, through core's client.
 //!
-//! They need the `mining-control` grant. The node the wallet starts holds
-//! only the view grants for the wallet, so it refuses them, and the page
-//! says so in the node's words (`daemon_rpc::said`). The miner pays the
-//! node's own `mine-address`, set when the node starts.
+//! They need the `mining-control` grant. The wallet's own node admits them
+//! on its owner's leg, where the wallet holds every grant. A node address a
+//! person typed is a view listener, which refuses them, and the page says
+//! so in the node's words (`daemon_rpc::said`). The miner pays the node's
+//! own `mine-address`, set when the node starts.
 
 use serde::Serialize;
 use shekyl_rpc_client::wire::node::{AutoWord, MineStart, Threads};

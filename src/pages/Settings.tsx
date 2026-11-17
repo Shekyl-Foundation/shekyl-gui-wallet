@@ -17,6 +17,7 @@ const NODE_STATE_WORDS: Record<NodeState, string> = {
   starting: "The wallet’s node is starting",
   running: "The wallet’s node is running",
   stopping: "A node is stopping",
+  waiting: "The data directory is still held; the wallet’s node is waiting for it",
   found: "Another node of yours is running; the wallet’s own is not",
   refused: "The node’s local address failed its check",
   failed: "The wallet’s node is not running",
@@ -227,7 +228,9 @@ export default function Settings() {
               className={`inline-block h-2 w-2 rounded-full ${
                 daemonStatus.state === "running"
                   ? "bg-emerald-400"
-                  : daemonStatus.state === "starting" || daemonStatus.state === "stopping"
+                  : daemonStatus.state === "starting" ||
+                    daemonStatus.state === "stopping" ||
+                    daemonStatus.state === "waiting"
                     ? "bg-amber-400"
                     : "bg-red-400"
               }`}
