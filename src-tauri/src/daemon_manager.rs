@@ -837,13 +837,25 @@ impl DaemonManager {
     /// to be gone holds it, and sees the node go.
     pub async fn force_stop(&self) -> Result<(), String> {
         let node = self.inner.read().await.node.clone();
-        match node {
-            Some(node) => {
-                tracing::warn!(pid = node.pid(), "force stop: killing the wallet's node");
-                node.force_stop()
-            }
-            None => Err("The wallet has no node of its own to stop.".to_owned()),
+        let Some(node) = node else {
+            return Err("The wallet has no node of its own to stop.".to_owned());
+        };
+        tracing::warn!(pid = node.pid(), "force stop: killing the wallet's node");
+        node.force_stop()?;
+        // Return with the state settled: the kill ends the node's
+        // connection, and the page reads the state as soon as this
+        // returns. The follower writes the same state.
+        let mut life = node.life();
+        drop(life.wait_for(|l| matches!(l, Life::Gone { .. })).await);
+        let mut inner = self.inner.write().await;
+        if inner
+            .node
+            .as_ref()
+            .is_some_and(|held| Arc::ptr_eq(held, &node))
+        {
+            Self::now_gone(&mut inner, NODE_STOPPED.to_owned());
         }
+        Ok(())
     }
 
     /// The wallet is closing: ask its node to stop, and do not wait. The

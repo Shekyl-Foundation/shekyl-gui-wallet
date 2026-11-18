@@ -451,9 +451,13 @@ mod tests {
             engine_session::test_password()
         )));
         std::fs::create_dir_all(&dir.0).unwrap();
-        let state = AppState::new();
+        // Its own settings file: a change of network or node is kept
+        // there, never in the settings of the account the tests run under.
+        let state = AppState::on(
+            NetworkType::Testnet,
+            crate::gui_config::Store::at(dir.0.join("gui-config.json")),
+        );
         *state.wallet_dir.write().await = dir.0.clone();
-        *state.network.write().await = NetworkType::Testnet;
         *state.node_address.write().await = Some("http://127.0.0.1:1".into());
         // Its own "this computer", so a change of network here never
         // dials the account's.
@@ -511,7 +515,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn with_a_wallet_open_the_node_it_uses_does_not_change() {
         use crate::daemon_connection::{point_at, NODE_CHANGE_WAITS_FOR_CLOSE};
-        let (_dir, state, node) = offline("target").await;
+        let (dir, state, node) = offline("target").await;
         let password = engine_session::test_password();
         {
             let mut eng = state.engine.lock().await;
@@ -552,5 +556,11 @@ mod tests {
             .expect("with no wallet open the node changes");
         assert_eq!(applied.url, other);
         assert_eq!(state.node_address().await, other);
+        // The network is kept in the state's own settings file.
+        assert_eq!(
+            state.settings.load().startup_network(),
+            NetworkType::Testnet
+        );
+        assert!(dir.0.join("gui-config.json").is_file());
     }
 }

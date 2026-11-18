@@ -119,7 +119,7 @@ pub(crate) async fn point_at(
     *state.node_address.write().await = url.clone();
     *state.network.write().await = net;
     // The node starts on this network at the next launch too.
-    crate::gui_config::save_network(net);
+    state.settings.save_network(net);
     // The relaunch waits for the running node to be gone and the new one to
     // start; the page does not.
     let dm = std::sync::Arc::clone(dm);

@@ -416,7 +416,7 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
 /// **With testnet saved, the first node the app launches is a testnet
 /// node, and no mainnet node runs at any point** (Rick, 2026-11-17). The
 /// app reads the saved network from `gui-config.json` before anything
-/// starts (`run`: `gui_config::load().startup_network()`), its state is on
+/// starts (`run`: the settings store's `load().startup_network()`), its state is on
 /// that network, and the node is started on it. This drives the same
 /// steps: the file is saved with testnet, read back, and the manager
 /// started on what it gives. Red edit: `GuiConfig::startup_network`
@@ -427,15 +427,13 @@ async fn with_testnet_saved_the_first_node_is_a_testnet_node() {
     let dir = run_dir();
     let port = free_port();
     let file = dir.join("gui-config.json");
-    crate::gui_config::save_to(
-        &crate::gui_config::GuiConfig {
-            network: Some(NetworkType::Testnet.as_str().to_owned()),
-            ..crate::gui_config::GuiConfig::default()
-        },
-        &file,
-    );
-    let network = crate::gui_config::load_from(&file).startup_network();
-    let state = crate::state::AppState::on(network);
+    let settings = crate::gui_config::Store::at(file);
+    settings.save(&crate::gui_config::GuiConfig {
+        network: Some(NetworkType::Testnet.as_str().to_owned()),
+        ..crate::gui_config::GuiConfig::default()
+    });
+    let network = settings.load().startup_network();
+    let state = crate::state::AppState::on(network, settings);
     assert_eq!(*state.network.read().await, NetworkType::Testnet);
 
     let dm = manager(&dir, port);
@@ -718,7 +716,11 @@ async fn a_force_stop_kills_the_node_and_it_starts_again() {
     state_becomes(&dm, &dir, "running").await;
     let first = dm.node_pid().await.expect("the node's pid");
     dm.force_stop().await.expect("the kill");
-    state_becomes(&dm, &dir, "failed").await;
+    // The state is settled when the kill returns: the page reads it at
+    // once, and must not go on offering Force stop for a node that is
+    // gone. Red edit: return from `force_stop` without waiting for the
+    // node to be gone.
+    assert_eq!(dm.status().await.state, "failed");
     assert!(!process_exists(first));
     assert!(!dm.status().await.can_force_stop);
     dm.start_again().await;

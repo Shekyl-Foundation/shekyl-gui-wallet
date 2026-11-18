@@ -118,6 +118,9 @@ pub struct AppState {
     /// owner's leg.
     pub node_address: RwLock<Option<String>>,
     pub network: RwLock<NetworkType>,
+    /// Where the GUI's settings are kept: this account's file, named once
+    /// at the start; a test's state names its own or none.
+    pub settings: gui_config::Store,
 
     // Wallet directory / open metadata
     pub wallet_dir: RwLock<PathBuf>,
@@ -145,15 +148,17 @@ impl AppState {
     /// The app's state on mainnet, for a test.
     #[cfg(test)]
     pub fn new() -> Self {
-        Self::on(NetworkType::default())
+        Self::on(NetworkType::default(), gui_config::Store::none())
     }
 
-    /// The app's state on `net`, the network its node starts on.
-    pub fn on(net: NetworkType) -> Self {
-        let resolved = gui_config::resolve_wallet_dir(default_wallet_dir());
+    /// The app's state on `net`, the network its node starts on, with its
+    /// settings kept in `settings`.
+    pub fn on(net: NetworkType, settings: gui_config::Store) -> Self {
+        let resolved = gui_config::resolve_wallet_dir(settings.load(), default_wallet_dir());
         Self {
             node_address: RwLock::new(None),
             network: RwLock::new(net),
+            settings,
             wallet_dir: RwLock::new(resolved.dir),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
             wallet_open: RwLock::new(false),

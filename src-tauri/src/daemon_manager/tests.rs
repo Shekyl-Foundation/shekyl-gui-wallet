@@ -247,7 +247,7 @@ async fn a_service_on_the_network_launches_no_node_and_offers_its_view_listener(
     );
     assert_eq!(status.service_view.as_deref(), Some("127.0.0.1:12030"));
 
-    let state = crate::state::AppState::on(network);
+    let state = crate::state::AppState::on(network, crate::gui_config::Store::none());
     let applied = crate::daemon_connection::point_at_service(&state, &dm)
         .await
         .expect("the offer");
@@ -394,7 +394,7 @@ async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
         std::env::temp_dir().join("shekyl-gui-none"),
         LaunchEnv::default(),
     );
-    let state = crate::state::AppState::on(NetworkType::Testnet);
+    let state = crate::state::AppState::on(NetworkType::Testnet, crate::gui_config::Store::none());
     assert_eq!(dm.refusal().await, None);
 
     let words = "something other than your Shekyl node is answering".to_owned();

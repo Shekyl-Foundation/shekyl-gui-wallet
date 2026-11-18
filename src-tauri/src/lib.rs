@@ -81,14 +81,15 @@ mod wire_vectors;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // The network the person chose last, or mainnet on a fresh install.
-    let startup_network = gui_config::load().startup_network();
+    let settings = gui_config::Store::of_this_account();
+    let startup_network = settings.load().startup_network();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         // The network is read before anything starts: the node starts on
         // it, and no node runs on another network first.
-        .manage(state::AppState::on(startup_network))
+        .manage(state::AppState::on(startup_network, settings))
         .manage(clipboard::ClipboardOwner::new())
         .setup(move |app| {
             let config_dir = app
