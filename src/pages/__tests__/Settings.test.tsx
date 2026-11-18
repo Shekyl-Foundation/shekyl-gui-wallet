@@ -160,17 +160,27 @@ describe("Settings — the wallet's node", () => {
     "Your transactions wait on this node until Tor can carry them. " +
     "Peers are known; none has answered through Tor for 2 minutes.";
 
+  let inbound = false;
+
   function mockNode(state: string) {
+    inbound = false;
     vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
       if (cmd === "daemon_connection_disclosures") {
         return { url: "http://127.0.0.1:12029/json_rpc", warnings: [] };
       }
-      if (cmd === "get_daemon_settings") return { data_dir: null, tor_fix: null };
+      if (cmd === "get_daemon_settings") {
+        return { data_dir: null, tor_fix: null, clearnet_inbound: inbound };
+      }
       if (cmd === "daemon_status") {
         return { state, message: null, network: "testnet", can_force_stop: state === "running", can_stop_waiting: false };
       }
       if (cmd === "set_daemon_settings") {
-        expect(args).toEqual({ keepRunningOnExit: true });
+        const asked = args as Record<string, unknown>;
+        if ("clearnetInbound" in asked) {
+          inbound = asked.clearnetInbound as boolean;
+          return { data_dir: null, clearnet_inbound: inbound };
+        }
+        expect(asked).toEqual({ keepRunningOnExit: true });
         throw NOT_YET;
       }
       if (cmd === "get_tor_status") {
@@ -205,11 +215,32 @@ describe("Settings — the wallet's node", () => {
   it("answers the keep-running switch with not yet implemented", async () => {
     mockNode("running");
     renderSettings();
-    const toggle = await screen.findByRole("switch");
+    const toggle = await screen.findByRole("switch", {
+      name: "Keep daemon running after wallet closes",
+    });
     expect(toggle).toHaveAttribute("aria-checked", "false");
     await userEvent.click(toggle);
     expect(await screen.findByText(NOT_YET)).toBeInTheDocument();
     expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
+  /**
+   * The inbound clearnet listener is off by default and can be turned on:
+   * the switch asks the backend, which keeps it and starts the node again
+   * (Rick, 2026-11-17).
+   */
+  it("starts with incoming clearnet connections off and turns them on", async () => {
+    mockNode("running");
+    renderSettings();
+    const toggle = await screen.findByRole("switch", {
+      name: "Accept incoming connections over clearnet",
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    await userEvent.click(toggle);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_daemon_settings", {
+      clearnetInbound: true,
+    });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
   });
 
   /** The Tor read is the backend's text, shown as it came. */
