@@ -15,6 +15,15 @@ import { useChainConstants } from "../hooks/useChainConstants";
 import EmissionGauge from "../components/EmissionGauge";
 import type { MiningStatus } from "../types/daemon";
 
+/** Whose address the miner pays, under the address itself. */
+const PAYOUT_WORDS: Record<MiningStatus["payout"], string> = {
+  "open-wallet": "The open wallet’s address.",
+  "another-wallet":
+    "Not the open wallet’s address: starting mining moves the node to the open wallet.",
+  "set-by-the-node": "The address this node’s operator set. The wallet does not change it.",
+  nothing: "The node mines to the address it was started with.",
+};
+
 export default function Mining() {
   const { health } = useDaemon();
   const constants = useChainConstants();
@@ -235,9 +244,9 @@ export default function Mining() {
               ? "—"
               : (status.address ?? "No mining address is set on this node.")}
           </p>
-          <p className="text-[10px] text-purple-400">
-            The node mines to the address it was started with.
-          </p>
+          {status && (
+            <p className="text-[10px] text-purple-400">{PAYOUT_WORDS[status.payout]}</p>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -283,11 +292,17 @@ export default function Mining() {
             {loading ? "Starting..." : "Start Mining"}
           </button>
         )}
-        {!status?.active && (
+        {!status?.active && status?.payout !== "set-by-the-node" && (
           <p className="mt-2 text-xs text-purple-400">
             Mining pays the open wallet’s address. If the wallet’s node is not
             already set to pay it, the node restarts first, which can take a
             while.
+          </p>
+        )}
+        {!status?.active && status?.payout === "set-by-the-node" && (
+          <p className="mt-2 text-xs text-purple-400">
+            This node pays the address its operator set, shown above, not the
+            open wallet’s. Starting mining does not change it.
           </p>
         )}
       </div>

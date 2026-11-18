@@ -137,7 +137,7 @@ pub async fn create_wallet(
         .await?;
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
-    crate::mining::pay_the_open_wallet(&node, eng.primary_address().await.ok());
+    crate::mining::pay_the_open_wallet(&node, eng.primary_address().await.ok()).await;
     let wallet = wallet_handle(sanitized, network, &created.facts);
     Ok(CreatedWallet {
         wallet,
@@ -154,7 +154,7 @@ pub async fn open_wallet(
 ) -> Result<OpenedWallet, OpenRefusal> {
     let opened = open_wallet_in(&state, filename, password).await?;
     let address = state.engine.lock().await.primary_address().await.ok();
-    crate::mining::pay_the_open_wallet(&node, address);
+    crate::mining::pay_the_open_wallet(&node, address).await;
     Ok(opened)
 }
 
@@ -193,7 +193,10 @@ pub(crate) async fn open_wallet_in(
 }
 
 #[tauri::command]
-pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
+pub async fn close_wallet(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<bool, String> {
     let close_result = {
         let mut eng = state.engine.lock().await;
         if eng.is_open() {
@@ -206,6 +209,8 @@ pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
     // teardown; the close error is then surfaced rather than swallowed.
     *state.wallet_open.write().await = false;
     *state.wallet_name.write().await = None;
+    // No wallet is open for a running miner to be moved to.
+    node.wallet_is(None).await;
     close_result?;
     Ok(true)
 }
@@ -252,7 +257,7 @@ pub async fn restore_wallet(
         .await?;
     *state.wallet_open.write().await = true;
     *state.wallet_name.write().await = Some(sanitized.clone());
-    crate::mining::pay_the_open_wallet(&node, eng.primary_address().await.ok());
+    crate::mining::pay_the_open_wallet(&node, eng.primary_address().await.ok()).await;
     Ok(OpenedWallet {
         wallet: wallet_handle(sanitized, network, &facts),
     })

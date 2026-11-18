@@ -129,6 +129,8 @@ export interface MiningStatus {
   /** A 128-bit value, as a decimal string. */
   difficulty: string | null;
   cause: string | null;
+  /** Whose address the miner pays, as the wallet can tell. */
+  payout: "open-wallet" | "another-wallet" | "set-by-the-node" | "nothing";
 }
 
 export interface PqcStatus {

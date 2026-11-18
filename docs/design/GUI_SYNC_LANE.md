@@ -203,6 +203,20 @@ carry Tor's own bytes as pinned.
     waiting": that ends the wait, kills nothing, and leaves the node idle
     with a Retry, which waits again. The wallet never kills a node it did
     not start (Rick, 2026-11-17).
+- **The engine's gate** opens only when the wallet's own node has said it
+  is ready (its ready line follows its view listener's bind), and it opens
+  on that node's own address: the engine's URL comes with the ready node,
+  never from a setting published ahead of it. While the node starts, the
+  engine waits; a network switch holds the gate at "starting" before it is
+  published. A failed peer check on the owner's leg is latched as a
+  refusal: nothing is dialled again until the person starts the node again.
+- **The miner follows the open wallet** under the lifecycle lock, against
+  the wallet open when it runs, so an earlier open's hand-off never moves
+  the miner back. If the move fails, the miner is stopped and the node's
+  notice says so in any state; a network switch drops the miner's address.
+- **Before a wallet is open**, the node's notice and a network choice sit
+  above the Welcome and Unlock screens, so a found node, a failed start or
+  the network a wallet will be made on can be dealt with there.
 - **Two legs to the wallet's own node.** The GUI's own calls (status, Tor,
   mining, the stop) go over the owner's leg, which holds every grant: the
   wallet started that node and is its host's administrator. The wallet

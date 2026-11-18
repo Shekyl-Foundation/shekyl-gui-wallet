@@ -43,6 +43,35 @@ pub struct MiningStatus {
     pub difficulty: Option<String>,
     /// Why no job is posted, in the node's words.
     pub cause: Option<String>,
+    /// Whose address the miner pays, as far as this wallet can tell.
+    pub payout: Payout,
+}
+
+/// Whose address the node's miner pays. The page says which, so a person
+/// never reads "the open wallet" where the rewards go elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Payout {
+    /// The open wallet's.
+    OpenWallet,
+    /// Another address, set on the wallet's own node for a wallet that is
+    /// not open (Start mining moves it to the open wallet).
+    AnotherWallet,
+    /// The address a node's operator set, on a node address a person
+    /// typed: Start mining does not change it.
+    SetByTheNode,
+    /// None: the node posts no job.
+    Nothing,
+}
+
+/// Whose address `address` is, for the page.
+fn payout(address: Option<&str>, open_wallet: Option<&str>, typed_node: bool) -> Payout {
+    match (address, typed_node) {
+        (None, _) => Payout::Nothing,
+        (Some(_), true) => Payout::SetByTheNode,
+        (Some(paid), false) if Some(paid) == open_wallet => Payout::OpenWallet,
+        (Some(_), false) => Payout::AnotherWallet,
+    }
 }
 
 /// What a mining read or change is called when the node refuses it.
@@ -54,7 +83,22 @@ pub async fn get_mining_status(
     node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
 ) -> Result<MiningStatus, String> {
     let ms = daemon_rpc::node_call::<MineStatus>(&state, &node, NoParams, MINING).await?;
-    Ok(mining_status(ms))
+    let open_wallet = {
+        let eng = state.engine.lock().await;
+        if eng.is_open() {
+            eng.primary_address().await.ok()
+        } else {
+            None
+        }
+    };
+    let typed_node = !state.targets_this_computer().await;
+    let mut status = mining_status(ms);
+    status.payout = payout(
+        status.address.as_deref(),
+        open_wallet.as_deref(),
+        typed_node,
+    );
+    Ok(status)
 }
 
 /// The miner's state from the node's `mine_status` reply.
@@ -72,6 +116,7 @@ fn mining_status(ms: shekyl_rpc_client::wire::node::MineStatus) -> MiningStatus 
         block_reward: ms.reward.0,
         difficulty: ms.difficulty.0.map(|d| d.get().to_string()),
         cause: ms.cause.0.map(|c| c.message),
+        payout: Payout::Nothing,
     }
 }
 
@@ -116,23 +161,17 @@ pub async fn start_mining_cmd(
     Ok(true)
 }
 
-/// A wallet was opened: a node whose miner is running and pays another
-/// wallet's address is started again to pay this one's, and its miner goes
-/// on (Rick, 2026-11-17). A node that is not mining is left alone; it
-/// takes the open wallet's address when mining is next started. The
-/// relaunch waits for the running node to be gone, so it runs beside the
-/// open, never inside it.
-pub(crate) fn pay_the_open_wallet(
+/// A wallet was opened, with this address when the engine gave one: the
+/// node's manager keeps it, and a running miner that pays another address
+/// is moved to it, beside the open and never inside it (Rick, 2026-11-17;
+/// `DaemonManager::wallet_is`).
+pub(crate) async fn pay_the_open_wallet(
     node: &std::sync::Arc<crate::daemon_manager::DaemonManager>,
     address: Option<String>,
 ) {
-    let Some(address) = address else { return };
-    let node = std::sync::Arc::clone(node);
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = node.follow_wallet(&address).await {
-            tracing::warn!("the node was not restarted for the open wallet's address: {e}");
-        }
-    });
+    if address.is_some() {
+        node.wallet_is(address).await;
+    }
 }
 
 #[tauri::command]
@@ -187,5 +226,32 @@ mod tests {
         assert_eq!(m.hash_rate, Some(1200.0));
         assert_eq!(m.address.as_deref(), Some("SKL1abc"));
         assert_eq!(m.difficulty.as_deref(), Some("2768668"));
+    }
+
+    /// The page is told whose address the miner pays: the open wallet's,
+    /// another wallet's on the wallet's own node, or one a typed node's
+    /// operator set, which Start mining does not change. Red edit: report
+    /// `OpenWallet` for any address (a typed node's rewards would read as
+    /// the open wallet's).
+    #[test]
+    fn the_page_is_told_whose_address_the_miner_pays() {
+        assert_eq!(payout(None, Some("SKL1a"), false), Payout::Nothing);
+        assert_eq!(
+            payout(Some("SKL1a"), Some("SKL1a"), false),
+            Payout::OpenWallet
+        );
+        assert_eq!(
+            payout(Some("SKL1b"), Some("SKL1a"), false),
+            Payout::AnotherWallet
+        );
+        assert_eq!(payout(Some("SKL1b"), None, false), Payout::AnotherWallet);
+        assert_eq!(
+            payout(Some("SKL1a"), Some("SKL1a"), true),
+            Payout::SetByTheNode
+        );
+        assert_eq!(
+            serde_json::to_value(Payout::SetByTheNode).unwrap(),
+            "set-by-the-node"
+        );
     }
 }

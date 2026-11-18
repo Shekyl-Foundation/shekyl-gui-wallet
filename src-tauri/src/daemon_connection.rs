@@ -41,6 +41,10 @@ pub struct DaemonConnection {
     pub url: String,
     /// Disclosures for that URL; never an assurance, only ever warnings.
     pub warnings: Vec<String>,
+    /// Whether the URL is a node address a person typed. `false`: the
+    /// wallet's own node on this computer, reached over its owner's leg.
+    /// The page says which, and keeps it so on a save with nothing typed.
+    pub typed: bool,
 }
 
 /// The disclosures for a daemon URL the wallet is about to use.
@@ -77,7 +81,11 @@ pub async fn set_daemon_connection(
         .ok_or("Invalid network: must be mainnet, testnet, or stagenet")?;
     crate::daemon_manager::may_switch(state.engine.lock().await.open_network(), net)?;
 
-    *state.typed_node.write().await = url.is_some();
+    // Closed to the engine before anything about the switch is published:
+    // the new URL and network never meet the old node.
+    dm.switching_to(net).await;
+    let url_typed = url.is_some();
+    *state.typed_node.write().await = url_typed;
     let new_url = url.unwrap_or_else(|| net.local_url());
 
     let warnings = daemon_disclosures(&new_url);
@@ -93,6 +101,7 @@ pub async fn set_daemon_connection(
     Ok(DaemonConnection {
         url: new_url,
         warnings,
+        typed: url_typed,
     })
 }
 
@@ -105,7 +114,12 @@ pub async fn daemon_connection_disclosures(
 ) -> Result<DaemonConnection, String> {
     let url = state.url().await;
     let warnings = daemon_disclosures(&url);
-    Ok(DaemonConnection { url, warnings })
+    let typed = *state.typed_node.read().await;
+    Ok(DaemonConnection {
+        url,
+        warnings,
+        typed,
+    })
 }
 
 /// The chain as the node reports it (`daemon_status`), with the tip's

@@ -24,6 +24,12 @@
     alone until mining is started.
   - Something else answering at the node's local address is reported as a
     security failure, and nothing is started or retried.
+  - Before any wallet is open, the welcome and unlock screens show the
+    node's state with its actions, and let you choose the network.
+  - A wallet opened while the node is starting waits for it, and talks only
+    to the node that said it is ready.
+  - If the miner cannot be moved to the wallet you open, it is stopped and
+    the wallet says so.
   - The wallet remembers the network you chose, and its node starts on it.
     A wallet set to testnet never starts a mainnet node first.
   - The wallet's node takes no inbound connections over clearnet by

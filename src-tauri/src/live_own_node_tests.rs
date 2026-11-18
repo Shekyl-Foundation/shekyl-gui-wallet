@@ -227,7 +227,7 @@ async fn miner(dm: &DaemonManager) -> shekyl_rpc_client::wire::node::MineStatus 
 /// (Rick, 2026-11-17). The node pays one wallet's address and its miner is
 /// stopped. Another wallet is opened: the node is the same process, still
 /// paying the first address. `mine_to`, which Start mining calls, is what
-/// moves it. Red edit: in `follow_wallet`, drop the `!miner.active` return
+/// moves it. Red edit: in `reconcile_payout`, drop the `running_miner` check
 /// (the open restarts the node, then fails asking a miner that had no
 /// threads to start again: `mine.threads-zero`).
 #[tokio::test(flavor = "multi_thread")]
@@ -244,16 +244,15 @@ async fn a_wallet_opened_while_not_mining_causes_no_restart() {
 
     // A node that pays no address yet is left alone too.
     let pid = dm.node_pid().await.expect("the node's pid");
-    dm.follow_wallet(&first).await.expect("nothing to do");
+    dm.wallet_is_reconciled(&first).await;
     assert_eq!(dm.node_pid().await, Some(pid));
 
     dm.mine_to(&first).await.expect("the node pays the first");
     let paying = dm.node_pid().await.expect("the node's pid");
     assert!(!miner(&dm).await.active, "the miner was never started");
 
-    dm.follow_wallet(&second)
-        .await
-        .expect("a wallet opened while not mining");
+    dm.wallet_is_reconciled(&second).await;
+    assert_eq!(dm.payout_fault().await, None);
     assert_eq!(dm.node_pid().await, Some(paying), "no restart");
     assert_eq!(dm.status().await.state, "running");
     assert_eq!(miner(&dm).await.address.0.map(|a| a.0), Some(first));
@@ -272,8 +271,9 @@ async fn a_wallet_opened_while_not_mining_causes_no_restart() {
 /// **A wallet opened while the miner runs moves the miner to it.** The
 /// node's miner is running and pays one wallet's address. Another wallet is
 /// opened: the node is started again paying that wallet, and its miner is
-/// running again with the threads it had. Red edit: in `follow_wallet`,
-/// drop the `mine_start` after the relaunch (the miner is left stopped).
+/// running again with the threads it had. Red edit: in
+/// `reconcile_payout`, drop the `start_miner` after the relaunch (the miner
+/// is left stopped).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the bundled shekyld sidecar"]
 async fn a_wallet_opened_while_the_miner_runs_moves_the_miner_to_it() {
@@ -302,15 +302,67 @@ async fn a_wallet_opened_while_the_miner_runs_moves_the_miner_to_it() {
     assert!(before.active, "the miner runs: {before:?}");
     let paying = dm.node_pid().await.expect("the node's pid");
 
-    dm.follow_wallet(&second)
-        .await
-        .expect("a wallet opened while mining");
+    dm.wallet_is_reconciled(&second).await;
+    assert_eq!(dm.payout_fault().await, None, "the miner moved");
     assert_ne!(dm.node_pid().await, Some(paying), "a new process");
     assert!(!process_exists(paying));
     let after = miner(&dm).await;
     assert!(after.active, "the miner goes on: {after:?}");
     assert_eq!(after.threads.0, before.threads.0);
-    assert_eq!(after.address.0.map(|a| a.0), Some(second));
+    assert_eq!(after.address.0.map(|a| a.0), Some(second.clone()));
+
+    // A hand-off asked for by an earlier open finds the later wallet: the
+    // first is opened again and, before its reconciling runs, the second.
+    // Both reconcile against the wallet open when they run, and the miner
+    // ends on the second (finding on #71: a delayed hand-off for an earlier
+    // wallet resumed after a later one).
+    dm.wallet_is(Some(first.clone())).await;
+    dm.wallet_is_reconciled(&second).await;
+    let settled = Instant::now() + SETTLES;
+    loop {
+        let now = miner(&dm).await;
+        if now.address.0.as_ref().map(|a| a.0.as_str()) == Some(second.as_str()) && now.active {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let later = miner(&dm).await;
+            assert_eq!(
+                later.address.0.map(|a| a.0),
+                Some(second.clone()),
+                "it stays"
+            );
+            break;
+        }
+        assert!(Instant::now() < settled, "the miner never settled: {now:?}");
+        tokio::time::sleep(POLL).await;
+    }
+
+    let pid = dm.node_pid().await.expect("the node's pid");
+    dm.shutdown().await;
+    process_goes(pid, &dir).await;
+    drop(std::fs::remove_dir_all(&dir));
+}
+
+/// **A network switch drops the miner's address** (finding on #71). An
+/// address belongs to one network, and a node started on another refuses it
+/// at its start. The node pays a testnet wallet; the switch to stagenet
+/// starts the stagenet node, which runs. Red edit: in `relaunch`, keep
+/// `mine_address` (the stagenet node refuses its start).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs the bundled shekyld sidecar"]
+async fn a_network_switch_drops_the_miner_s_address() {
+    let dir = run_dir();
+    let port = free_port();
+    let (dm, _gate) = manager(&dir, port);
+    dm.start(NetworkType::Testnet).await;
+    state_becomes(&dm, &dir, "running").await;
+    let address = wallet_address(&dir, "testnet", port).await;
+    dm.mine_to(&address)
+        .await
+        .expect("the node pays a testnet wallet");
+
+    dm.relaunch(NetworkType::Stagenet).await;
+    state_becomes(&dm, &dir, "running").await;
+    assert_eq!(dm.status().await.network, "stagenet");
+    assert_eq!(miner(&dm).await.address.0, None, "no address carried over");
 
     let pid = dm.node_pid().await.expect("the node's pid");
     dm.shutdown().await;

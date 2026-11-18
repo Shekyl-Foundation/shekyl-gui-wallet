@@ -68,69 +68,81 @@ export default function NodeNotice() {
 
   if (!status) return null;
   const { state, message } = status;
-  if (state === "starting" || state === "running") return null;
-  if (state === "idle" && !message) return null;
+  // A miner that could not follow the open wallet is said whatever the
+  // node's state: its rewards may be going elsewhere.
+  const payoutFault = status.payout_fault && (
+    <div role="alert" className="flex items-center gap-3 bg-red-500/20 px-4 py-2 text-xs text-red-100">
+      <AlertTriangle className="h-4 w-4 shrink-0" />
+      <span className="flex-1">{status.payout_fault}</span>
+    </div>
+  );
+  if (state === "starting" || state === "running" || (state === "idle" && !message)) {
+    return payoutFault || null;
+  }
   const busy = state === "stopping" || state === "waiting";
 
   const security = state === "refused";
   const Icon = security ? ShieldAlert : busy ? Loader2 : AlertTriangle;
 
   return (
-    <div
-      role={security ? "alert" : "status"}
-      className={`flex flex-wrap items-center gap-3 px-4 py-2 text-xs ${
-        security ? "bg-red-500/25 text-red-100" : "bg-amber-500/15 text-amber-100"
-      }`}
-    >
-      <Icon className={`h-4 w-4 shrink-0 ${busy ? "animate-spin" : ""}`} />
-      <span className="flex-1">
-        {state === "stopping" ? "Stopping the node…" : message}
-        {error && <span className="ml-2 text-red-200">{error}</span>}
-      </span>
-      {state === "found" && (
-        <button
-          className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40 disabled:opacity-50"
-          disabled={acting}
-          onClick={replaceFound}
-        >
-          Stop it and start the wallet’s own
-        </button>
-      )}
-      {state === "failed" && (
-        <button
-          className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40 disabled:opacity-50"
-          disabled={acting}
-          onClick={startNode}
-        >
-          Start the node
-        </button>
-      )}
-      {state === "idle" && (
-        <button
-          className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40 disabled:opacity-50"
-          disabled={acting}
-          onClick={startNode}
-        >
-          Retry
-        </button>
-      )}
-      {busy && status.can_stop_waiting && (
-        // Never disabled: the act it ends is the one that is running.
-        <button
-          className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40"
-          onClick={stopWaiting}
-        >
-          Stop waiting
-        </button>
-      )}
-      {state === "stopping" && status.can_force_stop && (
-        <button
-          className="rounded bg-red-500/30 px-3 py-1 font-semibold text-red-100 hover:bg-red-500/40"
-          onClick={forceStop}
-        >
-          Force stop
-        </button>
-      )}
-    </div>
+    <>
+      {payoutFault}
+      <div
+        role={security ? "alert" : "status"}
+        className={`flex flex-wrap items-center gap-3 px-4 py-2 text-xs ${
+          security ? "bg-red-500/25 text-red-100" : "bg-amber-500/15 text-amber-100"
+        }`}
+      >
+        <Icon className={`h-4 w-4 shrink-0 ${busy ? "animate-spin" : ""}`} />
+        <span className="flex-1">
+          {state === "stopping" ? "Stopping the node…" : message}
+          {error && <span className="ml-2 text-red-200">{error}</span>}
+        </span>
+        {state === "found" && (
+          <button
+            className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40 disabled:opacity-50"
+            disabled={acting}
+            onClick={replaceFound}
+          >
+            Stop it and start the wallet’s own
+          </button>
+        )}
+        {state === "failed" && (
+          <button
+            className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40 disabled:opacity-50"
+            disabled={acting}
+            onClick={startNode}
+          >
+            Start the node
+          </button>
+        )}
+        {state === "idle" && (
+          <button
+            className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40 disabled:opacity-50"
+            disabled={acting}
+            onClick={startNode}
+          >
+            Retry
+          </button>
+        )}
+        {busy && status.can_stop_waiting && (
+          // Never disabled: the act it ends is the one that is running.
+          <button
+            className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40"
+            onClick={stopWaiting}
+          >
+            Stop waiting
+          </button>
+        )}
+        {state === "stopping" && status.can_force_stop && (
+          <button
+            className="rounded bg-red-500/30 px-3 py-1 font-semibold text-red-100 hover:bg-red-500/40"
+            onClick={forceStop}
+          >
+            Force stop
+          </button>
+        )}
+      </div>
+    </>
   );
 }

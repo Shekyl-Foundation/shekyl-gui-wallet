@@ -31,6 +31,7 @@ function miningStatus(active: boolean) {
     block_reward: "5000000000",
     difficulty: "100000",
     cause: null,
+    payout: active ? "open-wallet" : "nothing",
   };
 }
 

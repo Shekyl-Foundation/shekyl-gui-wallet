@@ -26,4 +26,9 @@ export interface NodeStatus {
    * person can end. Ending it kills nothing.
    */
   can_stop_waiting: boolean;
+  /**
+   * The miner could not be moved to the open wallet's address: it was
+   * stopped, or may still pay the wallet open before. Shown in any state.
+   */
+  payout_fault: string | null;
 }

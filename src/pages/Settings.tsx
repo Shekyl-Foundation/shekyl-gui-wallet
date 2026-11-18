@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Globe, Server, Shield, ShieldCheck, Settings2 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
@@ -6,6 +6,9 @@ import SecurityPanel from "../components/SecurityPanel";
 import WalletCare from "../components/WalletCare";
 import { BLOCK_NUMBER_TIP } from "../lib/format";
 import type { NodeState, NodeStatus } from "../types/node";
+
+/** How often Settings reads the node's state while it is open. */
+const SETTINGS_POLL_MS = 2000;
 
 interface DaemonSettings {
   data_dir: string | null;
@@ -35,6 +38,8 @@ const NODE_STATE_WORDS: Record<NodeState, string> = {
  */
 interface DaemonConnection {
   url: string;
+  /** A node address a person typed; `false` is the wallet's own node. */
+  typed: boolean;
   warnings: string[];
 }
 
@@ -47,6 +52,16 @@ export default function Settings() {
   // The URL in effect comes from the backend (`daemon_connection_disclosures`
   // below); each network's port is core's, never a copy here.
   const [daemonUrl, setDaemonUrl] = useState("");
+  // Whether the URL is one a person typed, as the backend says; and
+  // whether the field has been edited since it was loaded. A save with
+  // nothing typed keeps the wallet's own node: it never turns the shown
+  // address of that node into a typed one.
+  const [typedNode, setTypedNode] = useState(false);
+  // Not state: it is read only by the save and the reads, never drawn.
+  const urlEditedRef = useRef(false);
+  // Each read of the node's state is numbered; an answer older than the
+  // last one shown is dropped, so a slow read never paints over a newer one.
+  const readGeneration = useRef(0);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [daemonWarnings, setDaemonWarnings] = useState<string[]>([]);
@@ -58,7 +73,12 @@ export default function Settings() {
   // The node's Tor state, in core's words; or why it cannot be read.
   const [torRead, setTorRead] = useState<string | null>(null);
 
+  // The node's state, its settings, its Tor read and the connection, read
+  // together while the page is open: a node that recovers, or a target
+  // that changes, shows here without leaving the page. Only the newest
+  // read is shown.
   const loadDaemonInfo = useCallback(async () => {
+    const generation = ++readGeneration.current;
     try {
       // A wallet that starts pointed at somebody else's daemon says so on
       // sight, not only in the session where the URL was typed.
@@ -69,7 +89,10 @@ export default function Settings() {
       // Reconnect" writes back, so showing the default beside a warning
       // about the configured daemon would quietly revert the operator's
       // choice the next time they pressed it.
-      setDaemonUrl(current.url);
+      if (generation !== readGeneration.current) return;
+      setTypedNode(current.typed);
+      // The field is the person's while they edit it.
+      setDaemonUrl((shown) => (urlEditedRef.current ? shown : current.url));
       setDaemonWarnings(current.warnings);
     } catch {
       // command not available yet
@@ -79,6 +102,7 @@ export default function Settings() {
         invoke<DaemonSettings>("get_daemon_settings"),
         invoke<NodeStatus>("daemon_status"),
       ]);
+      if (generation !== readGeneration.current) return;
       setDaemonSettings(settings);
       setDaemonStatus(status);
     } catch {
@@ -88,14 +112,23 @@ export default function Settings() {
       const tor = await invoke<{ shown: boolean; text: string } | null>(
         "get_tor_status",
       );
+      if (generation !== readGeneration.current) return;
       setTorRead(tor ? tor.text : null);
     } catch (e) {
+      if (generation !== readGeneration.current) return;
       // The node is not answering: its own notice says why.
       setTorRead(String(e));
     }
   }, []);
 
-  useEffect(() => { loadDaemonInfo(); }, [loadDaemonInfo]);
+  useEffect(() => {
+    const first = setTimeout(loadDaemonInfo, 0);
+    const timer = setInterval(loadDaemonInfo, SETTINGS_POLL_MS);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [loadDaemonInfo]);
 
   // The node the wallet starts lives as long as the wallet. The setting
   // stays where people look for it, and the backend answers in words that
@@ -135,9 +168,12 @@ export default function Settings() {
         network: net,
       });
       setNetwork(net);
+      urlEditedRef.current = false;
       setDaemonUrl(applied.url);
+      setTypedNode(applied.typed);
       setDaemonWarnings(applied.warnings);
       refresh();
+      loadDaemonInfo();
     } catch (e) {
       // A wallet is open on another network: the switch waits for it.
       setNetworkError(String(e));
@@ -146,15 +182,24 @@ export default function Settings() {
     }
   }
 
+  // A typed address is sent only when the person typed one: a save with
+  // the wallet's own node's address left as shown keeps that node, reached
+  // over its owner's leg. A typed node stays typed until "Use this
+  // computer's node".
   async function handleSaveUrl() {
     setSaving(true);
     try {
+      const url = urlEditedRef.current || typedNode ? daemonUrl : undefined;
       const applied = await invoke<DaemonConnection>("set_daemon_connection", {
         network,
-        url: daemonUrl,
+        ...(url === undefined ? {} : { url }),
       });
+      urlEditedRef.current = false;
+      setTypedNode(applied.typed);
+      setDaemonUrl(applied.url);
       setDaemonWarnings(applied.warnings);
       refresh();
+      loadDaemonInfo();
     } catch {
       // ignore
     } finally {
@@ -206,8 +251,16 @@ export default function Settings() {
             type="text"
             className="input font-mono text-sm"
             value={daemonUrl}
-            onChange={(e) => setDaemonUrl(e.target.value)}
+            onChange={(e) => {
+              urlEditedRef.current = true;
+              setDaemonUrl(e.target.value);
+            }}
           />
+          <p className="text-[11px] text-purple-400">
+            {typedNode
+              ? "A node address you typed: the wallet asks it over the network."
+              : "This computer’s node, the one the wallet starts."}
+          </p>
         </div>
         <button
           onClick={handleSaveUrl}
@@ -216,6 +269,15 @@ export default function Settings() {
         >
           {saving ? "Connecting..." : "Save & Reconnect"}
         </button>
+        {typedNode && (
+          <button
+            onClick={() => handleNetworkSwitch(network)}
+            disabled={saving}
+            className="btn btn-ghost w-full text-xs"
+          >
+            Use this computer’s node
+          </button>
+        )}
         {daemonWarnings.map((warning) => (
           <p
             key={warning}

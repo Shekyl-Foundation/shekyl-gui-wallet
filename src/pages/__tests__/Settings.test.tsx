@@ -16,12 +16,17 @@ const OPERATOR_WARNING =
  * that is not loopback.
  */
 function mockDaemon(warnings: string[], applied: string[] = warnings) {
-  vi.mocked(invoke).mockImplementation(async (cmd: string) => {
-    if (cmd === "daemon_connection_disclosures") {
-      return { url: "http://127.0.0.1:11029/json_rpc", warnings };
-    }
+  // The connection in effect, as the backend keeps it: a later read of it
+  // gives what the last save set.
+  let current = { url: "http://127.0.0.1:11029/json_rpc", warnings, typed: false };
+  vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+    if (cmd === "daemon_connection_disclosures") return current;
     if (cmd === "set_daemon_connection") {
-      return { url: "http://node.example.com:11029", warnings: applied };
+      const url = (args as { url?: string }).url;
+      current = url
+        ? { url, warnings: applied, typed: true }
+        : { url: "http://127.0.0.1:11029/json_rpc", warnings, typed: false };
+      return current;
     }
     return null;
   });
@@ -76,6 +81,7 @@ describe("Settings — daemon disclosure", () => {
         return {
           url: "http://node.example.com:11029/json_rpc",
           warnings: [OPERATOR_WARNING],
+          typed: true,
         };
       }
       return null;
@@ -98,6 +104,9 @@ describe("Settings — daemon disclosure", () => {
     );
     expect(screen.queryByRole("status")).toBeNull();
 
+    const field = await screen.findByDisplayValue("http://127.0.0.1:11029/json_rpc");
+    await userEvent.clear(field);
+    await userEvent.type(field, "http://node.example.com:11029");
     await userEvent.click(
       screen.getByRole("button", { name: /save & reconnect/i }),
     );
@@ -107,14 +116,47 @@ describe("Settings — daemon disclosure", () => {
   });
 });
 
+describe("Settings — which node", () => {
+  /**
+   * Saving with the wallet's own node's address left as shown keeps that
+   * node: no URL is sent, so it is never marked as a typed address and its
+   * calls stay on the owner's leg. A typed address is sent. Red edit: send
+   * the field's URL on every save.
+   */
+  it("sends a URL only when one was typed", async () => {
+    mockDaemon([]);
+    renderSettings();
+    const save = await screen.findByRole("button", { name: /save & reconnect/i });
+    await screen.findByDisplayValue("http://127.0.0.1:11029/json_rpc");
+    await userEvent.click(save);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_daemon_connection", {
+      network: "mainnet",
+    });
+    expect(screen.getByText("This computer’s node, the one the wallet starts.")).toBeInTheDocument();
+
+    const field = screen.getByDisplayValue("http://127.0.0.1:11029/json_rpc");
+    await userEvent.clear(field);
+    await userEvent.type(field, "http://node.example.com:11029");
+    await userEvent.click(save);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_daemon_connection", {
+      network: "mainnet",
+      url: "http://node.example.com:11029",
+    });
+    expect(
+      await screen.findByText("A node address you typed: the wallet asks it over the network."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use this computer’s node" })).toBeInTheDocument();
+  });
+});
+
 describe("Settings — network", () => {
   it("switches by network alone and shows the URL the backend chose", async () => {
+    let current = { url: "http://127.0.0.1:11029/json_rpc", warnings: [], typed: false };
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
-      if (cmd === "daemon_connection_disclosures") {
-        return { url: "http://127.0.0.1:11029/json_rpc", warnings: [] };
-      }
+      if (cmd === "daemon_connection_disclosures") return current;
       if (cmd === "set_daemon_connection") {
-        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [] };
+        current = { url: "http://127.0.0.1:12029/json_rpc", warnings: [], typed: false };
+        return current;
       }
       return null;
     });
@@ -132,7 +174,7 @@ describe("Settings — network", () => {
   it("shows why a switch waits while a wallet is open", async () => {
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "daemon_connection_disclosures") {
-        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [] };
+        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [], typed: false };
       }
       if (cmd === "set_daemon_connection") {
         throw "The open wallet is on testnet. Close it before switching to mainnet: a wallet belongs to one network.";
@@ -163,11 +205,11 @@ describe("Settings — the wallet's node", () => {
     inbound = false;
     vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
       if (cmd === "daemon_connection_disclosures") {
-        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [] };
+        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [], typed: false };
       }
       if (cmd === "get_daemon_settings") return { data_dir: null, clearnet_inbound: inbound };
       if (cmd === "daemon_status") {
-        return { state, message: null, network: "testnet", can_force_stop: state === "running", can_stop_waiting: false };
+        return { state, message: null, network: "testnet", can_force_stop: state === "running", can_stop_waiting: false, payout_fault: null };
       }
       if (cmd === "set_daemon_settings") {
         const asked = args as Record<string, unknown>;

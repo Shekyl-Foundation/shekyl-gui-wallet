@@ -14,6 +14,7 @@ function node(over: Partial<NodeStatus>): NodeStatus {
     network: "testnet",
     can_force_stop: true,
     can_stop_waiting: false,
+    payout_fault: null,
     ...over,
   };
 }

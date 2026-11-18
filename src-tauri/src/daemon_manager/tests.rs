@@ -247,3 +247,115 @@ async fn the_engine_s_way_is_closed_unless_the_node_is_the_wallet_s_own() {
     *state.typed_node.write().await = true;
     assert!(state.engine_base().await.is_ok());
 }
+
+/// The engine's way to this computer waits while the node starts, and
+/// opens on the ready node's own address, never on the configured one. A
+/// closed gate says why. Red edit: answer `Gate::Starting` with `Ok` at
+/// once (the engine would dial a port the node may not hold yet).
+#[tokio::test]
+async fn the_engine_waits_while_the_node_starts_and_gets_the_ready_node_s_address() {
+    use crate::state::Gate;
+    let gate = NodeGate::default();
+    assert_eq!(gate.passable().await, Ok(None), "no manager: as configured");
+
+    gate.set(Gate::Starting);
+    let waiting = {
+        let gate = gate.clone();
+        tokio::spawn(async move { gate.passable().await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(
+        !waiting.is_finished(),
+        "a caller waits while the node starts"
+    );
+    gate.set(Gate::Open("http://127.0.0.1:12029".to_owned()));
+    assert_eq!(
+        waiting.await.unwrap(),
+        Ok(Some("http://127.0.0.1:12029".to_owned()))
+    );
+
+    gate.set(Gate::Starting);
+    let waiting = {
+        let gate = gate.clone();
+        tokio::spawn(async move { gate.passable().await })
+    };
+    gate.set(Gate::Closed("The wallet's node stopped.".to_owned()));
+    assert_eq!(
+        waiting.await.unwrap(),
+        Err("The wallet's node stopped.".to_owned())
+    );
+}
+
+/// A program that starts and never says it is ready: it ignores its
+/// arguments and its owning connection, as a hung node would.
+#[cfg(unix)]
+fn hung_node(dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join("hung-node");
+    std::fs::write(&path, "#!/bin/sh\nexec sleep 600\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// **"Stop waiting" ends the wait while a retried launch is in flight**
+/// (finding on #71). The wallet waits out a held data directory and its
+/// launch never says it is ready. Stop waiting asks the node it just
+/// started to stop and shows `stopping` with Force stop, since that node is
+/// the wallet's own; it does not stop on the ask, so the person forces it,
+/// and the wait ends idle with nothing left running. Red edit: in
+/// `launch_waiting_locked`, wait on `ready_or_words` alone (the wait never
+/// ends while the launch hangs).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_waiting_ends_a_wait_whose_launch_never_says_ready() {
+    let dir = TestDir::new("hung");
+    let env = LaunchEnv {
+        program: Some(hung_node(&dir.0)),
+        tor_file: None,
+        socket_dir: Some(dir.0.join("s")),
+        instance: None,
+        rpc_port: Some(1),
+        extra_args: Vec::new(),
+    };
+    let dm = DaemonManager::new(dir.0.join("settings"), env, NodeGate::default());
+    // As after a person ended an earlier wait: Retry waits out the held
+    // directory again.
+    dm.inner.write().await.left_waiting = Some("held".to_owned());
+    let retry = {
+        let dm = Arc::clone(&dm);
+        tokio::spawn(async move { dm.start_again().await })
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while dm.node_pid().await.is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the launch never came"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let pid = dm.node_pid().await.expect("the hung node");
+    assert!(dm.status().await.can_stop_waiting);
+
+    dm.stop_waiting().await.expect("the wait is ended");
+    while dm.status().await.state != "stopping" {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{:?}",
+            dm.status().await
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(dm.status().await.can_force_stop, "the wallet's own node");
+    dm.force_stop().await.expect("the person forces it");
+    tokio::time::timeout(std::time::Duration::from_secs(20), retry)
+        .await
+        .expect("the wait ends once the node is gone")
+        .unwrap();
+    let status = dm.status().await;
+    assert_eq!(status.state, "idle", "{status:?}");
+    assert_eq!(dm.node_pid().await, None);
+    assert!(
+        std::fs::metadata(format!("/proc/{pid}")).is_err() || !cfg!(target_os = "linux"),
+        "nothing left running"
+    );
+}

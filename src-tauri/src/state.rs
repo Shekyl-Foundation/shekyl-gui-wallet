@@ -120,29 +120,69 @@ pub fn default_wallet_dir() -> PathBuf {
     }
 }
 
-/// Why the wallet engine may not dial the node on this computer, when it may
-/// not. It may only while the node there is the one this wallet started:
-/// not before that node starts, not while a node of this account that the
-/// wallet did not start answers there, not after a failed check or a failed
-/// start. The daemon manager writes it; the engine's URL reads it. Until the engine's calls move to the
-/// owner's leg (shekyl-core `RPC_CHANNEL.md` RT-W10 step 5), the engine never
-/// uses a listener on a node the wallet did not launch (Rick, 2026-11-17).
-#[derive(Clone, Default)]
-pub struct NodeGate(std::sync::Arc<std::sync::RwLock<Option<String>>>);
+/// Whether the wallet engine may dial the node on this computer. It may
+/// only while the node there is the one this wallet started and that node
+/// has said it is ready: its ready line follows its view listener's bind,
+/// so before it the port may be anyone's. Not before that node starts, not
+/// while a node of this account that the wallet did not start answers
+/// there, not after a failed check or a failed start. Until the engine's
+/// calls move to the owner's leg (shekyl-core `RPC_CHANNEL.md` RT-W10 step
+/// 5), the engine never uses a listener on a node the wallet did not launch
+/// (Rick, 2026-11-17).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Gate {
+    /// No daemon manager: nothing of the wallet's runs here to wait for,
+    /// and the configured URL is used as it is.
+    Unmanaged,
+    /// The wallet's own node is ready, and this is its view listener's
+    /// base URL: the engine's address comes with the node that said it is
+    /// ready, never from a setting published ahead of it.
+    Open(String),
+    /// The wallet's own node is starting: a caller waits for its ready
+    /// line or its end, either of which comes.
+    Starting,
+    /// Closed, and why, in words.
+    Closed(String),
+}
+
+/// The gate, written by the daemon manager and read by the engine's way to
+/// the node.
+#[derive(Clone)]
+pub struct NodeGate(std::sync::Arc<tokio::sync::watch::Sender<Gate>>);
+
+impl Default for NodeGate {
+    /// Open: with no daemon manager there is no node of the wallet's to
+    /// wait for.
+    fn default() -> Self {
+        Self(std::sync::Arc::new(
+            tokio::sync::watch::channel(Gate::Unmanaged).0,
+        ))
+    }
+}
 
 impl NodeGate {
-    pub(crate) fn set(&self, closed: Option<String>) {
-        *self
-            .0
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = closed;
+    pub(crate) fn set(&self, gate: Gate) {
+        self.0.send_replace(gate);
     }
 
-    fn closed(&self) -> Option<String> {
-        self.0
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+    /// The ready node's base URL once the gate is open (`None` with no
+    /// daemon manager), waiting while the node is starting; otherwise why
+    /// it is closed.
+    pub(crate) async fn passable(&self) -> Result<Option<String>, String> {
+        let mut gate = self.0.subscribe();
+        loop {
+            let now = gate.borrow_and_update().clone();
+            match now {
+                Gate::Unmanaged => return Ok(None),
+                Gate::Open(base) => return Ok(Some(base)),
+                Gate::Closed(words) => return Err(words),
+                Gate::Starting => {}
+            }
+            // The sender lives as long as `self`, so the change comes.
+            if gate.changed().await.is_err() {
+                return Err("The wallet's node is gone.".to_owned());
+            }
+        }
     }
 }
 
@@ -217,8 +257,8 @@ impl AppState {
     /// wallet's own ([`NodeGate`]): the words say which.
     pub async fn engine_base(&self) -> Result<String, String> {
         if self.targets_this_computer().await {
-            if let Some(closed) = self.node_gate.closed() {
-                return Err(closed);
+            if let Some(base) = self.node_gate.passable().await? {
+                return Ok(base);
             }
         }
         let url = self.daemon_url.read().await.clone();

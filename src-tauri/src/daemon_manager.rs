@@ -6,14 +6,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use shekyl_rpc_client::wire::node::{MineStart, Threads};
-use shekyl_rpc_client::wire::MineStatus;
 use shekyl_rpc_transport::local::{LocalFault, LocalTarget};
-use shekyl_rpc_types::kinds::{Count, NoParams};
 use tokio::sync::{watch, RwLock};
 
 use crate::node_launch::{self, Launch, Life, OwnNode};
-use crate::state::{NetworkType, NodeGate};
+use crate::state::{Gate, NetworkType, NodeGate};
 
 /// The diagnostic a node refuses its start with while another process
 /// holds its data directory (shekyl-core `shekyl-options`, `DataDirLocked`).
@@ -240,6 +237,10 @@ pub struct DaemonStatus {
     /// Whether the wallet is waiting on a node it did not start, a wait a
     /// person can end. Ending it kills nothing.
     pub can_stop_waiting: bool,
+    /// The miner could not be moved to the open wallet's address: it was
+    /// stopped, or may still pay the wallet open before. Said whatever the
+    /// node's state, so it is seen without opening the Mining page.
+    pub payout_fault: Option<String>,
 }
 
 /// The words for a node of this account the wallet found running.
@@ -304,6 +305,9 @@ struct Inner {
     state: NodeState,
     /// The node this wallet started, while it lives.
     node: Option<Arc<OwnNode>>,
+    /// The base URL of that node's view listener, which the engine's gate
+    /// opens on once the node is ready.
+    base: Option<String>,
     /// Counts launches, so a launch's follower never writes over a later
     /// launch's state.
     launch: u64,
@@ -313,6 +317,11 @@ struct Inner {
     /// Why the node is idle after a person ended such a wait. A start that
     /// follows waits out a held data directory again.
     left_waiting: Option<String>,
+    /// The open wallet's address, which a running miner is moved to.
+    open_wallet: Option<String>,
+    /// Why the miner was stopped, or may still pay a wallet no longer open,
+    /// after it could not be moved to the open wallet ([`payout`]).
+    payout_fault: Option<String>,
 }
 
 pub struct DaemonManager {
@@ -335,7 +344,7 @@ pub struct DaemonManager {
 impl DaemonManager {
     pub(crate) fn new(config_dir: PathBuf, env: LaunchEnv, gate: NodeGate) -> Arc<Self> {
         let config = DaemonConfig::load(&config_dir);
-        gate.set(Some(NODE_NOT_STARTED.to_owned()));
+        gate.set(Gate::Closed(NODE_NOT_STARTED.to_owned()));
         Arc::new(Self {
             env,
             lifecycle: tokio::sync::Mutex::new(()),
@@ -344,9 +353,12 @@ impl DaemonManager {
                 mine_address: None,
                 state: NodeState::Idle,
                 node: None,
+                base: None,
                 launch: 0,
                 waits_on_another: false,
                 left_waiting: None,
+                open_wallet: None,
+                payout_fault: None,
             }),
             config: RwLock::new(config),
             config_dir,
@@ -390,19 +402,61 @@ impl DaemonManager {
         }
     }
 
+    /// Call `M` on the owner's leg of the wallet's own node, while it is
+    /// ready. A failed peer check there is latched: something other than
+    /// this wallet's node answers at its address, so the state becomes
+    /// `refused`, the engine's way closes, and nothing is dialled again
+    /// until the person starts the node again. The wallet's own node is not
+    /// killed: it is still the wallet's, by its owning connection.
+    pub(crate) async fn own_call<M: shekyl_rpc_client::RpcMethod>(
+        &self,
+        request: M::Request,
+        what: &str,
+    ) -> Result<M::Reply, String>
+    where
+        M::Request: Send + 'static,
+        M::Reply: Send + 'static,
+    {
+        let target = self.own_target().await?;
+        // The owner's leg is a blocking dial and exchange, under its own
+        // deadline (`shekyl_rpc_transport::local::CALL_WITHIN`).
+        let reply = tokio::task::spawn_blocking(move || target.call::<M>(&request))
+            .await
+            .map_err(|e| format!("Could not read {what} from the node: {e}"))?;
+        match reply {
+            Ok(reply) => Ok(reply),
+            Err(e) => {
+                let words = crate::daemon_rpc::said_local(&e, what);
+                if let shekyl_rpc_transport::JsonRpcError::Transport(
+                    fault @ LocalFault::PeerCheck(_),
+                ) = &e
+                {
+                    tracing::error!("the wallet's node's address failed its check: {fault}");
+                    self.set_state(NodeState::Refused(fault.to_string())).await;
+                }
+                Err(words)
+            }
+        }
+    }
+
     async fn set_state(&self, state: NodeState) {
         let mut inner = self.inner.write().await;
-        // The engine's way to the node on this computer is open only while
-        // the node there is the one this wallet started.
+        // The engine's way to the node on this computer opens only once the
+        // node there is the one this wallet started and has said it is
+        // ready ([`Self::now_running`]); while it starts, a caller waits.
         self.gate.set(match &state {
-            NodeState::Starting | NodeState::Running => None,
-            NodeState::Idle => Some(NODE_NOT_STARTED.to_owned()),
-            NodeState::Stopping => Some("The node is stopping.".to_owned()),
-            NodeState::Found => Some(found_words(inner.network)),
+            NodeState::Starting => Gate::Starting,
+            NodeState::Running => match &inner.base {
+                Some(base) => Gate::Open(base.clone()),
+                None => Gate::Closed(NODE_NOT_STARTED.to_owned()),
+            },
+            NodeState::Idle => Gate::Closed(NODE_NOT_STARTED.to_owned()),
+            NodeState::Stopping => Gate::Closed("The node is stopping.".to_owned()),
+            NodeState::Found => Gate::Closed(found_words(inner.network)),
             NodeState::Waiting(words)
             | NodeState::Refused(words)
             | NodeState::Failed(words)
-            | NodeState::Unavailable(words) => Some(words.clone()),
+            | NodeState::Unavailable(words) => Gate::Closed(words.clone()),
         });
         if state != NodeState::Idle {
             inner.left_waiting = None;
@@ -411,11 +465,14 @@ impl DaemonManager {
     }
 
     /// The node said it is ready: `starting`, or `waiting` on a start
-    /// retried, becomes `running`, and the engine's way opens.
+    /// retried, becomes `running`, and the engine's way opens on the ready
+    /// node's own listener.
     fn now_running(&self, inner: &mut Inner) {
         if matches!(inner.state, NodeState::Starting | NodeState::Waiting(_)) {
             inner.state = NodeState::Running;
-            self.gate.set(None);
+            if let Some(base) = &inner.base {
+                self.gate.set(Gate::Open(base.clone()));
+            }
             tracing::info!("the wallet's node is ready");
         }
     }
@@ -424,7 +481,7 @@ impl DaemonManager {
     pub async fn start(self: &Arc<Self>, network: NetworkType) {
         let _lifecycle = self.lifecycle.lock().await;
         self.inner.write().await.network = network;
-        self.start_locked().await;
+        drop(self.start_locked().await);
     }
 
     /// Start the wallet's own node again after it failed or was stopped,
@@ -442,10 +499,10 @@ impl DaemonManager {
         if waited {
             self.stop_waiting.send_replace(false);
             self.inner.write().await.waits_on_another = true;
-            self.start_waiting_locked(true).await;
+            drop(self.start_waiting_locked(true).await);
             self.inner.write().await.waits_on_another = false;
         } else {
-            self.start_locked().await;
+            drop(self.start_locked().await);
         }
     }
 
@@ -453,13 +510,15 @@ impl DaemonManager {
     /// computer" first. Nothing there, and the wallet starts its own node.
     /// A node of this account there is found and left alone. Anything else
     /// there is a hard stop.
-    async fn start_locked(self: &Arc<Self>) {
-        self.start_waiting_locked(false).await;
+    ///
+    /// Returns the node it launched, for the flow that waits on it.
+    async fn start_locked(self: &Arc<Self>) -> Option<Arc<OwnNode>> {
+        self.start_waiting_locked(false).await
     }
 
     /// [`Self::start_locked`], and with `wait_out_lock` the launch waits
     /// out a held data directory ([`Self::launch_waiting_locked`]).
-    async fn start_waiting_locked(self: &Arc<Self>, wait_out_lock: bool) {
+    async fn start_waiting_locked(self: &Arc<Self>, wait_out_lock: bool) -> Option<Arc<OwnNode>> {
         let network = self.inner.read().await.network;
         match self.dial(network).await {
             Ok(()) => {
@@ -468,6 +527,7 @@ impl DaemonManager {
                     "a node of this account is already running; it is not used"
                 );
                 self.set_state(NodeState::Found).await;
+                None
             }
             Err(
                 LocalFault::NoPlace { .. }
@@ -475,22 +535,27 @@ impl DaemonManager {
                 | LocalFault::Stale { .. },
             ) => {
                 if wait_out_lock {
+                    // That flow waits on its own launches.
                     drop(self.launch_waiting_locked().await);
+                    None
                 } else {
-                    self.launch_locked(false).await;
+                    self.launch_locked(false).await
                 }
             }
             Err(fault @ LocalFault::PeerCheck(_)) => {
                 tracing::error!("the node's local address failed its check: {fault}");
                 self.set_state(NodeState::Refused(fault.to_string())).await;
+                None
             }
             // Not reached while no service rendezvous is named (`target`).
             Err(LocalFault::Service { view, .. }) => {
                 self.set_state(NodeState::Failed(shekyl_rpc_client::service_refusal(view)))
                     .await;
+                None
             }
             Err(fault @ (LocalFault::OtherSession | LocalFault::Unreachable(_))) => {
                 self.set_state(NodeState::Failed(fault.to_string())).await;
+                None
             }
         }
     }
@@ -506,13 +571,18 @@ impl DaemonManager {
     /// Launch the wallet's own node and follow its life. A `quiet` launch
     /// is a start retried while the state is `waiting`: the state stays
     /// there until the node says it is ready.
-    async fn launch_locked(self: &Arc<Self>, quiet: bool) {
+    ///
+    /// Returns the node launched, so the flow that launched it waits on
+    /// that node's own life ([`Self::ready_or_words`]) and never on
+    /// whichever node the state holds by then. `None`: nothing started,
+    /// and the state says why.
+    async fn launch_locked(self: &Arc<Self>, quiet: bool) -> Option<Arc<OwnNode>> {
         let Some(program) = self.env.program.clone() else {
             self.set_state(NodeState::Unavailable(
                 "This build of the wallet carries no node to start.".to_owned(),
             ))
             .await;
-            return;
+            return None;
         };
         let config = self.config.read().await.clone();
         let (network, mine_address) = {
@@ -545,7 +615,7 @@ impl DaemonManager {
                 self.config_dir.display()
             )))
             .await;
-            return;
+            return None;
         }
         #[cfg(test)]
         self.launched
@@ -558,14 +628,14 @@ impl DaemonManager {
             Ok(Err(words)) => {
                 tracing::error!("{words}");
                 self.set_state(NodeState::Failed(words)).await;
-                return;
+                return None;
             }
             Err(e) => {
                 self.set_state(NodeState::Failed(format!(
                     "The node could not be started: {e}"
                 )))
                 .await;
-                return;
+                return None;
             }
         };
         tracing::info!(
@@ -577,7 +647,8 @@ impl DaemonManager {
         let id = {
             let mut inner = self.inner.write().await;
             inner.launch += 1;
-            inner.node = Some(node);
+            inner.node = Some(Arc::clone(&node));
+            inner.base = Some(format!("http://127.0.0.1:{rpc_port}"));
             inner.launch
         };
         if !quiet {
@@ -585,6 +656,7 @@ impl DaemonManager {
         }
         let manager = Arc::clone(self);
         tokio::spawn(async move { manager.follow(id, life).await });
+        Some(node)
     }
 
     /// Follow launch `id`'s life into the state: ready, then gone. A stop
@@ -611,7 +683,7 @@ impl DaemonManager {
                         if matches!(inner.state, NodeState::Starting | NodeState::Running) {
                             let words = refusal.unwrap_or_else(|| NODE_STOPPED.to_owned());
                             tracing::warn!("the wallet's node is gone: {words}");
-                            self.gate.set(Some(words.clone()));
+                            self.gate.set(Gate::Closed(words.clone()));
                             inner.state = NodeState::Failed(words);
                         }
                     }
@@ -639,6 +711,16 @@ impl DaemonManager {
         self.inner.write().await.node = None;
     }
 
+    /// A switch to `network` is about to be published: the engine's way to
+    /// this computer waits from now until the node on `network` is ready
+    /// ([`Self::relaunch`]), so nothing it sends goes to the old node, or to
+    /// whatever holds the new network's port before the new node does.
+    pub(crate) async fn switching_to(&self, network: NetworkType) {
+        if self.inner.read().await.network != network {
+            self.gate.set(Gate::Starting);
+        }
+    }
+
     /// Run the node on `network`: nothing to do when it already does;
     /// otherwise a node this wallet started is stopped, and the node is
     /// started again on `network`, its own port and its own store.
@@ -648,142 +730,22 @@ impl DaemonManager {
             return;
         }
         self.stop_own_locked().await;
-        self.inner.write().await.network = network;
-        self.start_locked().await;
-    }
-
-    /// Have the wallet's node pay its miner to `address`. The daemon reads
-    /// `mine-address` only at its start, so a node running with another
-    /// address is stopped and started again with this one. Returns once the
-    /// node is ready, or with the reason it is not.
-    pub async fn mine_to(self: &Arc<Self>, address: &str) -> Result<(), String> {
-        let _lifecycle = self.lifecycle.lock().await;
         {
-            let inner = self.inner.read().await;
-            match &inner.state {
-                NodeState::Running if inner.mine_address.as_deref() == Some(address) => {
-                    return Ok(())
-                }
-                NodeState::Running => {}
-                NodeState::Found => return Err(found_words(inner.network)),
-                NodeState::Waiting(words)
-                | NodeState::Refused(words)
-                | NodeState::Unavailable(words) => return Err(words.clone()),
-                NodeState::Idle
-                | NodeState::Starting
-                | NodeState::Stopping
-                | NodeState::Failed(_) => {}
-            }
+            let mut inner = self.inner.write().await;
+            inner.network = network;
+            // A miner's address belongs to one network, and the new node
+            // would refuse the old one at its start; mining on this network
+            // sets its own (`mine_to`).
+            inner.mine_address = None;
         }
-        self.stop_own_locked().await;
-        self.inner.write().await.mine_address = Some(address.to_owned());
-        self.start_locked().await;
-        self.ready_or_words().await
+        drop(self.start_locked().await);
     }
 
-    /// A wallet with `address` was opened. The node is started again for
-    /// it only while its miner is running and pays another address (Rick,
-    /// 2026-11-17): the miner then goes on, with the threads it had, paying
-    /// the open wallet. A node that is not mining is left alone;
-    /// [`Self::mine_to`] gives it the address when mining is started.
-    pub async fn follow_wallet(self: &Arc<Self>, address: &str) -> Result<(), String> {
-        let pays_another = self
-            .inner
-            .read()
-            .await
-            .mine_address
-            .as_deref()
-            .is_some_and(|paid| paid != address);
-        if !pays_another {
-            return Ok(());
-        }
-        let Some(threads) = self.running_miner().await? else {
-            return Ok(());
-        };
-        self.mine_to(address).await?;
-        self.start_miner(threads).await
-    }
-
-    /// The threads of the wallet's own node's miner while it runs. `None`
-    /// when it does not, and when the wallet has no node of its own ready:
-    /// nothing of its is mining then.
-    async fn running_miner(&self) -> Result<Option<u64>, String> {
-        let Ok(leg) = self.own_target().await else {
-            return Ok(None);
-        };
-        let miner = tokio::task::spawn_blocking(move || leg.call::<MineStatus>(&NoParams))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| format!("The node's miner could not be read: {e}"))?;
-        Ok(miner.active.then_some(miner.threads.0))
-    }
-
-    /// Start the miner of the node just started again, with the threads it
-    /// had before.
-    async fn start_miner(&self, threads: u64) -> Result<(), String> {
-        let leg = self.own_target().await?;
-        let threads = Threads::Count(Count(threads));
-        tokio::task::spawn_blocking(move || {
-            leg.call::<shekyl_rpc_client::wire::MineStart>(&MineStart { threads })
-        })
-        .await
-        .map_err(|e| e.to_string())?
-        .map(drop)
-        .map_err(|e| format!("The miner did not start again: {e}"))
-    }
-
-    /// Accept inbound clearnet connections or not (`--clearnet-listen`):
-    /// kept in the node's settings and passed at its next start, so the
-    /// node is started again with it. Off is the wallet's default (Rick,
-    /// 2026-11-17); on, the node listens on its network's peer port.
-    pub async fn set_clearnet_inbound(self: &Arc<Self>, on: bool) -> Result<(), String> {
-        let mut config = self.config().await;
-        if config.clearnet_inbound == on {
-            return Ok(());
-        }
-        tracing::info!(
-            on,
-            "the node's inbound clearnet listener changes; the node is started again"
-        );
-        config.clearnet_inbound = on;
-        self.update_config(config).await?;
-        self.relaunch_for_settings().await
-    }
-
-    /// The node's settings changed (the inbound clearnet listener, a Tor
-    /// fix taken or put back): the
-    /// daemon reads them only at its start, so a node this wallet started
-    /// is stopped and started again with them, and a miner that was
-    /// running goes on. A node that had failed to start is started. A node
-    /// of this account the wallet found is left alone: it is not the
-    /// wallet's, and the settings are for the wallet's own.
-    pub async fn relaunch_for_settings(self: &Arc<Self>) -> Result<(), String> {
-        let miner = self.running_miner().await?;
-        {
-            let _lifecycle = self.lifecycle.lock().await;
-            {
-                let inner = self.inner.read().await;
-                match &inner.state {
-                    NodeState::Found => return Err(found_words(inner.network)),
-                    NodeState::Refused(words) | NodeState::Unavailable(words) => {
-                        return Err(words.clone())
-                    }
-                    _ => {}
-                }
-            }
-            self.stop_own_locked().await;
-            self.start_locked().await;
-            self.ready_or_words().await?;
-        }
-        match miner {
-            Some(threads) => self.start_miner(threads).await,
-            None => Ok(()),
-        }
-    }
-
-    /// Wait for the node just started to be ready, or say why it is not.
-    async fn ready_or_words(&self) -> Result<(), String> {
-        let node = self.inner.read().await.node.clone();
+    /// Wait for `node`, the one this flow launched, to be ready, or say
+    /// why it is not: its own life, never the state's latest node, so a
+    /// node that refuses and is gone before this looks still gives its own
+    /// words. `None`: the launch did not happen, and the state says why.
+    async fn ready_or_words(&self, node: Option<Arc<OwnNode>>) -> Result<(), String> {
         if let Some(node) = node {
             let mut life = node.life();
             drop(life.wait_for(|l| !matches!(l, Life::Starting)).await);
@@ -855,6 +817,7 @@ impl DaemonManager {
             network: inner.network.as_str(),
             can_force_stop: inner.node.is_some(),
             can_stop_waiting: inner.waits_on_another,
+            payout_fault: inner.payout_fault.clone(),
         }
     }
 
@@ -885,6 +848,7 @@ impl DaemonManager {
     }
 }
 
+mod payout;
 mod replace;
 
 /// A test's own instance name, from its port: on Windows the node's

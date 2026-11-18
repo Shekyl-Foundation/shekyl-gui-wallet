@@ -112,19 +112,13 @@ where
     if !state.targets_this_computer().await {
         return call::<M>(&state.url().await, request, what).await;
     }
-    let target = node.own_target().await?;
-    // The owner's leg is a blocking dial and exchange, under its own
-    // deadline (`shekyl_rpc_transport::local::CALL_WITHIN`).
-    let reply = tokio::task::spawn_blocking(move || target.call::<M>(&request))
-        .await
-        .map_err(|e| format!("Could not read {what} from the node: {e}"))?;
-    reply.map_err(|e| said_local(&e, what))
+    node.own_call::<M>(request, what).await
 }
 
 /// A failed call on the owner's leg in the person's words. A failed peer
 /// check is said as core says it, whole: it is a security failure, not a
 /// node that is away.
-fn said_local(e: &JsonRpcError<LocalFault>, what: &str) -> String {
+pub(crate) fn said_local(e: &JsonRpcError<LocalFault>, what: &str) -> String {
     match e {
         JsonRpcError::Transport(fault) => fault.to_string(),
         JsonRpcError::Refusal(refusal) if refusal.class == ErrorClass::OutsideTheGrant => {

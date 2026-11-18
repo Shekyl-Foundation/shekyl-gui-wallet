@@ -158,11 +158,34 @@ impl DaemonManager {
     pub(super) async fn launch_waiting_locked(self: &Arc<Self>) -> Result<(), String> {
         let mut wait = HELD_DIR_FIRST_WAIT;
         let mut quiet = false;
+        let mut held: Option<String> = None;
         loop {
-            self.launch_locked(quiet).await;
-            match self.ready_or_words().await {
+            // A "Stop waiting" that came before this launch: nothing more
+            // is started.
+            if *self.stop_waiting.borrow() {
+                self.leave_waiting(left_waiting_words(held.as_deref().unwrap_or_default()))
+                    .await;
+                return Ok(());
+            }
+            let node = self.launch_locked(quiet).await;
+            let outcome = tokio::select! {
+                outcome = self.ready_or_words(node) => Some(outcome),
+                () = self.stop_asked() => None,
+            };
+            let Some(outcome) = outcome else {
+                // "Stop waiting" while this launch was in flight: the node it
+                // started is the wallet's own, so it is asked to stop (Force
+                // stop is offered meanwhile) and the wait ends there. Nothing
+                // is killed.
+                self.stop_own_locked().await;
+                self.leave_waiting(left_waiting_words(held.as_deref().unwrap_or_default()))
+                    .await;
+                return Ok(());
+            };
+            match outcome {
                 Ok(()) => return Ok(()),
                 Err(words) if words.contains(DATA_DIR_LOCKED) => {
+                    held = Some(words.clone());
                     // The refused node's process is gone (its words came
                     // with the end of its connection); its follower may not
                     // have run yet, and this flow does not wait for it.
@@ -180,13 +203,19 @@ impl DaemonManager {
                     // A quiet start's follower leaves `waiting` alone.
                     let mut inner = self.inner.write().await;
                     if matches!(inner.state, NodeState::Waiting(_)) {
-                        self.gate.set(Some(words.clone()));
+                        self.gate.set(crate::state::Gate::Closed(words.clone()));
                         inner.state = NodeState::Failed(words.clone());
                     }
                     return Err(words);
                 }
             }
         }
+    }
+
+    /// Returns once a person asks to stop waiting.
+    async fn stop_asked(&self) {
+        let mut asked = self.stop_waiting.subscribe();
+        drop(asked.wait_for(|asked| *asked).await);
     }
 
     /// Sleep `wait`, or less when a person asks to stop waiting. `true`
