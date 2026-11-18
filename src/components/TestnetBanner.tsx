@@ -19,7 +19,7 @@ export default function TestnetBanner() {
       {isTestnet ? (
         <>
           <AlertTriangle className="h-3.5 w-3.5" />
-          <span>TestNet Active — Mainnet July 2026</span>
+          <span>TestNet Active</span>
           <a
             href="https://faucet.shekyl.org"
             target="_blank"
