@@ -23,7 +23,7 @@ import ImportWallet from "./pages/ImportWallet";
 import Unlock from "./pages/Unlock";
 import { OpenAttemptProvider } from "./pages/OpenAttemptProvider";
 import LoadingScreen from "./components/LoadingScreen";
-import PreWalletNode from "./components/PreWalletNode";
+import PreWalletShell from "./components/PreWalletShell";
 
 function App() {
   return (
@@ -41,13 +41,14 @@ function App() {
 function UnlockPhaseRoutes() {
   return (
     <OpenAttemptProvider>
-      <PreWalletNode />
-      <Routes>
-        <Route index element={<Unlock />} />
-        <Route path="create" element={<CreateWallet />} />
-        <Route path="import" element={<ImportWallet />} />
-        <Route path="*" element={<Unlock />} />
-      </Routes>
+      <PreWalletShell>
+        <Routes>
+          <Route index element={<Unlock />} />
+          <Route path="create" element={<CreateWallet />} />
+          <Route path="import" element={<ImportWallet />} />
+          <Route path="*" element={<Unlock />} />
+        </Routes>
+      </PreWalletShell>
     </OpenAttemptProvider>
   );
 }
@@ -63,15 +64,14 @@ export function WalletGate() {
     case "creating":
     case "importing":
       return (
-        <>
-          <PreWalletNode />
+        <PreWalletShell>
           <Routes>
             <Route index element={<Welcome />} />
             <Route path="create" element={<CreateWallet />} />
             <Route path="import" element={<ImportWallet />} />
             <Route path="*" element={<Welcome />} />
           </Routes>
-        </>
+        </PreWalletShell>
       );
 
     case "unlock":

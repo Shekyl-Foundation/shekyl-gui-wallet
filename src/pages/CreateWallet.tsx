@@ -149,7 +149,7 @@ export default function CreateWallet() {
   }, [navigate, setPhase]);
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-purple-900">
+    <div className="flex min-h-full w-full items-center justify-center bg-purple-900">
       <div className="mx-auto w-full max-w-lg space-y-6 px-6">
         {/* Header */}
         <div className="flex items-center gap-3">

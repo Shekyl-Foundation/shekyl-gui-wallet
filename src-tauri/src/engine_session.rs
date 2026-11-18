@@ -56,6 +56,16 @@ pub struct EngineSession {
     daemon_node: Option<EngineNode>,
 }
 
+/// A password for a test's throwaway wallet, drawn fresh for each one and
+/// never printed.
+#[cfg(test)]
+pub(crate) fn test_password() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 impl EngineSession {
     pub fn new() -> Self {
         Self {

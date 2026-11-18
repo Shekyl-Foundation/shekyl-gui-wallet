@@ -42,16 +42,13 @@ describe("PreWalletNode", () => {
 
   /** The network a wallet will be made on can be chosen before one is open. */
   it("switches the node's network before a wallet is open", async () => {
-    let current = status({ state: "running", message: null });
+    let current = { url: null, warnings: [], network: "mainnet" };
     vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
-      if (cmd === "daemon_status") return current;
+      if (cmd === "daemon_status") return status({ state: "running", message: null });
+      if (cmd === "daemon_connection_disclosures") return current;
       if (cmd === "set_daemon_connection") {
-        current = status({
-          state: "running",
-          message: null,
-          network: (args as { network: string }).network,
-        });
-        return { url: null, warnings: [] };
+        current = { url: null, warnings: [], network: (args as { network: string }).network };
+        return current;
       }
       return null;
     });
@@ -67,6 +64,54 @@ describe("PreWalletNode", () => {
         "aria-pressed",
         "true",
       ),
+    );
+  });
+
+  /**
+   * A node address can be named before a wallet is open (finding on #71):
+   * a service with no view listener refuses every open, and Settings is
+   * reached only with a wallet open, so without this there is no way to a
+   * node that works. The address goes with the network in effect, and a
+   * refusal is said. Red edit: drop the editor from the bar.
+   */
+  it("names a node address before a wallet is open", async () => {
+    let current: { url: string | null; warnings: string[]; network: string } = {
+      url: null,
+      warnings: [],
+      network: "testnet",
+    };
+    let refuse = false;
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === "daemon_status") {
+        return status({ state: "service", message: "no view listener", network: "testnet" });
+      }
+      if (cmd === "daemon_connection_disclosures") return current;
+      if (cmd === "set_daemon_connection") {
+        if (refuse) throw "That address is not a node address.";
+        const { url, network } = args as { url?: string; network: string };
+        current = { url: url ?? null, warnings: [], network };
+        return current;
+      }
+      return null;
+    });
+    render(<PreWalletNode />);
+    expect(await screen.findByText("Node: this computer’s")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Change node" }));
+    const field = screen.getByPlaceholderText("Empty: this computer’s node");
+    const save = screen.getByRole("button", { name: /save & reconnect/i });
+    await waitFor(() => expect(save).toBeEnabled());
+    await userEvent.type(field, "http://127.0.0.1:12030");
+    await userEvent.click(save);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_daemon_connection", {
+      network: "testnet",
+      url: "http://127.0.0.1:12030",
+    });
+    expect(await screen.findByText("Node: http://127.0.0.1:12030")).toBeInTheDocument();
+
+    refuse = true;
+    await userEvent.click(screen.getByRole("button", { name: "Use this computer’s node" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "That address is not a node address.",
     );
   });
 });

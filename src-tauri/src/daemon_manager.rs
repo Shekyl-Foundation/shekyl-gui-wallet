@@ -222,6 +222,49 @@ impl NodeState {
             Self::Service(_) => "service",
         }
     }
+
+    /// The state in words, where it has something to say.
+    fn words(&self, network: NetworkType) -> Option<String> {
+        match self {
+            Self::Found => Some(found_words(network)),
+            Self::Service(view) => Some(shekyl_rpc_client::service_refusal(*view)),
+            Self::Waiting(words)
+            | Self::Refused(words)
+            | Self::Failed(words)
+            | Self::Unavailable(words) => Some(words.clone()),
+            Self::Idle | Self::Starting | Self::Running | Self::Stopping => None,
+        }
+    }
+}
+
+/// What stands at "this computer" when no node of this account answers
+/// there: nothing, so the wallet may start its own node; or something the
+/// wallet starts no node beside, with the state that says what.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Standing {
+    /// No node, and no record of one that still runs.
+    Nothing,
+    /// A failed check, a service, or a fault the wallet cannot read past.
+    Blocked(NodeState),
+}
+
+/// Read a failed dial of "this computer". Exhaustive, so a fault core adds
+/// does not compile until it is placed: only the faults that say no node
+/// is there let the wallet start one (one target, never a ladder: core
+/// `RPC_CHANNEL.md` RT-15).
+pub(crate) fn standing(fault: LocalFault) -> Standing {
+    match fault {
+        LocalFault::NoPlace { .. } | LocalFault::NotRunning { .. } | LocalFault::Stale { .. } => {
+            Standing::Nothing
+        }
+        LocalFault::Service { view, .. } => Standing::Blocked(NodeState::Service(view)),
+        fault @ LocalFault::PeerCheck(_) => {
+            Standing::Blocked(NodeState::Refused(fault.to_string()))
+        }
+        fault @ (LocalFault::OtherSession | LocalFault::Unreachable(_)) => {
+            Standing::Blocked(NodeState::Failed(fault.to_string()))
+        }
+    }
 }
 
 /// The node's state for the page.
@@ -312,6 +355,9 @@ struct Inner {
     state: NodeState,
     /// The node this wallet started, while it lives.
     node: Option<Arc<OwnNode>>,
+    /// The arguments that node was started with: the settings it runs
+    /// with, which may not be the settings last saved.
+    node_args: Vec<OsString>,
     /// Counts launches, so a launch's follower never writes over a later
     /// launch's state.
     launch: u64,
@@ -355,6 +401,7 @@ impl DaemonManager {
                 mine_address: None,
                 state: NodeState::Idle,
                 node: None,
+                node_args: Vec::new(),
                 launch: 0,
                 waits_on_another: false,
                 left_waiting: None,
@@ -374,18 +421,27 @@ impl DaemonManager {
     /// test names its own directories instead.
     fn target(&self, network: NetworkType) -> LocalTarget {
         #[cfg(test)]
-        if self.env.socket_dir.is_some()
+        if let Some(target) = self.test_target(network.network()) {
+            return target;
+        }
+        LocalTarget::this_computer(network.network())
+    }
+
+    /// A test's own directories in place of "this computer", when it
+    /// named any.
+    #[cfg(test)]
+    fn test_target(&self, network: shekyl_engine_core::Network) -> Option<LocalTarget> {
+        (self.env.socket_dir.is_some()
             || self.env.instance.is_some()
-            || self.env.service_rendezvous.is_some()
-        {
-            return LocalTarget::test_override(
-                network.network(),
+            || self.env.service_rendezvous.is_some())
+        .then(|| {
+            LocalTarget::test_override(
+                network,
                 &test_instance_of(self.env.instance.as_deref()),
                 self.env.socket_dir.as_deref(),
                 self.env.service_rendezvous.as_deref(),
-            );
-        }
-        LocalTarget::this_computer(network.network())
+            )
+        })
     }
 
     /// The owner's leg of the wallet's own node, for a call: only while the
@@ -397,12 +453,12 @@ impl DaemonManager {
             NodeState::Idle => Err(NODE_NOT_STARTED.to_owned()),
             NodeState::Starting => Err("The wallet's node is starting.".to_owned()),
             NodeState::Stopping => Err("The node is stopping.".to_owned()),
-            NodeState::Found => Err(found_words(inner.network)),
-            NodeState::Service(view) => Err(shekyl_rpc_client::service_refusal(*view)),
-            NodeState::Waiting(words)
-            | NodeState::Refused(words)
-            | NodeState::Failed(words)
-            | NodeState::Unavailable(words) => Err(words.clone()),
+            state @ (NodeState::Found
+            | NodeState::Service(_)
+            | NodeState::Waiting(_)
+            | NodeState::Refused(_)
+            | NodeState::Failed(_)
+            | NodeState::Unavailable(_)) => Err(state.words(inner.network).unwrap_or_default()),
         }
     }
 
@@ -444,8 +500,7 @@ impl DaemonManager {
                     fault @ LocalFault::PeerCheck(_),
                 ) = &e
                 {
-                    tracing::error!("the wallet's node's address failed its check: {fault}");
-                    self.set_state(NodeState::Refused(fault.to_string())).await;
+                    self.refuse(fault.to_string()).await;
                 }
                 Err(words)
             }
@@ -521,37 +576,33 @@ impl DaemonManager {
                 self.set_state(NodeState::Found).await;
                 None
             }
-            Err(
-                LocalFault::NoPlace { .. }
-                | LocalFault::NotRunning { .. }
-                | LocalFault::Stale { .. },
-            ) => {
-                if wait_out_lock {
+            Err(fault) => match standing(fault) {
+                Standing::Nothing if wait_out_lock => {
                     // That flow waits on its own launches.
                     drop(self.launch_waiting_locked().await);
                     None
-                } else {
-                    self.launch_locked(false).await
                 }
-            }
-            Err(fault @ LocalFault::PeerCheck(_)) => {
-                tracing::error!("the node's local address failed its check: {fault}");
-                self.set_state(NodeState::Refused(fault.to_string())).await;
-                None
-            }
-            Err(LocalFault::Service { view, .. }) => {
-                tracing::info!(
-                    network = network.as_str(),
-                    "this computer's node runs as a service; no node is started"
-                );
-                self.set_state(NodeState::Service(view)).await;
-                None
-            }
-            Err(fault @ (LocalFault::OtherSession | LocalFault::Unreachable(_))) => {
-                self.set_state(NodeState::Failed(fault.to_string())).await;
-                None
-            }
+                Standing::Nothing => self.launch_locked(false).await,
+                Standing::Blocked(state) => {
+                    self.block(network, state).await;
+                    None
+                }
+            },
         }
+    }
+
+    /// Something stands at "this computer" that the wallet starts no node
+    /// beside: the state says what, and its words are returned.
+    async fn block(&self, network: NetworkType, state: NodeState) -> String {
+        let words = state.words(network).unwrap_or_default();
+        match &state {
+            NodeState::Refused(_) => {
+                tracing::error!("the node's local address failed its check: {words}");
+            }
+            _ => tracing::info!(network = network.as_str(), "no node is started: {words}"),
+        }
+        self.set_state(state).await;
+        words
     }
 
     /// Dial "this computer" on `network`, and close the connection.
@@ -560,6 +611,37 @@ impl DaemonManager {
         tokio::task::spawn_blocking(move || target.dial().map(drop))
             .await
             .unwrap_or_else(|e| Err(LocalFault::Unreachable(e.to_string())))
+    }
+
+    /// The network and the arguments the next launch uses: the saved
+    /// settings, the network, and the miner's address, as they stand now.
+    async fn launch_args(&self) -> (NetworkType, Vec<OsString>) {
+        let config = self.config.read().await.clone();
+        let (network, mine_address) = {
+            let inner = self.inner.read().await;
+            (inner.network, inner.mine_address.clone())
+        };
+        let names = LaunchNames {
+            tor_file: self.env.tor_file.clone(),
+            mine_address,
+            #[cfg(test)]
+            socket_dir: self.env.socket_dir.clone(),
+            #[cfg(test)]
+            instance: self.env.instance.clone(),
+        };
+        #[allow(unused_mut, reason = "a test's launch adds its own arguments")]
+        let mut args = sidecar_args(&config, network, &names);
+        #[cfg(test)]
+        args.extend(self.env.extra_args.iter().cloned());
+        (network, args)
+    }
+
+    /// Whether the wallet's node lives and was started with the settings
+    /// as they stand now: nothing is left to apply by starting it again.
+    async fn runs_the_saved_settings(&self) -> bool {
+        let (_, args) = self.launch_args().await;
+        let inner = self.inner.read().await;
+        inner.node.is_some() && inner.node_args == args
     }
 
     /// Launch the wallet's own node and follow its life. A `quiet` launch
@@ -578,26 +660,10 @@ impl DaemonManager {
             .await;
             return None;
         };
-        let config = self.config.read().await.clone();
-        let (network, mine_address) = {
-            let inner = self.inner.read().await;
-            (inner.network, inner.mine_address.clone())
-        };
-        let names = LaunchNames {
-            tor_file: self.env.tor_file.clone(),
-            mine_address,
-            #[cfg(test)]
-            socket_dir: self.env.socket_dir.clone(),
-            #[cfg(test)]
-            instance: self.env.instance.clone(),
-        };
-        #[allow(unused_mut, reason = "a test's launch adds its own arguments")]
-        let mut args = sidecar_args(&config, network, &names);
-        #[cfg(test)]
-        args.extend(self.env.extra_args.iter().cloned());
+        let (network, args) = self.launch_args().await;
         let launch = Launch {
             program,
-            args,
+            args: args.clone(),
             stderr: self.config_dir.join("shekyld.stderr"),
         };
         if let Err(e) = std::fs::create_dir_all(&self.config_dir) {
@@ -639,6 +705,7 @@ impl DaemonManager {
             let mut inner = self.inner.write().await;
             inner.launch += 1;
             inner.node = Some(Arc::clone(&node));
+            inner.node_args = args;
             inner.launch
         };
         if !quiet {
@@ -745,14 +812,10 @@ impl DaemonManager {
             }
         }
         let inner = self.inner.read().await;
-        Err(match &inner.state {
-            NodeState::Found => found_words(inner.network),
-            NodeState::Waiting(words)
-            | NodeState::Refused(words)
-            | NodeState::Failed(words)
-            | NodeState::Unavailable(words) => words.clone(),
-            _ => "The wallet's node did not start.".to_owned(),
-        })
+        Err(inner
+            .state
+            .words(inner.network)
+            .unwrap_or_else(|| "The wallet's node did not start.".to_owned()))
     }
 
     /// Kill the node this wallet started. A person asks for this; nothing
@@ -782,14 +845,8 @@ impl DaemonManager {
     pub async fn status(&self) -> DaemonStatus {
         let inner = self.inner.read().await;
         let message = match &inner.state {
-            NodeState::Found => Some(found_words(inner.network)),
-            NodeState::Service(view) => Some(shekyl_rpc_client::service_refusal(*view)),
-            NodeState::Waiting(words)
-            | NodeState::Refused(words)
-            | NodeState::Failed(words)
-            | NodeState::Unavailable(words) => Some(words.clone()),
             NodeState::Idle => inner.left_waiting.clone(),
-            NodeState::Starting | NodeState::Running | NodeState::Stopping => None,
+            state => state.words(inner.network),
         };
         DaemonStatus {
             service_view: match inner.state {
@@ -832,6 +889,7 @@ impl DaemonManager {
     }
 }
 
+mod engine;
 mod payout;
 mod replace;
 

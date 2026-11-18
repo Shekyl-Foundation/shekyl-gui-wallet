@@ -5,7 +5,8 @@ import { useDaemon } from "../context/useDaemon";
 import SecurityPanel from "../components/SecurityPanel";
 import WalletCare from "../components/WalletCare";
 import { BLOCK_NUMBER_TIP } from "../lib/format";
-import type { NodeState, NodeStatus } from "../types/node";
+import NodeAddress from "../components/NodeAddress";
+import type { DaemonConnection, NodeState, NodeStatus } from "../types/node";
 
 /** How often Settings reads the node's state while it is open. */
 const SETTINGS_POLL_MS = 2000;
@@ -30,39 +31,23 @@ const NODE_STATE_WORDS: Record<NodeState, string> = {
   unavailable: "This build carries no node",
 };
 
-/**
- * What the backend says about the daemon URL now in effect. `warnings` is
- * empty for a daemon on this machine — the default and the supported
- * configuration — and never contains an assurance: the only thing this
- * wallet can establish about a daemon address is what it costs, never that
- * it is safe.
- */
-interface DaemonConnection {
-  /** The node address a person typed; `null` is this computer's node. */
-  url: string | null;
-  warnings: string[];
-}
-
 const NETWORKS = ["mainnet", "testnet", "stagenet"] as const;
 
 
 export default function Settings() {
   const { health, refresh } = useDaemon();
-  const [network, setNetwork] = useState<string>(health?.network ?? "mainnet");
-  // The address a person typed, as the backend keeps it; empty for this
-  // computer's node, which has no address to show (it is read over its
-  // owner's leg).
-  const [daemonUrl, setDaemonUrl] = useState("");
-  const [typedNode, setTypedNode] = useState(false);
-  // Whether the field has been edited since it was loaded: the reads do
-  // not overwrite what the person is typing. Not state: never drawn.
-  const urlEditedRef = useRef(false);
+  // The connection in effect, as the backend keeps it: the node address a
+  // person typed (none for this computer's node) and the network the
+  // wallet is on. The backend is the one source for both; the node's
+  // health is not, since it is unread while the node is away and follows
+  // a switch only once the node has restarted.
+  const [connection, setConnection] = useState<DaemonConnection | null>(null);
+  const network = connection?.network ?? null;
   // Each read of the node's state is numbered; an answer older than the
   // last one shown is dropped, so a slow read never paints over a newer one.
   const readGeneration = useRef(0);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [daemonWarnings, setDaemonWarnings] = useState<string[]>([]);
   const [daemonSettings, setDaemonSettings] = useState<DaemonSettings | null>(null);
   const [daemonStatus, setDaemonStatus] = useState<NodeStatus | null>(null);
   const [keepRunningAnswer, setKeepRunningAnswer] = useState<string | null>(null);
@@ -88,10 +73,7 @@ export default function Settings() {
       // about the configured daemon would quietly revert the operator's
       // choice the next time they pressed it.
       if (generation !== readGeneration.current) return;
-      setTypedNode(current.url !== null);
-      // The field is the person's while they edit it.
-      setDaemonUrl((shown) => (urlEditedRef.current ? shown : (current.url ?? "")));
-      setDaemonWarnings(current.warnings);
+      setConnection(current);
     } catch {
       // command not available yet
     }
@@ -119,12 +101,21 @@ export default function Settings() {
     }
   }, []);
 
+  // Each read is asked for once the one before it has finished, never on
+  // a fixed beat: a read slower than the beat would otherwise be numbered
+  // out by the next one every time, and nothing would ever be shown. A
+  // change of target still numbers out the read in flight.
   useEffect(() => {
-    const first = setTimeout(loadDaemonInfo, 0);
-    const timer = setInterval(loadDaemonInfo, SETTINGS_POLL_MS);
+    let closed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const read = async () => {
+      await loadDaemonInfo();
+      if (!closed) timer = setTimeout(read, SETTINGS_POLL_MS);
+    };
+    timer = setTimeout(read, 0);
     return () => {
-      clearTimeout(first);
-      clearInterval(timer);
+      closed = true;
+      clearTimeout(timer);
     };
   }, [loadDaemonInfo]);
 
@@ -156,49 +147,25 @@ export default function Settings() {
     }
   }
 
+  // The backend applied a change of network or of node address.
+  function applied(now: DaemonConnection) {
+    setConnection(now);
+    refresh();
+    loadDaemonInfo();
+  }
+
   async function handleNetworkSwitch(net: string) {
     setSaving(true);
     setNetworkError(null);
     try {
       // No URL: the backend points at this computer's node, and relaunches
       // the wallet's own node on the network.
-      const applied = await invoke<DaemonConnection>("set_daemon_connection", {
-        network: net,
-      });
-      setNetwork(net);
-      urlEditedRef.current = false;
-      setDaemonUrl(applied.url ?? "");
-      setTypedNode(applied.url !== null);
-      setDaemonWarnings(applied.warnings);
-      refresh();
-      loadDaemonInfo();
+      applied(
+        await invoke<DaemonConnection>("set_daemon_connection", { network: net }),
+      );
     } catch (e) {
       // A wallet is open on another network: the switch waits for it.
       setNetworkError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // An address is sent when the field holds one; an empty field is this
-  // computer's node. A typed node stays typed until "Use this computer's
-  // node".
-  async function handleSaveUrl() {
-    setSaving(true);
-    try {
-      const url = daemonUrl.trim() === "" ? undefined : daemonUrl.trim();
-      const applied = await invoke<DaemonConnection>("set_daemon_connection", {
-        network,
-        ...(url === undefined ? {} : { url }),
-      });
-      urlEditedRef.current = false;
-      setTypedNode(applied.url !== null);
-      setDaemonUrl(applied.url ?? "");
-      setDaemonWarnings(applied.warnings);
-      refresh();
-      loadDaemonInfo();
-    } catch {
-      // ignore
     } finally {
       setSaving(false);
     }
@@ -220,7 +187,7 @@ export default function Settings() {
             <button
               key={n}
               onClick={() => handleNetworkSwitch(n)}
-              disabled={saving}
+              disabled={saving || network === null}
               className={`rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
                 network === n
                   ? "border-gold-500 bg-gold-500/15 text-gold-400"
@@ -242,49 +209,7 @@ export default function Settings() {
             Daemon Connection
           </h2>
         </div>
-        <div className="space-y-2">
-          <label className="text-xs text-purple-300">Node address</label>
-          <input
-            type="text"
-            className="input font-mono text-sm"
-            placeholder="Empty: this computer’s node"
-            value={daemonUrl}
-            onChange={(e) => {
-              urlEditedRef.current = true;
-              setDaemonUrl(e.target.value);
-            }}
-          />
-          <p className="text-[11px] text-purple-400">
-            {typedNode
-              ? "A node address you typed: the wallet asks it over the network."
-              : "This computer’s node, the one the wallet starts."}
-          </p>
-        </div>
-        <button
-          onClick={handleSaveUrl}
-          disabled={saving}
-          className="btn btn-secondary w-full text-xs"
-        >
-          {saving ? "Connecting..." : "Save & Reconnect"}
-        </button>
-        {typedNode && (
-          <button
-            onClick={() => handleNetworkSwitch(network)}
-            disabled={saving}
-            className="btn btn-ghost w-full text-xs"
-          >
-            Use this computer’s node
-          </button>
-        )}
-        {daemonWarnings.map((warning) => (
-          <p
-            key={warning}
-            className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-200"
-            role="status"
-          >
-            {warning}
-          </p>
-        ))}
+        <NodeAddress connection={connection} onApplied={applied} />
         {health && (
           <p className="text-center text-[10px] text-emerald-400" title={BLOCK_NUMBER_TIP}>
             Connected — block {health.height.toLocaleString()}

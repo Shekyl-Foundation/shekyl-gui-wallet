@@ -52,7 +52,7 @@ export default function Unlock() {
   );
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-purple-900">
+    <div className="flex min-h-full w-full items-center justify-center bg-purple-900">
       <div className="mx-auto w-full max-w-sm space-y-6 px-6">
         {/* Icon */}
         <div className="space-y-3 text-center">

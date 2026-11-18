@@ -44,6 +44,47 @@ describe("NodeNotice", () => {
     }
   });
 
+  /**
+   * The start that follows a found node's stop can be ended, so it is
+   * said at once with its acts (finding on #71: `starting` hid "Stop
+   * waiting" while the backend still took it). Red edit: return nothing
+   * for every `starting`.
+   */
+  it("offers to stop waiting during the start that replaces a found node", async () => {
+    mockNode(node({ state: "starting", can_force_stop: true, can_stop_waiting: true }));
+    render(<NodeNotice />);
+    expect(await screen.findByText("Starting the wallet’s node…")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Stop waiting"));
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("stop_waiting_for_node"),
+    );
+    expect(screen.getByText("Force stop")).toBeInTheDocument();
+  });
+
+  /**
+   * A plain start is unsaid while it is short, and said with a force stop
+   * once it has run long: a start that hangs is never a window with no
+   * way out. Red edit: never set `longStart`.
+   */
+  it("says a start gone long and offers the force stop", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockNode(node({ state: "starting", can_force_stop: true }));
+      const { container } = render(<NodeNotice />);
+      await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("daemon_status"));
+      expect(container).toBeEmptyDOMElement();
+      await vi.advanceTimersByTimeAsync(12000);
+      expect(await screen.findByText("Starting the wallet’s node…")).toBeInTheDocument();
+      expect(screen.queryByText("Stop waiting")).toBeNull();
+      fireEvent.click(screen.getByText("Force stop"));
+      await waitFor(() =>
+        expect(vi.mocked(invoke)).toHaveBeenCalledWith("force_stop_node"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says a found node in the backend's words and offers to replace it", async () => {
     mockNode(node({ state: "found", message: FOUND, can_force_stop: false }));
     render(<NodeNotice />);

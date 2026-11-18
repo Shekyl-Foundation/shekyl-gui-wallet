@@ -332,3 +332,112 @@ async fn stop_waiting_ends_a_wait_whose_launch_never_says_ready() {
         "nothing left running"
     );
 }
+
+/// **Only a dial that says no node is there lets the wallet start one.**
+/// Every fault of core's, each placed: the three that say nothing is there
+/// start the wallet's node; a service is the `service` state with its view
+/// listener; a failed check is `refused` in its own words; a node in
+/// another session and one that does not answer are `failed`, and nothing
+/// is started beside any of them. Red edit: in `standing`, read
+/// `LocalFault::Service` as `Standing::Nothing`.
+#[test]
+fn only_a_dial_that_says_no_node_is_there_starts_one() {
+    let node = || "testnet".to_owned();
+    for fault in [
+        LocalFault::NoPlace { node: node() },
+        LocalFault::NotRunning { node: node() },
+        LocalFault::Stale { node: node() },
+    ] {
+        assert_eq!(standing(fault), Standing::Nothing);
+    }
+    let view: std::net::SocketAddr = "127.0.0.1:12030".parse().unwrap();
+    assert_eq!(
+        standing(LocalFault::Service {
+            node: node(),
+            view: Some(view)
+        }),
+        Standing::Blocked(NodeState::Service(Some(view)))
+    );
+    assert_eq!(
+        standing(LocalFault::Service {
+            node: node(),
+            view: None
+        }),
+        Standing::Blocked(NodeState::Service(None))
+    );
+    let check = LocalFault::PeerCheck("uid 0".to_owned());
+    let words = check.to_string();
+    assert_eq!(
+        standing(check),
+        Standing::Blocked(NodeState::Refused(words))
+    );
+    for fault in [
+        LocalFault::OtherSession,
+        LocalFault::Unreachable("timed out".to_owned()),
+    ] {
+        let words = fault.to_string();
+        assert_eq!(standing(fault), Standing::Blocked(NodeState::Failed(words)));
+    }
+}
+
+/// **A failed peer check is one latch, for the wallet's calls and its
+/// engine's.** Latched in the manager, the notice says `refused` in the
+/// check's words, and the engine's way to "this computer" is refused in
+/// the same words with no dial: a client is not built, and the target core
+/// dials itself is not handed out. A node address a person typed is theirs
+/// and is not behind the latch. Red edit: in `engine_transport`, drop the
+/// read of the latch (the engine dials the address the check failed at).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
+    use crate::engine_daemon::{core_target, make_daemon, EngineNode};
+    let dm = DaemonManager::new(
+        std::env::temp_dir().join("shekyl-gui-none"),
+        LaunchEnv::default(),
+    );
+    let state = crate::state::AppState::on(NetworkType::Testnet);
+    assert_eq!(dm.refusal().await, None);
+
+    let words = "something other than your Shekyl node is answering".to_owned();
+    dm.refuse(words.clone()).await;
+    let status = dm.status().await;
+    assert_eq!(status.state, "refused");
+    assert_eq!(status.message.as_deref(), Some(words.as_str()));
+
+    let node = EngineNode::of(&state, &dm).await;
+    assert!(matches!(node, EngineNode::ThisComputer(_)));
+    let Err(refused) = make_daemon(&node, Network::Testnet).await else {
+        panic!("a client was built behind the latch");
+    };
+    assert_eq!(refused, words);
+    assert_eq!(core_target(&state, &dm).await.unwrap_err(), words);
+
+    *state.node_address.write().await = Some("http://127.0.0.1:1".into());
+    assert!(matches!(
+        EngineNode::of(&state, &dm).await,
+        EngineNode::Address(_)
+    ));
+    assert!(core_target(&state, &dm).await.is_ok(), "a typed address");
+}
+
+/// **Start mining pays the open wallet, and with none open it says so.**
+/// The manager reads the wallet open when the start runs; with none, the
+/// miner is not started and nothing is launched. Red edit: in
+/// `start_mining`, start the miner without an open wallet.
+#[tokio::test]
+async fn start_mining_needs_an_open_wallet() {
+    use shekyl_rpc_client::wire::node::{AutoWord, Threads};
+    let dm = DaemonManager::new(
+        std::env::temp_dir().join("shekyl-gui-none"),
+        LaunchEnv::default(),
+    );
+    let refused = dm
+        .start_mining(Threads::Auto(AutoWord::Auto))
+        .await
+        .expect_err("no wallet is open");
+    assert_eq!(refused, payout::NO_WALLET_TO_PAY);
+    assert!(dm.launched().is_empty());
+    assert!(
+        !dm.runs_the_saved_settings().await,
+        "no node runs, so no setting is applied"
+    );
+}

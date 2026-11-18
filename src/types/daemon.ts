@@ -130,7 +130,17 @@ export interface MiningStatus {
   difficulty: string | null;
   cause: string | null;
   /** Whose address the miner pays, as the wallet can tell. */
-  payout: "open-wallet" | "another-wallet" | "set-by-the-node" | "nothing";
+  payout:
+    | "open-wallet"
+    | "another-wallet"
+    | "set-by-the-node"
+    | "nothing"
+    | "none-on-the-node";
+  /**
+   * Whether Start mining here pays the open wallet: on the wallet's own
+   * node, never on a node address a person typed.
+   */
+  start_pays_the_open_wallet: boolean;
 }
 
 export interface PqcStatus {

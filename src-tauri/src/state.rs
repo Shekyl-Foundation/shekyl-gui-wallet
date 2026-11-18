@@ -130,6 +130,14 @@ pub struct AppState {
     pub wallet_open: RwLock<bool>,
     pub wallet_name: RwLock<Option<String>>,
     /// Pure-Rust Engine session — the sole wallet backend.
+    ///
+    /// Its mutex is also the session guard. Whatever opens or closes a
+    /// wallet, and whatever changes the network or the node address, holds
+    /// it from its first read of them to its last write, and tells the
+    /// node's manager of the wallet inside it. So a wallet is never opened
+    /// on a network or a node that a change is replacing, and the manager
+    /// hears of opens and closes in the order they happened. Lock order:
+    /// this guard, then the fields above, then the manager.
     pub engine: tokio::sync::Mutex<engine_session::EngineSession>,
 }
 

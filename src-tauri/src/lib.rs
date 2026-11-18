@@ -50,6 +50,8 @@ mod lifecycle;
 #[cfg(test)]
 mod live_daemon_tests;
 #[cfg(test)]
+mod live_miner_tests;
+#[cfg(test)]
 mod live_own_node_tests;
 mod message_signing;
 mod mining;

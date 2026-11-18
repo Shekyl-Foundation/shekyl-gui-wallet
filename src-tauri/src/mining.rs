@@ -45,6 +45,9 @@ pub struct MiningStatus {
     pub cause: Option<String>,
     /// Whose address the miner pays, as far as this wallet can tell.
     pub payout: Payout,
+    /// Whether Start mining here pays the open wallet. `false` on a node
+    /// address a person typed: its operator's address is paid, set or not.
+    pub start_pays_the_open_wallet: bool,
 }
 
 /// Whose address the node's miner pays. The page says which, so a person
@@ -60,14 +63,30 @@ pub enum Payout {
     /// The address a node's operator set, on a node address a person
     /// typed: Start mining does not change it.
     SetByTheNode,
-    /// None: the node posts no job.
+    /// None, on the wallet's own node: it posts no job, and Start mining
+    /// gives it the open wallet's.
     Nothing,
+    /// None, on a node address a person typed: its operator sets one, and
+    /// Start mining does not.
+    NoneOnTheNode,
+}
+
+impl Payout {
+    /// Whether Start mining on this node pays the open wallet: on the
+    /// wallet's own node, never on a node address a person typed.
+    const fn start_pays_the_open_wallet(self) -> bool {
+        match self {
+            Self::OpenWallet | Self::AnotherWallet | Self::Nothing => true,
+            Self::SetByTheNode | Self::NoneOnTheNode => false,
+        }
+    }
 }
 
 /// Whose address `address` is, for the page.
 fn payout(address: Option<&str>, open_wallet: Option<&str>, typed_node: bool) -> Payout {
     match (address, typed_node) {
-        (None, _) => Payout::Nothing,
+        (None, false) => Payout::Nothing,
+        (None, true) => Payout::NoneOnTheNode,
         (Some(_), true) => Payout::SetByTheNode,
         (Some(paid), false) if Some(paid) == open_wallet => Payout::OpenWallet,
         (Some(_), false) => Payout::AnotherWallet,
@@ -93,12 +112,19 @@ pub async fn get_mining_status(
     };
     let typed_node = !state.targets_this_computer().await;
     let mut status = mining_status(ms);
-    status.payout = payout(
+    status.set_payout(payout(
         status.address.as_deref(),
         open_wallet.as_deref(),
         typed_node,
-    );
+    ));
     Ok(status)
+}
+
+impl MiningStatus {
+    fn set_payout(&mut self, payout: Payout) {
+        self.payout = payout;
+        self.start_pays_the_open_wallet = payout.start_pays_the_open_wallet();
+    }
 }
 
 /// The miner's state from the node's `mine_status` reply.
@@ -117,13 +143,9 @@ fn mining_status(ms: shekyl_rpc_client::wire::node::MineStatus) -> MiningStatus 
         difficulty: ms.difficulty.0.map(|d| d.get().to_string()),
         cause: ms.cause.0.map(|c| c.message),
         payout: Payout::Nothing,
+        start_pays_the_open_wallet: Payout::Nothing.start_pays_the_open_wallet(),
     }
 }
-
-/// What starting the miner says with no wallet open: the reward needs an
-/// address to be paid to, and the wallet never mines to one it cannot show.
-const NO_WALLET_TO_PAY: &str =
-    "Open a wallet before mining: the reward is paid to the open wallet's address.";
 
 /// Start the node's miner with `threads` threads, or the node's own
 /// `mine-threads` when none is given.
@@ -132,46 +154,28 @@ const NO_WALLET_TO_PAY: &str =
 /// daemon reads `mine-address` only at its start (shekyl-core
 /// `INPUT_GRAMMAR.md` IG-12), so a node running with another address, or
 /// none, is stopped and started again with this one before the miner
-/// starts. A node address a person typed keeps the address its operator
-/// set.
+/// starts: one transaction in the node's manager, against the wallet open
+/// when it runs (`DaemonManager::start_mining`). A node address a person
+/// typed keeps the address its operator set.
 #[tauri::command]
 pub async fn start_mining_cmd(
     state: State<'_, AppState>,
     node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     threads: Option<u64>,
 ) -> Result<bool, String> {
-    if state.targets_this_computer().await {
-        let address = {
-            let eng = state.engine.lock().await;
-            if !eng.is_open() {
-                return Err(NO_WALLET_TO_PAY.to_owned());
-            }
-            eng.primary_address().await?
-        };
-        node.mine_to(&address).await?;
-    }
     let threads = threads.map_or(Threads::Auto(AutoWord::Auto), |n| Threads::Count(Count(n)));
-    daemon_rpc::node_call::<shekyl_rpc_client::wire::MineStart>(
-        &state,
-        &node,
-        MineStart { threads },
-        MINING,
-    )
-    .await?;
-    Ok(true)
-}
-
-/// A wallet was opened, with this address when the engine gave one: the
-/// node's manager keeps it, and a running miner that pays another address
-/// is moved to it, beside the open and never inside it (Rick, 2026-11-17;
-/// `DaemonManager::wallet_is`).
-pub(crate) async fn pay_the_open_wallet(
-    node: &std::sync::Arc<crate::daemon_manager::DaemonManager>,
-    address: Option<String>,
-) {
-    if address.is_some() {
-        node.wallet_is(address).await;
+    match state.node_address().await {
+        None => node.start_mining(threads).await?,
+        Some(address) => {
+            daemon_rpc::call::<shekyl_rpc_client::wire::MineStart>(
+                &address,
+                MineStart { threads },
+                MINING,
+            )
+            .await?;
+        }
     }
+    Ok(true)
 }
 
 #[tauri::command]
@@ -236,6 +240,23 @@ mod tests {
     #[test]
     fn the_page_is_told_whose_address_the_miner_pays() {
         assert_eq!(payout(None, Some("SKL1a"), false), Payout::Nothing);
+        // A typed node with no address is not the wallet's to give one:
+        // Start mining there pays whatever its operator sets. Red edit:
+        // `(None, _) => Payout::Nothing`.
+        assert_eq!(payout(None, Some("SKL1a"), true), Payout::NoneOnTheNode);
+        for (payout, pays_open) in [
+            (Payout::OpenWallet, true),
+            (Payout::AnotherWallet, true),
+            (Payout::Nothing, true),
+            (Payout::SetByTheNode, false),
+            (Payout::NoneOnTheNode, false),
+        ] {
+            assert_eq!(payout.start_pays_the_open_wallet(), pays_open, "{payout:?}");
+        }
+        assert_eq!(
+            serde_json::to_value(Payout::NoneOnTheNode).unwrap(),
+            "none-on-the-node"
+        );
         assert_eq!(
             payout(Some("SKL1a"), Some("SKL1a"), false),
             Payout::OpenWallet

@@ -14,6 +14,20 @@ export type NodeState =
   | "failed"
   | "unavailable";
 
+/**
+ * The node the wallet is pointed at (`daemon_connection_disclosures`,
+ * `set_daemon_connection`). `warnings` is empty for a node on this machine
+ * and never contains an assurance: the only thing the wallet can establish
+ * about a node address is what it costs, never that it is safe.
+ */
+export interface DaemonConnection {
+  /** The node address a person typed; `null` is this computer's node. */
+  url: string | null;
+  warnings: string[];
+  /** The network the wallet is on. */
+  network: string;
+}
+
 export interface NodeStatus {
   state: NodeState;
   /** The state in words, where there is something to say. */

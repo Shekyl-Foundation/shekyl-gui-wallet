@@ -95,9 +95,18 @@ pub async fn drain(
 }
 
 #[tauri::command]
-pub async fn unstake(state: State<'_, AppState>) -> Result<SealedReceipt, ContractError> {
+pub async fn unstake(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<SealedReceipt, ContractError> {
     let shared = open_engine(&state).await?;
-    let daemon = state.engine_target().await;
+    let daemon = crate::engine_daemon::core_target(&state, &node)
+        .await
+        .map_err(|words| {
+            ContractError::from_rpc(
+                shekyl_wallet_contract::error::WalletRpcError::InternalError(words),
+            )
+        })?;
     let outcome = StakeFacade::unstake(shared, &daemon)
         .await
         .map_err(ContractError::from_engine)?;
