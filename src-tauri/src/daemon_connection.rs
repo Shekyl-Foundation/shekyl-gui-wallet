@@ -83,6 +83,8 @@ pub async fn set_daemon_connection(
     let warnings = daemon_disclosures(&new_url);
     *state.daemon_url.write().await = new_url.clone();
     *state.network.write().await = net;
+    // The node starts on this network at the next launch too.
+    crate::gui_config::save_network(net);
     // The relaunch waits for the running node to be gone and the new one to
     // start; the page does not.
     let dm = std::sync::Arc::clone(&dm);

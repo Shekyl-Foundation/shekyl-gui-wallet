@@ -63,12 +63,17 @@ pub(crate) struct LaunchNames {
     /// under. The wallet names none.
     #[cfg(test)]
     pub socket_dir: Option<PathBuf>,
+    /// A test's own instance (`--instance`, Windows; see [`test_instance`]).
+    /// The wallet names none.
+    #[cfg(test)]
+    pub instance: Option<String>,
 }
 
 /// The node's command line, less the owning connection the launcher adds.
 ///
 /// The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md` §5): the
-/// GUI's network; no admin listener; one view listener on loopback at
+/// GUI's network; no admin listener; no inbound clearnet listener
+/// (`clearnet-listen none`: the node only dials out on clearnet); one view listener on loopback at
 /// `rpc_port`, which the wallet engine reads until its calls move to the
 /// owner's leg (core `RPC_CHANNEL.md` RT-W10 step 5); the data directory when
 /// configured. The wallet's own calls go over the owner's leg, which the
@@ -92,6 +97,10 @@ pub(crate) fn sidecar_args(
         "none".into(),
         "--rpc-view-listen".into(),
         format!("127.0.0.1:{rpc_port}").into(),
+        // The wallet's node dials out and takes no inbound clearnet
+        // connection (Rick, 2026-11-17).
+        "--clearnet-listen".into(),
+        "none".into(),
     ];
     if let Some(dir) = &config.data_dir {
         args.push("--data-dir".into());
@@ -109,6 +118,11 @@ pub(crate) fn sidecar_args(
     if let Some(dir) = &names.socket_dir {
         args.push("--rpc-socket-dir".into());
         args.push(dir.into());
+    }
+    #[cfg(test)]
+    if let Some(instance) = &names.instance {
+        args.push("--instance".into());
+        args.push(instance.into());
     }
     args
 }
@@ -243,6 +257,9 @@ pub(crate) struct LaunchEnv {
     /// A test's own socket directory (see [`LaunchNames`]).
     #[cfg(test)]
     pub socket_dir: Option<PathBuf>,
+    /// A test's own instance (see [`LaunchNames`]).
+    #[cfg(test)]
+    pub instance: Option<String>,
     /// A test's view-listener port, so two tests' nodes never share one.
     #[cfg(test)]
     pub rpc_port: Option<u16>,
@@ -265,6 +282,8 @@ impl LaunchEnv {
             tor_file: resource_dir.map(bundled_tor),
             #[cfg(test)]
             socket_dir: None,
+            #[cfg(test)]
+            instance: None,
             #[cfg(test)]
             rpc_port: None,
             #[cfg(test)]
@@ -303,6 +322,10 @@ pub struct DaemonManager {
     gate: NodeGate,
     /// A person's "Stop waiting", read by the flow that waits.
     stop_waiting: watch::Sender<bool>,
+    /// Every network a node was launched on, in order, for a test that
+    /// checks no node ran on another network first.
+    #[cfg(test)]
+    launched: std::sync::Mutex<Vec<NetworkType>>,
 }
 
 impl DaemonManager {
@@ -325,17 +348,19 @@ impl DaemonManager {
             config_dir,
             gate,
             stop_waiting: watch::channel(false).0,
+            #[cfg(test)]
+            launched: std::sync::Mutex::new(Vec::new()),
         })
     }
 
     /// "This computer" on `network`: the owner's leg of this account's node.
     fn target(&self, network: NetworkType) -> Result<LocalTarget, LocalFault> {
         #[cfg(test)]
-        if let Some(dir) = &self.env.socket_dir {
+        if self.env.socket_dir.is_some() || self.env.instance.is_some() {
             return LocalTarget::resolve(
                 network.network(),
-                &shekyl_rpc_rendezvous::Instance::Default,
-                Some(dir),
+                &test_instance_of(self.env.instance.as_deref()),
+                self.env.socket_dir.as_deref(),
             );
         }
         LocalTarget::this_computer(network.network())
@@ -487,6 +512,8 @@ impl DaemonManager {
             mine_address,
             #[cfg(test)]
             socket_dir: self.env.socket_dir.clone(),
+            #[cfg(test)]
+            instance: self.env.instance.clone(),
         };
         let rpc_port = network.rpc_port();
         #[cfg(test)]
@@ -508,6 +535,11 @@ impl DaemonManager {
             .await;
             return;
         }
+        #[cfg(test)]
+        self.launched
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(network);
         // The spawn takes the process's spawn lock and does not wait.
         let node = match tokio::task::spawn_blocking(move || node_launch::launch(&launch)).await {
             Ok(Ok(node)) => Arc::new(node),
@@ -816,6 +848,15 @@ impl DaemonManager {
         }
     }
 
+    /// Every network a node was launched on, in order.
+    #[cfg(test)]
+    pub(crate) fn launched(&self) -> Vec<NetworkType> {
+        self.launched
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
     /// The process id of the node this wallet started, for a test that
     /// checks the process is gone.
     #[cfg(test)]
@@ -835,6 +876,51 @@ impl DaemonManager {
 }
 
 mod replace;
+
+/// A test's own instance name, from its port: on Windows the node's
+/// rendezvous cannot be moved out of the account's
+/// `%LOCALAPPDATA%\Shekyl\rendezvous` (core refuses `rpc-socket-dir` there
+/// and takes the folder from the system, not the environment), so a test's
+/// node is a named instance of its own there instead, and never the
+/// account's default one. Its record is removed when the test's manager
+/// goes ([`DaemonManager`]'s `Drop`), and by the older tests' guard.
+#[cfg(test)]
+pub(crate) fn test_instance(port: u16) -> String {
+    format!("t{port}")
+}
+
+/// The instance `name` names, or the default one.
+#[cfg(test)]
+pub(crate) fn test_instance_of(name: Option<&str>) -> shekyl_rpc_rendezvous::Instance {
+    name.map_or(shekyl_rpc_rendezvous::Instance::Default, |name| {
+        shekyl_rpc_rendezvous::Instance::Named(
+            shekyl_rpc_rendezvous::InstanceName::parse(name).expect("a test's instance name"),
+        )
+    })
+}
+
+/// Remove a test instance's rendezvous records, one per network. A node
+/// removes its own at a clean stop; a killed one cannot.
+#[cfg(test)]
+pub(crate) fn remove_test_records(instance: &str) {
+    let mut networks: Vec<shekyl_engine_core::Network> =
+        NetworkType::ALL.iter().map(|n| n.network()).collect();
+    networks.push(shekyl_engine_core::Network::Regtest);
+    for network in networks {
+        if let Ok(target) = LocalTarget::resolve(network, &test_instance_of(Some(instance)), None) {
+            drop(std::fs::remove_file(target.path()));
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for DaemonManager {
+    fn drop(&mut self) {
+        if let Some(instance) = &self.env.instance {
+            remove_test_records(instance);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests;

@@ -18,7 +18,7 @@ use shekyl_rpc_client::wire::{DaemonStatus, MineStatus, Version};
 use shekyl_rpc_types::kinds::NoParams;
 
 use crate::daemon_manager::{
-    data_dir_for, sidecar_args, DaemonConfig, DaemonManager, LaunchEnv, LaunchNames,
+    data_dir_for, sidecar_args, test_instance, DaemonConfig, DaemonManager, LaunchEnv, LaunchNames,
 };
 use crate::daemon_rpc;
 use crate::live_daemon_tests::{free_port, run_dir, sidecar, socket_dir};
@@ -77,6 +77,7 @@ pub(crate) fn manager_with(
         program: Some(sidecar()),
         tor_file,
         socket_dir: cfg!(unix).then(|| socket_dir(dir)),
+        instance: cfg!(windows).then(|| test_instance(port)),
         rpc_port: Some(port),
         extra_args,
     };
@@ -352,6 +353,7 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
     // The found node: the wallet's rendezvous and port, its own directory.
     let names = LaunchNames {
         socket_dir: cfg!(unix).then(|| socket_dir(&dir)),
+        instance: cfg!(windows).then(|| test_instance(port)),
         ..LaunchNames::default()
     };
     let config = DaemonConfig {
@@ -445,6 +447,70 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
     drop(std::fs::remove_dir_all(&dir));
 }
 
+/// **With testnet saved, the first node the app launches is a testnet
+/// node, and no mainnet node runs at any point** (Rick, 2026-11-17). The
+/// app reads the saved network from `gui-config.json` before anything
+/// starts (`run`: `gui_config::load().startup_network()`), its state is on
+/// that network, and the node is started on it. This drives the same
+/// steps: the file is saved with testnet, read back, and the manager
+/// started on what it gives. Red edit: `GuiConfig::startup_network`
+/// returns the default (the first launch is mainnet).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs the bundled shekyld sidecar"]
+async fn with_testnet_saved_the_first_node_is_a_testnet_node() {
+    let dir = run_dir();
+    let port = free_port();
+    let file = dir.join("gui-config.json");
+    crate::gui_config::save_to(
+        &crate::gui_config::GuiConfig {
+            network: Some(NetworkType::Testnet.as_str().to_owned()),
+            ..crate::gui_config::GuiConfig::default()
+        },
+        &file,
+    );
+    let network = crate::gui_config::load_from(&file).startup_network();
+    let state = crate::state::AppState::on(network);
+    assert_eq!(*state.network.read().await, NetworkType::Testnet);
+
+    let (dm, _gate) = manager(&dir, port);
+    dm.start(network).await;
+    state_becomes(&dm, &dir, "running").await;
+    assert_eq!(
+        dm.launched(),
+        [NetworkType::Testnet],
+        "one launch, on testnet: no mainnet node ran first"
+    );
+    assert_eq!(dm.status().await.network, "testnet");
+    // The node answers at testnet's rendezvous, and nothing is at
+    // mainnet's: each network's record has its own name.
+    let leg = dm.own_target().await.expect("the wallet's node");
+    tokio::task::spawn_blocking(move || leg.call::<DaemonStatus>(&NoParams))
+        .await
+        .unwrap()
+        .expect("the node answers at testnet's rendezvous");
+    let instance = cfg!(windows).then(|| crate::daemon_manager::test_instance(port));
+    let mainnet = shekyl_rpc_transport::local::LocalTarget::resolve(
+        NetworkType::Mainnet.network(),
+        &crate::daemon_manager::test_instance_of(instance.as_deref()),
+        cfg!(unix).then(|| socket_dir(&dir)).as_deref(),
+    )
+    .expect("mainnet's rendezvous");
+    assert!(
+        matches!(
+            tokio::task::spawn_blocking(move || mainnet.dial().map(drop))
+                .await
+                .unwrap(),
+            Err(shekyl_rpc_transport::local::LocalFault::NotRunning { .. })
+        ),
+        "no mainnet node"
+    );
+
+    let pid = dm.node_pid().await.expect("the node's pid");
+    dm.shutdown().await;
+    process_goes(pid, &dir).await;
+    drop(std::fs::remove_dir_all(&dir));
+}
+
 /// **A hand-started node is found, stopped on request, and replaced**
 /// (Rick, 2026-11-17). A node of this account already runs on the network,
 /// started with no owning connection, in the data directory the wallet's
@@ -464,6 +530,7 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
     // The hand-started node: the wallet's own command line, by hand.
     let names = LaunchNames {
         socket_dir: cfg!(unix).then(|| socket_dir(&dir)),
+        instance: cfg!(windows).then(|| test_instance(port)),
         ..LaunchNames::default()
     };
     let config = DaemonConfig {
