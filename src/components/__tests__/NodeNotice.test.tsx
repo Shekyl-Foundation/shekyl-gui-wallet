@@ -15,6 +15,7 @@ function node(over: Partial<NodeStatus>): NodeStatus {
     can_force_stop: true,
     can_stop_waiting: false,
     payout_fault: null,
+    service_view: null,
     ...over,
   };
 }
@@ -140,6 +141,23 @@ describe("NodeNotice", () => {
     expect(await screen.findByText(words)).toBeInTheDocument();
     fireEvent.click(screen.getByText("Retry"));
     await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("start_node"));
+  });
+
+  it("says a service node in core's words and offers to use it", async () => {
+    const words =
+      "The node on this computer runs as a service. Until wallets reach a service over the channel, set daemon-address = 127.0.0.1:12030";
+    mockNode(node({ state: "service", message: words, can_force_stop: false, service_view: "127.0.0.1:12030" }));
+    render(<NodeNotice />);
+    expect(await screen.findByText(words)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Use the service’s node"));
+    await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("use_service_node"));
+  });
+
+  it("offers nothing to use for a service with no view listener", async () => {
+    mockNode(node({ state: "service", message: "no view listener", can_force_stop: false }));
+    render(<NodeNotice />);
+    expect(await screen.findByText("no view listener")).toBeInTheDocument();
+    expect(screen.queryByText("Use the service’s node")).toBeNull();
   });
 
   it("says a failed start in the node's own words and offers a start", async () => {

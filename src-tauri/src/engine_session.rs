@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::engine_daemon::make_daemon;
+use crate::engine_daemon::{make_daemon, EngineNode};
 use crate::engine_errors::{
     is_identity_refusal, map_first_stake_err, map_open_err, map_refresh_err, open_refusal,
     OpenRefusal,
@@ -53,7 +53,7 @@ pub struct EngineSession {
     /// Engine file base (`…/{name}.wallet`) for credentialed reopen.
     base_path: Option<PathBuf>,
     network: Option<Network>,
-    daemon_http_base: Option<String>,
+    daemon_node: Option<EngineNode>,
 }
 
 impl EngineSession {
@@ -64,7 +64,7 @@ impl EngineSession {
             name: None,
             base_path: None,
             network: None,
-            daemon_http_base: None,
+            daemon_node: None,
         }
     }
 
@@ -98,7 +98,7 @@ impl EngineSession {
         name: &str,
         base: PathBuf,
         network: Network,
-        daemon_http_base: &str,
+        daemon_node: &EngineNode,
         shared: SharedEngine,
         pscan: Option<PScanHandle>,
     ) {
@@ -107,7 +107,7 @@ impl EngineSession {
         self.name = Some(name.to_owned());
         self.base_path = Some(base);
         self.network = Some(network);
-        self.daemon_http_base = Some(daemon_http_base.to_owned());
+        self.daemon_node = Some(daemon_node.clone());
     }
 
     fn clear_open(&mut self) {
@@ -116,7 +116,7 @@ impl EngineSession {
         self.name = None;
         self.base_path = None;
         self.network = None;
-        self.daemon_http_base = None;
+        self.daemon_node = None;
     }
 
     /// Create a fresh Engine wallet: a 32-byte seed from the OS RNG, handed
@@ -130,13 +130,13 @@ impl EngineSession {
         name: &str,
         password: &str,
         network: NetworkType,
-        daemon_http_base: &str,
+        daemon_node: &EngineNode,
     ) -> Result<CreatedSession, String> {
         self.reject_if_open()?;
         let base = reserve_new_wallet(wallet_dir, name)?;
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let engine_net = map_network(network);
-        let daemon = make_daemon(daemon_http_base, engine_net).await?;
+        let daemon = make_daemon(daemon_node, engine_net).await?;
         let (seed, backup) = seed_phrase::generate()?;
         let capability = self
             .install_full(FullWalletInstall {
@@ -144,7 +144,7 @@ impl EngineSession {
                 base,
                 password,
                 network: engine_net,
-                daemon_http_base: daemon_http_base.to_owned(),
+                daemon_node: daemon_node.clone(),
                 daemon,
                 creation_timestamp: unix_now_secs(),
                 restore_height: 0,
@@ -170,20 +170,20 @@ impl EngineSession {
         password: &str,
         restore_height: u32,
         network: NetworkType,
-        daemon_http_base: &str,
+        daemon_node: &EngineNode,
     ) -> Result<WalletFacts, String> {
         self.reject_if_open()?;
         let base = reserve_new_wallet(wallet_dir, name)?;
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let engine_net = map_network(network);
-        let daemon = make_daemon(daemon_http_base, engine_net).await?;
+        let daemon = make_daemon(daemon_node, engine_net).await?;
         let capability = self
             .install_full(FullWalletInstall {
                 name: name.to_owned(),
                 base,
                 password,
                 network: engine_net,
-                daemon_http_base: daemon_http_base.to_owned(),
+                daemon_node: daemon_node.clone(),
                 daemon,
                 creation_timestamp: unix_now_secs(),
                 restore_height,
@@ -203,7 +203,7 @@ impl EngineSession {
             base,
             password,
             network,
-            daemon_http_base,
+            daemon_node,
             daemon,
             creation_timestamp,
             restore_height,
@@ -229,7 +229,7 @@ impl EngineSession {
         drop(password);
         let capability = engine.capability();
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
-        self.remember_open(&name, base, network, &daemon_http_base, shared, pscan);
+        self.remember_open(&name, base, network, &daemon_node, shared, pscan);
         self.catch_up_after_open().await?;
         Ok(capability)
     }
@@ -243,7 +243,7 @@ impl EngineSession {
         name: &str,
         password: &str,
         network: NetworkType,
-        daemon_http_base: &str,
+        daemon_node: &EngineNode,
     ) -> Result<WalletFacts, OpenRefusal> {
         self.reject_if_open()?;
 
@@ -254,7 +254,7 @@ impl EngineSession {
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let engine_net = map_network(network);
-        let daemon = make_daemon(daemon_http_base, engine_net).await?;
+        let daemon = make_daemon(daemon_node, engine_net).await?;
         let creds = Credentials::password_only(password.as_slice());
 
         let opened = tokio::task::block_in_place(|| {
@@ -279,7 +279,7 @@ impl EngineSession {
         let facts = WalletFacts::opened(engine.capability(), ledger);
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
-        self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
+        self.remember_open(name, base, engine_net, daemon_node, shared, pscan);
 
         self.catch_up_after_open().await?;
         Ok(facts)
@@ -339,7 +339,7 @@ impl EngineSession {
             .network
             .ok_or_else(|| "Engine session missing network".to_string())?;
         let daemon_base = self
-            .daemon_http_base
+            .daemon_node
             .clone()
             .ok_or_else(|| "Engine session missing daemon address".to_string())?;
         let name = self
@@ -402,7 +402,7 @@ impl EngineSession {
         &mut self,
         base: &Path,
         network: Network,
-        daemon_http_base: &str,
+        daemon_node: &EngineNode,
         name: &str,
         password: Zeroizing<Vec<u8>>,
         slot: u32,
@@ -431,7 +431,7 @@ impl EngineSession {
             },
         )?;
 
-        let daemon = make_daemon(daemon_http_base, network).await?;
+        let daemon = make_daemon(daemon_node, network).await?;
 
         // Close current session (persist + scan shutdown).
         let shared = self
@@ -453,7 +453,7 @@ impl EngineSession {
                 name,
                 base.to_path_buf(),
                 network,
-                daemon_http_base,
+                daemon_node,
                 shared,
                 pscan,
             );
@@ -481,7 +481,7 @@ impl EngineSession {
                 // Best-effort plain reopen so the user is not logged out.
                 let restore = async {
                     let pw = Zeroizing::new(password.as_slice().to_vec());
-                    let daemon = make_daemon(daemon_http_base, network).await?;
+                    let daemon = make_daemon(daemon_node, network).await?;
                     let creds = Credentials::password_only(pw.as_slice());
                     let opened = tokio::task::block_in_place(|| {
                         Engine::<SoloSigner>::open_full(
@@ -505,7 +505,7 @@ impl EngineSession {
                             name,
                             base.to_path_buf(),
                             network,
-                            daemon_http_base,
+                            daemon_node,
                             shared,
                             pscan,
                         );
@@ -532,7 +532,7 @@ impl EngineSession {
                     name,
                     base.to_path_buf(),
                     network,
-                    daemon_http_base,
+                    daemon_node,
                     shared.clone(),
                     Some(handle),
                 );
@@ -543,14 +543,7 @@ impl EngineSession {
                     error = %e,
                     "first-stake intent reopen: P-scan failed; wallet open without scan"
                 );
-                self.remember_open(
-                    name,
-                    base.to_path_buf(),
-                    network,
-                    daemon_http_base,
-                    shared,
-                    None,
-                );
+                self.remember_open(name, base.to_path_buf(), network, daemon_node, shared, None);
                 Err(format!(
                     "persona scan failed to start ({e}); wallet remains open — retry activation"
                 ))
@@ -762,7 +755,7 @@ struct FullWalletInstall {
     base: PathBuf,
     password: Zeroizing<Vec<u8>>,
     network: Network,
-    daemon_http_base: String,
+    daemon_node: EngineNode,
     daemon: DaemonClient,
     creation_timestamp: u64,
     restore_height: u32,

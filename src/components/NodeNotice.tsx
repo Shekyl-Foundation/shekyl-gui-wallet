@@ -11,6 +11,9 @@ const NODE_STATUS_POLL_MS = 2000;
  * must know or can act on. The words are the backend's; this component adds
  * only the acts.
  *
+ * - `service`: this computer's node on the network runs as a service. The
+ *   wallet starts no node beside it, says so in core's words, and offers
+ *   "Use the service's node" when the service has a view listener.
  * - `found`: a node of this account already runs on the network. The wallet
  *   does not use it, and offers to stop it and start its own.
  * - `stopping`: a node is stopping; the wallet's own starts when it is gone.
@@ -65,6 +68,7 @@ export default function NodeNotice() {
   const startNode = () => act(() => invoke("start_node"));
   const forceStop = () => act(() => invoke("force_stop_node"));
   const stopWaiting = () => act(() => invoke("stop_waiting_for_node"));
+  const useService = () => act(() => invoke("use_service_node"));
 
   if (!status) return null;
   const { state, message } = status;
@@ -105,6 +109,15 @@ export default function NodeNotice() {
             onClick={replaceFound}
           >
             Stop it and start the wallet’s own
+          </button>
+        )}
+        {state === "service" && status.service_view && (
+          <button
+            className="rounded bg-amber-500/30 px-3 py-1 font-semibold hover:bg-amber-500/40 disabled:opacity-50"
+            disabled={acting}
+            onClick={useService}
+          >
+            Use the service’s node
           </button>
         )}
         {state === "failed" && (

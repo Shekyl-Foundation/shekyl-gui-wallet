@@ -65,11 +65,6 @@ impl NetworkType {
         }
     }
 
-    /// The daemon's RPC port on this network, from core's row.
-    pub const fn rpc_port(self) -> u16 {
-        self.network().ports().rpc
-    }
-
     /// The network's name, from core's row (`mainnet`, ...).
     pub const fn as_str(self) -> &'static str {
         self.network().name()
@@ -78,11 +73,6 @@ impl NetworkType {
     /// The network a name names, among the wallet's networks.
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|n| n.as_str() == name)
-    }
-
-    /// The URL of the node on this computer at the network's RPC port.
-    pub fn local_url(self) -> String {
-        format!("http://127.0.0.1:{}/json_rpc", self.rpc_port())
     }
 }
 
@@ -120,80 +110,13 @@ pub fn default_wallet_dir() -> PathBuf {
     }
 }
 
-/// Whether the wallet engine may dial the node on this computer. It may
-/// only while the node there is the one this wallet started and that node
-/// has said it is ready: its ready line follows its view listener's bind,
-/// so before it the port may be anyone's. Not before that node starts, not
-/// while a node of this account that the wallet did not start answers
-/// there, not after a failed check or a failed start. Until the engine's
-/// calls move to the owner's leg (shekyl-core `RPC_CHANNEL.md` RT-W10 step
-/// 5), the engine never uses a listener on a node the wallet did not launch
-/// (Rick, 2026-11-17).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Gate {
-    /// No daemon manager: nothing of the wallet's runs here to wait for,
-    /// and the configured URL is used as it is.
-    Unmanaged,
-    /// The wallet's own node is ready, and this is its view listener's
-    /// base URL: the engine's address comes with the node that said it is
-    /// ready, never from a setting published ahead of it.
-    Open(String),
-    /// The wallet's own node is starting: a caller waits for its ready
-    /// line or its end, either of which comes.
-    Starting,
-    /// Closed, and why, in words.
-    Closed(String),
-}
-
-/// The gate, written by the daemon manager and read by the engine's way to
-/// the node.
-#[derive(Clone)]
-pub struct NodeGate(std::sync::Arc<tokio::sync::watch::Sender<Gate>>);
-
-impl Default for NodeGate {
-    /// Open: with no daemon manager there is no node of the wallet's to
-    /// wait for.
-    fn default() -> Self {
-        Self(std::sync::Arc::new(
-            tokio::sync::watch::channel(Gate::Unmanaged).0,
-        ))
-    }
-}
-
-impl NodeGate {
-    pub(crate) fn set(&self, gate: Gate) {
-        self.0.send_replace(gate);
-    }
-
-    /// The ready node's base URL once the gate is open (`None` with no
-    /// daemon manager), waiting while the node is starting; otherwise why
-    /// it is closed.
-    pub(crate) async fn passable(&self) -> Result<Option<String>, String> {
-        let mut gate = self.0.subscribe();
-        loop {
-            let now = gate.borrow_and_update().clone();
-            match now {
-                Gate::Unmanaged => return Ok(None),
-                Gate::Open(base) => return Ok(Some(base)),
-                Gate::Closed(words) => return Err(words),
-                Gate::Starting => {}
-            }
-            // The sender lives as long as `self`, so the change comes.
-            if gate.changed().await.is_err() {
-                return Err("The wallet's node is gone.".to_owned());
-            }
-        }
-    }
-}
-
 pub struct AppState {
     // Daemon
-    pub daemon_url: RwLock<String>,
-    /// Closed while the node on this computer is not the wallet's own.
-    pub node_gate: NodeGate,
-    /// Whether `daemon_url` is a node address a person typed. Otherwise it
-    /// is the node on this computer, the wallet's own.
-    pub typed_node: RwLock<bool>,
+    /// The node address a person typed, which the wallet then uses, local
+    /// or not: their choice (Rick, 2026-11-18). `None`: "this computer",
+    /// the one target (core `RPC_CHANNEL.md` RT-15), reached over its
+    /// owner's leg.
+    pub node_address: RwLock<Option<String>>,
     pub network: RwLock<NetworkType>,
 
     // Wallet directory / open metadata
@@ -221,9 +144,7 @@ impl AppState {
     pub fn on(net: NetworkType) -> Self {
         let resolved = gui_config::resolve_wallet_dir(default_wallet_dir());
         Self {
-            daemon_url: RwLock::new(net.local_url()),
-            node_gate: NodeGate::default(),
-            typed_node: RwLock::new(false),
+            node_address: RwLock::new(None),
             network: RwLock::new(net),
             wallet_dir: RwLock::new(resolved.dir),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
@@ -233,8 +154,9 @@ impl AppState {
         }
     }
 
-    pub async fn url(&self) -> String {
-        self.daemon_url.read().await.clone()
+    /// The node address a person typed, if any.
+    pub async fn node_address(&self) -> Option<String> {
+        self.node_address.read().await.clone()
     }
 
     /// Whether the wallet is pointed at the node on this computer, the
@@ -242,27 +164,23 @@ impl AppState {
     /// person typed is theirs even when it names this computer: it is
     /// called as any explicit node is, over HTTP, with what it grants.
     pub async fn targets_this_computer(&self) -> bool {
-        !*self.typed_node.read().await
+        self.node_address.read().await.is_none()
     }
 
-    /// The wallet engine's daemon base URL, without the `/json_rpc` suffix.
-    ///
-    /// Trailing slashes are stripped *before* the `/json_rpc` suffix so a
-    /// configured URL like `http://host:port/json_rpc/` collapses to
-    /// `http://host:port` rather than leaving a stray `json_rpc` behind.
-    ///
-    /// # Errors
-    ///
-    /// The wallet is pointed at this computer and the node there is not the
-    /// wallet's own ([`NodeGate`]): the words say which.
-    pub async fn engine_base(&self) -> Result<String, String> {
-        if self.targets_this_computer().await {
-            if let Some(base) = self.node_gate.passable().await? {
-                return Ok(base);
+    /// The node the wallet engine reads, one target with no fallback (core
+    /// `RPC_CHANNEL.md` RT-15; Rick, 2026-11-18): "this computer" over its
+    /// owner's leg, naming the service's rendezvous as core's wallets do,
+    /// or the node address a person typed.
+    pub async fn engine_target(&self) -> shekyl_rpc_transport::DaemonTarget {
+        match self.node_address().await {
+            Some(address) => {
+                shekyl_rpc_transport::DaemonTarget::address(strip_json_rpc(&address).to_owned())
             }
+            None => shekyl_rpc_transport::DaemonTarget::ThisComputer {
+                network: self.network.read().await.network(),
+                service_rendezvous: shekyl_process::platform::service_rendezvous(),
+            },
         }
-        let url = self.daemon_url.read().await.clone();
-        Ok(strip_json_rpc(&url).to_owned())
     }
 }
 

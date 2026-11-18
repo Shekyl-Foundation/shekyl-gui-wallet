@@ -18,14 +18,12 @@ const OPERATOR_WARNING =
 function mockDaemon(warnings: string[], applied: string[] = warnings) {
   // The connection in effect, as the backend keeps it: a later read of it
   // gives what the last save set.
-  let current = { url: "http://127.0.0.1:11029/json_rpc", warnings, typed: false };
+  let current: { url: string | null; warnings: string[] } = { url: null, warnings };
   vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
     if (cmd === "daemon_connection_disclosures") return current;
     if (cmd === "set_daemon_connection") {
       const url = (args as { url?: string }).url;
-      current = url
-        ? { url, warnings: applied, typed: true }
-        : { url: "http://127.0.0.1:11029/json_rpc", warnings, typed: false };
+      current = url ? { url, warnings: applied } : { url: null, warnings };
       return current;
     }
     return null;
@@ -81,7 +79,6 @@ describe("Settings — daemon disclosure", () => {
         return {
           url: "http://node.example.com:11029/json_rpc",
           warnings: [OPERATOR_WARNING],
-          typed: true,
         };
       }
       return null;
@@ -104,8 +101,7 @@ describe("Settings — daemon disclosure", () => {
     );
     expect(screen.queryByRole("status")).toBeNull();
 
-    const field = await screen.findByDisplayValue("http://127.0.0.1:11029/json_rpc");
-    await userEvent.clear(field);
+    const field = await screen.findByPlaceholderText("Empty: this computer’s node");
     await userEvent.type(field, "http://node.example.com:11029");
     await userEvent.click(
       screen.getByRole("button", { name: /save & reconnect/i }),
@@ -118,24 +114,23 @@ describe("Settings — daemon disclosure", () => {
 
 describe("Settings — which node", () => {
   /**
-   * Saving with the wallet's own node's address left as shown keeps that
-   * node: no URL is sent, so it is never marked as a typed address and its
-   * calls stay on the owner's leg. A typed address is sent. Red edit: send
-   * the field's URL on every save.
+   * This computer's node shows no address (it is read over its owner's
+   * leg): saving an empty field keeps it, and no URL is sent. A typed
+   * address is sent, and the way back is offered. Red edit: send the
+   * field on every save, empty included.
    */
   it("sends a URL only when one was typed", async () => {
     mockDaemon([]);
     renderSettings();
     const save = await screen.findByRole("button", { name: /save & reconnect/i });
-    await screen.findByDisplayValue("http://127.0.0.1:11029/json_rpc");
+    const field = await screen.findByPlaceholderText("Empty: this computer’s node");
+    expect(field).toHaveValue("");
     await userEvent.click(save);
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_daemon_connection", {
       network: "mainnet",
     });
     expect(screen.getByText("This computer’s node, the one the wallet starts.")).toBeInTheDocument();
 
-    const field = screen.getByDisplayValue("http://127.0.0.1:11029/json_rpc");
-    await userEvent.clear(field);
     await userEvent.type(field, "http://node.example.com:11029");
     await userEvent.click(save);
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_daemon_connection", {
@@ -150,22 +145,15 @@ describe("Settings — which node", () => {
 });
 
 describe("Settings — network", () => {
-  it("switches by network alone and shows the URL the backend chose", async () => {
-    let current = { url: "http://127.0.0.1:11029/json_rpc", warnings: [], typed: false };
-    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
-      if (cmd === "daemon_connection_disclosures") return current;
-      if (cmd === "set_daemon_connection") {
-        current = { url: "http://127.0.0.1:12029/json_rpc", warnings: [], typed: false };
-        return current;
-      }
-      return null;
-    });
+  it("switches by network alone, keeping this computer's node", async () => {
+    mockDaemon([]);
     renderSettings();
     fireEvent.click(await screen.findByRole("button", { name: "testnet" }));
-    await waitFor(() => {
-      expect(screen.getByDisplayValue("http://127.0.0.1:12029/json_rpc")).toBeInTheDocument();
-    });
-    // No URL rides the switch: the port is core's, chosen by the backend.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "testnet" })).toHaveClass("border-gold-500"),
+    );
+    expect(screen.getByPlaceholderText("Empty: this computer’s node")).toHaveValue("");
+    // No URL rides the switch: the wallet's node follows the network.
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("set_daemon_connection", {
       network: "testnet",
     });
@@ -174,7 +162,7 @@ describe("Settings — network", () => {
   it("shows why a switch waits while a wallet is open", async () => {
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "daemon_connection_disclosures") {
-        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [], typed: false };
+        return { url: null, warnings: [] };
       }
       if (cmd === "set_daemon_connection") {
         throw "The open wallet is on testnet. Close it before switching to mainnet: a wallet belongs to one network.";
@@ -205,11 +193,11 @@ describe("Settings — the wallet's node", () => {
     inbound = false;
     vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
       if (cmd === "daemon_connection_disclosures") {
-        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [], typed: false };
+        return { url: null, warnings: [] };
       }
       if (cmd === "get_daemon_settings") return { data_dir: null, clearnet_inbound: inbound };
       if (cmd === "daemon_status") {
-        return { state, message: null, network: "testnet", can_force_stop: state === "running", can_stop_waiting: false, payout_fault: null };
+        return { state, message: null, network: "testnet", can_force_stop: state === "running", can_stop_waiting: false, payout_fault: null, service_view: null };
       }
       if (cmd === "set_daemon_settings") {
         const asked = args as Record<string, unknown>;

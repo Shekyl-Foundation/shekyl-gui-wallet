@@ -26,8 +26,11 @@
     security failure, and nothing is started or retried.
   - Before any wallet is open, the welcome and unlock screens show the
     node's state with its actions, and let you choose the network.
-  - A wallet opened while the node is starting waits for it, and talks only
-    to the node that said it is ready.
+  - The wallet reads its node over the node's own local connection, never
+    over a network port, and the node opens no such port. An address you
+    type is used as it is.
+  - If this computer's node runs as a service, the wallet starts none
+    beside it, says so, and offers to use the service's node.
   - If the miner cannot be moved to the wallet you open, it is stopped and
     the wallet says so.
   - The wallet remembers the network you chose, and its node starts on it.

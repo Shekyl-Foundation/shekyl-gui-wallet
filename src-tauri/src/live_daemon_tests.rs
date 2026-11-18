@@ -24,6 +24,7 @@ use shekyl_rpc_client::wire::shared::Selector;
 use shekyl_rpc_client::wire::{
     BlockHeaderShow, CurveShow, DaemonStatus, MineStatus, ShardCoverage, Version,
 };
+use shekyl_rpc_transport::local::LocalTarget;
 use shekyl_rpc_types::kinds::NoParams;
 
 use crate::daemon_manager::{sidecar_args, DaemonConfig, LaunchNames};
@@ -57,6 +58,9 @@ pub(crate) fn sidecar() -> PathBuf {
 /// A running regtest daemon, stopped and its directory removed on drop.
 struct Daemon {
     child: Child,
+    /// The node's owner's leg, for a node the wallet launches; the typed
+    /// node's tests read `url`.
+    owner: Option<LocalTarget>,
     /// The node's own instance on Windows, whose record the guard removes:
     /// the guard kills the node, and a killed node leaves its record.
     instance: Option<String>,
@@ -136,12 +140,13 @@ async fn start() -> Daemon {
     args.push(format!("127.0.0.1:{port}").into());
     args.push("--data-dir".into());
     args.push(dir.join("data").into());
-    launch(args, dir, port).await
+    launch(args, dir, port, None).await
 }
 
 /// The node the wallet launches on `network`: `daemon_manager::sidecar_args`
-/// itself, at a free port, with a configured data directory, and no traffic
-/// (no clearnet, no Tor), so the chain is its genesis block alone.
+/// itself, with a configured data directory and no traffic (no clearnet, no
+/// Tor), so the chain is its genesis block alone. It opens no view listener,
+/// as the wallet's node does not: it is read over its owner's leg.
 async fn start_on(network: NetworkType) -> Daemon {
     let port = free_port();
     let dir = run_dir();
@@ -149,11 +154,28 @@ async fn start_on(network: NetworkType) -> Daemon {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
         clearnet_inbound: true,
     };
-    let args = sidecar_args(&config, network, port, &LaunchNames::default());
-    launch(args, dir, port).await
+    let args = sidecar_args(&config, network, &LaunchNames::default());
+    let owner = LocalTarget::resolve(
+        network.network(),
+        &crate::daemon_manager::test_instance_of(
+            cfg!(windows)
+                .then(|| crate::daemon_manager::test_instance(port))
+                .as_deref(),
+        ),
+        cfg!(unix).then(|| socket_dir(&dir)).as_deref(),
+        None,
+    );
+    launch(args, dir, port, Some(owner)).await
 }
 
-async fn launch(mut args: Vec<OsString>, dir: PathBuf, port: u16) -> Daemon {
+/// Launch the node and wait until it answers: on its owner's leg when
+/// `owner` names it, otherwise on the view listener at `port`.
+async fn launch(
+    mut args: Vec<OsString>,
+    dir: PathBuf,
+    port: u16,
+    owner: Option<LocalTarget>,
+) -> Daemon {
     args.extend(["--clearnet", "off", "--tor", "off", "--log-file"].map(OsString::from));
     args.push(dir.join("shekyld.log").into());
     // Its own socket directory (Unix), so two tests' nodes on one network
@@ -185,13 +207,22 @@ async fn launch(mut args: Vec<OsString>, dir: PathBuf, port: u16) -> Daemon {
         instance,
         dir,
         url: format!("http://127.0.0.1:{port}/json_rpc"),
+        owner,
     };
     let deadline = Instant::now() + Duration::from_secs(60);
     while Instant::now() < deadline {
-        if daemon_rpc::call::<Version>(&daemon.url, NoParams, "the node's version")
-            .await
-            .is_ok()
-        {
+        let answered = match &daemon.owner {
+            Some(owner) => {
+                let owner = owner.clone();
+                tokio::task::spawn_blocking(move || owner.call::<Version>(&NoParams))
+                    .await
+                    .is_ok_and(|reply| reply.is_ok())
+            }
+            None => daemon_rpc::call::<Version>(&daemon.url, NoParams, "the node's version")
+                .await
+                .is_ok(),
+        };
+        if answered {
             return daemon;
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -214,8 +245,10 @@ async fn launch(mut args: Vec<OsString>, dir: PathBuf, port: u16) -> Daemon {
 async fn the_wallet_s_node_runs_the_wallet_s_network() {
     for network in NetworkType::ALL {
         let d = start_on(network).await;
-        let version = daemon_rpc::call::<Version>(&d.url, NoParams, "the node's version")
+        let owner = d.owner.clone().expect("the wallet's node");
+        let version = tokio::task::spawn_blocking(move || owner.call::<Version>(&NoParams))
             .await
+            .unwrap()
             .expect("version");
         assert_eq!(version.network, network.network(), "{}", network.as_str());
     }
@@ -293,7 +326,13 @@ async fn a_wallet_on_a_genesis_only_chain_has_scanned_nothing() {
     );
     let mut session = crate::engine_session::EngineSession::new();
     session
-        .create(&wallets, "live", &password, NetworkType::Testnet, &d.url)
+        .create(
+            &wallets,
+            "live",
+            &password,
+            NetworkType::Testnet,
+            &crate::engine_daemon::EngineNode::Local(d.owner.clone().expect("the wallet's node")),
+        )
         .await
         .expect("a wallet created against the bundled node");
     let shared = session.shared_engine().expect("the wallet is open");

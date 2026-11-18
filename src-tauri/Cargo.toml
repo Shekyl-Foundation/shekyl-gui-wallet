@@ -39,6 +39,9 @@ shekyl-rpc-transport = { path = "../../shekyl-core/rust/shekyl-rpc-transport" }
 shekyl-spawn = { path = "../../shekyl-core/rust/shekyl-spawn" }
 # The Tor status's one definition and its one renderer (GS-3).
 shekyl-tor-status = { path = "../../shekyl-core/rust/shekyl-tor-status" }
+# The service's rendezvous directory, which "this computer" names as core's
+# wallets name it (`platform::service_rendezvous`; Rick, 2026-11-18).
+shekyl-process = { path = "../../shekyl-core/rust/shekyl-process" }
 shekyl-engine-core = { path = "../../shekyl-core/rust/shekyl-engine-core" }
 shekyl-engine-file = { path = "../../shekyl-core/rust/shekyl-engine-file" }
 shekyl-engine-prefs = { path = "../../shekyl-core/rust/shekyl-engine-prefs" }

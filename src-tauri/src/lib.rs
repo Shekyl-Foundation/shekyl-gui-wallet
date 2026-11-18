@@ -101,8 +101,7 @@ pub fn run() {
                 tracing::warn!("no resource directory for the bundled Tor: {e}");
             }
             let env = daemon_manager::LaunchEnv::bundled(resource_dir.ok().as_deref());
-            let gate = app.state::<state::AppState>().node_gate.clone();
-            let dm = daemon_manager::DaemonManager::new(config_dir, env, gate);
+            let dm = daemon_manager::DaemonManager::new(config_dir, env);
             app.manage(dm.clone());
 
             let network = startup_network;
@@ -116,6 +115,7 @@ pub fn run() {
             commands::get_wallet_status,
             daemon_connection::get_chain_health,
             daemon_connection::set_daemon_connection,
+            daemon_connection::use_service_node,
             daemon_connection::daemon_connection_disclosures,
             commands::get_pqc_status,
             commands::get_security_status,

@@ -130,7 +130,7 @@ pub async fn create_wallet(
     let wallet_dir = state.wallet_dir.read().await.clone();
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
-    let daemon = state.engine_base().await?;
+    let daemon = crate::engine_daemon::EngineNode::Target(state.engine_target().await);
     let mut eng = state.engine.lock().await;
     let created = eng
         .create(&wallet_dir, &sanitized, &password, network, &daemon)
@@ -180,7 +180,7 @@ pub(crate) async fn open_wallet_in(
         .into());
     }
 
-    let daemon = state.engine_base().await?;
+    let daemon = crate::engine_daemon::EngineNode::Target(state.engine_target().await);
     let mut eng = state.engine.lock().await;
     let facts = eng
         .open(&wallet_dir, &sanitized, &password, network, &daemon)
@@ -242,7 +242,7 @@ pub async fn restore_wallet(
     let wallet_dir = state.wallet_dir.read().await.clone();
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
-    let daemon = state.engine_base().await?;
+    let daemon = crate::engine_daemon::EngineNode::Target(state.engine_target().await);
     let mut eng = state.engine.lock().await;
     let facts = eng
         .restore_from_seed(
@@ -392,8 +392,7 @@ mod tests {
         let state = AppState::new();
         *state.wallet_dir.write().await = dir.0.clone();
         *state.network.write().await = NetworkType::Testnet;
-        *state.daemon_url.write().await = "http://127.0.0.1:1/json_rpc".into();
-        *state.typed_node.write().await = true;
+        *state.node_address.write().await = Some("http://127.0.0.1:1/json_rpc".into());
 
         let refused = open_wallet_in(&state, "alpha11".into(), password)
             .await

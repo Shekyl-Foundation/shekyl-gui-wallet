@@ -24,6 +24,7 @@ const NODE_STATE_WORDS: Record<NodeState, string> = {
   stopping: "A node is stopping",
   waiting: "The data directory is still held; the wallet’s node is waiting for it",
   found: "Another node of yours is running; the wallet’s own is not",
+  service: "This computer’s node runs as a service; the wallet starts none beside it",
   refused: "The node’s local address failed its check",
   failed: "The wallet’s node is not running",
   unavailable: "This build carries no node",
@@ -37,9 +38,8 @@ const NODE_STATE_WORDS: Record<NodeState, string> = {
  * it is safe.
  */
 interface DaemonConnection {
-  url: string;
-  /** A node address a person typed; `false` is the wallet's own node. */
-  typed: boolean;
+  /** The node address a person typed; `null` is this computer's node. */
+  url: string | null;
   warnings: string[];
 }
 
@@ -49,15 +49,13 @@ const NETWORKS = ["mainnet", "testnet", "stagenet"] as const;
 export default function Settings() {
   const { health, refresh } = useDaemon();
   const [network, setNetwork] = useState<string>(health?.network ?? "mainnet");
-  // The URL in effect comes from the backend (`daemon_connection_disclosures`
-  // below); each network's port is core's, never a copy here.
+  // The address a person typed, as the backend keeps it; empty for this
+  // computer's node, which has no address to show (it is read over its
+  // owner's leg).
   const [daemonUrl, setDaemonUrl] = useState("");
-  // Whether the URL is one a person typed, as the backend says; and
-  // whether the field has been edited since it was loaded. A save with
-  // nothing typed keeps the wallet's own node: it never turns the shown
-  // address of that node into a typed one.
   const [typedNode, setTypedNode] = useState(false);
-  // Not state: it is read only by the save and the reads, never drawn.
+  // Whether the field has been edited since it was loaded: the reads do
+  // not overwrite what the person is typing. Not state: never drawn.
   const urlEditedRef = useRef(false);
   // Each read of the node's state is numbered; an answer older than the
   // last one shown is dropped, so a slow read never paints over a newer one.
@@ -90,9 +88,9 @@ export default function Settings() {
       // about the configured daemon would quietly revert the operator's
       // choice the next time they pressed it.
       if (generation !== readGeneration.current) return;
-      setTypedNode(current.typed);
+      setTypedNode(current.url !== null);
       // The field is the person's while they edit it.
-      setDaemonUrl((shown) => (urlEditedRef.current ? shown : current.url));
+      setDaemonUrl((shown) => (urlEditedRef.current ? shown : (current.url ?? "")));
       setDaemonWarnings(current.warnings);
     } catch {
       // command not available yet
@@ -162,15 +160,15 @@ export default function Settings() {
     setSaving(true);
     setNetworkError(null);
     try {
-      // No URL: the backend points at the node on this computer at the
-      // network's port, and relaunches the wallet's own node on it.
+      // No URL: the backend points at this computer's node, and relaunches
+      // the wallet's own node on the network.
       const applied = await invoke<DaemonConnection>("set_daemon_connection", {
         network: net,
       });
       setNetwork(net);
       urlEditedRef.current = false;
-      setDaemonUrl(applied.url);
-      setTypedNode(applied.typed);
+      setDaemonUrl(applied.url ?? "");
+      setTypedNode(applied.url !== null);
       setDaemonWarnings(applied.warnings);
       refresh();
       loadDaemonInfo();
@@ -182,21 +180,20 @@ export default function Settings() {
     }
   }
 
-  // A typed address is sent only when the person typed one: a save with
-  // the wallet's own node's address left as shown keeps that node, reached
-  // over its owner's leg. A typed node stays typed until "Use this
-  // computer's node".
+  // An address is sent when the field holds one; an empty field is this
+  // computer's node. A typed node stays typed until "Use this computer's
+  // node".
   async function handleSaveUrl() {
     setSaving(true);
     try {
-      const url = urlEditedRef.current || typedNode ? daemonUrl : undefined;
+      const url = daemonUrl.trim() === "" ? undefined : daemonUrl.trim();
       const applied = await invoke<DaemonConnection>("set_daemon_connection", {
         network,
         ...(url === undefined ? {} : { url }),
       });
       urlEditedRef.current = false;
-      setTypedNode(applied.typed);
-      setDaemonUrl(applied.url);
+      setTypedNode(applied.url !== null);
+      setDaemonUrl(applied.url ?? "");
       setDaemonWarnings(applied.warnings);
       refresh();
       loadDaemonInfo();
@@ -246,10 +243,11 @@ export default function Settings() {
           </h2>
         </div>
         <div className="space-y-2">
-          <label className="text-xs text-purple-300">JSON-RPC URL</label>
+          <label className="text-xs text-purple-300">Node address</label>
           <input
             type="text"
             className="input font-mono text-sm"
+            placeholder="Empty: this computer’s node"
             value={daemonUrl}
             onChange={(e) => {
               urlEditedRef.current = true;

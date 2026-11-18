@@ -16,6 +16,7 @@ function status(over: Partial<NodeStatus>): NodeStatus {
     can_force_stop: false,
     can_stop_waiting: false,
     payout_fault: null,
+    service_view: null,
     ...over,
   };
 }
@@ -50,7 +51,7 @@ describe("PreWalletNode", () => {
           message: null,
           network: (args as { network: string }).network,
         });
-        return { url: "http://127.0.0.1:12029/json_rpc", warnings: [], typed: false };
+        return { url: null, warnings: [] };
       }
       return null;
     });

@@ -109,7 +109,7 @@ pub async fn get_wallet_status(
     state: State<'_, AppState>,
     node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
 ) -> Result<WalletStatus, String> {
-    let url = state.url().await;
+    let address = state.node_address().await;
     let network = state.network.read().await;
     let wallet_open = *state.wallet_open.read().await;
     let wallet_name = state.wallet_name.read().await.clone();
@@ -120,7 +120,7 @@ pub async fn get_wallet_status(
             connected: true,
             wallet_open,
             wallet_name,
-            daemon_address: Some(url),
+            daemon_address: address.clone(),
             network: network.as_str().into(),
             synced: status.synchronized,
         }),
@@ -128,7 +128,7 @@ pub async fn get_wallet_status(
             connected: false,
             wallet_open,
             wallet_name,
-            daemon_address: Some(url),
+            daemon_address: address.clone(),
             network: network.as_str().into(),
             synced: false,
         }),

@@ -109,8 +109,8 @@ where
     M::Request: Send + 'static,
     M::Reply: Send + 'static,
 {
-    if !state.targets_this_computer().await {
-        return call::<M>(&state.url().await, request, what).await;
+    if let Some(address) = state.node_address().await {
+        return call::<M>(&address, request, what).await;
     }
     node.own_call::<M>(request, what).await
 }

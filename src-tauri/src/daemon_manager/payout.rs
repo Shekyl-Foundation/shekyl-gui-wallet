@@ -42,6 +42,7 @@ impl DaemonManager {
                 }
                 NodeState::Running => {}
                 NodeState::Found => return Err(found_words(inner.network)),
+                NodeState::Service(view) => return Err(shekyl_rpc_client::service_refusal(*view)),
                 NodeState::Waiting(words)
                 | NodeState::Refused(words)
                 | NodeState::Unavailable(words) => return Err(words.clone()),

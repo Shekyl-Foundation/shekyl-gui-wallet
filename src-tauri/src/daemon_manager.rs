@@ -10,7 +10,7 @@ use shekyl_rpc_transport::local::{LocalFault, LocalTarget};
 use tokio::sync::{watch, RwLock};
 
 use crate::node_launch::{self, Launch, Life, OwnNode};
-use crate::state::{Gate, NetworkType, NodeGate};
+use crate::state::NetworkType;
 
 /// The diagnostic a node refuses its start with while another process
 /// holds its data directory (shekyl-core `shekyl-options`, `DataDirLocked`).
@@ -68,13 +68,12 @@ pub(crate) struct LaunchNames {
 /// The node's command line, less the owning connection the launcher adds.
 ///
 /// The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md` §5): the
-/// GUI's network; no admin listener; no inbound clearnet listener unless
-/// the person turned it on (`clearnet-listen none`: the node only dials out
-/// on clearnet); one view listener on loopback at
-/// `rpc_port`, which the wallet engine reads until its calls move to the
-/// owner's leg (core `RPC_CHANNEL.md` RT-W10 step 5); the data directory when
-/// configured. The wallet's own calls go over the owner's leg, which the
-/// daemon serves without being asked.
+/// GUI's network; no admin listener; no view listener (the daemon's default:
+/// the wallet and its engine read the node over its owner's leg, which the
+/// daemon serves without being asked; Rick, 2026-11-18); no inbound
+/// clearnet listener unless the person turned it on (`clearnet-listen
+/// none`: the node only dials out on clearnet); the data directory when
+/// configured.
 ///
 /// `--tor-file` names the bundled Tor explicitly, one mechanism on every
 /// platform (GUI_SYNC_LANE.md §4, GS-1). The daemon checks that file
@@ -84,7 +83,6 @@ pub(crate) struct LaunchNames {
 pub(crate) fn sidecar_args(
     config: &DaemonConfig,
     network: NetworkType,
-    rpc_port: u16,
     names: &LaunchNames,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
@@ -92,8 +90,6 @@ pub(crate) fn sidecar_args(
         network.as_str().into(),
         "--rpc-admin-listen".into(),
         "none".into(),
-        "--rpc-view-listen".into(),
-        format!("127.0.0.1:{rpc_port}").into(),
     ];
     // The wallet's node dials out and takes no inbound clearnet connection
     // unless the person turned it on (Rick, 2026-11-17); on, the daemon's
@@ -204,6 +200,11 @@ pub(crate) enum NodeState {
     Failed(String),
     /// This build has no node to start.
     Unavailable(String),
+    /// "This computer"'s node on this network runs as a service, which the
+    /// wallet reaches only over the channel from RT-W12; until then over
+    /// its view listener, when it has one, as a typed address. The wallet
+    /// starts no node of its own beside it (Rick, 2026-11-18).
+    Service(Option<std::net::SocketAddr>),
 }
 
 impl NodeState {
@@ -218,6 +219,7 @@ impl NodeState {
             Self::Refused(_) => "refused",
             Self::Failed(_) => "failed",
             Self::Unavailable(_) => "unavailable",
+            Self::Service(_) => "service",
         }
     }
 }
@@ -226,7 +228,7 @@ impl NodeState {
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct DaemonStatus {
     /// `idle`, `starting`, `running`, `stopping`, `waiting`, `found`,
-    /// `refused`, `failed` or `unavailable`.
+    /// `service`, `refused`, `failed` or `unavailable`.
     pub state: &'static str,
     /// The state in words, where there is something to say.
     pub message: Option<String>,
@@ -241,6 +243,9 @@ pub struct DaemonStatus {
     /// stopped, or may still pay the wallet open before. Said whatever the
     /// node's state, so it is seen without opening the Mining page.
     pub payout_fault: Option<String>,
+    /// A service node's view listener, while "this computer" is a service
+    /// with one: the page offers "Use the service's node".
+    pub service_view: Option<String>,
 }
 
 /// The words for a node of this account the wallet found running.
@@ -259,15 +264,17 @@ pub(crate) struct LaunchEnv {
     pub program: Option<PathBuf>,
     /// The bundled Tor.
     pub tor_file: Option<PathBuf>,
+    /// The service's rendezvous directory, where the platform has one
+    /// (`shekyl_process::platform::service_rendezvous`; a test names its
+    /// own): "this computer" is a service when a service's record is there
+    /// and no node of this account is.
+    pub service_rendezvous: Option<PathBuf>,
     /// A test's own socket directory (see [`LaunchNames`]).
     #[cfg(test)]
     pub socket_dir: Option<PathBuf>,
     /// A test's own instance (see [`LaunchNames`]).
     #[cfg(test)]
     pub instance: Option<String>,
-    /// A test's view-listener port, so two tests' nodes never share one.
-    #[cfg(test)]
-    pub rpc_port: Option<u16>,
     /// A test's further arguments: no traffic.
     #[cfg(test)]
     pub extra_args: Vec<OsString>,
@@ -285,12 +292,11 @@ impl LaunchEnv {
         Self {
             program,
             tor_file: resource_dir.map(bundled_tor),
+            service_rendezvous: shekyl_process::platform::service_rendezvous(),
             #[cfg(test)]
             socket_dir: None,
             #[cfg(test)]
             instance: None,
-            #[cfg(test)]
-            rpc_port: None,
             #[cfg(test)]
             extra_args: Vec::new(),
         }
@@ -305,9 +311,6 @@ struct Inner {
     state: NodeState,
     /// The node this wallet started, while it lives.
     node: Option<Arc<OwnNode>>,
-    /// The base URL of that node's view listener, which the engine's gate
-    /// opens on once the node is ready.
-    base: Option<String>,
     /// Counts launches, so a launch's follower never writes over a later
     /// launch's state.
     launch: u64,
@@ -332,7 +335,6 @@ pub struct DaemonManager {
     inner: RwLock<Inner>,
     config: RwLock<DaemonConfig>,
     config_dir: PathBuf,
-    gate: NodeGate,
     /// A person's "Stop waiting", read by the flow that waits.
     stop_waiting: watch::Sender<bool>,
     /// Every network a node was launched on, in order, for a test that
@@ -342,9 +344,8 @@ pub struct DaemonManager {
 }
 
 impl DaemonManager {
-    pub(crate) fn new(config_dir: PathBuf, env: LaunchEnv, gate: NodeGate) -> Arc<Self> {
+    pub(crate) fn new(config_dir: PathBuf, env: LaunchEnv) -> Arc<Self> {
         let config = DaemonConfig::load(&config_dir);
-        gate.set(Gate::Closed(NODE_NOT_STARTED.to_owned()));
         Arc::new(Self {
             env,
             lifecycle: tokio::sync::Mutex::new(()),
@@ -353,7 +354,6 @@ impl DaemonManager {
                 mine_address: None,
                 state: NodeState::Idle,
                 node: None,
-                base: None,
                 launch: 0,
                 waits_on_another: false,
                 left_waiting: None,
@@ -362,7 +362,6 @@ impl DaemonManager {
             }),
             config: RwLock::new(config),
             config_dir,
-            gate,
             stop_waiting: watch::channel(false).0,
             #[cfg(test)]
             launched: std::sync::Mutex::new(Vec::new()),
@@ -377,12 +376,13 @@ impl DaemonManager {
                 network.network(),
                 &test_instance_of(self.env.instance.as_deref()),
                 self.env.socket_dir.as_deref(),
-                None,
+                self.env.service_rendezvous.as_deref(),
             );
         }
-        // No service rendezvous: the wallet looks only for a node of this
-        // account, and starts its own beside a service node.
-        LocalTarget::this_computer(network.network(), None)
+        // The service's rendezvous is named, as core's wallets name it: a
+        // service on this network is said, and the wallet does not start a
+        // node beside it (Rick, 2026-11-18).
+        LocalTarget::this_computer(network.network(), self.env.service_rendezvous.as_deref())
     }
 
     /// The owner's leg of the wallet's own node, for a call: only while the
@@ -395,10 +395,20 @@ impl DaemonManager {
             NodeState::Starting => Err("The wallet's node is starting.".to_owned()),
             NodeState::Stopping => Err("The node is stopping.".to_owned()),
             NodeState::Found => Err(found_words(inner.network)),
+            NodeState::Service(view) => Err(shekyl_rpc_client::service_refusal(*view)),
             NodeState::Waiting(words)
             | NodeState::Refused(words)
             | NodeState::Failed(words)
             | NodeState::Unavailable(words) => Err(words.clone()),
+        }
+    }
+
+    /// The service node's view listener, while "this computer" is a
+    /// service with one: what "Use the service's node" points the wallet at.
+    pub(crate) async fn service_view(&self) -> Option<std::net::SocketAddr> {
+        match self.inner.read().await.state {
+            NodeState::Service(view) => view,
+            _ => None,
         }
     }
 
@@ -441,23 +451,6 @@ impl DaemonManager {
 
     async fn set_state(&self, state: NodeState) {
         let mut inner = self.inner.write().await;
-        // The engine's way to the node on this computer opens only once the
-        // node there is the one this wallet started and has said it is
-        // ready ([`Self::now_running`]); while it starts, a caller waits.
-        self.gate.set(match &state {
-            NodeState::Starting => Gate::Starting,
-            NodeState::Running => match &inner.base {
-                Some(base) => Gate::Open(base.clone()),
-                None => Gate::Closed(NODE_NOT_STARTED.to_owned()),
-            },
-            NodeState::Idle => Gate::Closed(NODE_NOT_STARTED.to_owned()),
-            NodeState::Stopping => Gate::Closed("The node is stopping.".to_owned()),
-            NodeState::Found => Gate::Closed(found_words(inner.network)),
-            NodeState::Waiting(words)
-            | NodeState::Refused(words)
-            | NodeState::Failed(words)
-            | NodeState::Unavailable(words) => Gate::Closed(words.clone()),
-        });
         if state != NodeState::Idle {
             inner.left_waiting = None;
         }
@@ -465,14 +458,10 @@ impl DaemonManager {
     }
 
     /// The node said it is ready: `starting`, or `waiting` on a start
-    /// retried, becomes `running`, and the engine's way opens on the ready
-    /// node's own listener.
+    /// retried, becomes `running`.
     fn now_running(&self, inner: &mut Inner) {
         if matches!(inner.state, NodeState::Starting | NodeState::Waiting(_)) {
             inner.state = NodeState::Running;
-            if let Some(base) = &inner.base {
-                self.gate.set(Gate::Open(base.clone()));
-            }
             tracing::info!("the wallet's node is ready");
         }
     }
@@ -547,10 +536,12 @@ impl DaemonManager {
                 self.set_state(NodeState::Refused(fault.to_string())).await;
                 None
             }
-            // Not reached while no service rendezvous is named (`target`).
             Err(LocalFault::Service { view, .. }) => {
-                self.set_state(NodeState::Failed(shekyl_rpc_client::service_refusal(view)))
-                    .await;
+                tracing::info!(
+                    network = network.as_str(),
+                    "this computer's node runs as a service; no node is started"
+                );
+                self.set_state(NodeState::Service(view)).await;
                 None
             }
             Err(fault @ (LocalFault::OtherSession | LocalFault::Unreachable(_))) => {
@@ -597,11 +588,8 @@ impl DaemonManager {
             #[cfg(test)]
             instance: self.env.instance.clone(),
         };
-        let rpc_port = network.rpc_port();
-        #[cfg(test)]
-        let rpc_port = self.env.rpc_port.unwrap_or(rpc_port);
         #[allow(unused_mut, reason = "a test's launch adds its own arguments")]
-        let mut args = sidecar_args(&config, network, rpc_port, &names);
+        let mut args = sidecar_args(&config, network, &names);
         #[cfg(test)]
         args.extend(self.env.extra_args.iter().cloned());
         let launch = Launch {
@@ -648,7 +636,6 @@ impl DaemonManager {
             let mut inner = self.inner.write().await;
             inner.launch += 1;
             inner.node = Some(Arc::clone(&node));
-            inner.base = Some(format!("http://127.0.0.1:{rpc_port}"));
             inner.launch
         };
         if !quiet {
@@ -683,7 +670,6 @@ impl DaemonManager {
                         if matches!(inner.state, NodeState::Starting | NodeState::Running) {
                             let words = refusal.unwrap_or_else(|| NODE_STOPPED.to_owned());
                             tracing::warn!("the wallet's node is gone: {words}");
-                            self.gate.set(Gate::Closed(words.clone()));
                             inner.state = NodeState::Failed(words);
                         }
                     }
@@ -709,16 +695,6 @@ impl DaemonManager {
         // An error is the sender gone, which is the reader's end too.
         drop(life.wait_for(|l| matches!(l, Life::Gone { .. })).await);
         self.inner.write().await.node = None;
-    }
-
-    /// A switch to `network` is about to be published: the engine's way to
-    /// this computer waits from now until the node on `network` is ready
-    /// ([`Self::relaunch`]), so nothing it sends goes to the old node, or to
-    /// whatever holds the new network's port before the new node does.
-    pub(crate) async fn switching_to(&self, network: NetworkType) {
-        if self.inner.read().await.network != network {
-            self.gate.set(Gate::Starting);
-        }
     }
 
     /// Run the node on `network`: nothing to do when it already does;
@@ -804,6 +780,7 @@ impl DaemonManager {
         let inner = self.inner.read().await;
         let message = match &inner.state {
             NodeState::Found => Some(found_words(inner.network)),
+            NodeState::Service(view) => Some(shekyl_rpc_client::service_refusal(*view)),
             NodeState::Waiting(words)
             | NodeState::Refused(words)
             | NodeState::Failed(words)
@@ -812,6 +789,10 @@ impl DaemonManager {
             NodeState::Starting | NodeState::Running | NodeState::Stopping => None,
         };
         DaemonStatus {
+            service_view: match inner.state {
+                NodeState::Service(view) => view.map(|v| v.to_string()),
+                _ => None,
+            },
             state: inner.state.keyword(),
             message,
             network: inner.network.as_str(),

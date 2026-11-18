@@ -203,7 +203,6 @@ impl DaemonManager {
                     // A quiet start's follower leaves `waiting` alone.
                     let mut inner = self.inner.write().await;
                     if matches!(inner.state, NodeState::Waiting(_)) {
-                        self.gate.set(crate::state::Gate::Closed(words.clone()));
                         inner.state = NodeState::Failed(words.clone());
                     }
                     return Err(words);

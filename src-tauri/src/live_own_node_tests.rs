@@ -20,9 +20,9 @@ use shekyl_rpc_types::kinds::NoParams;
 use crate::daemon_manager::{
     data_dir_for, sidecar_args, test_instance, DaemonConfig, DaemonManager, LaunchEnv, LaunchNames,
 };
-use crate::daemon_rpc;
 use crate::live_daemon_tests::{free_port, run_dir, sidecar, socket_dir};
 use crate::state::NetworkType;
+use shekyl_rpc_transport::local::LocalTarget;
 
 /// This process's role when it is a child of one of the tests below.
 const ROLE: &str = "SHEKYL_GUI_LIVE_ROLE";
@@ -53,9 +53,9 @@ fn no_traffic(dir: &Path) -> Vec<OsString> {
 
 /// The wallet's daemon manager over the bundled node, in `dir`: its own
 /// socket directory (Unix; Windows refuses one, so there the tests share
-/// the account's rendezvous and run one at a time), its own data directory
-/// and its own port.
-fn manager(dir: &Path, port: u16) -> (std::sync::Arc<DaemonManager>, crate::state::NodeGate) {
+/// the account's rendezvous, so each node is an instance of its own), its
+/// own data directory, and `port` naming that instance.
+fn manager(dir: &Path, port: u16) -> std::sync::Arc<DaemonManager> {
     let config_dir = dir.join("settings");
     DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
@@ -66,13 +66,12 @@ fn manager(dir: &Path, port: u16) -> (std::sync::Arc<DaemonManager>, crate::stat
     let env = LaunchEnv {
         program: Some(sidecar()),
         tor_file: None,
+        service_rendezvous: None,
         socket_dir: cfg!(unix).then(|| socket_dir(dir)),
         instance: cfg!(windows).then(|| test_instance(port)),
-        rpc_port: Some(port),
         extra_args: no_traffic(dir),
     };
-    let gate = crate::state::NodeGate::default();
-    (DaemonManager::new(config_dir, env, gate.clone()), gate)
+    DaemonManager::new(config_dir, env)
 }
 
 /// Wait until the manager's state is `want`, and panic with the state and
@@ -146,7 +145,7 @@ async fn process_goes(pid: u32, dir: &Path) {
 async fn the_wallet_s_node_answers_on_its_owner_s_leg_and_relaunches_for_mining() {
     let dir = run_dir();
     let port = free_port();
-    let (dm, _gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
     assert!(dm.status().await.can_force_stop);
@@ -168,7 +167,7 @@ async fn the_wallet_s_node_answers_on_its_owner_s_leg_and_relaunches_for_mining(
         "the owner's leg is shown the Status part"
     );
 
-    let address = wallet_address(&dir, "live", port).await;
+    let address = wallet_address(&dm, &dir, "live").await;
 
     let first = dm.node_pid().await.expect("the node's pid");
     dm.mine_to(&address).await.expect("the node starts again");
@@ -194,10 +193,13 @@ async fn the_wallet_s_node_answers_on_its_owner_s_leg_and_relaunches_for_mining(
 }
 
 /// The address of a new wallet of the node's network, created against the
-/// wallet's node and closed: an address the node accepts as its miner's.
-async fn wallet_address(dir: &Path, name: &str, port: u16) -> String {
-    let url = format!("http://127.0.0.1:{port}/json_rpc");
-    let password = format!("live-{}-{port}", std::process::id());
+/// wallet's node over its owner's leg, as the engine reads it, and closed:
+/// an address the node accepts as its miner's.
+async fn wallet_address(dm: &DaemonManager, dir: &Path, name: &str) -> String {
+    let node = crate::engine_daemon::EngineNode::Local(
+        dm.own_target().await.expect("the wallet's node is ready"),
+    );
+    let password = format!("live-{}-{name}", std::process::id());
     let mut session = crate::engine_session::EngineSession::new();
     session
         .create(
@@ -205,13 +207,48 @@ async fn wallet_address(dir: &Path, name: &str, port: u16) -> String {
             name,
             &password,
             NetworkType::Testnet,
-            &url,
+            &node,
         )
         .await
         .expect("a wallet created against the wallet's node");
     let address = session.primary_address().await.expect("its address");
     session.close().await.expect("the wallet closes");
     address
+}
+
+/// The owner's leg of a test node on `network` in `dir`, as the harness
+/// names it: its socket directory (Unix) or its instance (Windows).
+fn owner_leg(dir: &Path, port: u16, network: NetworkType) -> LocalTarget {
+    LocalTarget::resolve(
+        network.network(),
+        &crate::daemon_manager::test_instance_of(
+            cfg!(windows).then(|| test_instance(port)).as_deref(),
+        ),
+        cfg!(unix).then(|| socket_dir(dir)).as_deref(),
+        None,
+    )
+}
+
+/// Wait until the node at `leg` answers its owner's leg; panic with the
+/// log in `dir` when it does not.
+async fn answers(leg: &LocalTarget, dir: &Path) {
+    let deadline = Instant::now() + SETTLES;
+    loop {
+        let leg = leg.clone();
+        let answered = tokio::task::spawn_blocking(move || leg.call::<Version>(&NoParams))
+            .await
+            .unwrap()
+            .is_ok();
+        if answered {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the hand-started node: {}",
+            log_tail(dir)
+        );
+        tokio::time::sleep(POLL).await;
+    }
 }
 
 /// The miner of the wallet's node, read on its owner's leg.
@@ -235,11 +272,11 @@ async fn miner(dm: &DaemonManager) -> shekyl_rpc_client::wire::node::MineStatus 
 async fn a_wallet_opened_while_not_mining_causes_no_restart() {
     let dir = run_dir();
     let port = free_port();
-    let (dm, _gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
-    let first = wallet_address(&dir, "first", port).await;
-    let second = wallet_address(&dir, "second", port).await;
+    let first = wallet_address(&dm, &dir, "first").await;
+    let second = wallet_address(&dm, &dir, "second").await;
     assert_ne!(first, second);
 
     // A node that pays no address yet is left alone too.
@@ -282,11 +319,11 @@ async fn a_wallet_opened_while_the_miner_runs_moves_the_miner_to_it() {
 
     let dir = run_dir();
     let port = free_port();
-    let (dm, _gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
-    let first = wallet_address(&dir, "first", port).await;
-    let second = wallet_address(&dir, "second", port).await;
+    let first = wallet_address(&dm, &dir, "first").await;
+    let second = wallet_address(&dm, &dir, "second").await;
 
     dm.mine_to(&first).await.expect("the node pays the first");
     let leg = dm.own_target().await.expect("ready");
@@ -351,10 +388,10 @@ async fn a_wallet_opened_while_the_miner_runs_moves_the_miner_to_it() {
 async fn a_network_switch_drops_the_miner_s_address() {
     let dir = run_dir();
     let port = free_port();
-    let (dm, _gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
-    let address = wallet_address(&dir, "testnet", port).await;
+    let address = wallet_address(&dm, &dir, "testnet").await;
     dm.mine_to(&address)
         .await
         .expect("the node pays a testnet wallet");
@@ -388,7 +425,7 @@ async fn a_network_switch_drops_the_miner_s_address() {
 async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
     let dir = run_dir();
     let port = free_port();
-    let (dm, _gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
     let held = data_dir_for(&dir.join("data"), NetworkType::Testnet);
     let lock = shekyl_daemon_config::Lock::take(&held).expect("the test holds the lock");
 
@@ -402,7 +439,7 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
         data_dir: Some(dir.join("hand").to_string_lossy().into_owned()),
         clearnet_inbound: true,
     };
-    let mut args = sidecar_args(&config, NetworkType::Testnet, port, &names);
+    let mut args = sidecar_args(&config, NetworkType::Testnet, &names);
     args.extend(no_traffic(&dir));
     let mut command = Command::new(sidecar());
     command
@@ -411,19 +448,7 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let mut hand = shekyl_spawn::spawn_lock::with(|| command.spawn()).expect("the node starts");
-    let url = format!("http://127.0.0.1:{port}/json_rpc");
-    let deadline = Instant::now() + SETTLES;
-    while daemon_rpc::call::<Version>(&url, NoParams, "the node's version")
-        .await
-        .is_err()
-    {
-        assert!(
-            Instant::now() < deadline,
-            "the hand-started node: {}",
-            log_tail(&dir)
-        );
-        tokio::time::sleep(POLL).await;
-    }
+    answers(&owner_leg(&dir, port, NetworkType::Testnet), &dir).await;
     dm.start(NetworkType::Testnet).await;
     assert_eq!(dm.status().await.state, "found");
     assert!(!dm.status().await.can_stop_waiting);
@@ -514,7 +539,7 @@ async fn with_testnet_saved_the_first_node_is_a_testnet_node() {
     let state = crate::state::AppState::on(network);
     assert_eq!(*state.network.read().await, NetworkType::Testnet);
 
-    let (dm, _gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
     dm.start(network).await;
     state_becomes(&dm, &dir, "running").await;
     assert_eq!(
@@ -567,7 +592,7 @@ async fn with_testnet_saved_the_first_node_is_a_testnet_node() {
 async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
     let dir = run_dir();
     let port = free_port();
-    let (dm, gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
 
     // The hand-started node: the wallet's own command line, by hand.
     let names = LaunchNames {
@@ -579,7 +604,7 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
         clearnet_inbound: true,
     };
-    let mut args = sidecar_args(&config, NetworkType::Testnet, port, &names);
+    let mut args = sidecar_args(&config, NetworkType::Testnet, &names);
     args.extend(no_traffic(&dir));
     let mut command = Command::new(sidecar());
     command
@@ -588,19 +613,7 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let mut hand = shekyl_spawn::spawn_lock::with(|| command.spawn()).expect("the node starts");
-    let url = format!("http://127.0.0.1:{port}/json_rpc");
-    let deadline = Instant::now() + SETTLES;
-    while daemon_rpc::call::<Version>(&url, NoParams, "the node's version")
-        .await
-        .is_err()
-    {
-        assert!(
-            Instant::now() < deadline,
-            "the hand-started node: {}",
-            log_tail(&dir)
-        );
-        tokio::time::sleep(POLL).await;
-    }
+    answers(&owner_leg(&dir, port, NetworkType::Testnet), &dir).await;
 
     dm.start(NetworkType::Testnet).await;
     let status = dm.status().await;
@@ -613,28 +626,10 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
         Some(words.clone()),
         "not adopted"
     );
-    let state = crate::state::AppState::new();
-    *state.network.write().await = NetworkType::Testnet;
-    *state.daemon_url.write().await = NetworkType::Testnet.local_url();
-    // The app's state carries the manager's gate.
-    let state = crate::state::AppState {
-        node_gate: gate,
-        ..state
-    };
-    assert_eq!(
-        state.engine_base().await.err(),
-        Some(words),
-        "the engine's URL is closed"
-    );
-
     dm.replace_found().await.expect("stopped and replaced");
     assert_eq!(dm.status().await.state, "running");
     let exit = hand.wait().expect("the hand-started node's exit");
     assert!(exit.success(), "a clean stop: {exit}");
-    assert!(
-        state.engine_base().await.is_ok(),
-        "the engine's URL is open again"
-    );
     let leg = dm.own_target().await.expect("the wallet's own node");
     tokio::task::spawn_blocking(move || leg.call::<MineStatus>(&NoParams))
         .await
@@ -663,7 +658,7 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
 async fn a_held_data_directory_refuses_the_start_in_the_node_s_words() {
     let dir = run_dir();
     let port = free_port();
-    let (dm, gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
 
     // The same data directory, another socket directory and port.
     let other = dir.join("other");
@@ -675,8 +670,7 @@ async fn a_held_data_directory_refuses_the_start_in_the_node_s_words() {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
         clearnet_inbound: true,
     };
-    let hand_port = free_port();
-    let mut args = sidecar_args(&config, NetworkType::Testnet, hand_port, &names);
+    let mut args = sidecar_args(&config, NetworkType::Testnet, &names);
     args.extend(no_traffic(&other));
     let mut command = Command::new(sidecar());
     command
@@ -685,19 +679,7 @@ async fn a_held_data_directory_refuses_the_start_in_the_node_s_words() {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let mut hand = shekyl_spawn::spawn_lock::with(|| command.spawn()).expect("the node starts");
-    let url = format!("http://127.0.0.1:{hand_port}/json_rpc");
-    let deadline = Instant::now() + SETTLES;
-    while daemon_rpc::call::<Version>(&url, NoParams, "the node's version")
-        .await
-        .is_err()
-    {
-        assert!(
-            Instant::now() < deadline,
-            "the hand-started node: {}",
-            log_tail(&other)
-        );
-        tokio::time::sleep(POLL).await;
-    }
+    answers(&owner_leg(&other, port, NetworkType::Testnet), &other).await;
 
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "failed").await;
@@ -710,11 +692,6 @@ async fn a_held_data_directory_refuses_the_start_in_the_node_s_words() {
         words.contains("another daemon is using the data directory"),
         "{words}"
     );
-    let state = crate::state::AppState {
-        node_gate: gate,
-        ..crate::state::AppState::new()
-    };
-    assert_eq!(state.engine_base().await.err(), Some(words));
 
     drop(hand.kill());
     drop(hand.wait());
@@ -726,7 +703,7 @@ async fn a_held_data_directory_refuses_the_start_in_the_node_s_words() {
 async fn wallet_role(role: &str) -> ! {
     let dir = PathBuf::from(std::env::var_os(ROLE_DIR).expect("the run directory"));
     let port: u16 = std::env::var(ROLE_PORT).unwrap().parse().unwrap();
-    let (dm, _gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
     println!("node {}", dm.node_pid().await.expect("the node's pid"));
@@ -774,7 +751,7 @@ fn spawn_wallet(test: &str, role: &str, dir: &Path, port: u16) -> (Child, u32) {
 /// directories starts its own node, which a node left behind would refuse.
 async fn assert_no_node_is_left(node: u32, dir: &Path, port: u16) {
     process_goes(node, dir).await;
-    let (dm, _gate) = manager(dir, port);
+    let dm = manager(dir, port);
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, dir, "running").await;
     let pid = dm.node_pid().await.expect("the second wallet's node");
@@ -837,7 +814,7 @@ async fn a_killed_wallet_cannot_orphan_its_node() {
 async fn a_force_stop_kills_the_node_and_it_starts_again() {
     let dir = run_dir();
     let port = free_port();
-    let (dm, _gate) = manager(&dir, port);
+    let dm = manager(&dir, port);
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
     let first = dm.node_pid().await.expect("the node's pid");

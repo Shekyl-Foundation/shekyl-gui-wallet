@@ -9,6 +9,7 @@ export type NodeState =
   | "stopping"
   | "waiting"
   | "found"
+  | "service"
   | "refused"
   | "failed"
   | "unavailable";
@@ -31,4 +32,9 @@ export interface NodeStatus {
    * stopped, or may still pay the wallet open before. Shown in any state.
    */
   payout_fault: string | null;
+  /**
+   * A service node's view listener, while this computer's node is a
+   * service with one: "Use the service's node" points the wallet at it.
+   */
+  service_view: string | null;
 }
