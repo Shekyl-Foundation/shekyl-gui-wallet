@@ -28,7 +28,8 @@
     node's state with its actions, and let you choose the network and the
     node address.
   - With a wallet open, the node it uses does not change: close the wallet
-    to name another node or network.
+    to name another node or network. Settings' "Close Wallet" button
+    closes it.
   - A node that is slow to start says so after ten seconds, with Force
     stop. The start that follows stopping your own node offers "Stop
     waiting" throughout.

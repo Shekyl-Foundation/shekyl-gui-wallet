@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Globe, Server, Shield, ShieldCheck, Settings2 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
+import { useWallet } from "../context/useWallet";
 import SecurityPanel from "../components/SecurityPanel";
 import WalletCare from "../components/WalletCare";
 import { BLOCK_NUMBER_TIP } from "../lib/format";
@@ -36,6 +37,9 @@ const NETWORKS = ["mainnet", "testnet", "stagenet"] as const;
 
 export default function Settings() {
   const { health, refresh } = useDaemon();
+  // Closing the wallet is how the node or the network it uses is changed:
+  // an open wallet keeps both.
+  const { lockWallet } = useWallet();
   // The connection in effect, as the backend keeps it: the node address a
   // person typed (none for this computer's node) and the network the
   // wallet is on. The backend is the one source for both; the node's
@@ -338,7 +342,7 @@ export default function Settings() {
         <button className="btn btn-secondary w-full text-xs">
           Change Wallet Password
         </button>
-        <button className="btn btn-danger w-full text-xs">
+        <button className="btn btn-danger w-full text-xs" onClick={() => void lockWallet()}>
           Close Wallet
         </button>
       </div>

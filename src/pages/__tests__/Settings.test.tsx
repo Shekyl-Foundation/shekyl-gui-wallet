@@ -1,8 +1,10 @@
+import { useContext, type ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DaemonProvider } from "../../context/DaemonContext";
+import { WalletContext } from "../../context/walletState";
 import Settings from "../Settings";
 
 /** The §1 operator statement, as the backend returns it. */
@@ -251,6 +253,36 @@ describe("Settings — network", () => {
     await userEvent.click(save);
     expect(await screen.findByRole("alert")).toHaveTextContent(refusal);
     expect(field).toHaveValue("http://127.0.0.1:12030");
+  });
+});
+
+describe("Settings — closing the wallet", () => {
+  /**
+   * An open wallet keeps its node and its network, and the page says to
+   * close it to change either: the button that closes it is on this page
+   * and does. Red edit: drop the button's handler (it was drawn without
+   * one, and a person told to close the wallet had no way to).
+   */
+  it("closes the wallet from the page that says to", async () => {
+    mockDaemon([]);
+    const lockWallet = vi.fn(async () => {});
+    function WithLock({ children }: { children: ReactNode }) {
+      const wallet = useContext(WalletContext);
+      return (
+        <WalletContext.Provider value={{ ...wallet, lockWallet }}>
+          {children}
+        </WalletContext.Provider>
+      );
+    }
+    render(
+      <WithLock>
+        <DaemonProvider>
+          <Settings />
+        </DaemonProvider>
+      </WithLock>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Close Wallet" }));
+    expect(lockWallet).toHaveBeenCalledTimes(1);
   });
 });
 
