@@ -59,13 +59,24 @@ pub(crate) fn sidecar() -> PathBuf {
 struct Daemon {
     child: Child,
     /// The node's owner's leg, for a node the wallet launches; the typed
-    /// node's tests read `url`.
+    /// node's tests read [`Self::url`].
     owner: Option<LocalTarget>,
     /// The node's own instance on Windows, whose record the guard removes:
     /// the guard kills the node, and a killed node leaves its record.
     instance: Option<String>,
     dir: PathBuf,
-    url: String,
+    /// The view listener's URL, for a node started with one (`start`). A
+    /// node the wallet launches has none.
+    view: Option<String>,
+}
+
+impl Daemon {
+    /// The view listener's URL: a typed node's tests read the node there.
+    fn url(&self) -> &str {
+        self.view
+            .as_deref()
+            .expect("this node was started with a view listener")
+    }
 }
 
 impl Drop for Daemon {
@@ -206,7 +217,10 @@ async fn launch(
         child,
         instance,
         dir,
-        url: format!("http://127.0.0.1:{port}/json_rpc"),
+        // A node the wallet launches opens no view listener.
+        view: owner
+            .is_none()
+            .then(|| format!("http://127.0.0.1:{port}/json_rpc")),
         owner,
     };
     let deadline = Instant::now() + Duration::from_secs(60);
@@ -218,7 +232,7 @@ async fn launch(
                     .await
                     .is_ok_and(|reply| reply.is_ok())
             }
-            None => daemon_rpc::call::<Version>(&daemon.url, NoParams, "the node's version")
+            None => daemon_rpc::call::<Version>(daemon.url(), NoParams, "the node's version")
                 .await
                 .is_ok(),
         };
@@ -260,7 +274,7 @@ async fn the_wallet_s_node_runs_the_wallet_s_network() {
 #[ignore = "needs the bundled shekyld sidecar"]
 async fn the_wallet_s_reads_decode_from_the_bundled_daemon() {
     let d = start().await;
-    let status = daemon_rpc::call::<DaemonStatus>(&d.url, NoParams, "the node's status")
+    let status = daemon_rpc::call::<DaemonStatus>(d.url(), NoParams, "the node's status")
         .await
         .expect("daemon_status");
     assert!(status.offline, "started with no network");
@@ -269,14 +283,14 @@ async fn the_wallet_s_reads_decode_from_the_bundled_daemon() {
         pow: false,
         prune: None,
     });
-    let header = daemon_rpc::call::<BlockHeaderShow>(&d.url, tip, "the last block")
+    let header = daemon_rpc::call::<BlockHeaderShow>(d.url(), tip, "the last block")
         .await
         .expect("block_header_show at the tip");
     assert_eq!(header.height, status.height, "the tip the status names");
-    daemon_rpc::call::<CurveShow>(&d.url, CurveSelect(Selector::Tip), "the curve tree")
+    daemon_rpc::call::<CurveShow>(d.url(), CurveSelect(Selector::Tip), "the curve tree")
         .await
         .expect("curve_show at the tip");
-    daemon_rpc::call::<ShardCoverage>(&d.url, NoParams, "the shard coverage")
+    daemon_rpc::call::<ShardCoverage>(d.url(), NoParams, "the shard coverage")
         .await
         .expect("shard_coverage");
 }
@@ -288,7 +302,7 @@ async fn the_wallet_s_reads_decode_from_the_bundled_daemon() {
 #[ignore = "needs the bundled shekyld sidecar"]
 async fn a_view_listener_refuses_mining_control_in_words() {
     let d = start().await;
-    let refused = daemon_rpc::call::<MineStatus>(&d.url, NoParams, "mining")
+    let refused = daemon_rpc::call::<MineStatus>(d.url(), NoParams, "mining")
         .await
         .expect_err("mine_status is outside the view listener's grants");
     assert_eq!(
@@ -356,8 +370,10 @@ async fn a_wallet_on_a_genesis_only_chain_has_scanned_nothing() {
         .synced_count()
         .expect("a chain count")
         .to_raw();
-    let status = daemon_rpc::call::<DaemonStatus>(&d.url, NoParams, "the node's status")
+    let owner = d.owner.clone().expect("the wallet's node");
+    let status = tokio::task::spawn_blocking(move || owner.call::<DaemonStatus>(&NoParams))
         .await
+        .unwrap()
         .expect("daemon_status");
     assert_eq!(status.height.0, 0, "no traffic: the chain is genesis alone");
     assert_eq!(summary.blocks_processed, 0, "nothing past genesis to scan");
