@@ -60,7 +60,7 @@
 //! behind a proof.
 
 use serde::Serialize;
-use shekyl_engine_core::engine::SubmitError;
+use shekyl_engine_core::engine::{ReservationAfterSubmit, SubmitError};
 use shekyl_engine_core::{
     FeePriority, InputCount, OutputCount, ReservationId, SubmitOutcome, TxDestination, TxRecipient,
     TxRequest,
@@ -148,18 +148,42 @@ pub struct SubmitResult {
     pub confirmed_height: Option<u64>,
 }
 
+/// Where a reservation stands after a send command failed, for the page:
+/// the engine's [`ReservationAfterSubmit`], one for one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Reservation {
+    /// Still the page's: nothing was sent. It submits again or discards.
+    Held,
+    /// The daemon may have it: the engine holds it, and the page lets go.
+    InFlight,
+    /// Released, or none was touched.
+    Gone,
+}
+
+impl From<ReservationAfterSubmit> for Reservation {
+    fn from(after: ReservationAfterSubmit) -> Self {
+        match after {
+            ReservationAfterSubmit::Held => Self::Held,
+            ReservationAfterSubmit::InFlight => Self::InFlight,
+            ReservationAfterSubmit::Gone => Self::Gone,
+        }
+    }
+}
+
 /// The typed error the send commands reject with. `code` and `message` are
 /// the wallet contract's (`shekyl_wallet_contract`: the same mapping the
 /// wallet RPC answers with), so the page branches on the same vocabulary the
-/// CLI and RPC clients see, and every cause has its own code. `reservation_retained` tells the page whether
-/// the engine still holds the reservation — when it does, the page must not
-/// discard it: an ambiguous or still-pending submit may already be on the
-/// network, and releasing the funds would open a double-spend path.
+/// CLI and RPC clients see, and every cause has its own code. `reservation`
+/// tells the page where the reservation stands: one it still holds it keeps,
+/// to submit again or discard (forgetting it would leave the inputs locked
+/// with nothing to release them); one in flight it lets go and never
+/// discards, since it may already be on the network.
 #[derive(Debug, Serialize)]
 pub struct SendError {
     pub code: &'static str,
     pub message: String,
-    pub reservation_retained: bool,
+    pub reservation: Reservation,
 }
 
 impl SendError {
@@ -169,31 +193,31 @@ impl SendError {
         Self {
             code: WalletRpcErrorCode::InvalidParams.name(),
             message,
-            reservation_retained: false,
+            reservation: Reservation::Gone,
         }
     }
 
     fn wallet_closed() -> Self {
-        Self::from_contract(WalletRpcError::WalletNotOpen, false)
+        Self::from_contract(WalletRpcError::WalletNotOpen, Reservation::Gone)
     }
 
-    /// The contract's answer for a failure, with whether the engine still
-    /// holds the reservation.
-    fn from_contract(err: WalletRpcError, reservation_retained: bool) -> Self {
+    /// The contract's answer for a failure, with where the reservation
+    /// stands.
+    fn from_contract(err: WalletRpcError, reservation: Reservation) -> Self {
         Self {
             code: err.code().name(),
             message: err.message(),
-            reservation_retained,
+            reservation,
         }
     }
 
-    /// A failed submit: the contract's answer, and whether the engine
-    /// still holds the reservation, which the engine alone answers
-    /// (`SubmitError::keeps_reservation`, exhaustive over its arms). The
+    /// A failed submit: the contract's answer, and where the reservation
+    /// stands, which the engine alone answers
+    /// (`SubmitError::reservation_after`, exhaustive over its arms). The
     /// wallet re-derives none of it.
     fn from_submit(err: SubmitError) -> Self {
-        let retained = err.keeps_reservation();
-        Self::from_contract(err.into(), retained)
+        let after = err.reservation_after().into();
+        Self::from_contract(err.into(), after)
     }
 }
 
@@ -226,7 +250,7 @@ pub async fn get_default_fee_priority(
             OutputCount::clamped(CANONICAL_OUTPUT_COUNT),
         )
         .await
-        .map_err(|e| SendError::from_contract(e.into(), false))?;
+        .map_err(|e| SendError::from_contract(e.into(), Reservation::Gone))?;
     Ok(FeeTierQuote {
         economy: quote.economy.into(),
         standard: quote.standard.into(),
@@ -269,7 +293,7 @@ pub async fn build_pending_tx(
     let pending = engine
         .build_pending_tx(&request)
         .await
-        .map_err(|e| SendError::from_contract(e.into(), false))?;
+        .map_err(|e| SendError::from_contract(e.into(), Reservation::Gone))?;
     Ok(BuiltPendingTx {
         pending_tx_id: pending.id.raw().to_string(),
         fee: pending.fee_atomic_units.into(),
@@ -303,17 +327,9 @@ pub async fn submit_pending_tx(
                 confirmed_height,
             })
         }
-        Err(err) => {
-            let mapped = SendError::from_submit(err);
-            if !mapped.reservation_retained {
-                // The engine has dropped it, or never had it; the discard
-                // makes sure no lock outlives a submit the page has stopped
-                // tracking. A reservation the engine keeps is the page's to
-                // retry or discard.
-                let _ = engine.discard_pending_tx(id);
-            }
-            Err(mapped)
-        }
+        // Where the reservation stands is the engine's answer: one gone has
+        // released its locks, so the wallet discards nothing on its behalf.
+        Err(err) => Err(SendError::from_submit(err)),
     }
 }
 
@@ -325,10 +341,10 @@ pub async fn discard_pending_tx(
     let id = parse_pending_tx_id(&pending_tx_id)?;
     let shared = shared_engine(&state).await?;
     let engine = shared.read().await;
-    // A refused discard leaves the reservation where it was.
+    // A refused discard leaves the reservation where it was: the page's.
     engine
         .discard_pending_tx(id)
-        .map_err(|e| SendError::from_contract(e.into(), true))
+        .map_err(|e| SendError::from_contract(e.into(), Reservation::Held))
 }
 
 #[cfg(test)]
@@ -362,7 +378,7 @@ mod tests {
                 WalletRpcErrorCode::InvalidParams.name(),
                 "{bad:?}"
             );
-            assert!(!err.reservation_retained);
+            assert_eq!(err.reservation, Reservation::Gone);
         }
     }
 

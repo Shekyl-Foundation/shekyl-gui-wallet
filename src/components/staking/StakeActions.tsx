@@ -7,7 +7,8 @@ import {
   CONTENT_CHANGED_NOTICE,
   isSendError,
   RELEASE_FAILED_ADVICE,
-  RETAINED_ADVICE,
+  HELD_ADVICE,
+  IN_FLIGHT_ADVICE,
   sendErrorMessage,
 } from "../../types/send";
 
@@ -178,10 +179,16 @@ export default function StakeActions() {
         setNotice({ kind: "caution", text: CONTENT_CHANGED_NOTICE });
         return;
       }
-      if (isSendError(err) && err.reservation_retained) {
+      if (isSendError(err) && err.reservation === "held") {
+        // Nothing was sent and the reservation is still ours: keep it under
+        // review, to confirm again or cancel.
+        setError(`${err.message} ${HELD_ADVICE}`);
+        return;
+      }
+      if (isSendError(err) && err.reservation === "in-flight") {
         owned.current = null;
         reviewedAmount.current = null;
-        setError(`${err.message} ${RETAINED_ADVICE}`);
+        setError(`${err.message} ${IN_FLIGHT_ADVICE}`);
         setBuilt(null);
         return;
       }
