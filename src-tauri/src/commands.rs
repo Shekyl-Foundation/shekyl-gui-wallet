@@ -44,7 +44,6 @@ use tauri::State;
 use crate::balance::Balance;
 use crate::daemon_rpc;
 use crate::drain_balance::DrainBalance;
-use crate::gui_config;
 use crate::staking_view::StakingView;
 use crate::state::{self, AppState};
 use crate::validate;
@@ -105,18 +104,22 @@ pub struct SecurityStatus {
 // ─── Daemon-connected commands ───────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatus, String> {
-    let url = state.url().await;
+pub async fn get_wallet_status(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<WalletStatus, String> {
+    let address = state.node_address().await;
     let network = state.network.read().await;
     let wallet_open = *state.wallet_open.read().await;
     let wallet_name = state.wallet_name.read().await.clone();
 
-    match daemon_rpc::call::<DaemonStatus>(&url, NoParams, "the node's status").await {
+    match daemon_rpc::node_call::<DaemonStatus>(&state, &node, NoParams, "the node's status").await
+    {
         Ok(status) => Ok(WalletStatus {
             connected: true,
             wallet_open,
             wallet_name,
-            daemon_address: Some(url),
+            daemon_address: address.clone(),
             network: network.as_str().into(),
             synced: status.synchronized,
         }),
@@ -124,7 +127,7 @@ pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatu
             connected: false,
             wallet_open,
             wallet_name,
-            daemon_address: Some(url),
+            daemon_address: address.clone(),
             network: network.as_str().into(),
             synced: false,
         }),
@@ -205,10 +208,10 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
     }
     wallet_name::ensure_dir_exists(&path)?;
     let display = path.to_string_lossy().to_string();
-    gui_config::save(&gui_config::GuiConfig {
-        schema_version: gui_config::SCHEMA_VERSION,
-        wallet_dir_override: Some(path.clone()),
-    });
+    // The rest of the file (the saved network) is kept.
+    let mut cfg = state.settings.load();
+    cfg.wallet_dir_override = Some(path.clone());
+    state.settings.save(&cfg);
     *state.wallet_dir.write().await = path;
     // A successful explicit choice clears any stale "fell back from"
     // warning the user might still be looking at.
@@ -223,10 +226,9 @@ pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, Stri
     let default = state::default_wallet_dir();
     wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
-    gui_config::save(&gui_config::GuiConfig {
-        schema_version: gui_config::SCHEMA_VERSION,
-        wallet_dir_override: None,
-    });
+    let mut cfg = state.settings.load();
+    cfg.wallet_dir_override = None;
+    state.settings.save(&cfg);
     *state.wallet_dir.write().await = default;
     *state.wallet_dir_warning.write().await = None;
     Ok(display)
@@ -395,11 +397,18 @@ pub async fn get_primary_address(state: State<'_, AppState>) -> Result<PrimaryAd
 }
 
 #[tauri::command]
-pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityStatus, String> {
-    let url = state.url().await;
-    let tree = daemon_rpc::call::<CurveShow>(&url, CurveSelect(Selector::Tip), "the curve tree")
-        .await
-        .ok();
+pub async fn get_security_status(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<SecurityStatus, String> {
+    let tree = daemon_rpc::node_call::<CurveShow>(
+        &state,
+        &node,
+        CurveSelect(Selector::Tip),
+        "the curve tree",
+    )
+    .await
+    .ok();
     let root_short = tree.as_ref().map(|t| {
         let root = t.root.to_string();
         root.chars().take(8).collect::<String>()
@@ -421,39 +430,6 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
         estimated_proof_size_kb: 4.5,
         paths_precomputed: wallet_refreshed,
     })
-}
-
-// ─── Daemon lifecycle commands ────────────────────────────────────────────────
-
-#[tauri::command]
-pub async fn daemon_status(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-) -> Result<crate::daemon_manager::DaemonStatus, String> {
-    Ok(dm.status().await)
-}
-
-#[tauri::command]
-pub async fn get_daemon_settings(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-) -> Result<crate::daemon_manager::DaemonConfig, String> {
-    Ok(dm.config().await)
-}
-
-#[tauri::command]
-pub async fn set_daemon_settings(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-    keep_running_on_exit: Option<bool>,
-    data_dir: Option<String>,
-) -> Result<crate::daemon_manager::DaemonConfig, String> {
-    let mut config = dm.config().await;
-    if let Some(v) = keep_running_on_exit {
-        config.keep_running_on_exit = v;
-    }
-    if let Some(v) = data_dir {
-        config.data_dir = if v.is_empty() { None } else { Some(v) };
-    }
-    dm.update_config(config.clone()).await?;
-    Ok(config)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

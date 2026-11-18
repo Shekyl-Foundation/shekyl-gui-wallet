@@ -25,25 +25,6 @@ separates a retired format from a file that is too new.
 
 ---
 
-## One target and one stop for the sidecar (`GS-2`) — target: pre-genesis
-
-Start takes anything answering HTTP on the port as an external daemon, the
-ladder RT-15 forbids (`GS-F6`); stop is `SIGTERM`, 2 s, `SIGKILL` by raw
-PID, or `taskkill /F` on Windows, so Tor's directory cache is never written
-back and every GUI boot is a cold bootstrap (`GS-F5`). Ruled (`GS-Q1`): the
-GUI launches `shekyld` with one end of a connected socket pair as its owner
-connection; closing it is the clean stop on every platform and a crashed
-GUI cannot orphan the daemon. The GUI's target is "this computer" or an
-explicit node; the child is held by its handle; the stop waits for core's
-derived bound before any kill, and reports one. The "keep daemon running
-after the wallet closes" setting stays and answers "not yet implemented"
-loudly until RT-W10 lands (`GS-Q2`).
-
-**Blocker:** core increment `GS-C3`, the owning connection as an RPC
-listener kind. Source: [`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4.
-
----
-
 ## Show the daemon's Tor posture, and report a held send as held (`GS-3`) — target: pre-genesis
 
 A send whose transaction the node is holding for Tor is reported
@@ -59,28 +40,26 @@ offers exactly the `ManagedTorFix` values in the read, each with its
 consequence, none pre-selected; taking one writes the sidecar's daemon
 config and restarts it (`GS-F7`, core `TSR-Q11`).
 
-**Blocker:** core increments `GS-C1` (`OwnTx` and Health from the relay's
-hop-0 verdict) and `GS-C2` (Status' Tor part on `get_info`, the posture
-types in `shekyl-rpc-types`), and `GS-2`. Source:
+The full read is shown in Settings (`tor_status.rs`). The header line,
+the held send and the fixes remain. A fix is stored in the GUI's settings
+and passed on the node's launch line; the daemon's default configuration
+file is never written.
+
+**Blocker:** none. Source:
 [`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §4.
 
 ---
 
-## Control mining on the owner leg (`GS-4`) — target: pre-genesis
+## A node that outlives the wallet (`GS-Q2`) — target: with core RT-W12
 
-The wallet reads the daemon through core's 4.0 types and client (RK-D1).
-What remains of `GS-4` is mining control: `mine_start`, `mine_stop` and
-`mine_status` need the `mining-control` grant, which the sidecar's view
-listener does not hold, so the wallet's own node refuses them and the
-Mining page says so (`grant_reach_tests.rs` lists them as waiting on
-`GS-C3`). The miner pays the node's `mine-address`, set when the node
-starts (`mine_start` takes no address, core IG-F23), so the GUI passes the
-open wallet's address when it launches its node, and a wallet switch
-relaunches it (Rick, 2026-11-12).
+"Keep daemon running after wallet closes" answers "not yet implemented":
+the node the wallet starts holds an owning connection and stops when the
+wallet closes. A node that outlives the wallet is one the person runs
+(core RT-16), which the wallet would reach as "this computer" and use, not
+replace. That needs the wallet engine's calls on the owner's leg.
 
-**Blocker:** `GS-C3` (the owning connection, core RT-W10 step 3) and
-`GS-2` (the launch carries `mine-address`). Source:
-[`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §5.
+**Blocker:** core RT-W10 step 5 (the engine's `Rpc` over "this computer").
+Source: [`GUI_SYNC_LANE.md`](design/GUI_SYNC_LANE.md) §3 `GS-Q2`, §4.
 
 ---
 

@@ -74,9 +74,12 @@ impl From<CoverageShard> for ShardCoverageRow {
 }
 
 #[tauri::command]
-pub async fn list_shards(state: State<'_, AppState>) -> Result<ShardCoverageList, String> {
-    let url = state.url().await;
-    let res = daemon_rpc::call::<ShardCoverage>(&url, NoParams, "the shard coverage").await?;
+pub async fn list_shards(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<ShardCoverageList, String> {
+    let res = daemon_rpc::node_call::<ShardCoverage>(&state, &node, NoParams, "the shard coverage")
+        .await?;
     Ok(coverage_list_from_rpc(res))
 }
 

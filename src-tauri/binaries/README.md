@@ -68,7 +68,9 @@ was. The after-bundle check unpacks the AppImage with
 
 ## At run time
 
-`DaemonManager` (`src-tauri/src/daemon_manager.rs`) starts the sidecar with
+`DaemonManager` (`src-tauri/src/daemon_manager.rs`) starts the node beside
+the wallet's executable through core's `shekyl-spawn`, holding its owning
+connection (`node_launch.rs`), with
 `--tor-file` naming `tor/tor` (`tor\tor.exe` on Windows) under the app's
 resource directory, one mechanism on every platform. The daemon checks that
 file against its pin at every spawn. A file it cannot pin is a warning,
@@ -77,9 +79,9 @@ not a refusal: the node holds its own transactions until Tor is up
 
 ## Development
 
-During `tauri dev` no sidecar is present. `DaemonManager` logs a warning,
-sets the daemon mode to `Unavailable`, and the wallet uses whatever daemon
-URL is configured in Settings. To try the release layout locally, run
+During `tauri dev` no node is present. The node's state is `unavailable`,
+the wallet says this build carries no node, and it uses a node address
+typed in Settings. To try the release layout locally, run
 `core_archive.py fetch` and `place` into this directory, then
 `npx tauri build --config src-tauri/tauri.release.conf.json`.
 

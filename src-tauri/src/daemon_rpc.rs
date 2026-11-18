@@ -26,7 +26,14 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//! The daemon's wire (`CORE_RPC_VERSION` 4.0), read through core's client.
+//! The daemon's wire, read through core's client.
+//!
+//! Two legs, one target (shekyl-core `RPC_CHANNEL.md` RT-15: one target per
+//! client, never a ladder). The wallet's own node, the default, is called
+//! on its owner's leg ([`node_call`]): "this computer", peer-checked, with
+//! every grant, since the wallet started that node and is its host's
+//! administrator. A node address a person typed is called over HTTP
+//! ([`call`]), with whatever that node grants.
 //!
 //! Every call is a row of `shekyl_rpc_types::wire`, made with
 //! [`Rpc::call`] over [`HttpRpc`], and every reply is core's own type
@@ -37,7 +44,8 @@
 use std::time::Duration;
 
 use shekyl_rpc_client::{ErrorClass, Rpc, RpcError, RpcMethod};
-use shekyl_rpc_transport::HttpRpc;
+use shekyl_rpc_transport::local::LocalFault;
+use shekyl_rpc_transport::{HttpRpc, JsonRpcError};
 
 /// How long one read may take before the wallet treats the node as gone.
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
@@ -88,6 +96,50 @@ where
         .unwrap_or_else(|_| Err(format!("The node did not answer in time for {what}.")))
 }
 
+/// Call `M` on the wallet's node: over the owner's leg of the node this
+/// wallet started, or over HTTP at the node address a person typed. The
+/// target decides the leg; a failure on one is never retried on the other.
+pub(crate) async fn node_call<M: RpcMethod>(
+    state: &crate::state::AppState,
+    node: &crate::daemon_manager::DaemonManager,
+    request: M::Request,
+    what: &str,
+) -> Result<M::Reply, String>
+where
+    M::Request: Send + 'static,
+    M::Reply: Send + 'static,
+{
+    if let Some(address) = state.node_address().await {
+        return call::<M>(&address, request, what).await;
+    }
+    node.own_call::<M>(request, what).await
+}
+
+/// A failed call on the owner's leg in the person's words. A failed peer
+/// check is said as core says it, whole: it is a security failure, not a
+/// node that is away.
+pub(crate) fn said_local(e: &JsonRpcError<LocalFault>, what: &str) -> String {
+    match e {
+        JsonRpcError::Transport(fault) => fault.to_string(),
+        JsonRpcError::Refusal(refusal) if refusal.class == ErrorClass::OutsideTheGrant => {
+            format!("This node does not let this wallet see or change {what}.")
+        }
+        JsonRpcError::Refusal(refusal) => refusal.diagnostic.message.clone(),
+        JsonRpcError::NoSuchMethod(_) => different_version(what),
+        JsonRpcError::Malformed(detail) => {
+            format!("Could not read {what} from the node: {detail}")
+        }
+    }
+}
+
+/// The words for a node that serves no such method: another RPC version.
+fn different_version(what: &str) -> String {
+    format!(
+        "This node runs a different version of the daemon than this wallet, so it cannot \
+         answer for {what}. Update the node or the wallet so they match."
+    )
+}
+
 /// A failed call in the person's words, read from the error's type: a
 /// refusal by its class (`RPC_WIRE.md` RW-Q3), never by its message.
 pub(crate) fn said(e: &RpcError, what: &str) -> String {
@@ -98,10 +150,12 @@ pub(crate) fn said(e: &RpcError, what: &str) -> String {
             format!("This node does not let this wallet see or change {what}.")
         }
         RpcError::Refused(refusal) => refusal.diagnostic.message.clone(),
-        RpcError::NoSuchMethod(_) => format!(
-            "This node runs a different version of the daemon than this wallet, so it cannot \
-             answer for {what}. Update the node or the wallet so they match."
-        ),
+        RpcError::NoSuchMethod(_) => different_version(what),
+        // Core's own sentences (`shekyl_rpc_client`): a failed peer check is
+        // a security failure, said whole; a service node says where it
+        // listens.
+        RpcError::PeerCheck(_) => e.to_string(),
+        RpcError::Service(view) => shekyl_rpc_client::service_refusal(*view),
         other => format!("Could not read {what} from the node: {other}"),
     }
 }

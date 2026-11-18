@@ -2,6 +2,53 @@
 
 ## [Unreleased]
 
+- **The wallet holds its own node, and has full access to it.** The wallet
+  starts its node holding an owning connection (shekyl-core's
+  `shekyl-spawn`), and calls it on the owner's leg, where it is the node's
+  administrator. Mining works from the Mining page again: the miner pays
+  the open wallet's address, and the node restarts once to take it.
+  Settings shows the node's Tor state in the node's own words.
+  - Closing the wallet stops the node cleanly; nothing kills it, and a
+    wallet that crashes cannot leave a node behind. Tor's cache is written
+    back, so the next start is a quick one.
+  - Changing network or the miner's address shows "Stopping the node…"
+    until the running node is gone, with a Force stop button. Force stop is
+    the only thing that kills a node.
+  - A node of yours already running on the network is not used. The wallet
+    says so and offers "Stop it and start the wallet's own". If the data
+    directory is still held after that node took its stop, the wallet names
+    the directory and keeps trying at growing intervals; "Stop waiting"
+    ends that, kills nothing, and leaves a Retry.
+  - Opening another wallet restarts the node only while it is mining, so
+    the running miner pays the open wallet. Otherwise the node is left
+    alone until mining is started.
+  - Something else answering at the node's local address is reported as a
+    security failure, and nothing is started or retried.
+  - Before any wallet is open, the welcome and unlock screens show the
+    node's state with its actions, and let you choose the network and the
+    node address.
+  - With a wallet open, the node it uses does not change: close the wallet
+    to name another node or network. Settings' "Close Wallet" button
+    closes it.
+  - A node that is slow to start says so after ten seconds, with Force
+    stop. The start that follows stopping your own node offers "Stop
+    waiting" throughout.
+  - A setting that could not be applied because the node did not start is
+    tried again when you choose it again.
+  - The wallet reads its node over the node's own local connection, never
+    over a network port, and the node opens no such port. An address you
+    type is used as it is.
+  - If this computer's node runs as a service, the wallet starts none
+    beside it, says so, and offers to use the service's node.
+  - If the miner cannot be moved to the wallet you open, it is stopped and
+    the wallet says so.
+  - The wallet remembers the network you chose, and its node starts on it.
+    A wallet set to testnet never starts a mainnet node first.
+  - The wallet's node takes no inbound connections over clearnet by
+    default; it only dials out. Settings has "Accept incoming connections
+    over clearnet" to turn them on, which restarts the node.
+  - "Keep daemon running after wallet closes" answers that it is not yet
+    implemented.
 - **The balance shows its legs, and the fee tiers have one spelling.**
   shekyl-core's wallet PR 2 (A17, A18) makes the balance
   `spendable + incoming`, each leg once, with the wait until

@@ -4,6 +4,7 @@ import Header from "./Header";
 import TestnetBanner from "./TestnetBanner";
 import DaemonOfflineBanner from "./DaemonOfflineBanner";
 import DaemonConnectingScreen from "./DaemonConnectingScreen";
+import NodeNotice from "./NodeNotice";
 import { useDaemon } from "../context/useDaemon";
 
 // Routes that render even before the daemon is reachable. Settings must be
@@ -22,6 +23,7 @@ export default function Layout() {
     <div className="flex h-screen w-screen overflow-hidden">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
+        <NodeNotice />
         <DaemonOfflineBanner />
         <TestnetBanner />
         <Header />
