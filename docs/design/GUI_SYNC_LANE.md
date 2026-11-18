@@ -205,8 +205,9 @@ carry Tor's own bytes as pinned.
     not start (Rick, 2026-11-17).
 - **One target, no fallback (core RT-15; Rick, 2026-11-18).** With no
   address typed, the wallet and its engine read "this computer" over its
-  owner's leg, core's `DaemonTarget::ThisComputer`, naming the service's
-  rendezvous as core's wallets do; with one typed, that address, local or
+  owner's leg, core's `DaemonTarget::ThisComputer`, named by its network
+  alone: core reads this account's and the service's rendezvous
+  directories itself, so the wallet assembles nothing; with one typed, that address, local or
   not: it is the person's choice. There is no engine gate: the owner's leg
   is the account's own socket or pipe, peer-checked at every dial. The
   wallet's node opens no view listener. A failed peer check is latched as a

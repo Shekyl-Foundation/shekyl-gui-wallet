@@ -6072,19 +6072,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shekyl-process"
-version = "3.1.0"
-dependencies = [
- "libc",
- "shekyl-daemon-config",
- "shekyl-os-account",
- "shekyl-rpc-rendezvous",
- "shekyl-win-sec",
- "tracing",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "shekyl-proofs"
 version = "3.1.0"
 dependencies = [
@@ -6145,6 +6132,7 @@ name = "shekyl-rpc-rendezvous"
 version = "3.1.0"
 dependencies = [
  "shekyl-crypto-hash",
+ "shekyl-win-sec",
 ]
 
 [[package]]
@@ -6427,7 +6415,6 @@ dependencies = [
  "shekyl-engine-file",
  "shekyl-engine-prefs",
  "shekyl-engine-state",
- "shekyl-process",
  "shekyl-rpc-client",
  "shekyl-rpc-rendezvous",
  "shekyl-rpc-transport",

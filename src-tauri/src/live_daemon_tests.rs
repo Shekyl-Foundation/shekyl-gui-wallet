@@ -155,7 +155,7 @@ async fn start_on(network: NetworkType) -> Daemon {
         clearnet_inbound: true,
     };
     let args = sidecar_args(&config, network, &LaunchNames::default());
-    let owner = LocalTarget::resolve(
+    let owner = LocalTarget::test_override(
         network.network(),
         &crate::daemon_manager::test_instance_of(
             cfg!(windows)

@@ -264,10 +264,10 @@ pub(crate) struct LaunchEnv {
     pub program: Option<PathBuf>,
     /// The bundled Tor.
     pub tor_file: Option<PathBuf>,
-    /// The service's rendezvous directory, where the platform has one
-    /// (`shekyl_process::platform::service_rendezvous`; a test names its
-    /// own): "this computer" is a service when a service's record is there
-    /// and no node of this account is.
+    /// A test's own service rendezvous directory, where it stages a
+    /// service's record. The wallet names none: core's "this computer"
+    /// reads the platform's.
+    #[cfg(test)]
     pub service_rendezvous: Option<PathBuf>,
     /// A test's own socket directory (see [`LaunchNames`]).
     #[cfg(test)]
@@ -292,7 +292,8 @@ impl LaunchEnv {
         Self {
             program,
             tor_file: resource_dir.map(bundled_tor),
-            service_rendezvous: shekyl_process::platform::service_rendezvous(),
+            #[cfg(test)]
+            service_rendezvous: None,
             #[cfg(test)]
             socket_dir: None,
             #[cfg(test)]
@@ -368,21 +369,23 @@ impl DaemonManager {
         })
     }
 
-    /// "This computer" on `network`: the owner's leg of this account's node.
+    /// "This computer" on `network`, as core defines it: this account's
+    /// node over its owner's leg, or the machine's service, said as one. A
+    /// test names its own directories instead.
     fn target(&self, network: NetworkType) -> LocalTarget {
         #[cfg(test)]
-        if self.env.socket_dir.is_some() || self.env.instance.is_some() {
-            return LocalTarget::resolve(
+        if self.env.socket_dir.is_some()
+            || self.env.instance.is_some()
+            || self.env.service_rendezvous.is_some()
+        {
+            return LocalTarget::test_override(
                 network.network(),
                 &test_instance_of(self.env.instance.as_deref()),
                 self.env.socket_dir.as_deref(),
                 self.env.service_rendezvous.as_deref(),
             );
         }
-        // The service's rendezvous is named, as core's wallets name it: a
-        // service on this network is said, and the wallet does not start a
-        // node beside it (Rick, 2026-11-18).
-        LocalTarget::this_computer(network.network(), self.env.service_rendezvous.as_deref())
+        LocalTarget::this_computer(network.network())
     }
 
     /// The owner's leg of the wallet's own node, for a call: only while the
@@ -862,7 +865,8 @@ pub(crate) fn remove_test_records(instance: &str) {
         NetworkType::ALL.iter().map(|n| n.network()).collect();
     networks.push(shekyl_engine_core::Network::Regtest);
     for network in networks {
-        let target = LocalTarget::resolve(network, &test_instance_of(Some(instance)), None, None);
+        let target =
+            LocalTarget::test_override(network, &test_instance_of(Some(instance)), None, None);
         if let Some(path) = target.path() {
             drop(std::fs::remove_file(path));
         }

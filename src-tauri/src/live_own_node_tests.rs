@@ -219,7 +219,7 @@ async fn wallet_address(dm: &DaemonManager, dir: &Path, name: &str) -> String {
 /// The owner's leg of a test node on `network` in `dir`, as the harness
 /// names it: its socket directory (Unix) or its instance (Windows).
 fn owner_leg(dir: &Path, port: u16, network: NetworkType) -> LocalTarget {
-    LocalTarget::resolve(
+    LocalTarget::test_override(
         network.network(),
         &crate::daemon_manager::test_instance_of(
             cfg!(windows).then(|| test_instance(port)).as_deref(),
@@ -556,7 +556,7 @@ async fn with_testnet_saved_the_first_node_is_a_testnet_node() {
         .unwrap()
         .expect("the node answers at testnet's rendezvous");
     let instance = cfg!(windows).then(|| crate::daemon_manager::test_instance(port));
-    let mainnet = shekyl_rpc_transport::local::LocalTarget::resolve(
+    let mainnet = shekyl_rpc_transport::local::LocalTarget::test_override(
         NetworkType::Mainnet.network(),
         &crate::daemon_manager::test_instance_of(instance.as_deref()),
         cfg!(unix).then(|| socket_dir(&dir)).as_deref(),
