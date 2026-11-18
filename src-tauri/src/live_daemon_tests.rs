@@ -57,6 +57,9 @@ pub(crate) fn sidecar() -> PathBuf {
 /// A running regtest daemon, stopped and its directory removed on drop.
 struct Daemon {
     child: Child,
+    /// The node's own instance on Windows, whose record the guard removes:
+    /// the guard kills the node, and a killed node leaves its record.
+    instance: Option<String>,
     dir: PathBuf,
     url: String,
 }
@@ -65,6 +68,9 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if let Some(instance) = &self.instance {
+            crate::daemon_manager::remove_test_records(instance);
+        }
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
@@ -151,11 +157,17 @@ async fn launch(mut args: Vec<OsString>, dir: PathBuf, port: u16) -> Daemon {
     args.push(dir.join("shekyld.log").into());
     // Its own socket directory (Unix), so two tests' nodes on one network
     // never meet at the account's rendezvous, where the second would refuse
-    // its start. Windows refuses a socket directory: there these tests run
-    // one at a time.
+    // its start. Windows refuses a socket directory and the account's
+    // rendezvous folder cannot be moved: there the node is an instance of
+    // the test's own, and its record is removed when the guard goes.
+    let instance = cfg!(windows).then(|| crate::daemon_manager::test_instance(port));
     if cfg!(unix) {
         args.push("--rpc-socket-dir".into());
         args.push(socket_dir(&dir).into());
+    }
+    if let Some(instance) = &instance {
+        args.push("--instance".into());
+        args.push(instance.into());
     }
     let mut command = Command::new(sidecar());
     command
@@ -169,6 +181,7 @@ async fn launch(mut args: Vec<OsString>, dir: PathBuf, port: u16) -> Daemon {
         shekyl_spawn::spawn_lock::with(|| command.spawn()).expect("the bundled shekyld starts");
     let daemon = Daemon {
         child,
+        instance,
         dir,
         url: format!("http://127.0.0.1:{port}/json_rpc"),
     };

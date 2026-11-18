@@ -171,8 +171,14 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// The app's state on mainnet, for a test.
+    #[cfg(test)]
     pub fn new() -> Self {
-        let net = NetworkType::default();
+        Self::on(NetworkType::default())
+    }
+
+    /// The app's state on `net`, the network its node starts on.
+    pub fn on(net: NetworkType) -> Self {
         let resolved = gui_config::resolve_wallet_dir(default_wallet_dir());
         Self {
             daemon_url: RwLock::new(net.local_url()),

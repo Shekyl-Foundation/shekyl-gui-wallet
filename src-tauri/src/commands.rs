@@ -209,10 +209,10 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
     }
     wallet_name::ensure_dir_exists(&path)?;
     let display = path.to_string_lossy().to_string();
-    gui_config::save(&gui_config::GuiConfig {
-        schema_version: gui_config::SCHEMA_VERSION,
-        wallet_dir_override: Some(path.clone()),
-    });
+    // The rest of the file (the saved network) is kept.
+    let mut cfg = gui_config::load();
+    cfg.wallet_dir_override = Some(path.clone());
+    gui_config::save(&cfg);
     *state.wallet_dir.write().await = path;
     // A successful explicit choice clears any stale "fell back from"
     // warning the user might still be looking at.
@@ -227,10 +227,9 @@ pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, Stri
     let default = state::default_wallet_dir();
     wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
-    gui_config::save(&gui_config::GuiConfig {
-        schema_version: gui_config::SCHEMA_VERSION,
-        wallet_dir_override: None,
-    });
+    let mut cfg = gui_config::load();
+    cfg.wallet_dir_override = None;
+    gui_config::save(&cfg);
     *state.wallet_dir.write().await = default;
     *state.wallet_dir_warning.write().await = None;
     Ok(display)

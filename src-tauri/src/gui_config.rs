@@ -63,6 +63,28 @@ pub struct GuiConfig {
     /// pointed at after their target moves.
     #[serde(default)]
     pub wallet_dir_override: Option<PathBuf>,
+
+    /// The network the person chose, by its name (`mainnet`, `testnet`,
+    /// `stagenet`). The wallet's node starts on it at launch, so no node
+    /// runs on another network first. `None` on a fresh install: the first
+    /// start is mainnet (Rick, 2026-11-13, 2026-11-17).
+    #[serde(default)]
+    pub network: Option<String>,
+}
+
+impl GuiConfig {
+    /// The network the wallet's node starts on: the saved one, or mainnet
+    /// when none is saved. A name this build does not know is mainnet too,
+    /// said in the log.
+    pub fn startup_network(&self) -> crate::state::NetworkType {
+        let Some(name) = &self.network else {
+            return crate::state::NetworkType::default();
+        };
+        crate::state::NetworkType::from_name(name).unwrap_or_else(|| {
+            warn!(network = %name, "gui-config.json names a network this build does not know; starting on mainnet");
+            crate::state::NetworkType::default()
+        })
+    }
 }
 
 impl Default for GuiConfig {
@@ -70,6 +92,7 @@ impl Default for GuiConfig {
         Self {
             schema_version: SCHEMA_VERSION,
             wallet_dir_override: None,
+            network: None,
         }
     }
 }
@@ -155,6 +178,26 @@ pub fn save(cfg: &GuiConfig) {
         return;
     };
     save_to_path(cfg, &path);
+}
+
+/// Keep `network` as the network the wallet's node starts on next time,
+/// leaving the rest of the file as it is.
+pub fn save_network(network: crate::state::NetworkType) {
+    let mut cfg = load();
+    cfg.network = Some(network.as_str().to_owned());
+    save(&cfg);
+}
+
+/// [`load`], from an explicit path (a test's own file).
+#[cfg(test)]
+pub(crate) fn load_from(path: &Path) -> GuiConfig {
+    load_from_path(path)
+}
+
+/// [`save`], to an explicit path (a test's own file).
+#[cfg(test)]
+pub(crate) fn save_to(cfg: &GuiConfig, path: &Path) {
+    save_to_path(cfg, path);
 }
 
 /// Serialize-and-write to an explicit path. Same best-effort posture
@@ -324,6 +367,7 @@ mod tests {
         let cfg = GuiConfig {
             schema_version: SCHEMA_VERSION,
             wallet_dir_override: Some(custom.clone()),
+            network: None,
         };
         save_to_path(&cfg, &path);
         let loaded = load_from_path(&path);
@@ -340,6 +384,7 @@ mod tests {
         let cfg = GuiConfig {
             schema_version: SCHEMA_VERSION,
             wallet_dir_override: Some(base.join("x")),
+            network: None,
         };
         save_to_path(&cfg, &path);
         assert!(parent.is_dir(), "save_to_path must create the parent dir");
@@ -389,6 +434,7 @@ mod tests {
             &GuiConfig {
                 schema_version: SCHEMA_VERSION,
                 wallet_dir_override: Some(override_dir.clone()),
+                network: None,
             },
             &path,
         );
@@ -413,6 +459,7 @@ mod tests {
             &GuiConfig {
                 schema_version: SCHEMA_VERSION,
                 wallet_dir_override: Some(override_path.clone()),
+                network: None,
             },
             &path,
         );
@@ -428,5 +475,31 @@ mod tests {
             "fallback_from must record the unreachable override"
         );
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The node starts on the saved network; a fresh install, and a name
+    /// this build does not know, start on mainnet. The choice survives the
+    /// wallet directory being set. Red edit: `startup_network` returns the
+    /// default (every launch starts mainnet first).
+    #[test]
+    fn the_node_starts_on_the_saved_network() {
+        use crate::state::NetworkType;
+        let fresh = GuiConfig::default();
+        assert_eq!(fresh.startup_network(), NetworkType::Mainnet);
+        let saved = |name: &str| GuiConfig {
+            network: Some(name.to_owned()),
+            ..GuiConfig::default()
+        };
+        for net in NetworkType::ALL {
+            assert_eq!(saved(net.as_str()).startup_network(), net);
+        }
+        assert_eq!(
+            saved("a-net-from-later").startup_network(),
+            NetworkType::Mainnet
+        );
+        // An older file without the key reads as a fresh one.
+        let old: GuiConfig =
+            serde_json::from_str(r#"{"schema_version": 1, "wallet_dir_override": null}"#).unwrap();
+        assert_eq!(old.startup_network(), NetworkType::Mainnet);
     }
 }

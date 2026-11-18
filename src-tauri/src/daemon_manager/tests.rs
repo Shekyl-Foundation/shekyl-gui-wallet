@@ -33,6 +33,8 @@ fn the_sidecar_names_the_bundled_tor() {
         "none",
         "--rpc-view-listen",
         "127.0.0.1:12029",
+        "--clearnet-listen",
+        "none",
         "--tor-file",
     ]
     .iter()
@@ -139,6 +141,9 @@ fn the_launch_names_the_mining_address_and_no_admin_listener() {
     assert_eq!(args[at + 1], OsString::from("SKL1abc"));
     let admin = args.iter().position(|a| a == "--rpc-admin-listen").unwrap();
     assert_eq!(args[admin + 1], OsString::from("none"));
+    // No inbound clearnet listener (Rick, 2026-11-17).
+    let listen = args.iter().position(|a| a == "--clearnet-listen").unwrap();
+    assert_eq!(args[listen + 1], OsString::from("none"));
     assert!(
         !args.iter().any(|a| a == "--owning-connection"),
         "the launcher's"
@@ -199,6 +204,7 @@ async fn the_engine_s_way_is_closed_unless_the_node_is_the_wallet_s_own() {
         program: None,
         tor_file: None,
         socket_dir: Some(dir.0.join("s")),
+        instance: None,
         rpc_port: None,
         extra_args: Vec::new(),
     };
