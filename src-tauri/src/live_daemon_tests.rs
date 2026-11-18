@@ -69,9 +69,22 @@ impl Drop for Daemon {
     }
 }
 
+/// Where the runs' directories go. On Unix it is `/tmp`, not the system
+/// temporary directory: the node's owner socket lives under the run
+/// directory, a socket path is limited to 103 bytes on macOS (107 on
+/// Linux), and macOS's temporary directory (`/var/folders/…/T/`) alone
+/// takes 49 of them. The daemon refuses a longer path at its start.
+fn runs_root() -> PathBuf {
+    if cfg!(unix) {
+        PathBuf::from("/tmp")
+    } else {
+        std::env::temp_dir()
+    }
+}
+
 /// A fresh directory for one run's node.
 pub(crate) fn run_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
+    let dir = runs_root().join(format!(
         "shekyl-gui-live-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
