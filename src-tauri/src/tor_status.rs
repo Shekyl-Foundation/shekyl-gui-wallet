@@ -20,6 +20,7 @@ use serde::Serialize;
 use shekyl_rpc_client::wire::daemon::DaemonStatus as Status;
 use shekyl_rpc_client::wire::DaemonStatus;
 use shekyl_rpc_types::kinds::NoParams;
+use shekyl_tor_status::{OwnTxFate, TorStatus};
 use tauri::State;
 
 use crate::daemon_rpc;
@@ -27,6 +28,52 @@ use crate::state::AppState;
 
 /// The words for a node that does not show this wallet its Status part.
 pub(crate) const TOR_WITHHELD: &str = "This node does not let this wallet see its Tor state.";
+
+/// What happens to a transaction this wallet sends through the node now:
+/// the one reading the header, the send review and the pending list share.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Sends {
+    /// It leaves on a session that hides this node's address.
+    Hidden,
+    /// It waits on the node until Tor carries it. It does not go out over
+    /// clearnet.
+    Held,
+    /// It goes out over the open network: Tor is off and clearnet is on.
+    OpenNetwork,
+    /// The node is offline: nothing is sent.
+    Offline,
+    /// The node reports something this build does not know. Nothing is
+    /// promised about a send.
+    Unknown,
+    /// The node does not show its Tor state. Nothing is promised either.
+    Withheld,
+}
+
+/// What the node's Tor status means for a send: core's one
+/// classification (`TorStatus::own_tx_fate`), mapped straight through
+/// (Rick, 2026-11-17). The wallet reads no setting, origination or
+/// carriage of its own, so it cannot disagree with the text beside it.
+/// [`Sends::Withheld`] is the wallet's one addition, for a node that shows
+/// no status to classify.
+fn sends(tor: &TorStatus) -> Sends {
+    match tor.own_tx_fate() {
+        OwnTxFate::Hidden => Sends::Hidden,
+        OwnTxFate::Held => Sends::Held,
+        OwnTxFate::OpenNetwork => Sends::OpenNetwork,
+        OwnTxFate::Offline => Sends::Offline,
+        OwnTxFate::Unknown => Sends::Unknown,
+    }
+}
+
+/// A fix the node's read offers, for Settings → Network.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct OfferedFix {
+    /// Core's keyword for it.
+    pub keyword: String,
+    /// Core's words for it (`shekyl_tor_status::fix_sentence`), verbatim.
+    pub sentence: &'static str,
+}
 
 /// The node's Tor state for the page.
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -36,6 +83,11 @@ pub struct TorRead {
     pub shown: bool,
     /// Core's rendering, verbatim; or the withheld words.
     pub text: String,
+    /// What happens to a send now.
+    pub sends: Sends,
+    /// The fixes the read offers, in its order. Empty unless the node's
+    /// managed Tor has an install cause.
+    pub fixes: Vec<OfferedFix>,
 }
 
 #[tauri::command]
@@ -46,7 +98,14 @@ pub async fn get_tor_status(
     let status =
         daemon_rpc::node_call::<DaemonStatus>(&state, &node, NoParams, "the node's Tor state")
             .await?;
-    Ok(tor_read(&status))
+    let mut read = tor_read(&status);
+    // The fixes are acts on the node this wallet starts. A node address a
+    // person typed is someone's own to fix: its read is shown, and no fix
+    // of its is offered against the wallet's launch line.
+    if !state.targets_this_computer().await {
+        read.fixes.clear();
+    }
+    Ok(read)
 }
 
 /// The Tor read from a `daemon_status` reply. The data directory is not
@@ -56,10 +115,26 @@ fn tor_read(status: &Status) -> TorRead {
         Some(tor) => TorRead {
             shown: true,
             text: shekyl_tor_status::render(&tor, None),
+            sends: sends(&tor),
+            fixes: tor
+                .tor
+                .iter()
+                .flat_map(|managed| &managed.fix)
+                // A fix this build does not know has no words and no act
+                // here; the text above says the update sentence for it.
+                .filter_map(|fix| {
+                    Some(OfferedFix {
+                        keyword: fix.keyword().to_owned(),
+                        sentence: shekyl_tor_status::fix_sentence(fix)?,
+                    })
+                })
+                .collect(),
         },
         None => TorRead {
             shown: false,
             text: TOR_WITHHELD.to_owned(),
+            sends: Sends::Withheld,
+            fixes: Vec::new(),
         },
     }
 }
@@ -77,6 +152,113 @@ mod tests {
         "tor_quiet",
         "tor",
     ];
+
+    fn status(change: impl FnOnce(&mut serde_json::Value)) -> TorStatus {
+        let mut value: serde_json::Value = reply("daemon_status");
+        change(&mut value);
+        let status: Status = serde_json::from_value(value).expect("a daemon_status reply");
+        status.tor_status().expect("the Status part is shown")
+    }
+
+    /// The wallet's reading is core's fate, one for one, over the cases
+    /// that matter to a send: it adds nothing and reads no field. A link
+    /// that carries nothing is held, a keyword this build does not know
+    /// promises nothing, and hidden is exactly core's accessor. Red edit:
+    /// map `OwnTxFate::Unknown` to `Sends::Held` (the review would promise
+    /// that a send stays off the open network on a node whose state the
+    /// wallet cannot read).
+    #[test]
+    fn the_wallet_s_reading_is_core_s_fate_and_nothing_else() {
+        let of = |origination: &str, tor: &str, clearnet: &str, carriage: Option<&str>| {
+            status(|v| {
+                v["origination"] = origination.into();
+                v["posture"] = serde_json::json!({"tor": tor, "clearnet": clearnet});
+                match carriage {
+                    Some(carriage) => v["tor"]["carriage"] = carriage.into(),
+                    None => v["tor"] = serde_json::Value::Null,
+                }
+            })
+        };
+        let cases = [
+            (
+                of("address-hiding", "managed", "on", Some("carries")),
+                Sends::Hidden,
+            ),
+            (
+                of("address-hiding", "managed", "on", Some("open-only")),
+                Sends::Hidden,
+            ),
+            (of("address-hiding", "operator", "on", None), Sends::Hidden),
+            (
+                of("address-hiding", "managed", "on", Some("gone")),
+                Sends::Held,
+            ),
+            (of("connecting", "operator", "on", None), Sends::Held),
+            (
+                of("rebuilding", "managed", "off", Some("carries")),
+                Sends::Held,
+            ),
+            (of("clearnet-only", "off", "on", None), Sends::OpenNetwork),
+            (of("offline", "off", "off", None), Sends::Offline),
+            (
+                of("a-word-from-later", "operator", "on", None),
+                Sends::Unknown,
+            ),
+            (
+                of("connecting", "a-setting-from-later", "on", None),
+                Sends::Unknown,
+            ),
+            (
+                of("address-hiding", "managed", "on", Some("a-word-from-later")),
+                Sends::Unknown,
+            ),
+            (of("address-hiding", "off", "on", None), Sends::Unknown),
+        ];
+        for (tor, want) in &cases {
+            let got = sends(tor);
+            assert_eq!(got, *want, "{tor:?}");
+            assert_eq!(got == Sends::Hidden, tor.own_tx_hides_address(), "{tor:?}");
+            let fate = match got {
+                Sends::Hidden => OwnTxFate::Hidden,
+                Sends::Held => OwnTxFate::Held,
+                Sends::OpenNetwork => OwnTxFate::OpenNetwork,
+                Sends::Offline => OwnTxFate::Offline,
+                Sends::Unknown => OwnTxFate::Unknown,
+                Sends::Withheld => panic!("a shown status is never withheld"),
+            };
+            assert_eq!(fate, tor.own_tx_fate(), "{tor:?}");
+        }
+    }
+
+    /// The fixes are the read's, in its order, by core's keywords and in
+    /// core's words.
+    #[test]
+    fn the_offered_fixes_are_the_read_s_in_its_order() {
+        let mut value: serde_json::Value = reply("daemon_status");
+        value["posture"] = serde_json::json!({"tor": "managed", "clearnet": "off"});
+        value["tor"]["cause"] = serde_json::json!({"missing": null});
+        value["tor"]["fix"] = serde_json::json!([
+            "restore-managed",
+            "operator",
+            "clearnet-on",
+            "clearnet-only"
+        ]);
+        let status: Status = serde_json::from_value(value).expect("a node with no Tor");
+        let keywords: Vec<String> = tor_read(&status)
+            .fixes
+            .into_iter()
+            .map(|f| f.keyword)
+            .collect();
+        assert_eq!(
+            keywords,
+            [
+                "restore-managed",
+                "operator",
+                "clearnet-on",
+                "clearnet-only"
+            ]
+        );
+    }
 
     /// The page's text is core's rendering of the reply, character for
     /// character. Red edit: build the text here from the fields.
@@ -122,7 +304,9 @@ mod tests {
             tor_read(&status),
             TorRead {
                 shown: false,
-                text: TOR_WITHHELD.to_owned()
+                text: TOR_WITHHELD.to_owned(),
+                sends: Sends::Withheld,
+                fixes: Vec::new(),
             }
         );
     }

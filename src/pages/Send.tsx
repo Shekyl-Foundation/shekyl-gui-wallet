@@ -1,3 +1,5 @@
+import { useTor } from "../context/useTor";
+import { acceptedStatement, maySubmit, reviewStatement, sendsNow, type SendsNow } from "../lib/sendWords";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Send as SendIcon, AlertCircle, ShieldCheck, Loader2, Info } from "lucide-react";
@@ -59,7 +61,18 @@ function paymentLinkNotice(link: ParsedPaymentUri): string {
   return `Filled from a payment link${label}${request}. Check the address and amount before you review.`;
 }
 
-function verdictLine(r: SubmitResult): string {
+/**
+ * The verdict, and for a send the node accepted, what the node's Tor state
+ * meant for it when the person confirmed. A later reading is about the
+ * node, not this send, and is never put to it.
+ */
+function verdictLine(r: SubmitResult, atConfirm: SendsNow): string {
+  const line = verdictWords(r);
+  const after = r.verdict === "ACCEPTED" ? acceptedStatement(atConfirm) : null;
+  return after ? `${line} ${after}` : line;
+}
+
+function verdictWords(r: SubmitResult): string {
   const unsaved = r.verdict_saved
     ? ""
     : " The wallet could not save your node's answer; it will on its next save, and if it stops first it will ask you about this send when it reopens.";
@@ -82,7 +95,8 @@ export default function Send() {
   const [priority, setPriority] = useState<FeePriorityTier>(DEFAULT_TIER);
   const [quote, setQuote] = useState<FeeTierQuote | null>(null);
   const [built, setBuilt] = useState<BuiltPendingTx | null>(null);
-  const [sent, setSent] = useState<SubmitResult | null>(null);
+  // The verdict, with the Tor reading the person confirmed against.
+  const [sent, setSent] = useState<{ result: SubmitResult; atConfirm: SendsNow } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   /** The payment link the recipient field was filled from, if any (shown, never trusted). */
@@ -263,7 +277,7 @@ export default function Send() {
         seenGen: built.content_gen,
       });
       owned.current = null;
-      setSent(r);
+      setSent({ result: r, atConfirm: now });
       enterPhase("sent");
     } catch (e) {
       if (isSendError(e) && e.code === "CONTENT_GEN_MISMATCH") {
@@ -316,6 +330,11 @@ export default function Send() {
     enterPhase("compose");
   }
 
+  // Read again at every poll: a Tor that drops while the card is open
+  // changes what the card says before the person confirms.
+  const { read: torRead } = useTor();
+  const now = sendsNow(torRead);
+
   const busy = phase === "building" || phase === "submitting";
   const locked = busy || phase === "review";
 
@@ -327,9 +346,9 @@ export default function Send() {
         <div className="card space-y-4">
           <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">
             <ShieldCheck className="h-4 w-4" />
-            {verdictLine(sent)}
+            {verdictLine(sent.result, sent.atConfirm)}
           </div>
-          <p className="break-all font-mono text-xs text-purple-200">{sent.tx_hash}</p>
+          <p className="break-all font-mono text-xs text-purple-200">{sent.result.tx_hash}</p>
           <button type="button" className="btn btn-primary w-full" onClick={handleSendAnother}>
             Send another
           </button>
@@ -404,7 +423,12 @@ export default function Send() {
           )}
 
           {(phase === "review" || phase === "submitting") && built && (
-            <ReviewCard address={address} amount={parseSkl(amountText)} fee={atomicAmount(built.fee)} />
+            <ReviewCard
+              address={address}
+              amount={parseSkl(amountText)}
+              fee={atomicAmount(built.fee)}
+              statement={reviewStatement(now)}
+            />
           )}
 
           {phase === "review" && (
@@ -412,7 +436,12 @@ export default function Send() {
               <button type="button" className="btn btn-ghost flex-1" onClick={handleCancel} disabled={releasing}>
                 Cancel
               </button>
-              <button type="button" className="btn btn-primary flex-1" onClick={handleConfirm} disabled={releasing}>
+              <button
+                type="button"
+                className="btn btn-primary flex-1"
+                onClick={handleConfirm}
+                disabled={releasing || !maySubmit(now)}
+              >
                 <SendIcon className="h-4 w-4" />
                 Confirm and send
               </button>

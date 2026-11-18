@@ -48,7 +48,8 @@ pub(crate) fn data_dir_for(root: &Path, network: NetworkType) -> PathBuf {
 /// What a launch names besides the network and the configuration.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct LaunchNames {
-    /// The bundled Tor (`--tor-file`).
+    /// The bundled Tor (`--tor-file`, where the Tor fix in force runs a
+    /// managed Tor).
     pub tor_file: Option<PathBuf>,
     /// The address the node's miner pays (`--mine-address`). The daemon
     /// reads it only at its start (shekyl-core `INPUT_GRAMMAR.md` IG-12),
@@ -67,8 +68,12 @@ pub(crate) struct LaunchNames {
 
 /// The node's command line, less the owning connection the launcher adds.
 ///
-/// The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md` §5): the
-/// GUI's network; no admin listener; no view listener (the daemon's default:
+/// The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md` §5): no
+/// configuration file (`config-file none`): the wallet's node is this
+/// command line and the daemon's defaults alone, the same on every machine,
+/// whatever a service install keeps in the shared
+/// `/etc/shekyl/shekyld-<network>.toml` (Rick, 2026-11-18); the GUI's
+/// network; no admin listener; no view listener (the daemon's default:
 /// the wallet and its engine read the node over its owner's leg, which the
 /// daemon serves without being asked; Rick, 2026-11-18); no inbound
 /// clearnet listener unless the person turned it on (`clearnet-listen
@@ -86,6 +91,8 @@ pub(crate) fn sidecar_args(
     names: &LaunchNames,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
+        "--config-file".into(),
+        "none".into(),
         "--network".into(),
         network.as_str().into(),
         "--rpc-admin-listen".into(),
@@ -102,10 +109,10 @@ pub(crate) fn sidecar_args(
         args.push("--data-dir".into());
         args.push(data_dir_for(Path::new(dir), network).into());
     }
-    if let Some(tor) = &names.tor_file {
-        args.push("--tor-file".into());
-        args.push(tor.into());
-    }
+    args.extend(crate::tor_fix::tor_args(
+        config.tor_fix.as_ref(),
+        names.tor_file.as_deref(),
+    ));
     if let Some(address) = &names.mine_address {
         args.push("--mine-address".into());
         args.push(address.into());
@@ -147,10 +154,14 @@ pub(crate) const KEEP_RUNNING_NOT_YET: &str =
     "Keeping the node running after the wallet closes is not yet implemented. \
      The node this wallet starts stops when the wallet closes.";
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DaemonConfig {
     #[serde(default)]
     pub data_dir: Option<String>,
+    /// The Tor fix a person took; none is the node's own defaults with the
+    /// bundled Tor (`crate::tor_fix`).
+    #[serde(default)]
+    pub tor_fix: Option<crate::tor_fix::TorFix>,
     /// Whether the node accepts inbound connections over clearnet. Off by
     /// default: the wallet's node dials out and takes none (Rick,
     /// 2026-11-17). On, it listens on its network's peer port.
@@ -908,10 +919,25 @@ impl DaemonManager {
         self.config.read().await.clone()
     }
 
-    pub async fn update_config(&self, new_config: DaemonConfig) -> Result<(), String> {
-        new_config.save(&self.config_dir)?;
-        *self.config.write().await = new_config;
-        Ok(())
+    /// Change the node's settings and keep them, as one step: the settings
+    /// are read, changed and saved under one write lock, so two changes
+    /// asked for at once (a Tor fix and the clearnet listener, say) never
+    /// each save a copy that undoes the other. `Ok(true)` when anything
+    /// changed; a change that leaves the settings as they were saves
+    /// nothing. A save that fails changes nothing.
+    pub async fn change_config(
+        &self,
+        change: impl FnOnce(&mut DaemonConfig),
+    ) -> Result<bool, String> {
+        let mut config = self.config.write().await;
+        let mut changed = config.clone();
+        change(&mut changed);
+        if changed == *config {
+            return Ok(false);
+        }
+        changed.save(&self.config_dir)?;
+        *config = changed;
+        Ok(true)
     }
 }
 

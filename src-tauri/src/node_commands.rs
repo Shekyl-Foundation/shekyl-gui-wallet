@@ -4,7 +4,7 @@
 // BSD-3-Clause
 
 //! The app's commands for the wallet's own node: where it stands, its
-//! settings, and the four acts a person can take on it
+//! settings, its Tor fix, and the four acts a person can take on it
 //! (`docs/design/GUI_SYNC_LANE.md` GS-2). The node's life is
 //! [`crate::daemon_manager`]'s; these are its doors.
 
@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::daemon_manager::{DaemonConfig, DaemonManager, DaemonStatus, KEEP_RUNNING_NOT_YET};
+use crate::tor_fix::TorFix;
 
 #[tauri::command]
 pub async fn daemon_status(dm: State<'_, Arc<DaemonManager>>) -> Result<DaemonStatus, String> {
@@ -40,16 +41,32 @@ pub async fn set_daemon_settings(
     if keep_running_on_exit == Some(true) {
         return Err(KEEP_RUNNING_NOT_YET.to_owned());
     }
-    let mut config = dm.config().await;
     if let Some(v) = data_dir {
-        config.data_dir = if v.is_empty() { None } else { Some(v) };
+        dm.change_config(|c| c.data_dir = if v.is_empty() { None } else { Some(v) })
+            .await?;
     }
-    dm.update_config(config).await?;
     // The inbound clearnet listener is read at the node's start: changing
     // it starts the node again. A node that then refuses says why.
     if let Some(on) = clearnet_inbound {
         dm.set_clearnet_inbound(on).await?;
     }
+    Ok(dm.config().await)
+}
+
+/// Take a Tor fix the node's read offers, or with none put the node back
+/// on its defaults with the bundled Tor (GUI_SYNC_LANE.md GS-3). The fix
+/// is kept in the wallet's settings and passed on the node's launch line;
+/// the daemon's own configuration file is never written. The settings are
+/// kept first, so a node that then refuses its start says why and the fix
+/// can still be put back. The wallet does not judge the fix's value: the
+/// daemon's refusal is returned in its own words. Returns once the node is
+/// ready again.
+#[tauri::command]
+pub async fn set_tor_fix(
+    dm: State<'_, Arc<DaemonManager>>,
+    fix: Option<TorFix>,
+) -> Result<DaemonConfig, String> {
+    dm.set_tor_fix(fix).await?;
     Ok(dm.config().await)
 }
 

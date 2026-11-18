@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router";
 import { WalletProvider } from "./context/WalletContext";
 import { DaemonProvider } from "./context/DaemonContext";
+import { TorProvider } from "./context/TorContext";
 import { ShardPickerProvider } from "./context/ShardPickerContext";
 import { useWallet } from "./context/useWallet";
 import Layout from "./components/Layout";
@@ -81,28 +82,30 @@ export function WalletGate() {
     case "ready":
       return (
         <DaemonProvider>
-          <ShardPickerProvider>
-            <Routes>
-              <Route element={<Layout />}>
-                <Route index element={<Dashboard />} />
-                <Route path="send" element={<Send />} />
-                <Route path="receive" element={<Receive />} />
-                <Route path="mining" element={<Mining />} />
-                <Route path="staking" element={<Staking />} />
-                <Route path="shards" element={<Shards />} />
-                <Route path="transactions" element={<Transactions />} />
-                <Route path="proofs" element={<Proofs />} />
-                <Route path="sign" element={<Sign />} />
-                <Route path="settings" element={<Settings />} />
-                <Route path="chain-health" element={<ChainHealthPage />} />
-                <Route path="multisig" element={<MultisigRoute />} />
-                <Route path="help" element={<Help />} />
-                {/* Catch-all so stale URLs from the no-wallet/unlock phases
+          <TorProvider>
+            <ShardPickerProvider>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route index element={<Dashboard />} />
+                  <Route path="send" element={<Send />} />
+                  <Route path="receive" element={<Receive />} />
+                  <Route path="mining" element={<Mining />} />
+                  <Route path="staking" element={<Staking />} />
+                  <Route path="shards" element={<Shards />} />
+                  <Route path="transactions" element={<Transactions />} />
+                  <Route path="proofs" element={<Proofs />} />
+                  <Route path="sign" element={<Sign />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="chain-health" element={<ChainHealthPage />} />
+                  <Route path="multisig" element={<MultisigRoute />} />
+                  <Route path="help" element={<Help />} />
+                  {/* Catch-all so stale URLs from the no-wallet/unlock phases
                     (e.g. /create, /import) never render an empty tree. */}
-                <Route path="*" element={<Dashboard />} />
-              </Route>
-            </Routes>
-          </ShardPickerProvider>
+                  <Route path="*" element={<Dashboard />} />
+                </Route>
+              </Routes>
+            </ShardPickerProvider>
+          </TorProvider>
         </DaemonProvider>
       );
   }

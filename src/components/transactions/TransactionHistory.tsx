@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { ArrowUpRight, ArrowDownLeft, Tag } from "lucide-react";
 import { statusClass, statusLabel, statusTitle } from "../../lib/transactionStatus";
 import { atomicAmount, formatSkl } from "../../lib/format";
+import { HELD_LABEL, HELD_TITLE, pendingIsHeld, sendsNow } from "../../lib/sendWords";
+import { useTor } from "../../context/useTor";
 import type {
   ReceiveAttribution,
   ReceiveAttributionKind,
@@ -100,6 +102,12 @@ export default function TransactionHistory({
   /** Puts this row's id into the lookup field. A receive id includes its output. */
   onLookup: (id: string) => void;
 }) {
+  // Every pending send of this wallet's is shown as held for as long as
+  // the node holds its own transactions, so a Tor that drops after the
+  // send was accepted is still told (GS-F2).
+  const { read: torRead } = useTor();
+  const held = pendingIsHeld(sendsNow(torRead));
+  const heldNow = (tx: Transfer) => held && tx.direction === "OUTGOING" && tx.state === "PENDING";
   const { direction, state, sinceHeight, attribution } = query;
   const [view, setView] = useState<HistoryView>({ kind: "loading", query });
   /** Monotonic generation so overlapping loads discard stale results. */
@@ -240,12 +248,16 @@ export default function TransactionHistory({
                   </p>
                   <span
                     className={`text-[10px] ${statusClass(tx.state)}`}
-                    title={statusTitle(
-                      tx.state,
-                      tx.state === "UNSPENDABLE" ? tx.unspendable_reason : undefined,
-                    )}
+                    title={
+                      heldNow(tx)
+                        ? HELD_TITLE
+                        : statusTitle(
+                            tx.state,
+                            tx.state === "UNSPENDABLE" ? tx.unspendable_reason : undefined,
+                          )
+                    }
                   >
-                    {statusLabel(tx.state)}
+                    {heldNow(tx) ? HELD_LABEL : statusLabel(tx.state)}
                   </span>
                   <button
                     type="button"

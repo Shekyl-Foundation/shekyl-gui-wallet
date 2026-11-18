@@ -5,6 +5,7 @@ import TestnetBanner from "./TestnetBanner";
 import DaemonOfflineBanner from "./DaemonOfflineBanner";
 import DaemonConnectingScreen from "./DaemonConnectingScreen";
 import NodeNotice from "./NodeNotice";
+import PostureLine from "./PostureLine";
 import { useDaemon } from "../context/useDaemon";
 
 // Routes that render even before the daemon is reachable. Settings must be
@@ -27,6 +28,7 @@ export default function Layout() {
         <DaemonOfflineBanner />
         <TestnetBanner />
         <Header />
+        <PostureLine />
         <main className="flex-1 overflow-y-auto p-6">
           {showConnecting ? <DaemonConnectingScreen /> : <Outlet />}
         </main>

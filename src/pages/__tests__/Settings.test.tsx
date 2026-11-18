@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { DaemonProvider } from "../../context/DaemonContext";
+import { TorProvider } from "../../context/TorContext";
 import { WalletContext } from "../../context/walletState";
 import Settings from "../Settings";
 
@@ -45,7 +46,9 @@ beforeEach(() => {
 function renderSettings() {
   return render(
     <DaemonProvider>
-      <Settings />
+      <TorProvider>
+        <Settings />
+      </TorProvider>
     </DaemonProvider>,
   );
 }
@@ -277,7 +280,9 @@ describe("Settings — closing the wallet", () => {
     render(
       <WithLock>
         <DaemonProvider>
-          <Settings />
+          <TorProvider>
+            <Settings />
+          </TorProvider>
         </DaemonProvider>
       </WithLock>,
     );
@@ -298,13 +303,18 @@ describe("Settings — the wallet's node", () => {
 
   let inbound = false;
 
-  function mockNode(state: string) {
+  function mockNode(
+    state: string,
+    { url = null, torFix = null }: { url?: string | null; torFix?: unknown } = {},
+  ) {
     inbound = false;
     vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
       if (cmd === "daemon_connection_disclosures") {
-        return { url: null, warnings: [], network: "testnet" };
+        return { url, warnings: [], network: "testnet" };
       }
-      if (cmd === "get_daemon_settings") return { data_dir: null, clearnet_inbound: inbound };
+      if (cmd === "get_daemon_settings") {
+        return { data_dir: null, tor_fix: torFix, clearnet_inbound: inbound };
+      }
       if (cmd === "daemon_status") {
         return { state, message: null, network: "testnet", can_force_stop: state === "running", can_stop_waiting: false, payout_fault: null, service_view: null };
       }
@@ -317,7 +327,9 @@ describe("Settings — the wallet's node", () => {
         expect(asked).toEqual({ keepRunningOnExit: true });
         throw NOT_YET;
       }
-      if (cmd === "get_tor_status") return { shown: true, text: TOR_TEXT };
+      if (cmd === "get_tor_status") {
+        return { shown: true, text: TOR_TEXT, sends: "held", fixes: [] };
+      }
       return null;
     });
   }
@@ -375,6 +387,31 @@ describe("Settings — the wallet's node", () => {
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
   });
 
+  /**
+   * The fix in force is the wallet's own node's, and its way back restarts
+   * that node: it is shown while the wallet reads this computer's node and
+   * not beside the read of a node address a person typed (finding on #73).
+   * Red edit: pass the kept fix whatever the connection.
+   */
+  it("shows the wallet's own node's Tor fix only while it reads that node", async () => {
+    const operator = { fix: "operator", tor_socks: "127.0.0.1:9050" };
+    mockNode("running", { torFix: operator });
+    const { unmount } = renderSettings();
+    expect(await screen.findByTestId("tor-fix-in-force")).toHaveTextContent("127.0.0.1:9050");
+    unmount();
+
+    mockNode("running", { url: "http://node.example.com:11029", torFix: operator });
+    renderSettings();
+    expect(await screen.findByTestId("tor-read")).toHaveTextContent(TOR_TEXT);
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Empty: this computer’s node")).toHaveValue(
+        "http://node.example.com:11029",
+      ),
+    );
+    expect(screen.queryByTestId("tor-fix-in-force")).toBeNull();
+    expect(screen.queryByText("Use the bundled Tor again")).toBeNull();
+  });
+
   /** The Tor read is the backend's text, shown as it came. */
   it("shows the node's Tor state in the backend's words", async () => {
     mockNode("running");
@@ -384,23 +421,24 @@ describe("Settings — the wallet's node", () => {
 
   /**
    * A read slower than the page's beat is still shown (finding on #71).
-   * The Tor read takes longer than the two seconds between reads: the next
-   * read is asked for only once this one has finished, so it is never
+   * The node's state takes longer than the two seconds between reads: the
+   * next read is asked for only once this one has finished, so it is never
    * numbered out by a read begun behind it. Red edit: read on a fixed
    * `setInterval` (each slow answer is dropped for the next, for ever).
+   * The Tor read is the Tor context's here, on its own beat.
    */
-  it("shows a Tor read slower than its beat", async () => {
+  it("shows a node state read slower than its beat", async () => {
     mockNode("running");
     const answer = vi.mocked(invoke).getMockImplementation()!;
     vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
-      if (cmd === "get_tor_status") {
+      if (cmd === "daemon_status") {
         await new Promise((done) => setTimeout(done, 2600));
       }
       return answer(cmd, args as never);
     });
     renderSettings();
     expect(
-      await screen.findByTestId("tor-read", {}, { timeout: 6000 }),
-    ).toHaveTextContent(TOR_TEXT);
+      await screen.findByText("The wallet’s node is running (testnet)", {}, { timeout: 6000 }),
+    ).toBeInTheDocument();
   }, 10000);
 });

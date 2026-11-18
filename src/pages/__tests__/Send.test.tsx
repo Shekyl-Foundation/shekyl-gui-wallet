@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import Send from "../Send";
+import { TorContext } from "../../context/torState";
+import type { TorRead } from "../../types/tor";
 import type { BuiltPendingTx, FeeTierQuote, SendError, SubmitResult } from "../../types/send";
 
 const QUOTE: FeeTierQuote = {
@@ -388,5 +390,42 @@ describe("Send page", () => {
     view.unmount();
     await new Promise((r) => setTimeout(r, 50));
     expect(calls("discard_pending_tx")).toHaveLength(0);
+  });
+});
+
+describe("Send — what the node's Tor state meant for an accepted send", () => {
+  const torRead = (sends: TorRead["sends"]): TorRead => ({
+    shown: true,
+    text: "core's words",
+    sends,
+    fixes: [],
+  });
+
+  /**
+   * The sentence beside an accepted send is of the node as it was when the
+   * person confirmed (finding on #73). The node then reads differently: a
+   * send that was held when confirmed is still said to have been held, and
+   * a later "offline" never makes one that went out read as not gone out.
+   * Red edit: pass the live reading to `verdictLine` (the line follows the
+   * node after the send).
+   */
+  it("keeps the reading the person confirmed against", async () => {
+    route({ get_default_fee_priority: () => QUOTE, build_pending_tx: () => BUILT, submit_pending_tx: () => ACCEPTED });
+    const u = user();
+    const page = (sends: TorRead["sends"]) => (
+      <TorContext.Provider value={{ read: torRead(sends), error: null, refresh: () => {} }}>
+        <Send />
+      </TorContext.Provider>
+    );
+    const { rerender } = render(page("held"));
+    await reachReview(u);
+    await confirm(u);
+    const held = /Your node was holding its own transactions when it took this one/;
+    expect(await screen.findByText(held)).toBeInTheDocument();
+    rerender(page("offline"));
+    expect(screen.getByText(held)).toBeInTheDocument();
+    expect(screen.queryByText(/offline/)).toBeNull();
+    rerender(page("hidden"));
+    expect(screen.getByText(held)).toBeInTheDocument();
   });
 });

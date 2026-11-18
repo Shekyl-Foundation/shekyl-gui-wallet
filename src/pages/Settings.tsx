@@ -8,12 +8,16 @@ import WalletCare from "../components/WalletCare";
 import { BLOCK_NUMBER_TIP } from "../lib/format";
 import NodeAddress from "../components/NodeAddress";
 import type { DaemonConnection, NodeState, NodeStatus } from "../types/node";
+import type { TorFix } from "../types/tor";
+import TorSettings from "../components/TorSettings";
 
 /** How often Settings reads the node's state while it is open. */
 const SETTINGS_POLL_MS = 2000;
 
 interface DaemonSettings {
   data_dir: string | null;
+  /** The Tor fix in force; `null` is the node's defaults with the bundled Tor. */
+  tor_fix: TorFix | null;
   /** Whether the node accepts inbound connections over clearnet. Off by default. */
   clearnet_inbound: boolean;
 }
@@ -57,8 +61,6 @@ export default function Settings() {
   const [keepRunningAnswer, setKeepRunningAnswer] = useState<string | null>(null);
   const [inboundBusy, setInboundBusy] = useState(false);
   const [inboundError, setInboundError] = useState<string | null>(null);
-  // The node's Tor state, in core's words; or why it cannot be read.
-  const [torRead, setTorRead] = useState<string | null>(null);
 
   // The node's state, its settings, its Tor read and the connection, read
   // together while the page is open: a node that recovers, or a target
@@ -91,17 +93,6 @@ export default function Settings() {
       setDaemonStatus(status);
     } catch {
       // daemon commands not available yet
-    }
-    try {
-      const tor = await invoke<{ shown: boolean; text: string } | null>(
-        "get_tor_status",
-      );
-      if (generation !== readGeneration.current) return;
-      setTorRead(tor ? tor.text : null);
-    } catch (e) {
-      if (generation !== readGeneration.current) return;
-      // The node is not answering: its own notice says why.
-      setTorRead(String(e));
     }
   }, []);
 
@@ -249,14 +240,13 @@ export default function Settings() {
           </div>
         )}
 
-        {torRead && (
-          <div className="space-y-1">
-            <h3 className="text-xs font-semibold text-purple-200">Tor</h3>
-            <p data-testid="tor-read" className="whitespace-pre-line text-xs text-purple-300">
-              {torRead}
-            </p>
-          </div>
-        )}
+        {/* The fix in force is the wallet's own node's, and its way back
+            restarts that node: shown only while the wallet reads that
+            node, never beside the read of a node address a person typed. */}
+        <TorSettings
+          inForce={connection?.url ? null : (daemonSettings?.tor_fix ?? null)}
+          onChanged={loadDaemonInfo}
+        />
 
         {daemonSettings && (
           <div className="space-y-1">
