@@ -50,6 +50,8 @@ mod lifecycle;
 #[cfg(test)]
 mod live_daemon_tests;
 #[cfg(test)]
+mod live_miner_tests;
+#[cfg(test)]
 mod live_own_node_tests;
 #[cfg(test)]
 mod live_tor_fix_tests;
@@ -82,14 +84,15 @@ mod wire_vectors;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // The network the person chose last, or mainnet on a fresh install.
-    let startup_network = gui_config::load().startup_network();
+    let settings = gui_config::Store::of_this_account();
+    let startup_network = settings.load().startup_network();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         // The network is read before anything starts: the node starts on
         // it, and no node runs on another network first.
-        .manage(state::AppState::on(startup_network))
+        .manage(state::AppState::on(startup_network, settings))
         .manage(clipboard::ClipboardOwner::new())
         .setup(move |app| {
             let config_dir = app
@@ -104,8 +107,7 @@ pub fn run() {
                 tracing::warn!("no resource directory for the bundled Tor: {e}");
             }
             let env = daemon_manager::LaunchEnv::bundled(resource_dir.ok().as_deref());
-            let gate = app.state::<state::AppState>().node_gate.clone();
-            let dm = daemon_manager::DaemonManager::new(config_dir, env, gate);
+            let dm = daemon_manager::DaemonManager::new(config_dir, env);
             app.manage(dm.clone());
 
             let network = startup_network;
@@ -119,6 +121,7 @@ pub fn run() {
             commands::get_wallet_status,
             daemon_connection::get_chain_health,
             daemon_connection::set_daemon_connection,
+            daemon_connection::use_service_node,
             daemon_connection::daemon_connection_disclosures,
             commands::get_pqc_status,
             commands::get_security_status,

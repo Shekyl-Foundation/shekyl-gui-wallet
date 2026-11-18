@@ -9,9 +9,24 @@ export type NodeState =
   | "stopping"
   | "waiting"
   | "found"
+  | "service"
   | "refused"
   | "failed"
   | "unavailable";
+
+/**
+ * The node the wallet is pointed at (`daemon_connection_disclosures`,
+ * `set_daemon_connection`). `warnings` is empty for a node on this machine
+ * and never contains an assurance: the only thing the wallet can establish
+ * about a node address is what it costs, never that it is safe.
+ */
+export interface DaemonConnection {
+  /** The node address a person typed; `null` is this computer's node. */
+  url: string | null;
+  warnings: string[];
+  /** The network the wallet is on. */
+  network: string;
+}
 
 export interface NodeStatus {
   state: NodeState;
@@ -26,4 +41,14 @@ export interface NodeStatus {
    * person can end. Ending it kills nothing.
    */
   can_stop_waiting: boolean;
+  /**
+   * The miner could not be moved to the open wallet's address: it was
+   * stopped, or may still pay the wallet open before. Shown in any state.
+   */
+  payout_fault: string | null;
+  /**
+   * A service node's view listener, while this computer's node is a
+   * service with one: "Use the service's node" points the wallet at it.
+   */
+  service_view: string | null;
 }

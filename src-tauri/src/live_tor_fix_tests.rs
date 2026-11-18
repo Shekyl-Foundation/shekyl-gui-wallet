@@ -101,7 +101,7 @@ fn closed_port() -> u16 {
 async fn a_tor_fix_is_taken_kept_and_put_back() {
     let dir = run_dir();
     let port = free_port();
-    let (dm, _gate) = manager_with(&dir, port, clearnet_off(&dir), Some(no_tor(&dir)));
+    let dm = manager_with(&dir, port, clearnet_off(&dir), Some(no_tor(&dir)));
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
 
@@ -134,7 +134,7 @@ async fn a_tor_fix_is_taken_kept_and_put_back() {
     // A wallet started later launches with the fix it kept.
     dm.shutdown().await;
     process_goes(second, &dir).await;
-    let (dm, _gate) = manager_with(&dir, port, clearnet_off(&dir), Some(no_tor(&dir)));
+    let dm = manager_with(&dir, port, clearnet_off(&dir), Some(no_tor(&dir)));
     assert_eq!(dm.config().await.tor_fix, Some(fix));
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;

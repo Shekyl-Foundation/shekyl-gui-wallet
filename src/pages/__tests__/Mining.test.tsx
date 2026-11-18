@@ -31,6 +31,8 @@ function miningStatus(active: boolean) {
     block_reward: "5000000000",
     difficulty: "100000",
     cause: null,
+    payout: active ? "open-wallet" : "nothing",
+    start_pays_the_open_wallet: true,
   };
 }
 
@@ -124,6 +126,34 @@ describe("Mining", () => {
     ).toBeInTheDocument();
     // A refused read says nothing about the node's address.
     expect(screen.queryByText("No mining address is set on this node.")).toBeNull();
+  });
+
+  /**
+   * A node address a person typed, with no mining address set on it
+   * (finding on #71): Start mining there does not give it the open
+   * wallet's, and the page never promises that it does. Red edit: read a
+   * typed node with no address as the wallet's own (`payout: "nothing"`,
+   * `start_pays_the_open_wallet: true`).
+   */
+  it("never promises the open wallet on a typed node with no address", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "get_mining_status") {
+        return {
+          ...miningStatus(false),
+          payout: "none-on-the-node",
+          start_pays_the_open_wallet: false,
+        };
+      }
+      return null;
+    });
+    renderMining();
+    expect(
+      await screen.findByText(
+        "This node’s operator sets its mining address. The wallet does not set one on it.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/none is set on it/)).toBeInTheDocument();
+    expect(screen.queryByText(/Mining pays the open wallet’s address/)).toBeNull();
   });
 
   it("shows why no job is posted", async () => {

@@ -9,7 +9,7 @@
 //! Carved out of `commands.rs` when the disclosure surface pushed that file
 //! back over its ratchet ceiling. The three belong together: they are the
 //! same question asked three ways, and every one of them reads
-//! `AppState::daemon_url`. Splitting by feature is what the ratchet asks
+//! `AppState::node_address`. Splitting by feature is what the ratchet asks
 //! for instead of a raised ceiling
 //! (`.cursor/rules/27-composition-decomposition.mdc`).
 
@@ -37,11 +37,24 @@ use shekyl_units::AtomicUnitsString;
 /// (RT-W7: discouragement where it is consumed).
 #[derive(Debug, Clone, Serialize)]
 pub struct DaemonConnection {
-    /// The URL now in effect.
-    pub url: String,
-    /// Disclosures for that URL; never an assurance, only ever warnings.
+    /// The node address a person typed; `None`: this computer's node, the
+    /// one the wallet starts, which has no address to show.
+    pub url: Option<String>,
+    /// Disclosures for a typed address; never an assurance, only ever
+    /// warnings. None for this computer's node.
     pub warnings: Vec<String>,
+    /// The network the wallet is on: the one source for the page, since
+    /// the node's own status follows a switch only once it has restarted.
+    pub network: &'static str,
 }
+
+/// What a change of node address says while a wallet is open. The open
+/// wallet's engine keeps the node it was opened on for its scans and its
+/// sends, so a change under it would have the status read from one node
+/// and the wallet from another.
+pub(crate) const NODE_CHANGE_WAITS_FOR_CLOSE: &str =
+    "Close the wallet before changing the node it uses: an open wallet keeps the node it was \
+     opened on.";
 
 /// The disclosures for a daemon URL the wallet is about to use.
 ///
@@ -61,11 +74,11 @@ fn daemon_disclosures(url: &str) -> Vec<String> {
     .collect()
 }
 
-/// Point the wallet at `network` (and `url`, or the node on this computer
-/// at the network's port). The GUI's own node follows the network: a
-/// change relaunches it on the new network. With a wallet open, a switch to
-/// another network is refused: the wallet and its node stay on the
-/// wallet's network.
+/// Point the wallet at `network`, and at `url` when a person typed one,
+/// otherwise at this computer's node. The GUI's own node follows the
+/// network: a change relaunches it on the new network. With a wallet open,
+/// a change of network or of node is refused: the wallet stays on its
+/// network, and its engine on the node it was opened on.
 #[tauri::command]
 pub async fn set_daemon_connection(
     state: State<'_, AppState>,
@@ -75,25 +88,74 @@ pub async fn set_daemon_connection(
 ) -> Result<DaemonConnection, String> {
     let net = NetworkType::from_name(&network)
         .ok_or("Invalid network: must be mainnet, testnet, or stagenet")?;
-    crate::daemon_manager::may_switch(state.engine.lock().await.open_network(), net)?;
+    point_at(&state, &dm, net, url).await
+}
 
-    *state.typed_node.write().await = url.is_some();
-    let new_url = url.unwrap_or_else(|| net.local_url());
-
-    let warnings = daemon_disclosures(&new_url);
-    *state.daemon_url.write().await = new_url.clone();
+/// [`set_daemon_connection`]'s work: the typed address (or none), the
+/// network, kept for the next launch, and the node relaunched on it.
+pub(crate) async fn point_at(
+    state: &AppState,
+    dm: &std::sync::Arc<crate::daemon_manager::DaemonManager>,
+    net: NetworkType,
+    url: Option<String>,
+) -> Result<DaemonConnection, String> {
+    let url = url.map(|u| u.trim().to_owned()).filter(|u| !u.is_empty());
+    let warnings = url.as_deref().map(daemon_disclosures).unwrap_or_default();
+    // The session guard, from the check to the last write: no wallet opens
+    // between them on the network or the node being replaced.
+    let session = state.engine.lock().await;
+    if session.is_open() {
+        crate::daemon_manager::may_switch(session.open_network(), net)?;
+        if url != state.node_address().await {
+            return Err(NODE_CHANGE_WAITS_FOR_CLOSE.to_owned());
+        }
+        // The node the open wallet already uses: nothing changes.
+        return Ok(DaemonConnection {
+            url,
+            warnings,
+            network: net.as_str(),
+        });
+    }
+    *state.node_address.write().await = url.clone();
     *state.network.write().await = net;
     // The node starts on this network at the next launch too.
-    crate::gui_config::save_network(net);
+    state.settings.save_network(net);
     // The relaunch waits for the running node to be gone and the new one to
     // start; the page does not.
-    let dm = std::sync::Arc::clone(&dm);
+    let dm = std::sync::Arc::clone(dm);
     tauri::async_runtime::spawn(async move { dm.relaunch(net).await });
-
+    drop(session);
     Ok(DaemonConnection {
-        url: new_url,
+        url,
         warnings,
+        network: net.as_str(),
     })
+}
+
+/// Point the wallet at the service node on this computer: its view
+/// listener, as the service's rendezvous record names it, becomes the typed
+/// address (Rick, 2026-11-18). Until wallets reach a service over the
+/// channel (RT-W12), that listener is how a wallet on this computer reads
+/// it.
+#[tauri::command]
+pub async fn use_service_node(
+    state: State<'_, AppState>,
+    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<DaemonConnection, String> {
+    point_at_service(&state, &dm).await
+}
+
+/// [`use_service_node`]'s work.
+pub(crate) async fn point_at_service(
+    state: &AppState,
+    dm: &std::sync::Arc<crate::daemon_manager::DaemonManager>,
+) -> Result<DaemonConnection, String> {
+    let view = dm
+        .service_view()
+        .await
+        .ok_or("No service node with a view listener runs on this network.")?;
+    let net = *state.network.read().await;
+    point_at(state, dm, net, Some(format!("http://{view}"))).await
 }
 
 /// The disclosures for the daemon URL already in effect, so a wallet that
@@ -103,9 +165,13 @@ pub async fn set_daemon_connection(
 pub async fn daemon_connection_disclosures(
     state: State<'_, AppState>,
 ) -> Result<DaemonConnection, String> {
-    let url = state.url().await;
-    let warnings = daemon_disclosures(&url);
-    Ok(DaemonConnection { url, warnings })
+    let url = state.node_address().await;
+    let warnings = url.as_deref().map(daemon_disclosures).unwrap_or_default();
+    Ok(DaemonConnection {
+        url,
+        warnings,
+        network: state.network.read().await.as_str(),
+    })
 }
 
 /// The chain as the node reports it (`daemon_status`), with the tip's

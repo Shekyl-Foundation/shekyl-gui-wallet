@@ -1,13 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Globe, Server, Shield, ShieldCheck, Settings2 } from "lucide-react";
 import { useDaemon } from "../context/useDaemon";
 import SecurityPanel from "../components/SecurityPanel";
 import WalletCare from "../components/WalletCare";
 import { BLOCK_NUMBER_TIP } from "../lib/format";
-import type { NodeState, NodeStatus } from "../types/node";
+import NodeAddress from "../components/NodeAddress";
+import type { DaemonConnection, NodeState, NodeStatus } from "../types/node";
 import type { TorFix } from "../types/tor";
 import TorSettings from "../components/TorSettings";
+
+/** How often Settings reads the node's state while it is open. */
+const SETTINGS_POLL_MS = 2000;
 
 interface DaemonSettings {
   data_dir: string | null;
@@ -25,42 +29,41 @@ const NODE_STATE_WORDS: Record<NodeState, string> = {
   stopping: "A node is stopping",
   waiting: "The data directory is still held; the wallet’s node is waiting for it",
   found: "Another node of yours is running; the wallet’s own is not",
+  service: "This computer’s node runs as a service; the wallet starts none beside it",
   refused: "The node’s local address failed its check",
   failed: "The wallet’s node is not running",
   unavailable: "This build carries no node",
 };
-
-/**
- * What the backend says about the daemon URL now in effect. `warnings` is
- * empty for a daemon on this machine — the default and the supported
- * configuration — and never contains an assurance: the only thing this
- * wallet can establish about a daemon address is what it costs, never that
- * it is safe.
- */
-interface DaemonConnection {
-  url: string;
-  warnings: string[];
-}
 
 const NETWORKS = ["mainnet", "testnet", "stagenet"] as const;
 
 
 export default function Settings() {
   const { health, refresh } = useDaemon();
-  const [network, setNetwork] = useState<string>(health?.network ?? "mainnet");
-  // The URL in effect comes from the backend (`daemon_connection_disclosures`
-  // below); each network's port is core's, never a copy here.
-  const [daemonUrl, setDaemonUrl] = useState("");
+  // The connection in effect, as the backend keeps it: the node address a
+  // person typed (none for this computer's node) and the network the
+  // wallet is on. The backend is the one source for both; the node's
+  // health is not, since it is unread while the node is away and follows
+  // a switch only once the node has restarted.
+  const [connection, setConnection] = useState<DaemonConnection | null>(null);
+  const network = connection?.network ?? null;
+  // Each read of the node's state is numbered; an answer older than the
+  // last one shown is dropped, so a slow read never paints over a newer one.
+  const readGeneration = useRef(0);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [daemonWarnings, setDaemonWarnings] = useState<string[]>([]);
   const [daemonSettings, setDaemonSettings] = useState<DaemonSettings | null>(null);
   const [daemonStatus, setDaemonStatus] = useState<NodeStatus | null>(null);
   const [keepRunningAnswer, setKeepRunningAnswer] = useState<string | null>(null);
   const [inboundBusy, setInboundBusy] = useState(false);
   const [inboundError, setInboundError] = useState<string | null>(null);
 
+  // The node's state, its settings, its Tor read and the connection, read
+  // together while the page is open: a node that recovers, or a target
+  // that changes, shows here without leaving the page. Only the newest
+  // read is shown.
   const loadDaemonInfo = useCallback(async () => {
+    const generation = ++readGeneration.current;
     try {
       // A wallet that starts pointed at somebody else's daemon says so on
       // sight, not only in the session where the URL was typed.
@@ -71,8 +74,8 @@ export default function Settings() {
       // Reconnect" writes back, so showing the default beside a warning
       // about the configured daemon would quietly revert the operator's
       // choice the next time they pressed it.
-      setDaemonUrl(current.url);
-      setDaemonWarnings(current.warnings);
+      if (generation !== readGeneration.current) return;
+      setConnection(current);
     } catch {
       // command not available yet
     }
@@ -81,6 +84,7 @@ export default function Settings() {
         invoke<DaemonSettings>("get_daemon_settings"),
         invoke<NodeStatus>("daemon_status"),
       ]);
+      if (generation !== readGeneration.current) return;
       setDaemonSettings(settings);
       setDaemonStatus(status);
     } catch {
@@ -88,7 +92,23 @@ export default function Settings() {
     }
   }, []);
 
-  useEffect(() => { loadDaemonInfo(); }, [loadDaemonInfo]);
+  // Each read is asked for once the one before it has finished, never on
+  // a fixed beat: a read slower than the beat would otherwise be numbered
+  // out by the next one every time, and nothing would ever be shown. A
+  // change of target still numbers out the read in flight.
+  useEffect(() => {
+    let closed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const read = async () => {
+      await loadDaemonInfo();
+      if (!closed) timer = setTimeout(read, SETTINGS_POLL_MS);
+    };
+    timer = setTimeout(read, 0);
+    return () => {
+      closed = true;
+      clearTimeout(timer);
+    };
+  }, [loadDaemonInfo]);
 
   // The node the wallet starts lives as long as the wallet. The setting
   // stays where people look for it, and the backend answers in words that
@@ -118,38 +138,25 @@ export default function Settings() {
     }
   }
 
+  // The backend applied a change of network or of node address.
+  function applied(now: DaemonConnection) {
+    setConnection(now);
+    refresh();
+    loadDaemonInfo();
+  }
+
   async function handleNetworkSwitch(net: string) {
     setSaving(true);
     setNetworkError(null);
     try {
-      // No URL: the backend points at the node on this computer at the
-      // network's port, and relaunches the wallet's own node on it.
-      const applied = await invoke<DaemonConnection>("set_daemon_connection", {
-        network: net,
-      });
-      setNetwork(net);
-      setDaemonUrl(applied.url);
-      setDaemonWarnings(applied.warnings);
-      refresh();
+      // No URL: the backend points at this computer's node, and relaunches
+      // the wallet's own node on the network.
+      applied(
+        await invoke<DaemonConnection>("set_daemon_connection", { network: net }),
+      );
     } catch (e) {
       // A wallet is open on another network: the switch waits for it.
       setNetworkError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleSaveUrl() {
-    setSaving(true);
-    try {
-      const applied = await invoke<DaemonConnection>("set_daemon_connection", {
-        network,
-        url: daemonUrl,
-      });
-      setDaemonWarnings(applied.warnings);
-      refresh();
-    } catch {
-      // ignore
     } finally {
       setSaving(false);
     }
@@ -171,7 +178,7 @@ export default function Settings() {
             <button
               key={n}
               onClick={() => handleNetworkSwitch(n)}
-              disabled={saving}
+              disabled={saving || network === null}
               className={`rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
                 network === n
                   ? "border-gold-500 bg-gold-500/15 text-gold-400"
@@ -193,31 +200,7 @@ export default function Settings() {
             Daemon Connection
           </h2>
         </div>
-        <div className="space-y-2">
-          <label className="text-xs text-purple-300">JSON-RPC URL</label>
-          <input
-            type="text"
-            className="input font-mono text-sm"
-            value={daemonUrl}
-            onChange={(e) => setDaemonUrl(e.target.value)}
-          />
-        </div>
-        <button
-          onClick={handleSaveUrl}
-          disabled={saving}
-          className="btn btn-secondary w-full text-xs"
-        >
-          {saving ? "Connecting..." : "Save & Reconnect"}
-        </button>
-        {daemonWarnings.map((warning) => (
-          <p
-            key={warning}
-            className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-200"
-            role="status"
-          >
-            {warning}
-          </p>
-        ))}
+        <NodeAddress connection={connection} onApplied={applied} />
         {health && (
           <p className="text-center text-[10px] text-emerald-400" title={BLOCK_NUMBER_TIP}>
             Connected — block {health.height.toLocaleString()}

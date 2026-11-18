@@ -24,7 +24,6 @@ fn the_sidecar_names_the_bundled_tor() {
     let args = sidecar_args(
         &config(None),
         NetworkType::Testnet,
-        12029,
         &names(Some(tor.clone())),
     );
     let want: Vec<OsString> = [
@@ -32,8 +31,6 @@ fn the_sidecar_names_the_bundled_tor() {
         "testnet",
         "--rpc-admin-listen",
         "none",
-        "--rpc-view-listen",
-        "127.0.0.1:12029",
         "--clearnet-listen",
         "none",
         "--tor-file",
@@ -46,21 +43,20 @@ fn the_sidecar_names_the_bundled_tor() {
     assert_eq!(tor, Path::new("/res").join("tor").join(TOR_FILE));
 }
 
-/// Every network's launch names that network and listens on its port
-/// from core's row. Red edit: drop `--network` (the node then runs
-/// mainnet whatever the wallet's network).
+/// Every network's launch names that network, and opens no view
+/// listener: the wallet and its engine read the node over its owner's leg
+/// (Rick, 2026-11-18), and the daemon's default is no view listener. Red
+/// edits: drop `--network` (the node then runs mainnet whatever the
+/// wallet's network); pass `--rpc-view-listen`.
 #[test]
-fn the_launch_carries_the_wallet_s_network_and_its_port() {
+fn the_launch_carries_the_wallet_s_network_and_no_view_listener() {
     for net in NetworkType::ALL {
-        let args = sidecar_args(&config(None), net, net.rpc_port(), &names(None));
+        let args = sidecar_args(&config(None), net, &names(None));
         assert_eq!(
             args[..2],
             [OsString::from("--network"), OsString::from(net.as_str())]
         );
-        assert_eq!(
-            args[5],
-            OsString::from(format!("127.0.0.1:{}", net.network().ports().rpc))
-        );
+        assert!(!args.iter().any(|a| a == "--rpc-view-listen"), "{args:?}");
     }
     assert_eq!(
         NetworkType::default(),
@@ -92,12 +88,7 @@ fn a_configured_data_dir_is_per_network() {
         dirs.len(),
         "one store per network: {dirs:?}"
     );
-    let args = sidecar_args(
-        &config(Some("/data")),
-        NetworkType::Testnet,
-        12029,
-        &names(None),
-    );
+    let args = sidecar_args(&config(Some("/data")), NetworkType::Testnet, &names(None));
     let at = args.iter().position(|a| a == "--data-dir").unwrap();
     assert_eq!(
         PathBuf::from(&args[at + 1]),
@@ -120,7 +111,7 @@ fn a_wallet_of_one_network_never_gets_a_node_of_another() {
 
 #[test]
 fn without_a_resource_directory_no_tor_file_is_named() {
-    let args = sidecar_args(&config(None), NetworkType::Mainnet, 11029, &names(None));
+    let args = sidecar_args(&config(None), NetworkType::Mainnet, &names(None));
     assert!(!args.iter().any(|a| a == "--tor-file"));
 }
 
@@ -132,7 +123,6 @@ fn the_launch_names_the_mining_address_and_no_admin_listener() {
     let args = sidecar_args(
         &config(None),
         NetworkType::Testnet,
-        12029,
         &LaunchNames {
             mine_address: Some("SKL1abc".to_owned()),
             ..LaunchNames::default()
@@ -152,7 +142,7 @@ fn the_launch_names_the_mining_address_and_no_admin_listener() {
         clearnet_inbound: true,
         ..DaemonConfig::default()
     };
-    let args = sidecar_args(&on, NetworkType::Testnet, 12029, &LaunchNames::default());
+    let args = sidecar_args(&on, NetworkType::Testnet, &LaunchNames::default());
     assert!(!args.iter().any(|a| a == "--clearnet-listen"), "{args:?}");
     // A settings file from before the setting reads as off.
     let old: DaemonConfig = serde_json::from_str(r#"{"data_dir": null}"#).unwrap();
@@ -201,49 +191,253 @@ impl Drop for TestDir {
     }
 }
 
-/// The engine's way to the node on this computer is open only while the
-/// node there is the wallet's own. Before the start it is closed; with
-/// nothing at "this computer" and no node in the build, the wallet
-/// starts nothing, says so, and the way stays closed, with the same
-/// words. Red edit: close the gate only for `Found` and `Refused`, as it
-/// first was; the engine could then dial whatever listens at the port.
-/// Unix: the test names its own socket directory, which Windows refuses.
+/// **A service on this network: no node is launched, the words are core's,
+/// and the offer points the wallet at the service's view listener** (Rick,
+/// 2026-11-18). A service's rendezvous record names a view listener, and
+/// no node of this account answers at "this computer": the wallet starts
+/// no node beside the service (none is launched), says so in core's
+/// `service_refusal`, and "Use the service's node" makes that listener the
+/// typed address. Red edit: in `start_waiting_locked`, launch on
+/// `LocalFault::Service` as on `NotRunning` (a node is launched beside the
+/// service). Unix: the test names its own socket directory.
 #[cfg(unix)]
-#[tokio::test]
-async fn the_engine_s_way_is_closed_unless_the_node_is_the_wallet_s_own() {
-    let dir = TestDir::new("gate");
-    let gate = NodeGate::default();
+#[tokio::test(flavor = "multi_thread")]
+async fn a_service_on_the_network_launches_no_node_and_offers_its_view_listener() {
+    use shekyl_rpc_rendezvous::{service_record_path, Instance, ServiceRecord};
+    let dir = TestDir::new("service");
+    let services = dir.0.join("services");
+    std::fs::create_dir_all(&services).unwrap();
+    let view: std::net::SocketAddr = "127.0.0.1:12030".parse().unwrap();
+    let network = NetworkType::Testnet;
+    std::fs::write(
+        service_record_path(
+            &services,
+            &network.network().network_id(),
+            &Instance::Default,
+        ),
+        ServiceRecord {
+            channel: None,
+            view: Some(view),
+        }
+        .bytes(),
+    )
+    .unwrap();
     let env = LaunchEnv {
-        program: None,
+        // A program that is never run: the test fails if anything launches.
+        program: Some(dir.0.join("no-node-here")),
+        tor_file: None,
+        service_rendezvous: Some(services),
+        socket_dir: Some(dir.0.join("s")),
+        instance: None,
+        extra_args: Vec::new(),
+    };
+    let dm = DaemonManager::new(dir.0.join("settings"), env);
+    dm.start(network).await;
+
+    let status = dm.status().await;
+    assert_eq!(status.state, "service", "{status:?}");
+    assert!(
+        dm.launched().is_empty(),
+        "no node is launched beside a service"
+    );
+    assert_eq!(
+        status.message.as_deref(),
+        Some(shekyl_rpc_client::service_refusal(Some(view)).as_str()),
+        "core's words"
+    );
+    assert_eq!(status.service_view.as_deref(), Some("127.0.0.1:12030"));
+
+    let state = crate::state::AppState::on(network, crate::gui_config::Store::none());
+    let applied = crate::daemon_connection::point_at_service(&state, &dm)
+        .await
+        .expect("the offer");
+    assert_eq!(applied.url.as_deref(), Some("http://127.0.0.1:12030"));
+    assert_eq!(
+        state.node_address().await.as_deref(),
+        Some("http://127.0.0.1:12030")
+    );
+    assert!(!state.targets_this_computer().await);
+}
+
+/// A program that starts and never says it is ready: it ignores its
+/// arguments and its owning connection, as a hung node would.
+#[cfg(unix)]
+fn hung_node(dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join("hung-node");
+    std::fs::write(&path, "#!/bin/sh\nexec sleep 600\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// **"Stop waiting" ends the wait while a retried launch is in flight**
+/// (finding on #71). The wallet waits out a held data directory and its
+/// launch never says it is ready. Stop waiting asks the node it just
+/// started to stop and shows `stopping` with Force stop, since that node is
+/// the wallet's own; it does not stop on the ask, so the person forces it,
+/// and the wait ends idle with nothing left running. Red edit: in
+/// `launch_waiting_locked`, wait on `ready_or_words` alone (the wait never
+/// ends while the launch hangs).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_waiting_ends_a_wait_whose_launch_never_says_ready() {
+    let dir = TestDir::new("hung");
+    let env = LaunchEnv {
+        program: Some(hung_node(&dir.0)),
         tor_file: None,
         socket_dir: Some(dir.0.join("s")),
         instance: None,
-        rpc_port: None,
+        service_rendezvous: None,
         extra_args: Vec::new(),
     };
-    let state = crate::state::AppState {
-        node_gate: gate.clone(),
-        ..crate::state::AppState::new()
+    let dm = DaemonManager::new(dir.0.join("settings"), env);
+    // As after a person ended an earlier wait: Retry waits out the held
+    // directory again.
+    dm.inner.write().await.left_waiting = Some("held".to_owned());
+    let retry = {
+        let dm = Arc::clone(&dm);
+        tokio::spawn(async move { dm.start_again().await })
     };
-    assert!(state.engine_base().await.is_ok(), "no manager yet");
-    let dm = DaemonManager::new(dir.0.join("settings"), env, gate);
-    assert_eq!(
-        state.engine_base().await.err().as_deref(),
-        Some(NODE_NOT_STARTED),
-        "closed before the start"
-    );
-    assert_eq!(dm.status().await.state, "idle");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while dm.node_pid().await.is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the launch never came"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let pid = dm.node_pid().await.expect("the hung node");
+    assert!(dm.status().await.can_stop_waiting);
 
-    dm.start(NetworkType::Testnet).await;
+    dm.stop_waiting().await.expect("the wait is ended");
+    while dm.status().await.state != "stopping" {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{:?}",
+            dm.status().await
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(dm.status().await.can_force_stop, "the wallet's own node");
+    dm.force_stop().await.expect("the person forces it");
+    tokio::time::timeout(std::time::Duration::from_secs(20), retry)
+        .await
+        .expect("the wait ends once the node is gone")
+        .unwrap();
     let status = dm.status().await;
-    assert_eq!(status.state, "unavailable", "{status:?}");
-    let words = status.message.expect("why");
-    assert_eq!(state.engine_base().await.err(), Some(words.clone()));
-    assert_eq!(dm.own_target().await.err(), Some(words));
-    assert!(!status.can_force_stop);
+    assert_eq!(status.state, "idle", "{status:?}");
+    assert_eq!(dm.node_pid().await, None);
+    assert!(
+        std::fs::metadata(format!("/proc/{pid}")).is_err() || !cfg!(target_os = "linux"),
+        "nothing left running"
+    );
+}
 
-    // A node address a person typed is theirs: the gate is about the
-    // node on this computer alone.
-    *state.typed_node.write().await = true;
-    assert!(state.engine_base().await.is_ok());
+/// **Only a dial that says no node is there lets the wallet start one.**
+/// Every fault of core's, each placed: the three that say nothing is there
+/// start the wallet's node; a service is the `service` state with its view
+/// listener; a failed check is `refused` in its own words; a node in
+/// another session and one that does not answer are `failed`, and nothing
+/// is started beside any of them. Red edit: in `standing`, read
+/// `LocalFault::Service` as `Standing::Nothing`.
+#[test]
+fn only_a_dial_that_says_no_node_is_there_starts_one() {
+    let node = || "testnet".to_owned();
+    for fault in [
+        LocalFault::NoPlace { node: node() },
+        LocalFault::NotRunning { node: node() },
+        LocalFault::Stale { node: node() },
+    ] {
+        assert_eq!(standing(fault), Standing::Nothing);
+    }
+    let view: std::net::SocketAddr = "127.0.0.1:12030".parse().unwrap();
+    assert_eq!(
+        standing(LocalFault::Service {
+            node: node(),
+            view: Some(view)
+        }),
+        Standing::Blocked(NodeState::Service(Some(view)))
+    );
+    assert_eq!(
+        standing(LocalFault::Service {
+            node: node(),
+            view: None
+        }),
+        Standing::Blocked(NodeState::Service(None))
+    );
+    let check = LocalFault::PeerCheck("uid 0".to_owned());
+    let words = check.to_string();
+    assert_eq!(
+        standing(check),
+        Standing::Blocked(NodeState::Refused(words))
+    );
+    for fault in [
+        LocalFault::OtherSession,
+        LocalFault::Unreachable("timed out".to_owned()),
+    ] {
+        let words = fault.to_string();
+        assert_eq!(standing(fault), Standing::Blocked(NodeState::Failed(words)));
+    }
+}
+
+/// **A failed peer check is one latch, for the wallet's calls and its
+/// engine's.** Latched in the manager, the notice says `refused` in the
+/// check's words, and the engine's way to "this computer" is refused in
+/// the same words with no dial: a client is not built, and the target core
+/// dials itself is not handed out. A node address a person typed is theirs
+/// and is not behind the latch. Red edit: in `engine_transport`, drop the
+/// read of the latch (the engine dials the address the check failed at).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
+    use crate::engine_daemon::{core_target, make_daemon, EngineNode};
+    let dm = DaemonManager::new(
+        std::env::temp_dir().join("shekyl-gui-none"),
+        LaunchEnv::default(),
+    );
+    let state = crate::state::AppState::on(NetworkType::Testnet, crate::gui_config::Store::none());
+    assert_eq!(dm.refusal().await, None);
+
+    let words = "something other than your Shekyl node is answering".to_owned();
+    dm.refuse(words.clone()).await;
+    let status = dm.status().await;
+    assert_eq!(status.state, "refused");
+    assert_eq!(status.message.as_deref(), Some(words.as_str()));
+
+    let node = EngineNode::of(&state, &dm).await;
+    assert!(matches!(node, EngineNode::ThisComputer(_)));
+    let Err(refused) = make_daemon(&node, Network::Testnet).await else {
+        panic!("a client was built behind the latch");
+    };
+    assert_eq!(refused, words);
+    assert_eq!(core_target(&state, &dm).await.unwrap_err(), words);
+
+    *state.node_address.write().await = Some("http://127.0.0.1:1".into());
+    assert!(matches!(
+        EngineNode::of(&state, &dm).await,
+        EngineNode::Address(_)
+    ));
+    assert!(core_target(&state, &dm).await.is_ok(), "a typed address");
+}
+
+/// **Start mining pays the open wallet, and with none open it says so.**
+/// The manager reads the wallet open when the start runs; with none, the
+/// miner is not started and nothing is launched. Red edit: in
+/// `start_mining`, start the miner without an open wallet.
+#[tokio::test]
+async fn start_mining_needs_an_open_wallet() {
+    use shekyl_rpc_client::wire::node::{AutoWord, Threads};
+    let dm = DaemonManager::new(
+        std::env::temp_dir().join("shekyl-gui-none"),
+        LaunchEnv::default(),
+    );
+    let refused = dm
+        .start_mining(Threads::Auto(AutoWord::Auto))
+        .await
+        .expect_err("no wallet is open");
+    assert_eq!(refused, payout::NO_WALLET_TO_PAY);
+    assert!(dm.launched().is_empty());
+    assert!(
+        !dm.runs_the_saved_settings().await,
+        "no node runs, so no setting is applied"
+    );
 }

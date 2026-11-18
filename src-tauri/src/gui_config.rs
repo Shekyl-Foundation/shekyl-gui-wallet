@@ -122,14 +122,61 @@ fn config_path_in(base: PathBuf) -> PathBuf {
     base.join(BUNDLE_IDENTIFIER).join(CONFIG_FILENAME)
 }
 
-/// Load the persisted config, returning [`GuiConfig::default`] on any
-/// failure (missing file, parse error, IO error). Failures are logged
-/// at `warn!` level but never returned to the caller.
-pub fn load() -> GuiConfig {
-    let Some(path) = config_path() else {
-        return GuiConfig::default();
-    };
-    load_from_path(&path)
+/// Where the GUI's settings are kept: one file, named once, when the app
+/// starts. Everything that reads or writes the settings goes through the
+/// store the app's state holds, so a test's state, which names a file of
+/// its own or none, never reads or writes the settings of the account the
+/// tests run under.
+#[derive(Debug, Clone)]
+pub struct Store(Option<PathBuf>);
+
+impl Store {
+    /// This account's settings file ([`config_path`]).
+    pub fn of_this_account() -> Self {
+        Self(config_path())
+    }
+
+    /// No file: nothing is read and nothing is kept. A test's store.
+    #[cfg(test)]
+    pub(crate) const fn none() -> Self {
+        Self(None)
+    }
+
+    /// A test's own file.
+    #[cfg(test)]
+    pub(crate) fn at(path: PathBuf) -> Self {
+        Self(Some(path))
+    }
+
+    /// Load the persisted config, returning [`GuiConfig::default`] on any
+    /// failure (missing file, parse error, IO error). Failures are logged
+    /// at `warn!` level but never returned to the caller.
+    pub fn load(&self) -> GuiConfig {
+        self.0
+            .as_deref()
+            .map_or_else(GuiConfig::default, load_from_path)
+    }
+
+    /// Persist the config to disk. Best-effort: failures are logged and
+    /// swallowed so a read-only config dir doesn't break the UI flow.
+    ///
+    /// Creates the parent directory if it doesn't exist. Writes atomically
+    /// where possible (write to `*.tmp` then rename) so a power loss
+    /// mid-write doesn't corrupt the persisted file.
+    pub fn save(&self, cfg: &GuiConfig) {
+        match &self.0 {
+            Some(path) => save_to_path(cfg, path),
+            None => warn!("no config directory available; gui-config.json not persisted"),
+        }
+    }
+
+    /// Keep `network` as the network the wallet's node starts on next
+    /// time, leaving the rest of the file as it is.
+    pub fn save_network(&self, network: crate::state::NetworkType) {
+        let mut cfg = self.load();
+        cfg.network = Some(network.as_str().to_owned());
+        self.save(&cfg);
+    }
 }
 
 /// Read-and-parse the config file at an explicit path. Same fallback
@@ -164,40 +211,6 @@ fn load_from_path(path: &Path) -> GuiConfig {
             GuiConfig::default()
         }
     }
-}
-
-/// Persist the config to disk. Best-effort: failures are logged and
-/// swallowed so a read-only config dir doesn't break the UI flow.
-///
-/// Creates the parent directory if it doesn't exist. Writes atomically
-/// where possible (write to `*.tmp` then rename) so a power loss
-/// mid-write doesn't corrupt the persisted file.
-pub fn save(cfg: &GuiConfig) {
-    let Some(path) = config_path() else {
-        warn!("no config directory available; gui-config.json not persisted");
-        return;
-    };
-    save_to_path(cfg, &path);
-}
-
-/// Keep `network` as the network the wallet's node starts on next time,
-/// leaving the rest of the file as it is.
-pub fn save_network(network: crate::state::NetworkType) {
-    let mut cfg = load();
-    cfg.network = Some(network.as_str().to_owned());
-    save(&cfg);
-}
-
-/// [`load`], from an explicit path (a test's own file).
-#[cfg(test)]
-pub(crate) fn load_from(path: &Path) -> GuiConfig {
-    load_from_path(path)
-}
-
-/// [`save`], to an explicit path (a test's own file).
-#[cfg(test)]
-pub(crate) fn save_to(cfg: &GuiConfig, path: &Path) {
-    save_to_path(cfg, path);
 }
 
 /// Serialize-and-write to an explicit path. Same best-effort posture
@@ -253,8 +266,7 @@ pub struct ResolvedWalletDir {
 /// [`std::fs::create_dir_all`] failure. A reachable-but-empty
 /// directory is considered usable (a fresh override is a valid
 /// override).
-pub fn resolve_wallet_dir(default_dir: PathBuf) -> ResolvedWalletDir {
-    let cfg = load();
+pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: PathBuf) -> ResolvedWalletDir {
     let Some(override_path) = cfg.wallet_dir_override else {
         return ResolvedWalletDir {
             dir: default_dir,
@@ -313,27 +325,9 @@ mod tests {
         base.join(BUNDLE_IDENTIFIER).join(CONFIG_FILENAME)
     }
 
-    /// Resolve-with-injected-base variant used by tests; mirrors
-    /// [`resolve_wallet_dir`] but reads the override from the
-    /// test-controlled config file rather than [`load`].
+    /// [`resolve_wallet_dir`] over a test's own config file.
     fn resolve_wallet_dir_in(base: &Path, default_dir: PathBuf) -> ResolvedWalletDir {
-        let cfg = load_from_path(&test_config_path(base));
-        let Some(override_path) = cfg.wallet_dir_override else {
-            return ResolvedWalletDir {
-                dir: default_dir,
-                fallback_from: None,
-            };
-        };
-        match probe_dir(&override_path) {
-            Ok(()) => ResolvedWalletDir {
-                dir: override_path,
-                fallback_from: None,
-            },
-            Err(_) => ResolvedWalletDir {
-                dir: default_dir,
-                fallback_from: Some(override_path),
-            },
-        }
+        resolve_wallet_dir(load_from_path(&test_config_path(base)), default_dir)
     }
 
     #[test]

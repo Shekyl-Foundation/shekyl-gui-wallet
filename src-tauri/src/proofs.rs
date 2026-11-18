@@ -119,6 +119,7 @@ pub async fn get_reserve_proof(
 #[tauri::command]
 pub async fn check_tx_proof(
     state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     txid: String,
     address: String,
     proof: String,
@@ -127,7 +128,7 @@ pub async fn check_tx_proof(
     let txid = contract_error::require_tx_hash(&txid, TXID_FIELD)?;
     let network = map_network(*state.network.read().await);
     let decoded = proof_address(&address, network)?;
-    let daemon = proof_daemon(&state, network).await?;
+    let daemon = proof_daemon(&state, &node, network).await?;
     let checked = proofs::check_tx_proof(
         &daemon,
         txid.to_bytes(),
@@ -143,13 +144,14 @@ pub async fn check_tx_proof(
 #[tauri::command]
 pub async fn check_reserve_proof(
     state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     address: String,
     proof: String,
     message: Option<String>,
 ) -> Result<ReserveCheckOut, ContractError> {
     let network = map_network(*state.network.read().await);
     let decoded = proof_address(&address, network)?;
-    let daemon = proof_daemon(&state, network).await?;
+    let daemon = proof_daemon(&state, &node, network).await?;
     let checked =
         proofs::check_reserve_proof(&daemon, &decoded, message.as_deref().unwrap_or(""), &proof)
             .await
@@ -229,11 +231,12 @@ fn proof_address(value: &str, network: Network) -> Result<ShekylAddress, Contrac
 
 async fn proof_daemon(
     state: &AppState,
+    node: &std::sync::Arc<crate::daemon_manager::DaemonManager>,
     network: Network,
 ) -> Result<shekyl_engine_core::DaemonClient, ContractError> {
     let internal = |err| ContractError::from_rpc(WalletRpcError::InternalError(err));
-    let base = state.engine_base().await.map_err(internal)?;
-    engine_daemon::make_daemon(&base, network)
+    let node = engine_daemon::EngineNode::of(state, node).await;
+    engine_daemon::make_daemon(&node, network)
         .await
         .map_err(internal)
 }

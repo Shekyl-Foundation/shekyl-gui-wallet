@@ -6,13 +6,12 @@
 //! What the wallet calls on its own node, held against what that node
 //! admits (`docs/design/GUI_SYNC_LANE.md` GS-2, GS-4).
 //!
-//! Two legs reach the node the wallet starts. The wallet's own calls go
-//! over the owner's leg, which holds every grant: the wallet started that
-//! node and is its host's administrator. The wallet engine's calls go over
-//! the loopback view listener until they move to the owner's leg
-//! (shekyl-core `RPC_CHANNEL.md` RT-W10 step 5). Each call is held against
-//! the authority of the leg it travels, asked of the daemon's own
-//! admission code, never a copy of a grant set.
+//! The wallet and its engine read "this computer"'s node over its owner's
+//! leg, which holds every grant (shekyl-core `RPC_CHANNEL.md` RT-W10 step
+//! 5; Rick, 2026-11-18). A node address a person typed, a service node's
+//! view listener among them, is read with a view listener's grants. Each
+//! call is held against the authority of the leg it travels, asked of the
+//! daemon's own admission code, never a copy of a grant set.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -55,16 +54,23 @@ fn the_owner_s_leg_admits_every_call_the_wallet_makes() {
     }
 }
 
-/// The view listener admits every call the wallet engine makes
-/// (`shekyl_engine_core::DAEMON_METHODS`, held to the engine's code by
-/// core's test).
+/// Every call the wallet engine makes (`shekyl_engine_core::DAEMON_METHODS`,
+/// held to the engine's code by core's test) is admitted on both legs it
+/// travels: the owner's leg of this computer's node, and a typed address's
+/// view listener, a service node's among them.
 #[test]
-fn the_view_listener_admits_every_call_the_engine_makes() {
+fn both_legs_admit_every_call_the_engine_makes() {
+    let owner = Authority::owner(false);
     let view = Authority::VIEW_LISTENER;
     for row in shekyl_engine_core::DAEMON_METHODS {
         assert!(
+            owner.admit(row).is_ok(),
+            "this computer's node refuses the engine's {} on its owner's leg",
+            row.name
+        );
+        assert!(
             view.admit(row).is_ok(),
-            "the wallet's own node refuses the engine's {}: it is outside the view \
+            "a typed node refuses the engine's {}: it is outside the view \
              listener's grants",
             row.name
         );

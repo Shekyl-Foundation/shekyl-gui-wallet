@@ -75,6 +75,11 @@ multisig = []
 libc = "0.2"
 
 [dev-dependencies]
+# A test's node lives in a socket directory or instance of its own, named
+# with `LocalTarget::test_override`: core's TEST_ONLY feature, which a dev
+# edge alone may enable. The wallet itself names "this computer" by its
+# network alone.
+shekyl-rpc-transport = { path = "../../shekyl-core/rust/shekyl-rpc-transport", features = ["test-override"] }
 proptest = "1"
 # The node's own admission check (`Authority::VIEW_LISTENER`), so the
 # grant-reach test asks the daemon's code what the wallet's own node lets

@@ -39,6 +39,23 @@
     alone until mining is started.
   - Something else answering at the node's local address is reported as a
     security failure, and nothing is started or retried.
+  - Before any wallet is open, the welcome and unlock screens show the
+    node's state with its actions, and let you choose the network and the
+    node address.
+  - With a wallet open, the node it uses does not change: close the wallet
+    to name another node or network.
+  - A node that is slow to start says so after ten seconds, with Force
+    stop. The start that follows stopping your own node offers "Stop
+    waiting" throughout.
+  - A setting that could not be applied because the node did not start is
+    tried again when you choose it again.
+  - The wallet reads its node over the node's own local connection, never
+    over a network port, and the node opens no such port. An address you
+    type is used as it is.
+  - If this computer's node runs as a service, the wallet starts none
+    beside it, says so, and offers to use the service's node.
+  - If the miner cannot be moved to the wallet you open, it is stopped and
+    the wallet says so.
   - The wallet remembers the network you chose, and its node starts on it.
     A wallet set to testnet never starts a mainnet node first.
   - The wallet's node takes no inbound connections over clearnet by

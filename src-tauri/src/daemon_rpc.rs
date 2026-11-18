@@ -109,22 +109,16 @@ where
     M::Request: Send + 'static,
     M::Reply: Send + 'static,
 {
-    if !state.targets_this_computer().await {
-        return call::<M>(&state.url().await, request, what).await;
+    if let Some(address) = state.node_address().await {
+        return call::<M>(&address, request, what).await;
     }
-    let target = node.own_target().await?;
-    // The owner's leg is a blocking dial and exchange, under its own
-    // deadline (`shekyl_rpc_transport::local::CALL_WITHIN`).
-    let reply = tokio::task::spawn_blocking(move || target.call::<M>(&request))
-        .await
-        .map_err(|e| format!("Could not read {what} from the node: {e}"))?;
-    reply.map_err(|e| said_local(&e, what))
+    node.own_call::<M>(request, what).await
 }
 
 /// A failed call on the owner's leg in the person's words. A failed peer
 /// check is said as core says it, whole: it is a security failure, not a
 /// node that is away.
-fn said_local(e: &JsonRpcError<LocalFault>, what: &str) -> String {
+pub(crate) fn said_local(e: &JsonRpcError<LocalFault>, what: &str) -> String {
     match e {
         JsonRpcError::Transport(fault) => fault.to_string(),
         JsonRpcError::Refusal(refusal) if refusal.class == ErrorClass::OutsideTheGrant => {
@@ -157,6 +151,11 @@ pub(crate) fn said(e: &RpcError, what: &str) -> String {
         }
         RpcError::Refused(refusal) => refusal.diagnostic.message.clone(),
         RpcError::NoSuchMethod(_) => different_version(what),
+        // Core's own sentences (`shekyl_rpc_client`): a failed peer check is
+        // a security failure, said whole; a service node says where it
+        // listens.
+        RpcError::PeerCheck(_) => e.to_string(),
+        RpcError::Service(view) => shekyl_rpc_client::service_refusal(*view),
         other => format!("Could not read {what} from the node: {other}"),
     }
 }

@@ -203,12 +203,69 @@ carry Tor's own bytes as pinned.
     waiting": that ends the wait, kills nothing, and leaves the node idle
     with a Retry, which waits again. The wallet never kills a node it did
     not start (Rick, 2026-11-17).
-- **Two legs to the wallet's own node.** The GUI's own calls (status, Tor,
-  mining, the stop) go over the owner's leg, which holds every grant: the
-  wallet started that node and is its host's administrator. The wallet
-  engine's calls stay on the loopback view listener until RT-W10 step 5.
-  A node address a person typed is called over HTTP with whatever it
-  grants.
+- **One target, no fallback (core RT-15; Rick, 2026-11-18).** With no
+  address typed, the wallet and its engine read "this computer" over its
+  owner's leg, core's `DaemonTarget::ThisComputer`, named by its network
+  alone: core reads this account's and the service's rendezvous
+  directories itself, so the wallet assembles nothing; with one typed, that address, local or
+  not: it is the person's choice. There is no engine gate: the owner's leg
+  is the account's own socket or pipe, peer-checked at every dial. The
+  wallet's node opens no view listener. A failed peer check is latched as a
+  refusal and never retried. The latch is one, the node manager's `refused`
+  state (`daemon_manager/engine.rs`): the wallet's own calls and the
+  engine's client both set it, the notice says it, and while it stands the
+  engine builds no client for "this computer" and `unstake` is handed no
+  target. Only the failed check is latched: a node found, a node that
+  failed and a service do not stand in the engine's way.
+- **One session guard.** The engine session's mutex is held by whatever
+  opens or closes a wallet and by whatever changes the network or the node
+  address, from the first read of them to the last write, and the node's
+  manager is told of the open or the close inside it. So no wallet opens
+  on a network or a node that a change is replacing, and the manager hears
+  of opens and closes in the order they happened.
+- **An open wallet keeps its node.** The engine keeps the node it was
+  opened on for its scans and its sends (one target per client), so a
+  change of node address with a wallet open is refused in words until the
+  wallet is closed, as a change of network is. Saving the address already
+  in use is accepted and changes nothing. The node address can be named
+  before a wallet is open, beside the network ("Change node").
+- **Only a dial that says no node is there starts one.** Every fault of a
+  dial of "this computer" is placed by one exhaustive function
+  (`standing`), used at the start and while a found node stops: a service
+  that came up meanwhile is the `service` state, and nothing is launched
+  beside it.
+- **Saved is not applied.** The node's arguments are kept with the node it
+  was started with. A settings change starts the node again unless the
+  living node already runs with the arguments the settings give, so a
+  start that failed is tried again when the same value is asked for.
+- **A service on this computer.** When "this computer"'s node on the
+  network is a service, the wallet starts no node beside it. It says so in
+  core's `service_refusal` and offers "Use the service's node", which makes
+  the service's view listener (from its rendezvous record) the typed
+  address.
+- **The miner follows the open wallet** under the lifecycle lock, against
+  the wallet open when it runs, so an earlier open's hand-off never moves
+  the miner back. If the move fails, the miner is stopped and the node's
+  notice says so in any state; a network switch drops the miner's address.
+  Start mining is one transaction under the same lock: it reads the wallet
+  open when it runs, restarts the node with its address when the node pays
+  another, and starts the miner. A node the wallet still holds behind a
+  failed check cannot be asked whether it mines, and is never read as "not
+  mining": the notice says the miner may still pay the wallet open before.
+  On a node address a person typed, the page never promises the open
+  wallet's address, whether that node has one set or none.
+- **Before a wallet is open**, the node's notice, the network choice and
+  the node address sit above the Welcome and Unlock screens, so a found
+  node, a failed start, the network a wallet will be made on, or a node
+  that refuses the wallet can be dealt with there. The page under them
+  scrolls in the height that is left.
+- **A start is said when a person can act on it.** The start that follows
+  a found node's stop offers "Stop waiting" at once. Any other start is
+  unsaid for its first ten seconds and then said with Force stop.
+- **The owner's leg holds every grant.** The GUI's own calls (status,
+  Tor, mining, the stop) and the engine's go over it: the wallet started
+  that node and is its host's administrator. A node address a person typed
+  is called over HTTP with whatever it grants.
 - **Posture shown, never reworded (TSR-Q12, TSR-Q13).** The GUI reads
   Status on its normal refresh and shows `render(status)` verbatim: a
   persistent posture line in the header whenever `OwnTx` is not
@@ -310,7 +367,8 @@ when that adjustment lands.
    things no build sees:
    - the grant-reach test (`grant_reach_tests.rs`): the GUI's own calls
      against the owner's leg, the engine's `DAEMON_METHODS` against the
-     view listener. A call either leg refuses fails it.
+     owner's leg and a typed node's view listener. A call a leg refuses
+     fails it.
    - chain facts written into GUI text (lock windows, block spacing,
      descriptions of mechanisms): each comes from core, never a copy.
 4. The CLI's half is in core's tree. Its daemon calls are typed and its

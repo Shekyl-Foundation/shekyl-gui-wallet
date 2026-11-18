@@ -44,7 +44,6 @@ use tauri::State;
 use crate::balance::Balance;
 use crate::daemon_rpc;
 use crate::drain_balance::DrainBalance;
-use crate::gui_config;
 use crate::staking_view::StakingView;
 use crate::state::{self, AppState};
 use crate::validate;
@@ -109,7 +108,7 @@ pub async fn get_wallet_status(
     state: State<'_, AppState>,
     node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
 ) -> Result<WalletStatus, String> {
-    let url = state.url().await;
+    let address = state.node_address().await;
     let network = state.network.read().await;
     let wallet_open = *state.wallet_open.read().await;
     let wallet_name = state.wallet_name.read().await.clone();
@@ -120,7 +119,7 @@ pub async fn get_wallet_status(
             connected: true,
             wallet_open,
             wallet_name,
-            daemon_address: Some(url),
+            daemon_address: address.clone(),
             network: network.as_str().into(),
             synced: status.synchronized,
         }),
@@ -128,7 +127,7 @@ pub async fn get_wallet_status(
             connected: false,
             wallet_open,
             wallet_name,
-            daemon_address: Some(url),
+            daemon_address: address.clone(),
             network: network.as_str().into(),
             synced: false,
         }),
@@ -210,9 +209,9 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
     wallet_name::ensure_dir_exists(&path)?;
     let display = path.to_string_lossy().to_string();
     // The rest of the file (the saved network) is kept.
-    let mut cfg = gui_config::load();
+    let mut cfg = state.settings.load();
     cfg.wallet_dir_override = Some(path.clone());
-    gui_config::save(&cfg);
+    state.settings.save(&cfg);
     *state.wallet_dir.write().await = path;
     // A successful explicit choice clears any stale "fell back from"
     // warning the user might still be looking at.
@@ -227,9 +226,9 @@ pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, Stri
     let default = state::default_wallet_dir();
     wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
-    let mut cfg = gui_config::load();
+    let mut cfg = state.settings.load();
     cfg.wallet_dir_override = None;
-    gui_config::save(&cfg);
+    state.settings.save(&cfg);
     *state.wallet_dir.write().await = default;
     *state.wallet_dir_warning.write().await = None;
     Ok(display)
