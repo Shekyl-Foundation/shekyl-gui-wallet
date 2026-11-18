@@ -53,6 +53,7 @@ fn manager(dir: &Path, port: u16) -> (std::sync::Arc<DaemonManager>, crate::stat
     let config_dir = dir.join("settings");
     DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+        ..DaemonConfig::default()
     }
     .save(&config_dir)
     .unwrap();
@@ -341,6 +342,7 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
     };
     let config = DaemonConfig {
         data_dir: Some(dir.join("hand").to_string_lossy().into_owned()),
+        ..DaemonConfig::default()
     };
     let mut args = sidecar_args(&config, NetworkType::Testnet, port, &names);
     args.extend(no_traffic(&dir));
@@ -517,6 +519,7 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
     };
     let config = DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+        ..DaemonConfig::default()
     };
     let mut args = sidecar_args(&config, NetworkType::Testnet, port, &names);
     args.extend(no_traffic(&dir));
@@ -612,6 +615,7 @@ async fn a_held_data_directory_refuses_the_start_in_the_node_s_words() {
     };
     let config = DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+        ..DaemonConfig::default()
     };
     let hand_port = free_port();
     let mut args = sidecar_args(&config, NetworkType::Testnet, hand_port, &names);

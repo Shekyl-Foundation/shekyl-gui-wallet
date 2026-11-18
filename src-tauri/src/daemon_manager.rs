@@ -71,8 +71,9 @@ pub(crate) struct LaunchNames {
 /// The node's command line, less the owning connection the launcher adds.
 ///
 /// The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md` §5): the
-/// GUI's network; no admin listener; no inbound clearnet listener
-/// (`clearnet-listen none`: the node only dials out on clearnet); one view listener on loopback at
+/// GUI's network; no admin listener; no inbound clearnet listener unless
+/// the person turned it on (`clearnet-listen none`: the node only dials out
+/// on clearnet); one view listener on loopback at
 /// `rpc_port`, which the wallet engine reads until its calls move to the
 /// owner's leg (core `RPC_CHANNEL.md` RT-W10 step 5); the data directory when
 /// configured. The wallet's own calls go over the owner's leg, which the
@@ -96,11 +97,14 @@ pub(crate) fn sidecar_args(
         "none".into(),
         "--rpc-view-listen".into(),
         format!("127.0.0.1:{rpc_port}").into(),
-        // The wallet's node dials out and takes no inbound clearnet
-        // connection (Rick, 2026-11-17).
-        "--clearnet-listen".into(),
-        "none".into(),
     ];
+    // The wallet's node dials out and takes no inbound clearnet connection
+    // unless the person turned it on (Rick, 2026-11-17); on, the daemon's
+    // own default listener on the network's peer port is used.
+    if !config.clearnet_inbound {
+        args.push("--clearnet-listen".into());
+        args.push("none".into());
+    }
     if let Some(dir) = &config.data_dir {
         args.push("--data-dir".into());
         args.push(data_dir_for(Path::new(dir), network).into());
@@ -154,6 +158,11 @@ pub(crate) const KEEP_RUNNING_NOT_YET: &str =
 pub struct DaemonConfig {
     #[serde(default)]
     pub data_dir: Option<String>,
+    /// Whether the node accepts inbound connections over clearnet. Off by
+    /// default: the wallet's node dials out and takes none (Rick,
+    /// 2026-11-17). On, it listens on its network's peer port.
+    #[serde(default)]
+    pub clearnet_inbound: bool,
 }
 
 impl DaemonConfig {
@@ -680,20 +689,32 @@ impl DaemonManager {
         if !pays_another {
             return Ok(());
         }
-        // Not the wallet's own node, or not ready: nothing of its is mining.
-        let Ok(leg) = self.own_target().await else {
+        let Some(threads) = self.running_miner().await? else {
             return Ok(());
+        };
+        self.mine_to(address).await?;
+        self.start_miner(threads).await
+    }
+
+    /// The threads of the wallet's own node's miner while it runs. `None`
+    /// when it does not, and when the wallet has no node of its own ready:
+    /// nothing of its is mining then.
+    async fn running_miner(&self) -> Result<Option<u64>, String> {
+        let Ok(leg) = self.own_target().await else {
+            return Ok(None);
         };
         let miner = tokio::task::spawn_blocking(move || leg.call::<MineStatus>(&NoParams))
             .await
             .map_err(|e| e.to_string())?
             .map_err(|e| format!("The node's miner could not be read: {e}"))?;
-        if !miner.active {
-            return Ok(());
-        }
-        self.mine_to(address).await?;
+        Ok(miner.active.then_some(miner.threads.0))
+    }
+
+    /// Start the miner of the node just started again, with the threads it
+    /// had before.
+    async fn start_miner(&self, threads: u64) -> Result<(), String> {
         let leg = self.own_target().await?;
-        let threads = Threads::Count(Count(miner.threads.0));
+        let threads = Threads::Count(Count(threads));
         tokio::task::spawn_blocking(move || {
             leg.call::<shekyl_rpc_client::wire::MineStart>(&MineStart { threads })
         })
@@ -701,6 +722,55 @@ impl DaemonManager {
         .map_err(|e| e.to_string())?
         .map(drop)
         .map_err(|e| format!("The miner did not start again: {e}"))
+    }
+
+    /// Accept inbound clearnet connections or not (`--clearnet-listen`):
+    /// kept in the node's settings and passed at its next start, so the
+    /// node is started again with it. Off is the wallet's default (Rick,
+    /// 2026-11-17); on, the node listens on its network's peer port.
+    pub async fn set_clearnet_inbound(self: &Arc<Self>, on: bool) -> Result<(), String> {
+        let mut config = self.config().await;
+        if config.clearnet_inbound == on {
+            return Ok(());
+        }
+        tracing::info!(
+            on,
+            "the node's inbound clearnet listener changes; the node is started again"
+        );
+        config.clearnet_inbound = on;
+        self.update_config(config).await?;
+        self.relaunch_for_settings().await
+    }
+
+    /// The node's settings changed (the inbound clearnet listener, a Tor
+    /// fix taken or put back): the
+    /// daemon reads them only at its start, so a node this wallet started
+    /// is stopped and started again with them, and a miner that was
+    /// running goes on. A node that had failed to start is started. A node
+    /// of this account the wallet found is left alone: it is not the
+    /// wallet's, and the settings are for the wallet's own.
+    pub async fn relaunch_for_settings(self: &Arc<Self>) -> Result<(), String> {
+        let miner = self.running_miner().await?;
+        {
+            let _lifecycle = self.lifecycle.lock().await;
+            {
+                let inner = self.inner.read().await;
+                match &inner.state {
+                    NodeState::Found => return Err(found_words(inner.network)),
+                    NodeState::Refused(words) | NodeState::Unavailable(words) => {
+                        return Err(words.clone())
+                    }
+                    _ => {}
+                }
+            }
+            self.stop_own_locked().await;
+            self.start_locked().await;
+            self.ready_or_words().await?;
+        }
+        match miner {
+            Some(threads) => self.start_miner(threads).await,
+            None => Ok(()),
+        }
     }
 
     /// Wait for the node just started to be ready, or say why it is not.

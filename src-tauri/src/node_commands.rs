@@ -35,6 +35,7 @@ pub async fn set_daemon_settings(
     dm: State<'_, Arc<DaemonManager>>,
     keep_running_on_exit: Option<bool>,
     data_dir: Option<String>,
+    clearnet_inbound: Option<bool>,
 ) -> Result<DaemonConfig, String> {
     if keep_running_on_exit == Some(true) {
         return Err(KEEP_RUNNING_NOT_YET.to_owned());
@@ -43,8 +44,13 @@ pub async fn set_daemon_settings(
     if let Some(v) = data_dir {
         config.data_dir = if v.is_empty() { None } else { Some(v) };
     }
-    dm.update_config(config.clone()).await?;
-    Ok(config)
+    dm.update_config(config).await?;
+    // The inbound clearnet listener is read at the node's start: changing
+    // it starts the node again. A node that then refuses says why.
+    if let Some(on) = clearnet_inbound {
+        dm.set_clearnet_inbound(on).await?;
+    }
+    Ok(dm.config().await)
 }
 
 /// Stop the node of this account the wallet found running on its network,

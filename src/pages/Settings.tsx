@@ -9,6 +9,8 @@ import type { NodeState, NodeStatus } from "../types/node";
 
 interface DaemonSettings {
   data_dir: string | null;
+  /** Whether the node accepts inbound connections over clearnet. Off by default. */
+  clearnet_inbound: boolean;
 }
 
 /** The wallet's own node, in a few words, for the Settings line. */
@@ -51,6 +53,8 @@ export default function Settings() {
   const [daemonSettings, setDaemonSettings] = useState<DaemonSettings | null>(null);
   const [daemonStatus, setDaemonStatus] = useState<NodeStatus | null>(null);
   const [keepRunningAnswer, setKeepRunningAnswer] = useState<string | null>(null);
+  const [inboundBusy, setInboundBusy] = useState(false);
+  const [inboundError, setInboundError] = useState<string | null>(null);
   // The node's Tor state, in core's words; or why it cannot be read.
   const [torRead, setTorRead] = useState<string | null>(null);
 
@@ -103,6 +107,21 @@ export default function Settings() {
       });
     } catch (e) {
       setKeepRunningAnswer(String(e));
+    }
+  }
+
+  // The node reads its listener at its start: changing it starts the node
+  // again, and the node's own words come back if it then refuses.
+  async function handleInboundToggle(on: boolean) {
+    setInboundBusy(true);
+    setInboundError(null);
+    try {
+      await invoke<DaemonSettings>("set_daemon_settings", { clearnetInbound: on });
+    } catch (e) {
+      setInboundError(String(e));
+    } finally {
+      setInboundBusy(false);
+      loadDaemonInfo();
     }
   }
 
@@ -247,6 +266,46 @@ export default function Settings() {
             <p data-testid="tor-read" className="whitespace-pre-line text-xs text-purple-300">
               {torRead}
             </p>
+          </div>
+        )}
+
+        {daemonSettings && (
+          <div className="space-y-1">
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-xs text-purple-300">
+                Accept incoming connections over clearnet
+              </span>
+              <button
+                role="switch"
+                aria-checked={daemonSettings.clearnet_inbound}
+                aria-label="Accept incoming connections over clearnet"
+                disabled={inboundBusy}
+                onClick={() => handleInboundToggle(!daemonSettings.clearnet_inbound)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors disabled:opacity-50 ${
+                  daemonSettings.clearnet_inbound ? "bg-gold-500" : "bg-purple-700"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    daemonSettings.clearnet_inbound ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </label>
+            <p className="text-xs text-purple-400">
+              Off: your node connects out to other nodes and does not listen for
+              them. On: other nodes can connect to yours over the open network,
+              which shows them this computer’s address. Changing it restarts the
+              node.
+            </p>
+            {inboundBusy && (
+              <p className="text-xs text-purple-300">Starting the node again…</p>
+            )}
+            {inboundError && (
+              <p role="alert" className="whitespace-pre-line text-xs text-red-300">
+                {inboundError}
+              </p>
+            )}
           </div>
         )}
 

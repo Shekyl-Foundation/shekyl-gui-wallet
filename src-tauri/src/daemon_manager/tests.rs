@@ -7,6 +7,7 @@ use shekyl_engine_core::Network;
 fn config(data_dir: Option<&str>) -> DaemonConfig {
     DaemonConfig {
         data_dir: data_dir.map(str::to_owned),
+        ..DaemonConfig::default()
     }
 }
 
@@ -144,6 +145,18 @@ fn the_launch_names_the_mining_address_and_no_admin_listener() {
     // No inbound clearnet listener (Rick, 2026-11-17).
     let listen = args.iter().position(|a| a == "--clearnet-listen").unwrap();
     assert_eq!(args[listen + 1], OsString::from("none"));
+    // Turned on in Settings, the node keeps the daemon's own listener on
+    // the network's peer port: the launch names none. Red edit: push
+    // `--clearnet-listen none` whatever the setting.
+    let on = DaemonConfig {
+        clearnet_inbound: true,
+        ..DaemonConfig::default()
+    };
+    let args = sidecar_args(&on, NetworkType::Testnet, 12029, &LaunchNames::default());
+    assert!(!args.iter().any(|a| a == "--clearnet-listen"), "{args:?}");
+    // A settings file from before the setting reads as off.
+    let old: DaemonConfig = serde_json::from_str(r#"{"data_dir": null}"#).unwrap();
+    assert!(!old.clearnet_inbound);
     assert!(
         !args.iter().any(|a| a == "--owning-connection"),
         "the launcher's"

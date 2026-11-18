@@ -26,8 +26,9 @@
     security failure, and nothing is started or retried.
   - The wallet remembers the network you chose, and its node starts on it.
     A wallet set to testnet never starts a mainnet node first.
-  - The wallet's node takes no inbound connections over clearnet; it only
-    dials out.
+  - The wallet's node takes no inbound connections over clearnet by
+    default; it only dials out. Settings has "Accept incoming connections
+    over clearnet" to turn them on, which restarts the node.
   - "Keep daemon running after wallet closes" answers that it is not yet
     implemented.
 - **The balance shows its legs, and the fee tiers have one spelling.**

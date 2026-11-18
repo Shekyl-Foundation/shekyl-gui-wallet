@@ -147,6 +147,7 @@ async fn start_on(network: NetworkType) -> Daemon {
     let dir = run_dir();
     let config = DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+        ..DaemonConfig::default()
     };
     let args = sidecar_args(&config, network, port, &LaunchNames::default());
     launch(args, dir, port).await
