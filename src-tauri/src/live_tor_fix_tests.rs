@@ -149,8 +149,16 @@ async fn a_tor_fix_is_taken_kept_and_put_back() {
         .await
         .expect_err("the node refuses that address");
     assert!(words.contains("tor-socks"), "the node's own words: {words}");
-    state_becomes(&dm, &dir, "failed").await;
-    assert_eq!(DaemonConfig::load(&settings).tor_fix, Some(refused));
+    assert_eq!(dm.status().await.state, "failed");
+    assert_eq!(DaemonConfig::load(&settings).tor_fix, Some(refused.clone()));
+    // Saved is not applied: asking for the same fix again starts the node
+    // again, and it refuses again. Red edit: in `set_tor_fix`, return when
+    // the kept fix is the one asked for.
+    let launches = dm.launched().len();
+    dm.set_tor_fix(Some(refused))
+        .await
+        .expect_err("asked again, tried again, refused again");
+    assert_eq!(dm.launched().len(), launches + 1);
 
     // The way back works with the node down.
     dm.set_tor_fix(None).await.expect("the bundled Tor again");
