@@ -157,6 +157,11 @@ pub(crate) fn said(e: &RpcError, what: &str) -> String {
         }
         RpcError::Refused(refusal) => refusal.diagnostic.message.clone(),
         RpcError::NoSuchMethod(_) => different_version(what),
+        // Core's own sentences (`shekyl_rpc_client`): a failed peer check is
+        // a security failure, said whole; a service node says where it
+        // listens.
+        RpcError::PeerCheck(_) => e.to_string(),
+        RpcError::Service(view) => shekyl_rpc_client::service_refusal(*view),
         other => format!("Could not read {what} from the node: {other}"),
     }
 }

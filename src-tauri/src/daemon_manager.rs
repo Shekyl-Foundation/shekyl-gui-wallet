@@ -358,16 +358,19 @@ impl DaemonManager {
     }
 
     /// "This computer" on `network`: the owner's leg of this account's node.
-    fn target(&self, network: NetworkType) -> Result<LocalTarget, LocalFault> {
+    fn target(&self, network: NetworkType) -> LocalTarget {
         #[cfg(test)]
         if self.env.socket_dir.is_some() || self.env.instance.is_some() {
             return LocalTarget::resolve(
                 network.network(),
                 &test_instance_of(self.env.instance.as_deref()),
                 self.env.socket_dir.as_deref(),
+                None,
             );
         }
-        LocalTarget::this_computer(network.network())
+        // No service rendezvous: the wallet looks only for a node of this
+        // account, and starts its own beside a service node.
+        LocalTarget::this_computer(network.network(), None)
     }
 
     /// The owner's leg of the wallet's own node, for a call: only while the
@@ -375,7 +378,7 @@ impl DaemonManager {
     pub(crate) async fn own_target(&self) -> Result<LocalTarget, String> {
         let inner = self.inner.read().await;
         match &inner.state {
-            NodeState::Running => self.target(inner.network).map_err(|e| e.to_string()),
+            NodeState::Running => Ok(self.target(inner.network)),
             NodeState::Idle => Err(NODE_NOT_STARTED.to_owned()),
             NodeState::Starting => Err("The wallet's node is starting.".to_owned()),
             NodeState::Stopping => Err("The node is stopping.".to_owned()),
@@ -477,11 +480,16 @@ impl DaemonManager {
                     self.launch_locked(false).await;
                 }
             }
-            Err(fault) if fault.is_security_failure() => {
+            Err(fault @ LocalFault::PeerCheck(_)) => {
                 tracing::error!("the node's local address failed its check: {fault}");
                 self.set_state(NodeState::Refused(fault.to_string())).await;
             }
-            Err(fault) => {
+            // Not reached while no service rendezvous is named (`target`).
+            Err(LocalFault::Service { view, .. }) => {
+                self.set_state(NodeState::Failed(shekyl_rpc_client::service_refusal(view)))
+                    .await;
+            }
+            Err(fault @ (LocalFault::OtherSession | LocalFault::Unreachable(_))) => {
                 self.set_state(NodeState::Failed(fault.to_string())).await;
             }
         }
@@ -489,7 +497,7 @@ impl DaemonManager {
 
     /// Dial "this computer" on `network`, and close the connection.
     async fn dial(&self, network: NetworkType) -> Result<(), LocalFault> {
-        let target = self.target(network)?;
+        let target = self.target(network);
         tokio::task::spawn_blocking(move || target.dial().map(drop))
             .await
             .unwrap_or_else(|e| Err(LocalFault::Unreachable(e.to_string())))
@@ -909,8 +917,9 @@ pub(crate) fn remove_test_records(instance: &str) {
         NetworkType::ALL.iter().map(|n| n.network()).collect();
     networks.push(shekyl_engine_core::Network::Regtest);
     for network in networks {
-        if let Ok(target) = LocalTarget::resolve(network, &test_instance_of(Some(instance)), None) {
-            drop(std::fs::remove_file(target.path()));
+        let target = LocalTarget::resolve(network, &test_instance_of(Some(instance)), None, None);
+        if let Some(path) = target.path() {
+            drop(std::fs::remove_file(path));
         }
     }
 }

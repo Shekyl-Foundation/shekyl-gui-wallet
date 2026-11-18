@@ -101,7 +101,7 @@ impl DaemonManager {
             }
             inner.network
         };
-        let target = self.target(network).map_err(|e| e.to_string())?;
+        let target = self.target(network);
         let stop = tokio::task::spawn_blocking(move || target.call::<DaemonStop>(&NoParams))
             .await
             .map_err(|e| e.to_string())?;

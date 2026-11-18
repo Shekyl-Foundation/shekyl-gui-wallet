@@ -483,8 +483,8 @@ async fn with_testnet_saved_the_first_node_is_a_testnet_node() {
         NetworkType::Mainnet.network(),
         &crate::daemon_manager::test_instance_of(instance.as_deref()),
         cfg!(unix).then(|| socket_dir(&dir)).as_deref(),
-    )
-    .expect("mainnet's rendezvous");
+        None,
+    );
     assert!(
         matches!(
             tokio::task::spawn_blocking(move || mainnet.dial().map(drop))
