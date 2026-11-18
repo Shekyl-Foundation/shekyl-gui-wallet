@@ -63,6 +63,8 @@ describe("TestnetBanner", () => {
     render(<TestnetBanner />);
 
     expect(screen.getByText(/TestNet Active/)).toBeInTheDocument();
+    // No launch date: a date in the banner goes stale (Rick, 2026-11-17).
+    expect(screen.queryByText(/Mainnet/)).toBeNull();
     expect(screen.getByText("Get test SKL")).toBeInTheDocument();
     expect(screen.getByText("Get test SKL").closest("a")?.href).toBe(
       "https://faucet.shekyl.org/",

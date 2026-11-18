@@ -27,6 +27,8 @@ fn the_sidecar_names_the_bundled_tor() {
         &names(Some(tor.clone())),
     );
     let want: Vec<OsString> = [
+        "--config-file",
+        "none",
         "--network",
         "testnet",
         "--rpc-admin-listen",
@@ -43,18 +45,27 @@ fn the_sidecar_names_the_bundled_tor() {
     assert_eq!(tor, Path::new("/res").join("tor").join(TOR_FILE));
 }
 
-/// Every network's launch names that network, and opens no view
-/// listener: the wallet and its engine read the node over its owner's leg
-/// (Rick, 2026-11-18), and the daemon's default is no view listener. Red
-/// edits: drop `--network` (the node then runs mainnet whatever the
+/// Every network's launch reads no configuration file, names that
+/// network, and opens no view listener. `config-file none` keeps the node
+/// to this command line and the daemon's defaults, whatever a service
+/// install keeps in the shared file (Rick, 2026-11-18); the wallet and its
+/// engine read the node over its owner's leg (Rick, 2026-11-18), and the
+/// daemon's default is no view listener. Red edits: drop `--config-file
+/// none` (a service install's `tor-file` then refuses the GUI's `tor
+/// operator`); drop `--network` (the node then runs mainnet whatever the
 /// wallet's network); pass `--rpc-view-listen`.
 #[test]
-fn the_launch_carries_the_wallet_s_network_and_no_view_listener() {
+fn the_launch_reads_no_file_and_carries_the_wallet_s_network_and_no_view_listener() {
     for net in NetworkType::ALL {
         let args = sidecar_args(&config(None), net, &names(None));
         assert_eq!(
-            args[..2],
-            [OsString::from("--network"), OsString::from(net.as_str())]
+            args[..4],
+            [
+                OsString::from("--config-file"),
+                OsString::from("none"),
+                OsString::from("--network"),
+                OsString::from(net.as_str())
+            ]
         );
         assert!(!args.iter().any(|a| a == "--rpc-view-listen"), "{args:?}");
     }
@@ -440,4 +451,60 @@ async fn start_mining_needs_an_open_wallet() {
         !dm.runs_the_saved_settings().await,
         "no node runs, so no setting is applied"
     );
+}
+
+/// **Two settings changed at once both stick** (finding on #73). A Tor fix
+/// and the clearnet listener are changed from two tasks at once, many
+/// times over; every change is read, made and saved under one lock, so
+/// neither saves a copy that undoes the other, in memory or on disk. A
+/// change that leaves the settings as they were saves nothing. Red edit:
+/// in `change_config`, read the settings under a read lock and save under
+/// a separate write (the old `config()` then `update_config`); one task's
+/// last change is then lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_settings_changed_at_once_both_stick() {
+    let dir = std::env::temp_dir().join(format!(
+        "shekyl-gui-settings-{}-{}",
+        std::process::id(),
+        crate::engine_session::test_password()
+    ));
+    let dm = DaemonManager::new(dir.clone(), LaunchEnv::default());
+    let fix = crate::tor_fix::TorFix::ClearnetOnly;
+    let tor = {
+        let dm = Arc::clone(&dm);
+        let fix = fix.clone();
+        tokio::spawn(async move {
+            for i in 0..200 {
+                let set = (i % 2 == 1).then(|| fix.clone());
+                dm.change_config(|c| c.tor_fix = set).await.unwrap();
+                tokio::task::yield_now().await;
+            }
+        })
+    };
+    let inbound = {
+        let dm = Arc::clone(&dm);
+        tokio::spawn(async move {
+            for i in 0..200 {
+                dm.change_config(|c| c.clearnet_inbound = i % 2 == 1)
+                    .await
+                    .unwrap();
+                tokio::task::yield_now().await;
+            }
+        })
+    };
+    tor.await.unwrap();
+    inbound.await.unwrap();
+
+    let kept = dm.config().await;
+    assert_eq!(kept.tor_fix, Some(fix.clone()), "{kept:?}");
+    assert!(kept.clearnet_inbound, "{kept:?}");
+    assert_eq!(DaemonConfig::load(&dir), kept, "the file holds both");
+
+    assert!(
+        !dm.change_config(|c| c.clearnet_inbound = true)
+            .await
+            .unwrap(),
+        "no change, nothing saved"
+    );
+    drop(std::fs::remove_dir_all(&dir));
 }

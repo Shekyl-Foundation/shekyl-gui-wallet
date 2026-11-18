@@ -272,22 +272,58 @@ carry Tor's own bytes as pinned.
   `AddressHiding`, and the full read in Settings → Network. Against a node
   whose grant withholds Status, it says that it cannot see the node's Tor
   state; it does not show an empty posture.
+- **One reading of a send.** The header line, the review card, the verdict
+  and the pending list read one value (`tor_status.rs`, `Sends`), from one
+  poll (`TorContext`). The value is core's one classification,
+  `TorStatus::own_tx_fate` (hidden, held, open network, offline, unknown),
+  mapped straight through: the wallet reads no setting, origination or
+  carriage of its own (Rick, 2026-11-17). It adds only "withheld", for a
+  node that shows no status, and "unread", for a node it could not read.
+  Only held promises that a send stays off the open network.
 - **Held is a state, not a moment (GS-F2).** Before submit, the review card
   reads `OwnTx`; on `Held` it states the transaction will wait on this node
   until Tor carries it and will not go out over clearnet, and the person
   confirms or waits. After submit, the verdict line says "accepted by your
-  node", not "submitted". Every pending own transaction is shown as held
+  node", not "submitted", and what the node's state meant for this send
+  when the person confirmed: a later reading is about the node, not this
+  send, and is never put to it. Every pending own transaction is shown as held
   for as long as `OwnTx` is `Held`, so a Tor that drops after the check is
   still told. `ClearnetOnly` sends say they went over the open network;
-  `Offline` is not sent.
+  `Offline` is not sent. Where the wallet cannot tell (an unknown
+  condition, a withheld or unreadable state) the card says that it cannot
+  say how the transaction will leave, and promises nothing.
+- **The wallet's node reads no configuration file.** It is launched with
+  `--config-file none` (shekyl-core #1447's `none`): the command line and the
+  daemon's defaults alone, so the node means the same on every machine,
+  and a service install's `/etc/shekyl/shekyld-<network>.toml` (a
+  `tor-file`, `clearnet = off`) can never turn the wallet's launch line
+  into a refusal. The wallet never writes that file either (Rick,
+  2026-11-17, 2026-11-18).
+- **One settings change at a time.** The node's settings (`daemon.json`:
+  the Tor fix, the clearnet listener, the data directory) are read,
+  changed and saved under one lock (`DaemonManager::change_config`), so
+  two changes asked for at once never undo each other.
 - **The fixes are the person's acts (GS-F7, TSR-Q11).** Settings → Network
-  offers exactly the `ManagedTorFix` values in the read, each with the
-  renderer's consequence. Taking one is stored in the GUI's settings and
+  offers exactly the `ManagedTorFix` values in the read, in its order, each
+  in core's own sentence for it (`shekyl_tor_status::fix_sentence`). Taking
+  one is stored in the GUI's settings and
   passed on the node's launch line, and the node is relaunched; the
   daemon's default configuration file is never written (Rick, 2026-11-17:
   that file is shared with a node the person runs by hand). Nothing is
   pre-selected; `ClearnetOnly` is never a default, a one-click "just work"
   button, or something the GUI does on a timer.
+  - A fix is the whole Tor part of the launch line (`tor_fix.rs`): the
+    bundled `--tor-file` is named only where a managed Tor runs, since the
+    daemon refuses it beside `tor = off` or `operator`.
+  - `operator` takes its Tor's SOCKS address in a text field; "name one"
+    under `restore-managed` uses the system file chooser. The wallet
+    judges neither value: the daemon's refusal is shown in its own words
+    (Rick, 2026-11-17).
+  - The fix in force is shown from the GUI's own settings, with "Go back
+    to the bundled Tor" ("Use the bundled Tor again" under `operator`). It
+    works when the node will not start, and when the read offers no fix,
+    as it does once Tor is off or an operator's (Rick, 2026-11-17).
+  - A miner that was running goes on after the relaunch.
 - **Wire debt (GS-F8).** The GUI's reply types are deleted for
   `shekyl-rpc-types` through `shekyl-rpc-client`; mining moves to the owner
   leg; the GUI tracks core `dev` in CI and pairs with the RW rename PR.
@@ -304,7 +340,7 @@ carry Tor's own bytes as pinned.
 | GS-C5 | core | The chain-wide staking figures: total bonded principal (ESR-8) and the per-block staker inflow (`ARCHIVAL_BUDGET_SCHEDULE.md`), in `daemon_status`'s economics part beside `stake_share`. The GUI shows nothing for them until core's types carry them | the daemon's bond accounting |
 | GS-1 | GUI | Installers from core's gitian archives, `tor/`, `tor-licenses/`, `tor-file`, on every platform (`GS-Q6`). Built: `release.yml` job `core-archives` with `scripts/release/core_archive.py` checks each archive's digest before unpacking (the Foundation-signed `SHA256SUMS` on a tag, GitHub's artifact digest for a dry run's gitian run); `DaemonManager` names the bundled Tor with `tor-file`; after bundling, the release reads Tor back out of every installer and checks it against core's pins and the bundled daemon's `--config-verify` (`src-tauri/binaries/README.md`) | The cut: `SHEKYL_CORE_REF` at the paired core tag, and for macOS that cut carries core #1310 (TSR-F18), without which the hardened runtime kills the signed `tor` at its first onion proof-of-work |
 | GS-2 | GUI | Sidecar lifecycle: one target, child handle, the owning connection's stop, crash safety; the keep-running setting answers "not yet implemented"; the open wallet's address passed as `mine-address` when the GUI launches its node (IG-12: `mine-address` is set only at start, so a node whose miner is running is relaunched when a wallet with another address is opened, and its miner goes on; a node that is not mining is left alone until mining is started, Rick 2026-11-17). Built: the node is launched through `shekyl-spawn` holding its owning connection (`node_launch.rs`), ready on its ready line; the start dials "this computer" first and a node of this account found there is offered for replacement, never adopted, and a data directory still held after its stop is waited out with a growing interval and a "Stop waiting"; the GUI's exit closes the connection without waiting, a relaunch waits for end of stream, and Force stop is the only kill; `tauri-plugin-shell` is gone. the node runs the GUI's network (`--network` at launch); the choice is kept in `gui-config.json` and the node starts on it at launch, so no node runs on another network first, and a fresh install's first start is mainnet (Rick 2026-11-13, 2026-11-17); the node takes no inbound clearnet connection by default (`--clearnet-listen none`); Settings has "Accept incoming connections over clearnet", kept in `daemon.json` and applied by starting the node again (Rick 2026-11-17), a network switch relaunches it on that network's port from core's row and, with a configured data directory, in that network's own store; a switch waits while a wallet of another network is open | — |
-| GS-3 | GUI | Posture display, held review/verdict/pending, Settings → Network fixes, daemon config | GS-C1, GS-C2, GS-2 |
+| GS-3 | GUI | Posture display, held review/verdict/pending, Settings → Network fixes, daemon config. Built: the header line (`PostureLine.tsx`), the one reading of a send (`tor_status.rs`, `lib/sendWords.ts`), the review statement, the verdict's held and open-network additions, pending sends shown as held, and the fixes with the fix in force (`TorSettings.tsx`, `tor_fix.rs`, `set_tor_fix`) | GS-C1, GS-C2, GS-2 |
 | GS-4 | GUI | Wire debt: RK-D1 adoption and the reads (`daemon_status`, `block_header_show`, `curve_show`, `shard_coverage`, the `version` read) through `shekyl-rpc-client`; mining control on the owner's leg, the miner paying the open wallet's address (`mine-address` on the launch line: the node is relaunched when mining starts for an address it does not pay, and when a wallet is opened while its miner is running and pays another's). Built | — |
 | GS-5 | GUI | macOS installer Tor: carried by GS-1, by the same mechanism (`GS-Q6`) | As GS-1 |
 
