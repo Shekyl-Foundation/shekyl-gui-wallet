@@ -103,16 +103,22 @@ fn runs_root() -> PathBuf {
     }
 }
 
-/// A fresh directory for one run's node.
+/// A fresh directory for one run's node: this process's id and a count of
+/// the directories it has made. Never the clock: the tests start together,
+/// macOS's clock ticks in microseconds, and two tests that drew one name
+/// shared a directory, which the first to finish removed under the other
+/// (a different test failed each macOS run, with an empty log or a missing
+/// directory).
 pub(crate) fn run_dir() -> PathBuf {
+    static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = runs_root().join(format!(
         "shekyl-gui-live-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
+    // A directory an earlier process with this id left behind is not this
+    // run's.
+    drop(std::fs::remove_dir_all(&dir));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
