@@ -524,6 +524,18 @@ impl DaemonManager {
         }
     }
 
+    /// The node the state holds is gone, with `words`. Only a node that
+    /// was starting or running has failed by going: a stop this wallet
+    /// asked for, a start retried while waiting, and a wait a person ended
+    /// leave the state to their flows.
+    fn now_gone(inner: &mut Inner, words: String) {
+        inner.node = None;
+        if matches!(inner.state, NodeState::Starting | NodeState::Running) {
+            tracing::warn!("the wallet's node is gone: {words}");
+            inner.state = NodeState::Failed(words);
+        }
+    }
+
     /// Start the node on `network`.
     pub async fn start(self: &Arc<Self>, network: NetworkType) {
         let _lifecycle = self.lifecycle.lock().await;
@@ -732,16 +744,8 @@ impl DaemonManager {
                 Life::Gone { refusal } => {
                     let mut inner = self.inner.write().await;
                     if inner.launch == id {
-                        inner.node = None;
-                        // Only a node that was starting or running has
-                        // failed by going. A stop this wallet asked for, a
-                        // start retried while waiting, and a wait a person
-                        // ended leave the state to their flows.
-                        if matches!(inner.state, NodeState::Starting | NodeState::Running) {
-                            let words = refusal.unwrap_or_else(|| NODE_STOPPED.to_owned());
-                            tracing::warn!("the wallet's node is gone: {words}");
-                            inner.state = NodeState::Failed(words);
-                        }
+                        let words = refusal.unwrap_or_else(|| NODE_STOPPED.to_owned());
+                        Self::now_gone(&mut inner, words);
                     }
                     return;
                 }
@@ -803,10 +807,20 @@ impl DaemonManager {
                     self.now_running(&mut *self.inner.write().await);
                     return Ok(());
                 }
-                // The node's own words, from the read that ended: the
-                // follower may not have written the state yet.
+                // The node's own words, from the read that ended. The
+                // follower writes the same state; this does not wait for
+                // it, so the state never lags the words this returns.
                 Life::Gone { refusal } => {
-                    return Err(refusal.unwrap_or_else(|| NODE_STOPPED.to_owned()))
+                    let words = refusal.unwrap_or_else(|| NODE_STOPPED.to_owned());
+                    let mut inner = self.inner.write().await;
+                    if inner
+                        .node
+                        .as_ref()
+                        .is_some_and(|held| Arc::ptr_eq(held, &node))
+                    {
+                        Self::now_gone(&mut inner, words.clone());
+                    }
+                    return Err(words);
                 }
                 Life::Starting => {}
             }
