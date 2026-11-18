@@ -37,6 +37,12 @@ const SETTLES: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_millis(100);
 
 /// The arguments that keep a test's node off every network.
+///
+/// With clearnet off, core refuses any `clearnet-listen` at all
+/// (`config.value.conflict`), `none` included, so the harness's node
+/// settings say `clearnet_inbound: true`: the launch then names no
+/// listener, and with clearnet off nothing listens. The wallet's own
+/// default (`--clearnet-listen none`) is held by the launch-line unit tests.
 fn no_traffic(dir: &Path) -> Vec<OsString> {
     let mut args: Vec<OsString> = ["--clearnet", "off", "--tor", "off", "--log-file"]
         .map(OsString::from)
@@ -53,6 +59,7 @@ fn manager(dir: &Path, port: u16) -> (std::sync::Arc<DaemonManager>, crate::stat
     let config_dir = dir.join("settings");
     DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+        clearnet_inbound: true,
         ..DaemonConfig::default()
     }
     .save(&config_dir)
@@ -342,6 +349,7 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
     };
     let config = DaemonConfig {
         data_dir: Some(dir.join("hand").to_string_lossy().into_owned()),
+        clearnet_inbound: true,
         ..DaemonConfig::default()
     };
     let mut args = sidecar_args(&config, NetworkType::Testnet, port, &names);
@@ -519,6 +527,7 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
     };
     let config = DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+        clearnet_inbound: true,
         ..DaemonConfig::default()
     };
     let mut args = sidecar_args(&config, NetworkType::Testnet, port, &names);
@@ -615,6 +624,7 @@ async fn a_held_data_directory_refuses_the_start_in_the_node_s_words() {
     };
     let config = DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
+        clearnet_inbound: true,
         ..DaemonConfig::default()
     };
     let hand_port = free_port();
