@@ -292,6 +292,13 @@ carry Tor's own bytes as pinned.
   `Offline` is not sent. Where the wallet cannot tell (an unknown
   condition, a withheld or unreadable state) the card says that it cannot
   say how the transaction will leave, and promises nothing.
+- **The wallet's node reads no configuration file.** It is launched with
+  `--config-file none` (shekyl-core #1447's `none`): the command line and the
+  daemon's defaults alone, so the node means the same on every machine,
+  and a service install's `/etc/shekyl/shekyld-<network>.toml` (a
+  `tor-file`, `clearnet = off`) can never turn the wallet's launch line
+  into a refusal. The wallet never writes that file either (Rick,
+  2026-11-17, 2026-11-18).
 - **One settings change at a time.** The node's settings (`daemon.json`:
   the Tor fix, the clearnet listener, the data directory) are read,
   changed and saved under one lock (`DaemonManager::change_config`), so

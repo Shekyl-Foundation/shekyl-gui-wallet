@@ -38,11 +38,8 @@ pub(crate) const POLL: Duration = Duration::from_millis(100);
 
 /// The arguments that keep a test's node off every network.
 ///
-/// With clearnet off, core refuses any `clearnet-listen` at all
-/// (`config.value.conflict`), `none` included, so the harness's node
-/// settings say `clearnet_inbound: true`: the launch then names no
-/// listener, and with clearnet off nothing listens. The wallet's own
-/// default (`--clearnet-listen none`) is held by the launch-line unit tests.
+/// The wallet's own default (`--clearnet-listen none`) rides beside
+/// `--clearnet off`, which core reads as the same thing (Rick, 2026-11-18).
 fn no_traffic(dir: &Path) -> Vec<OsString> {
     let mut args: Vec<OsString> = ["--clearnet", "off", "--tor", "off", "--log-file"]
         .map(OsString::from)
@@ -71,7 +68,6 @@ pub(crate) fn manager_with(
     if !config_dir.join("daemon.json").exists() {
         DaemonConfig {
             data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
-            clearnet_inbound: true,
             ..DaemonConfig::default()
         }
         .save(&config_dir)
@@ -266,13 +262,14 @@ async fn answers(leg: &LocalTarget, dir: &Path) {
 }
 
 /// **A setting that was saved and not applied is applied when asked again**
-/// (finding on #71). The node runs with its inbound clearnet listener as
-/// the harness set it. Turning it off is saved, and the node started with
-/// it refuses its start (the harness runs clearnet off, beside which core
-/// refuses any `clearnet-listen`): the change says why. Asking for the
-/// same value again starts the node again, and is refused again, never
-/// passed over as already set. Turning it back on starts the node; asking
-/// for that again does nothing, since the node runs with it. Red edit: in
+/// (finding on #71). The node runs with its inbound clearnet listener off.
+/// Its data directory is then set to a path under a regular file, so any
+/// start refuses. Turning the listener on is saved, and the start that
+/// would apply it is refused: the change says why. Asking for the same
+/// value again starts the node again, and is refused again, never passed
+/// over as already set. Once the directory is put back, asking once more
+/// starts the node with the listener on; asking for that again does
+/// nothing, since the node runs with it. Red edit: in
 /// `set_clearnet_inbound`, return when the saved value is the one asked
 /// for (the retry is passed over and the node stays down).
 #[tokio::test(flavor = "multi_thread")]
@@ -284,16 +281,21 @@ async fn a_setting_saved_and_not_applied_is_applied_when_asked_again() {
     dm.start(NetworkType::Testnet).await;
     state_becomes(&dm, &dir, "running").await;
     let launches = dm.launched().len();
+    let data_dir = dm.config().await.data_dir;
+    let blocker = dir.join("not-a-directory");
+    std::fs::write(&blocker, b"").unwrap();
+    let blocked = Some(blocker.to_string_lossy().into_owned());
+    assert!(dm.change_config(|c| c.data_dir = blocked).await.unwrap());
 
     let refused = dm
-        .set_clearnet_inbound(false)
+        .set_clearnet_inbound(true)
         .await
-        .expect_err("the node refuses its start with the listener named");
-    assert!(!dm.config().await.clearnet_inbound, "saved: {refused}");
+        .expect_err("the node cannot start in a directory under a file");
+    assert!(dm.config().await.clearnet_inbound, "saved: {refused}");
     assert_eq!(dm.launched().len(), launches + 1);
     assert_eq!(dm.status().await.state, "failed");
 
-    dm.set_clearnet_inbound(false)
+    dm.set_clearnet_inbound(true)
         .await
         .expect_err("asked again, tried again, refused again");
     assert_eq!(
@@ -302,9 +304,10 @@ async fn a_setting_saved_and_not_applied_is_applied_when_asked_again() {
         "the start was made again"
     );
 
+    assert!(dm.change_config(|c| c.data_dir = data_dir).await.unwrap());
     dm.set_clearnet_inbound(true)
         .await
-        .expect("the node starts with the setting it ran with before");
+        .expect("the node starts, now with the listener on");
     assert_eq!(dm.status().await.state, "running");
     assert_eq!(dm.launched().len(), launches + 3);
     let pid = dm.node_pid().await.expect("the node's pid");
@@ -350,7 +353,6 @@ async fn a_held_data_directory_is_waited_out_and_the_wait_can_be_ended() {
     };
     let config = DaemonConfig {
         data_dir: Some(dir.join("hand").to_string_lossy().into_owned()),
-        clearnet_inbound: true,
         ..DaemonConfig::default()
     };
     let mut args = sidecar_args(&config, NetworkType::Testnet, &names);
@@ -514,7 +516,6 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
     };
     let config = DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
-        clearnet_inbound: true,
         ..DaemonConfig::default()
     };
     let mut args = sidecar_args(&config, NetworkType::Testnet, &names);
@@ -581,7 +582,6 @@ async fn a_held_data_directory_refuses_the_start_in_the_node_s_words() {
     };
     let config = DaemonConfig {
         data_dir: Some(dir.join("data").to_string_lossy().into_owned()),
-        clearnet_inbound: true,
         ..DaemonConfig::default()
     };
     let mut args = sidecar_args(&config, NetworkType::Testnet, &names);

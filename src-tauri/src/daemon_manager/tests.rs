@@ -27,6 +27,8 @@ fn the_sidecar_names_the_bundled_tor() {
         &names(Some(tor.clone())),
     );
     let want: Vec<OsString> = [
+        "--config-file",
+        "none",
         "--network",
         "testnet",
         "--rpc-admin-listen",
@@ -43,18 +45,27 @@ fn the_sidecar_names_the_bundled_tor() {
     assert_eq!(tor, Path::new("/res").join("tor").join(TOR_FILE));
 }
 
-/// Every network's launch names that network, and opens no view
-/// listener: the wallet and its engine read the node over its owner's leg
-/// (Rick, 2026-11-18), and the daemon's default is no view listener. Red
-/// edits: drop `--network` (the node then runs mainnet whatever the
+/// Every network's launch reads no configuration file, names that
+/// network, and opens no view listener. `config-file none` keeps the node
+/// to this command line and the daemon's defaults, whatever a service
+/// install keeps in the shared file (Rick, 2026-11-18); the wallet and its
+/// engine read the node over its owner's leg (Rick, 2026-11-18), and the
+/// daemon's default is no view listener. Red edits: drop `--config-file
+/// none` (a service install's `tor-file` then refuses the GUI's `tor
+/// operator`); drop `--network` (the node then runs mainnet whatever the
 /// wallet's network); pass `--rpc-view-listen`.
 #[test]
-fn the_launch_carries_the_wallet_s_network_and_no_view_listener() {
+fn the_launch_reads_no_file_and_carries_the_wallet_s_network_and_no_view_listener() {
     for net in NetworkType::ALL {
         let args = sidecar_args(&config(None), net, &names(None));
         assert_eq!(
-            args[..2],
-            [OsString::from("--network"), OsString::from(net.as_str())]
+            args[..4],
+            [
+                OsString::from("--config-file"),
+                OsString::from("none"),
+                OsString::from("--network"),
+                OsString::from(net.as_str())
+            ]
         );
         assert!(!args.iter().any(|a| a == "--rpc-view-listen"), "{args:?}");
     }

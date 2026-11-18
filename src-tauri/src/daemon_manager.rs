@@ -68,8 +68,12 @@ pub(crate) struct LaunchNames {
 
 /// The node's command line, less the owning connection the launcher adds.
 ///
-/// The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md` §5): the
-/// GUI's network; no admin listener; no view listener (the daemon's default:
+/// The daemon's grammar (shekyl-core `docs/design/INPUT_GRAMMAR.md` §5): no
+/// configuration file (`config-file none`): the wallet's node is this
+/// command line and the daemon's defaults alone, the same on every machine,
+/// whatever a service install keeps in the shared
+/// `/etc/shekyl/shekyld-<network>.toml` (Rick, 2026-11-18); the GUI's
+/// network; no admin listener; no view listener (the daemon's default:
 /// the wallet and its engine read the node over its owner's leg, which the
 /// daemon serves without being asked; Rick, 2026-11-18); no inbound
 /// clearnet listener unless the person turned it on (`clearnet-listen
@@ -87,6 +91,8 @@ pub(crate) fn sidecar_args(
     names: &LaunchNames,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
+        "--config-file".into(),
+        "none".into(),
         "--network".into(),
         network.as_str().into(),
         "--rpc-admin-listen".into(),
