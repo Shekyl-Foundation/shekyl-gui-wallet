@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **A failed send no longer throws away a send the wallet kept.** When a
+  send could not be saved, or the chain moved under it, or it could not be
+  re-anchored yet, or it needs its inputs chosen again, the wallet now
+  keeps it for you to retry, review or discard, as the engine does. Which
+  failures keep it is the engine's answer, not the wallet's own list.
+
 - **The wallet holds its own node, and has full access to it.** The wallet
   starts its node holding an owning connection (shekyl-core's
   `shekyl-spawn`), and calls it on the owner's leg, where it is the node's

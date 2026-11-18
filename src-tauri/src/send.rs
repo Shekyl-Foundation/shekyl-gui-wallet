@@ -187,23 +187,12 @@ impl SendError {
         }
     }
 
-    /// Whether the engine keeps the reservation after this submit error, per
-    /// `SubmitError`'s own documentation of each arm. Not unit-testable from
-    /// this crate — the enum is `#[non_exhaustive]`, so no value of it can be
-    /// constructed here — the page tests cover the policy through
-    /// `reservation_retained`.
-    pub fn reservation_retained_after(err: &SubmitError) -> bool {
-        matches!(
-            err,
-            SubmitError::ContentChanged { .. }
-                | SubmitError::DaemonAmbiguous { .. }
-                | SubmitError::DaemonRejectedRetryable { .. }
-                | SubmitError::SubmitAlreadyPending { .. }
-        )
-    }
-
+    /// A failed submit: the contract's answer, and whether the engine
+    /// still holds the reservation, which the engine alone answers
+    /// (`SubmitError::keeps_reservation`, exhaustive over its arms). The
+    /// wallet re-derives none of it.
     fn from_submit(err: SubmitError) -> Self {
-        let retained = Self::reservation_retained_after(&err);
+        let retained = err.keeps_reservation();
         Self::from_contract(err.into(), retained)
     }
 }
@@ -317,9 +306,10 @@ pub async fn submit_pending_tx(
         Err(err) => {
             let mapped = SendError::from_submit(err);
             if !mapped.reservation_retained {
-                // The engine has already released or invalidated it; make the
-                // release explicit so funds never stay locked behind a failed
-                // submit the page has stopped tracking.
+                // The engine has dropped it, or never had it; the discard
+                // makes sure no lock outlives a submit the page has stopped
+                // tracking. A reservation the engine keeps is the page's to
+                // retry or discard.
                 let _ = engine.discard_pending_tx(id);
             }
             Err(mapped)
