@@ -284,12 +284,18 @@ carry Tor's own bytes as pinned.
   reads `OwnTx`; on `Held` it states the transaction will wait on this node
   until Tor carries it and will not go out over clearnet, and the person
   confirms or waits. After submit, the verdict line says "accepted by your
-  node", not "submitted". Every pending own transaction is shown as held
+  node", not "submitted", and what the node's state meant for this send
+  when the person confirmed: a later reading is about the node, not this
+  send, and is never put to it. Every pending own transaction is shown as held
   for as long as `OwnTx` is `Held`, so a Tor that drops after the check is
   still told. `ClearnetOnly` sends say they went over the open network;
   `Offline` is not sent. Where the wallet cannot tell (an unknown
   condition, a withheld or unreadable state) the card says that it cannot
   say how the transaction will leave, and promises nothing.
+- **One settings change at a time.** The node's settings (`daemon.json`:
+  the Tor fix, the clearnet listener, the data directory) are read,
+  changed and saved under one lock (`DaemonManager::change_config`), so
+  two changes asked for at once never undo each other.
 - **The fixes are the person's acts (GS-F7, TSR-Q11).** Settings → Network
   offers exactly the `ManagedTorFix` values in the read, in its order, each
   in core's own sentence for it (`shekyl_tor_status::fix_sentence`). Taking

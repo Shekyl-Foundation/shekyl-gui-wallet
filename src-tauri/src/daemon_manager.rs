@@ -148,7 +148,7 @@ pub(crate) const KEEP_RUNNING_NOT_YET: &str =
     "Keeping the node running after the wallet closes is not yet implemented. \
      The node this wallet starts stops when the wallet closes.";
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DaemonConfig {
     #[serde(default)]
     pub data_dir: Option<String>,
@@ -913,10 +913,25 @@ impl DaemonManager {
         self.config.read().await.clone()
     }
 
-    pub async fn update_config(&self, new_config: DaemonConfig) -> Result<(), String> {
-        new_config.save(&self.config_dir)?;
-        *self.config.write().await = new_config;
-        Ok(())
+    /// Change the node's settings and keep them, as one step: the settings
+    /// are read, changed and saved under one write lock, so two changes
+    /// asked for at once (a Tor fix and the clearnet listener, say) never
+    /// each save a copy that undoes the other. `Ok(true)` when anything
+    /// changed; a change that leaves the settings as they were saves
+    /// nothing. A save that fails changes nothing.
+    pub async fn change_config(
+        &self,
+        change: impl FnOnce(&mut DaemonConfig),
+    ) -> Result<bool, String> {
+        let mut config = self.config.write().await;
+        let mut changed = config.clone();
+        change(&mut changed);
+        if changed == *config {
+            return Ok(false);
+        }
+        changed.save(&self.config_dir)?;
+        *config = changed;
+        Ok(true)
     }
 }
 

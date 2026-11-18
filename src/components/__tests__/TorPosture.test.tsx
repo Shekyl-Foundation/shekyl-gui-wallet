@@ -85,9 +85,13 @@ describe("what the wallet says about a send", () => {
       expect(promised).toBe(now === "held");
       expect(pendingIsHeld(now)).toBe(now === "held");
     }
-    expect(acceptedStatement("held")).toContain("waiting on your node");
+    expect(acceptedStatement("held")).toContain("waits on your node until Tor carries it");
     expect(acceptedStatement("open-network")).toBe(
-      "It is going out over the open network, not through Tor.",
+      "Tor was off on your node when it took this one: it goes out over the open network, not through Tor.",
+    );
+    // Of the node when the person confirmed, never a claim about now.
+    expect(acceptedStatement("offline")).toBe(
+      "Your node was offline when it took this one, so it had not gone out then.",
     );
     // Core's ClearnetOnly sentence says the same of that network.
     expect(reviewStatement("open-network")).toContain(

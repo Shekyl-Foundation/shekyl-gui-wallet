@@ -217,14 +217,11 @@ impl DaemonManager {
     /// node is started again with it. Off is the wallet's default (Rick,
     /// 2026-11-17); on, the node listens on its network's peer port.
     pub async fn set_clearnet_inbound(self: &Arc<Self>, on: bool) -> Result<(), String> {
-        let mut config = self.config().await;
-        if config.clearnet_inbound != on {
+        if self.change_config(|c| c.clearnet_inbound = on).await? {
             tracing::info!(
                 on,
-                "the node's inbound clearnet listener changes; the node is started again"
+                "the node's inbound clearnet listener changed; the node is started again"
             );
-            config.clearnet_inbound = on;
-            self.update_config(config).await?;
         }
         // Saved is not applied: a start that failed left the node running
         // with the setting before, and asking for the same value again
@@ -241,14 +238,12 @@ impl DaemonManager {
         self: &Arc<Self>,
         fix: Option<crate::tor_fix::TorFix>,
     ) -> Result<(), String> {
-        let mut config = self.config().await;
-        if config.tor_fix != fix {
+        let keyword = fix.as_ref().map_or("none", crate::tor_fix::TorFix::keyword);
+        if self.change_config(|c| c.tor_fix = fix).await? {
             tracing::info!(
-                fix = fix.as_ref().map_or("none", crate::tor_fix::TorFix::keyword),
-                "the node's Tor fix changes; the node is started again"
+                fix = keyword,
+                "the node's Tor fix changed; the node is started again"
             );
-            config.tor_fix = fix;
-            self.update_config(config).await?;
         }
         self.relaunch_for_settings().await
     }

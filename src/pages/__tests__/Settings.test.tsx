@@ -303,14 +303,17 @@ describe("Settings — the wallet's node", () => {
 
   let inbound = false;
 
-  function mockNode(state: string) {
+  function mockNode(
+    state: string,
+    { url = null, torFix = null }: { url?: string | null; torFix?: unknown } = {},
+  ) {
     inbound = false;
     vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
       if (cmd === "daemon_connection_disclosures") {
-        return { url: null, warnings: [], network: "testnet" };
+        return { url, warnings: [], network: "testnet" };
       }
       if (cmd === "get_daemon_settings") {
-        return { data_dir: null, tor_fix: null, clearnet_inbound: inbound };
+        return { data_dir: null, tor_fix: torFix, clearnet_inbound: inbound };
       }
       if (cmd === "daemon_status") {
         return { state, message: null, network: "testnet", can_force_stop: state === "running", can_stop_waiting: false, payout_fault: null, service_view: null };
@@ -382,6 +385,31 @@ describe("Settings — the wallet's node", () => {
       clearnetInbound: true,
     });
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+  });
+
+  /**
+   * The fix in force is the wallet's own node's, and its way back restarts
+   * that node: it is shown while the wallet reads this computer's node and
+   * not beside the read of a node address a person typed (finding on #73).
+   * Red edit: pass the kept fix whatever the connection.
+   */
+  it("shows the wallet's own node's Tor fix only while it reads that node", async () => {
+    const operator = { fix: "operator", tor_socks: "127.0.0.1:9050" };
+    mockNode("running", { torFix: operator });
+    const { unmount } = renderSettings();
+    expect(await screen.findByTestId("tor-fix-in-force")).toHaveTextContent("127.0.0.1:9050");
+    unmount();
+
+    mockNode("running", { url: "http://node.example.com:11029", torFix: operator });
+    renderSettings();
+    expect(await screen.findByTestId("tor-read")).toHaveTextContent(TOR_TEXT);
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Empty: this computer’s node")).toHaveValue(
+        "http://node.example.com:11029",
+      ),
+    );
+    expect(screen.queryByTestId("tor-fix-in-force")).toBeNull();
+    expect(screen.queryByText("Use the bundled Tor again")).toBeNull();
   });
 
   /** The Tor read is the backend's text, shown as it came. */

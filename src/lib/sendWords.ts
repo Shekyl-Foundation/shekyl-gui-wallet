@@ -26,12 +26,18 @@ const BEFORE: Record<SendsNow, string | null> = {
     "The wallet could not read your node's Tor state, so it cannot say how this transaction will leave.",
 };
 
-/** Said after the node accepted the send. `null`: nothing to add. */
+/**
+ * Said after the node accepted the send, of the node as it was when the
+ * person confirmed. The node's state later says nothing about this send:
+ * one that went out hidden is not called held when Tor drops afterwards,
+ * and one that went out is never said not to have. `null`: nothing to add.
+ */
 const AFTER: Record<SendsNow, string | null> = {
   hidden: null,
-  held: "It is waiting on your node until Tor carries it. It will not go out over the open network.",
-  "open-network": "It is going out over the open network, not through Tor.",
-  offline: "Your node is offline: it has not gone out.",
+  held: "Your node was holding its own transactions when it took this one: it waits on your node until Tor carries it, and does not go out over the open network.",
+  "open-network":
+    "Tor was off on your node when it took this one: it goes out over the open network, not through Tor.",
+  offline: "Your node was offline when it took this one, so it had not gone out then.",
   unknown: null,
   withheld: null,
   unread: null,
@@ -41,8 +47,9 @@ export function reviewStatement(now: SendsNow): string | null {
   return BEFORE[now];
 }
 
-export function acceptedStatement(now: SendsNow): string | null {
-  return AFTER[now];
+/** `atConfirm`: the reading when the person confirmed, never a later one. */
+export function acceptedStatement(atConfirm: SendsNow): string | null {
+  return AFTER[atConfirm];
 }
 
 /** A send the node would not send at all is not offered for confirming. */

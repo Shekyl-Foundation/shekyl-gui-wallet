@@ -62,12 +62,13 @@ function paymentLinkNotice(link: ParsedPaymentUri): string {
 }
 
 /**
- * The verdict, and for a send the node accepted, what the node is doing
- * with it now: held is a state, not a moment (GS-F2).
+ * The verdict, and for a send the node accepted, what the node's Tor state
+ * meant for it when the person confirmed. A later reading is about the
+ * node, not this send, and is never put to it.
  */
-function verdictLine(r: SubmitResult, now: SendsNow): string {
+function verdictLine(r: SubmitResult, atConfirm: SendsNow): string {
   const line = verdictWords(r);
-  const after = r.verdict === "ACCEPTED" ? acceptedStatement(now) : null;
+  const after = r.verdict === "ACCEPTED" ? acceptedStatement(atConfirm) : null;
   return after ? `${line} ${after}` : line;
 }
 
@@ -94,7 +95,8 @@ export default function Send() {
   const [priority, setPriority] = useState<FeePriorityTier>(DEFAULT_TIER);
   const [quote, setQuote] = useState<FeeTierQuote | null>(null);
   const [built, setBuilt] = useState<BuiltPendingTx | null>(null);
-  const [sent, setSent] = useState<SubmitResult | null>(null);
+  // The verdict, with the Tor reading the person confirmed against.
+  const [sent, setSent] = useState<{ result: SubmitResult; atConfirm: SendsNow } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   /** The payment link the recipient field was filled from, if any (shown, never trusted). */
@@ -275,7 +277,7 @@ export default function Send() {
         seenGen: built.content_gen,
       });
       owned.current = null;
-      setSent(r);
+      setSent({ result: r, atConfirm: now });
       enterPhase("sent");
     } catch (e) {
       if (isSendError(e) && e.code === "CONTENT_GEN_MISMATCH") {
@@ -344,9 +346,9 @@ export default function Send() {
         <div className="card space-y-4">
           <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">
             <ShieldCheck className="h-4 w-4" />
-            {verdictLine(sent, now)}
+            {verdictLine(sent.result, sent.atConfirm)}
           </div>
-          <p className="break-all font-mono text-xs text-purple-200">{sent.tx_hash}</p>
+          <p className="break-all font-mono text-xs text-purple-200">{sent.result.tx_hash}</p>
           <button type="button" className="btn btn-primary w-full" onClick={handleSendAnother}>
             Send another
           </button>

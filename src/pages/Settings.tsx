@@ -240,7 +240,13 @@ export default function Settings() {
           </div>
         )}
 
-        <TorSettings inForce={daemonSettings?.tor_fix ?? null} onChanged={loadDaemonInfo} />
+        {/* The fix in force is the wallet's own node's, and its way back
+            restarts that node: shown only while the wallet reads that
+            node, never beside the read of a node address a person typed. */}
+        <TorSettings
+          inForce={connection?.url ? null : (daemonSettings?.tor_fix ?? null)}
+          onChanged={loadDaemonInfo}
+        />
 
         {daemonSettings && (
           <div className="space-y-1">

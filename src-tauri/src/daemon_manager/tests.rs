@@ -441,3 +441,59 @@ async fn start_mining_needs_an_open_wallet() {
         "no node runs, so no setting is applied"
     );
 }
+
+/// **Two settings changed at once both stick** (finding on #73). A Tor fix
+/// and the clearnet listener are changed from two tasks at once, many
+/// times over; every change is read, made and saved under one lock, so
+/// neither saves a copy that undoes the other, in memory or on disk. A
+/// change that leaves the settings as they were saves nothing. Red edit:
+/// in `change_config`, read the settings under a read lock and save under
+/// a separate write (the old `config()` then `update_config`); one task's
+/// last change is then lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_settings_changed_at_once_both_stick() {
+    let dir = std::env::temp_dir().join(format!(
+        "shekyl-gui-settings-{}-{}",
+        std::process::id(),
+        crate::engine_session::test_password()
+    ));
+    let dm = DaemonManager::new(dir.clone(), LaunchEnv::default());
+    let fix = crate::tor_fix::TorFix::ClearnetOnly;
+    let tor = {
+        let dm = Arc::clone(&dm);
+        let fix = fix.clone();
+        tokio::spawn(async move {
+            for i in 0..200 {
+                let set = (i % 2 == 1).then(|| fix.clone());
+                dm.change_config(|c| c.tor_fix = set).await.unwrap();
+                tokio::task::yield_now().await;
+            }
+        })
+    };
+    let inbound = {
+        let dm = Arc::clone(&dm);
+        tokio::spawn(async move {
+            for i in 0..200 {
+                dm.change_config(|c| c.clearnet_inbound = i % 2 == 1)
+                    .await
+                    .unwrap();
+                tokio::task::yield_now().await;
+            }
+        })
+    };
+    tor.await.unwrap();
+    inbound.await.unwrap();
+
+    let kept = dm.config().await;
+    assert_eq!(kept.tor_fix, Some(fix.clone()), "{kept:?}");
+    assert!(kept.clearnet_inbound, "{kept:?}");
+    assert_eq!(DaemonConfig::load(&dir), kept, "the file holds both");
+
+    assert!(
+        !dm.change_config(|c| c.clearnet_inbound = true)
+            .await
+            .unwrap(),
+        "no change, nothing saved"
+    );
+    drop(std::fs::remove_dir_all(&dir));
+}

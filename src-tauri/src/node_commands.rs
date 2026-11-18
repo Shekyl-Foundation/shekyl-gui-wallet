@@ -41,11 +41,10 @@ pub async fn set_daemon_settings(
     if keep_running_on_exit == Some(true) {
         return Err(KEEP_RUNNING_NOT_YET.to_owned());
     }
-    let mut config = dm.config().await;
     if let Some(v) = data_dir {
-        config.data_dir = if v.is_empty() { None } else { Some(v) };
+        dm.change_config(|c| c.data_dir = if v.is_empty() { None } else { Some(v) })
+            .await?;
     }
-    dm.update_config(config).await?;
     // The inbound clearnet listener is read at the node's start: changing
     // it starts the node again. A node that then refuses says why.
     if let Some(on) = clearnet_inbound {
