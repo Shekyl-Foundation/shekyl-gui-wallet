@@ -129,7 +129,7 @@ pub async fn create_wallet(
     validate::validate_wallet_name(&sanitized)?;
     validate::validate_password(&password)?;
 
-    let wallet_dir = state.wallet_dir.read().await.clone();
+    let wallet_dir = state.wallet_dir().await?;
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
     // The session guard: the network and the node are read inside it.
@@ -186,7 +186,7 @@ pub(crate) async fn open_wallet_in(
 ) -> Result<OpenedWallet, OpenRefusal> {
     validate::validate_password(&password)?;
 
-    let wallet_dir = state.wallet_dir.read().await.clone();
+    let wallet_dir = state.wallet_dir().await?;
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
     let sanitized = wallet_name::sanitize(&filename);
@@ -267,7 +267,7 @@ pub async fn restore_wallet(
 
     let height = restore_floor(restore_height)?;
 
-    let wallet_dir = state.wallet_dir.read().await.clone();
+    let wallet_dir = state.wallet_dir().await?;
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
     // The session guard: the network and the node are read inside it.
@@ -418,12 +418,12 @@ mod tests {
         let password = std::fs::read_to_string(fixture.join("password")).unwrap();
 
         let state = AppState::new();
-        *state.wallet_dir.write().await = dir.0.clone();
+        *state.wallet_dir.write().await = Some(dir.0.clone());
         *state.network.write().await = NetworkType::Testnet;
         *state.node_address.write().await = Some("http://127.0.0.1:1/json_rpc".into());
 
         let node = DaemonManager::new(
-            dir.0.join("settings"),
+            Ok(dir.0.join("settings")),
             crate::daemon_manager::LaunchEnv::default(),
         );
         let refused = open_wallet_in(&state, &node, "alpha11".into(), password)
@@ -456,8 +456,9 @@ mod tests {
         let state = AppState::on(
             NetworkType::Testnet,
             crate::gui_config::Store::at(dir.0.join("gui-config.json")),
+            crate::account_root::AccountRoot::NoHome,
         );
-        *state.wallet_dir.write().await = dir.0.clone();
+        *state.wallet_dir.write().await = Some(dir.0.clone());
         *state.node_address.write().await = Some("http://127.0.0.1:1".into());
         // Its own "this computer", so a change of network here never
         // dials the account's.
@@ -466,7 +467,7 @@ mod tests {
             instance: cfg!(windows).then(|| format!("t{}", std::process::id() % 60_000)),
             ..Default::default()
         };
-        let node = DaemonManager::new(dir.0.join("settings"), env);
+        let node = DaemonManager::new(Ok(dir.0.join("settings")), env);
         (dir, state, node)
     }
 
@@ -484,7 +485,7 @@ mod tests {
         let address = {
             let mut eng = state.engine.lock().await;
             let daemon = EngineNode::of(&state, &node).await;
-            let wallet_dir = state.wallet_dir.read().await.clone();
+            let wallet_dir = state.wallet_dir().await.unwrap();
             eng.create(&wallet_dir, "w", &password, NetworkType::Testnet, &daemon)
                 .await
                 .expect("a wallet made offline");
@@ -520,7 +521,7 @@ mod tests {
         {
             let mut eng = state.engine.lock().await;
             let daemon = EngineNode::of(&state, &node).await;
-            let wallet_dir = state.wallet_dir.read().await.clone();
+            let wallet_dir = state.wallet_dir().await.unwrap();
             eng.create(&wallet_dir, "w", &password, NetworkType::Testnet, &daemon)
                 .await
                 .expect("a wallet made offline");

@@ -106,11 +106,23 @@ for `.keys` files.
 
 ### Default directory
 
-| Platform | Default Path                                    |
-|----------|-------------------------------------------------|
-| Linux    | `~/.shekyl/wallets/`                            |
-| macOS    | `~/Library/Application Support/shekyl/wallets/` |
-| Windows  | `%APPDATA%\shekyl\wallets\`                     |
+The default is `wallets` under the account's per-account root, the root
+the node's data sits in too, as shekyl-core names it (core rule 83 IG-13;
+`shekyl_os_account::per_account_root` and `wallet_dir_in`):
+
+| Platform              | Default Path                    |
+|-----------------------|---------------------------------|
+| Linux, FreeBSD, macOS | `~/.shekyl/wallets/`            |
+| Windows               | `%LOCALAPPDATA%\Shekyl\wallets\` |
+
+The home is read from the account interface (the passwd entry, or
+`FOLDERID_LocalAppData` on Windows), never from `HOME` or `%APPDATA%`, and
+never Roaming AppData, which copies wallets to domain servers. The app
+makes the root at its start as the daemon does (owner-only on Windows),
+before it makes anything in it, so the root is the same whichever runs
+first. An
+account with no home has no default: with no reachable override there is
+no wallet directory, and the commands that need one say so.
 
 ### Custom directory
 
@@ -120,14 +132,23 @@ disclosure on the Create, Import, and Unlock screens. The Tauri commands
 this UI; `set_wallet_dir` validates the path, runs `mkdir -p` on it, and
 refreshes the wallet-file list.
 
-The override persists across launches via `gui-config.json` in the
-Tauri app-config dir (`~/.config/org.shekyl.wallet/gui-config.json` on
-Linux, `~/Library/Application Support/org.shekyl.wallet/gui-config.json`
-on macOS, `%APPDATA%\org.shekyl.wallet\gui-config.json` on Windows;
-see `src-tauri/src/gui_config.rs`). At startup, `AppState::new` reads
+The override persists across launches via `gui-config.json` in the GUI's
+settings directory, `shekyl-gui-wallet` in the per-account root
+(`~/.shekyl/shekyl-gui-wallet/gui-config.json`, or
+`%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\gui-config.json` on Windows;
+`src-tauri/src/account_root.rs`, `src-tauri/src/gui_config.rs`), never
+Tauri's config folder (`XDG_CONFIG_HOME`, Roaming AppData). The node's
+settings (`daemon.json`), its error output (`shekyld.stderr`) and the
+shard render cache (`shard-visual/`) sit beside it. The app makes the
+root once, at its start, as the node does (owner-only with the no-read-up
+label on Windows), and reads every place in it off what that start left
+(`AccountRoot`). An account with no home, or a root the start could not
+make, keeps no settings and no render cache: the wallet's node says it
+has nowhere to keep its settings, and why, and is not started, and
+nothing is made in the root another way. At startup, `AppState::on` reads
 the override and probes the directory. If the override is missing,
 malformed, or unreachable (permission denied, target-is-a-file, broken
-symlink), the app silently falls back to the platform default; the
+symlink), the app silently falls back to the default; the
 original path is surfaced via `get_wallet_dir`'s `fallback_from` field
 so the Advanced disclosure can render a soft warning banner. Explicit
 `set_wallet_dir` / `reset_wallet_dir` calls write the new state and
@@ -140,7 +161,7 @@ When the user types a wallet name like `My Wallet`, `wallet_name::sanitize`
 normalizes it to `My_Wallet` before any filesystem call, and
 `wallet_name::build_wallet_path` joins it with the active directory via
 `PathBuf::join` so the host separator is always correct (e.g.
-`C:\Users\<user>\AppData\Roaming\shekyl\wallets\My_Wallet.keys` on
+`C:\Users\<user>\AppData\Local\Shekyl\wallets\My_Wallet.keys` on
 Windows).
 
 As of alpha.5, `sanitize` is the single source of truth for filename

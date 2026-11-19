@@ -11,7 +11,7 @@ Staking tab transitions from beta fixtures to production archival shards.
 | Tauri commands | `list_shard_preview_fixtures`, `render_shard_preview` in `src-tauri/src/shard_visual.rs` |
 | UI | `src/components/staking/ShardIdentityPreview.tsx` on `Staking.tsx` |
 | Data source | Embedded regime fixtures (`shekyl-shard-visual::fixtures`) |
-| Cache | `{app_cache}/shard-visual/{digest}_{size}.png` |
+| Cache | `{per-account root}/shekyl-gui-wallet/shard-visual/{digest}_{size}.png` (none without a root: drawn per view) |
 
 Fixtures mirror the visualization explorer fake-chain shards 0–5 (genesis through
 whale regimes). Optional `hash_override` on render requests exercises palette and
@@ -36,7 +36,8 @@ commands:
   hash, a fold over the archival bytes, distinct from the challenge hash —
   `archival_len`, `time_range_seconds`, `close_height`). The GUI draws
   candidate.v1 from that aggregate with `shekyl-shard-visual` and caches the
-  PNG under `{app_cache}/shard-visual/` keyed on shard id, view hash and
+  PNG under `shekyl-gui-wallet/shard-visual/` in the per-account root
+  (`shard_visual::cache_dir_in`) keyed on shard id, view hash and
   size (a reorg that rewrites the shard changes the hash, so it misses); the
   wire type is `ShardViewRender { view, png_base64, recipe, cache_key }`.
   The command fails closed if the reply's `shard_id` does not match the

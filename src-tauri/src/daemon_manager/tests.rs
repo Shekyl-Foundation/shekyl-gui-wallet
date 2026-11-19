@@ -173,14 +173,12 @@ fn a_settings_file_with_the_retired_key_still_loads() {
     assert_eq!(config.data_dir.as_deref(), Some("/d"));
 }
 
-/// A test's own directory, removed when it goes.
-#[cfg(unix)]
+/// A test's own directory, removed when it goes, with a socket directory
+/// `s` that is the account's alone on Unix.
 struct TestDir(PathBuf);
 
-#[cfg(unix)]
 impl TestDir {
     fn new(what: &str) -> Self {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!(
             "shekyl-gui-{what}-{}-{}",
             std::process::id(),
@@ -190,12 +188,16 @@ impl TestDir {
                 .as_nanos()
         ));
         std::fs::create_dir_all(dir.join("s")).unwrap();
-        std::fs::set_permissions(dir.join("s"), std::fs::Permissions::from_mode(0o700)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.join("s"), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+        }
         Self(dir)
     }
 }
 
-#[cfg(unix)]
 impl Drop for TestDir {
     fn drop(&mut self) {
         drop(std::fs::remove_dir_all(&self.0));
@@ -242,7 +244,7 @@ async fn a_service_on_the_network_launches_no_node_and_offers_its_view_listener(
         instance: None,
         extra_args: Vec::new(),
     };
-    let dm = DaemonManager::new(dir.0.join("settings"), env);
+    let dm = DaemonManager::new(Ok(dir.0.join("settings")), env);
     dm.start(network).await;
 
     let status = dm.status().await;
@@ -258,7 +260,11 @@ async fn a_service_on_the_network_launches_no_node_and_offers_its_view_listener(
     );
     assert_eq!(status.service_view.as_deref(), Some("127.0.0.1:12030"));
 
-    let state = crate::state::AppState::on(network, crate::gui_config::Store::none());
+    let state = crate::state::AppState::on(
+        network,
+        crate::gui_config::Store::none(),
+        crate::account_root::AccountRoot::NoHome,
+    );
     let applied = crate::daemon_connection::point_at_service(&state, &dm)
         .await
         .expect("the offer");
@@ -301,7 +307,7 @@ async fn stop_waiting_ends_a_wait_whose_launch_never_says_ready() {
         service_rendezvous: None,
         extra_args: Vec::new(),
     };
-    let dm = DaemonManager::new(dir.0.join("settings"), env);
+    let dm = DaemonManager::new(Ok(dir.0.join("settings")), env);
     // As after a person ended an earlier wait: Retry waits out the held
     // directory again.
     dm.inner.write().await.left_waiting = Some("held".to_owned());
@@ -402,10 +408,14 @@ fn only_a_dial_that_says_no_node_is_there_starts_one() {
 async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
     use crate::engine_daemon::{core_target, make_daemon, EngineNode};
     let dm = DaemonManager::new(
-        std::env::temp_dir().join("shekyl-gui-none"),
+        Ok(std::env::temp_dir().join("shekyl-gui-none")),
         LaunchEnv::default(),
     );
-    let state = crate::state::AppState::on(NetworkType::Testnet, crate::gui_config::Store::none());
+    let state = crate::state::AppState::on(
+        NetworkType::Testnet,
+        crate::gui_config::Store::none(),
+        crate::account_root::AccountRoot::NoHome,
+    );
     assert_eq!(dm.refusal().await, None);
 
     let words = "something other than your Shekyl node is answering".to_owned();
@@ -438,7 +448,7 @@ async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
 async fn start_mining_needs_an_open_wallet() {
     use shekyl_rpc_client::wire::node::{AutoWord, Threads};
     let dm = DaemonManager::new(
-        std::env::temp_dir().join("shekyl-gui-none"),
+        Ok(std::env::temp_dir().join("shekyl-gui-none")),
         LaunchEnv::default(),
     );
     let refused = dm
@@ -468,7 +478,7 @@ async fn two_settings_changed_at_once_both_stick() {
         std::process::id(),
         crate::engine_session::test_password()
     ));
-    let dm = DaemonManager::new(dir.clone(), LaunchEnv::default());
+    let dm = DaemonManager::new(Ok(dir.clone()), LaunchEnv::default());
     let fix = crate::tor_fix::TorFix::ClearnetOnly;
     let tor = {
         let dm = Arc::clone(&dm);
@@ -507,4 +517,57 @@ async fn two_settings_changed_at_once_both_stick() {
         "no change, nothing saved"
     );
     drop(std::fs::remove_dir_all(&dir));
+}
+
+/// **Without a settings directory the node has nowhere to keep its
+/// settings, so it is not started, and a settings change is refused, both
+/// in words that say why**: an account with no home (core rule 83 IG-13: no
+/// home, no default paths), and a per-account root the app's start could
+/// not make with its protections, which nothing then makes another way.
+/// Red edits: in `launch_locked`, fall back to `PathBuf::from(".")` when
+/// there is no settings directory (the old Tauri fallback): a node is
+/// launched; or read the settings directory off the root's path whatever
+/// the start left: the root is made without its protections. The test
+/// names its own socket directory (Unix) or instance (Windows), so it
+/// never meets a node of the account it runs under; on Windows, the
+/// platform whose root carries the owner-only and no-read-up protections,
+/// a root not made is the case this pins.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_no_settings_dir_no_node_starts_and_no_setting_is_kept() {
+    use crate::account_root::{AccountRoot, NO_SETTINGS_DIR};
+
+    let dir = TestDir::new("no-home");
+    let services = dir.0.join("services");
+    std::fs::create_dir_all(&services).unwrap();
+    let not_made = dir.0.join("root");
+    for root in [
+        AccountRoot::NoHome,
+        AccountRoot::not_made_at(not_made.clone()),
+    ] {
+        let env = LaunchEnv {
+            // A program that is never run: the test fails if anything launches.
+            program: Some(dir.0.join("no-node-here")),
+            tor_file: None,
+            service_rendezvous: Some(services.clone()),
+            socket_dir: cfg!(unix).then(|| dir.0.join("s")),
+            instance: cfg!(windows).then(|| format!("nh-{}", std::process::id())),
+            extra_args: Vec::new(),
+        };
+        let words = root.settings_dir().unwrap_err();
+        if root == AccountRoot::NoHome {
+            assert_eq!(words, NO_SETTINGS_DIR);
+        }
+        let dm = DaemonManager::new(root.settings_dir(), env);
+        dm.start(NetworkType::Testnet).await;
+
+        let status = dm.status().await;
+        assert_eq!(status.state, "unavailable", "{status:?}");
+        assert_eq!(status.message.as_deref(), Some(words.as_str()));
+        assert!(dm.launched().is_empty(), "no node is launched");
+        assert_eq!(
+            dm.change_config(|c| c.clearnet_inbound = true).await,
+            Err(words)
+        );
+        assert!(!not_made.exists(), "nothing made the root");
+    }
 }
