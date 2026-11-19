@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- **Wallets live where the node's data does, on every platform.** The
+  default wallet folder is `~/.shekyl/wallets` on Linux, FreeBSD and macOS
+  and `%LOCALAPPDATA%\Shekyl\wallets` on Windows: `wallets` under the
+  per-account root shekyl-core names (`shekyl_os_account`), read from the
+  account interface rather than `HOME` or `%APPDATA%`. macOS used
+  `~/Library/Application Support/shekyl/wallets` and Windows used Roaming
+  `%APPDATA%\shekyl\wallets`, which domain profiles copy to servers. When
+  the wallet makes that root first, it makes it as the node does
+  (owner-only on Windows). An account with no home has no default folder,
+  and the wallet asks for one instead of writing to the working directory.
+
 - **The wallet's node no longer reads the machine's daemon settings file.**
   It runs on the wallet's own settings and the daemon's defaults, so a
   service installed on the same computer can no longer stop it from

@@ -150,7 +150,10 @@ pub async fn get_pqc_status() -> Result<PqcStatus, String> {
 
 #[tauri::command]
 pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<WalletFileInfo>, String> {
-    let dir = state.wallet_dir.read().await.clone();
+    // No directory, or one not made yet, holds no wallets.
+    let Some(dir) = state.wallet_dir.read().await.clone() else {
+        return Ok(vec![]);
+    };
     if !dir.exists() {
         return Ok(vec![]);
     }
@@ -191,8 +194,7 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
 /// to initialise, which is why this is all the old `init_wallet_rpc` did.
 #[tauri::command]
 pub async fn ensure_wallet_dir(state: State<'_, AppState>) -> Result<(), String> {
-    let wallet_dir = state.wallet_dir.read().await.clone();
-    wallet_name::ensure_dir_exists(&wallet_dir)
+    wallet_name::ensure_dir_exists(&state.wallet_dir().await?)
 }
 
 /// Override the wallet directory with a user-chosen path (Advanced
@@ -212,7 +214,7 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
     let mut cfg = state.settings.load();
     cfg.wallet_dir_override = Some(path.clone());
     state.settings.save(&cfg);
-    *state.wallet_dir.write().await = path;
+    *state.wallet_dir.write().await = Some(path);
     // A successful explicit choice clears any stale "fell back from"
     // warning the user might still be looking at.
     *state.wallet_dir_warning.write().await = None;
@@ -223,13 +225,13 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
 /// persisted override.
 #[tauri::command]
 pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let default = state::default_wallet_dir();
+    let default = state::default_wallet_dir().ok_or(state::NO_WALLET_DIR)?;
     wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
     let mut cfg = state.settings.load();
     cfg.wallet_dir_override = None;
     state.settings.save(&cfg);
-    *state.wallet_dir.write().await = default;
+    *state.wallet_dir.write().await = Some(default);
     *state.wallet_dir_warning.write().await = None;
     Ok(display)
 }
@@ -251,7 +253,7 @@ pub struct WalletDirResponse {
 /// warning if it was reached via fallback (override unreachable).
 #[tauri::command]
 pub async fn get_wallet_dir(state: State<'_, AppState>) -> Result<WalletDirResponse, String> {
-    let dir = state.wallet_dir.read().await.clone();
+    let dir = state.wallet_dir().await?;
     let fallback = state.wallet_dir_warning.read().await.clone();
     Ok(WalletDirResponse {
         dir: dir.to_string_lossy().to_string(),

@@ -5669,8 +5669,12 @@ name = "shekyl-ct-balance"
 version = "3.1.0"
 dependencies = [
  "curve25519-dalek",
+ "rand_core 0.6.4",
+ "shekyl-crypto-pq",
  "shekyl-curve-generators",
+ "shekyl-curve-primitives",
  "shekyl-units",
+ "zeroize",
 ]
 
 [[package]]
@@ -6258,6 +6262,7 @@ name = "shekyl-rpc-rendezvous"
 version = "3.1.0"
 dependencies = [
  "shekyl-crypto-hash",
+ "shekyl-os-account",
  "shekyl-win-sec",
 ]
 
@@ -6470,6 +6475,7 @@ dependencies = [
  "ed25519-dalek",
  "fips204",
  "rand_core 0.6.4",
+ "shekyl-address",
  "shekyl-bulletproofs",
  "shekyl-crypto-hash",
  "shekyl-crypto-pq",
@@ -6541,6 +6547,7 @@ dependencies = [
  "shekyl-engine-file",
  "shekyl-engine-prefs",
  "shekyl-engine-state",
+ "shekyl-os-account",
  "shekyl-rpc-client",
  "shekyl-rpc-rendezvous",
  "shekyl-rpc-transport",

@@ -247,9 +247,10 @@ fn save_to_path(cfg: &GuiConfig, path: &Path) {
 #[derive(Debug, Clone)]
 pub struct ResolvedWalletDir {
     /// The effective wallet directory after override + reachability
-    /// checks. Guaranteed to be a real, writable directory by the time
-    /// the GUI commands see it.
-    pub dir: PathBuf,
+    /// checks: a reachable override, else the default, which a command
+    /// makes when it first needs it. `None` when neither exists: the
+    /// account has no home and the override is unset or unreachable.
+    pub dir: Option<PathBuf>,
     /// `Some(path)` when an override existed but was unreachable. The
     /// UI shows this as "your custom location is unavailable; falling
     /// back to default." `None` means either no override was set or
@@ -266,7 +267,7 @@ pub struct ResolvedWalletDir {
 /// [`std::fs::create_dir_all`] failure. A reachable-but-empty
 /// directory is considered usable (a fresh override is a valid
 /// override).
-pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: PathBuf) -> ResolvedWalletDir {
+pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: Option<PathBuf>) -> ResolvedWalletDir {
     let Some(override_path) = cfg.wallet_dir_override else {
         return ResolvedWalletDir {
             dir: default_dir,
@@ -276,7 +277,7 @@ pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: PathBuf) -> ResolvedWalle
 
     match probe_dir(&override_path) {
         Ok(()) => ResolvedWalletDir {
-            dir: override_path,
+            dir: Some(override_path),
             fallback_from: None,
         },
         Err(_) => ResolvedWalletDir {
@@ -287,7 +288,7 @@ pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: PathBuf) -> ResolvedWalle
 }
 
 fn probe_dir(path: &Path) -> Result<(), std::io::Error> {
-    std::fs::create_dir_all(path)?;
+    crate::wallet_name::make_dir(path)?;
     // Confirm the path actually resolves to a directory after create
     // (handles the "target is a file" / symlink-to-file edge case
     // where create_dir_all succeeds because the path exists).
@@ -327,7 +328,7 @@ mod tests {
 
     /// [`resolve_wallet_dir`] over a test's own config file.
     fn resolve_wallet_dir_in(base: &Path, default_dir: PathBuf) -> ResolvedWalletDir {
-        resolve_wallet_dir(load_from_path(&test_config_path(base)), default_dir)
+        resolve_wallet_dir(load_from_path(&test_config_path(base)), Some(default_dir))
     }
 
     #[test]
@@ -412,7 +413,7 @@ mod tests {
         let default = base.join("default");
         std::fs::create_dir_all(&default).unwrap();
         let resolved = resolve_wallet_dir_in(&base, default.clone());
-        assert_eq!(resolved.dir, default);
+        assert_eq!(resolved.dir, Some(default));
         assert!(resolved.fallback_from.is_none());
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -434,7 +435,7 @@ mod tests {
         );
 
         let resolved = resolve_wallet_dir_in(&base, default.clone());
-        assert_eq!(resolved.dir, override_dir);
+        assert_eq!(resolved.dir, Some(override_dir));
         assert!(resolved.fallback_from.is_none());
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -460,7 +461,8 @@ mod tests {
 
         let resolved = resolve_wallet_dir_in(&base, default.clone());
         assert_eq!(
-            resolved.dir, default,
+            resolved.dir,
+            Some(default),
             "fallback must use the platform default"
         );
         assert_eq!(
@@ -468,6 +470,34 @@ mod tests {
             Some(override_path.clone()),
             "fallback_from must record the unreachable override"
         );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// An account with no home has no default wallet directory (rule 83
+    /// IG-13): with no override, or an unreachable one, there is none, and
+    /// an unreachable override is still reported. Red edit: a `"."`
+    /// fallback (the old default) puts wallets in the working directory.
+    #[test]
+    fn no_home_and_no_reachable_override_is_no_wallet_dir() {
+        let base = fresh_test_dir("resolve_no_home");
+        let path = test_config_path(&base);
+        let resolved = resolve_wallet_dir(load_from_path(&path), None);
+        assert_eq!(resolved.dir, None);
+        assert_eq!(resolved.fallback_from, None);
+
+        let override_path = base.join("override_as_file");
+        std::fs::write(&override_path, b"not a dir").unwrap();
+        save_to_path(
+            &GuiConfig {
+                schema_version: SCHEMA_VERSION,
+                wallet_dir_override: Some(override_path.clone()),
+                network: None,
+            },
+            &path,
+        );
+        let resolved = resolve_wallet_dir(load_from_path(&path), None);
+        assert_eq!(resolved.dir, None);
+        assert_eq!(resolved.fallback_from, Some(override_path));
         let _ = std::fs::remove_dir_all(&base);
     }
 

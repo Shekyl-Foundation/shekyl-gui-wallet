@@ -76,39 +76,18 @@ impl NetworkType {
     }
 }
 
-pub fn default_wallet_dir() -> PathBuf {
-    #[cfg(target_os = "linux")]
-    {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".shekyl")
-            .join("wallets")
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("shekyl")
-            .join("wallets")
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("shekyl")
-            .join("wallets")
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".shekyl")
-            .join("wallets")
-    }
+/// The wallet directory when the person names none: `wallets` under this
+/// account's per-account root, the one the node's data sits in too, as core
+/// names it (rule 83 IG-13; `shekyl_os_account`): `~/.shekyl/wallets`, or
+/// `%LOCALAPPDATA%\Shekyl\wallets` on Windows. `None` when the account has
+/// no home: there is then no default, and the person chooses a directory.
+pub fn default_wallet_dir() -> Option<PathBuf> {
+    shekyl_os_account::per_account_root().map(|root| shekyl_os_account::wallet_dir_in(&root))
 }
+
+/// What a command that needs the wallet directory says when there is none.
+pub const NO_WALLET_DIR: &str =
+    "This account has no home folder, so there is no default wallet folder. Choose a folder for your wallets.";
 
 pub struct AppState {
     // Daemon
@@ -123,7 +102,10 @@ pub struct AppState {
     pub settings: gui_config::Store,
 
     // Wallet directory / open metadata
-    pub wallet_dir: RwLock<PathBuf>,
+    /// The wallet directory: the person's choice, else
+    /// [`default_wallet_dir`]. `None` only when the account has no home and
+    /// the person has chosen none; read it through [`AppState::wallet_dir`].
+    pub wallet_dir: RwLock<Option<PathBuf>>,
     /// `Some(path)` when the persisted wallet-dir override was
     /// unreachable at startup and we fell back to the platform default.
     /// Surfaced via `get_wallet_dir` so the UI can warn the user;
@@ -167,6 +149,15 @@ impl AppState {
         }
     }
 
+    /// The wallet directory, or [`NO_WALLET_DIR`] when there is none.
+    pub async fn wallet_dir(&self) -> Result<PathBuf, String> {
+        self.wallet_dir
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| NO_WALLET_DIR.to_owned())
+    }
+
     /// The node address a person typed, if any.
     pub async fn node_address(&self) -> Option<String> {
         self.node_address.read().await.clone()
@@ -206,4 +197,30 @@ fn strip_json_rpc(url: &str) -> &str {
         .strip_suffix("/json_rpc")
         .unwrap_or(trimmed)
         .trim_end_matches('/')
+}
+
+#[cfg(test)]
+mod wallet_dir_tests {
+    use super::*;
+
+    /// The default wallet directory is `wallets` under core's per-account
+    /// root (rule 83 IG-13), pinned as the rule states it: never Roaming
+    /// AppData or `Application Support`, which the regenesis upgrade does not
+    /// clear. Red edit: the old per-platform defaults
+    /// (`%APPDATA%\shekyl\wallets`, `~/Library/Application
+    /// Support/shekyl/wallets`) fail on Windows and macOS.
+    #[test]
+    fn the_default_wallet_dir_is_wallets_in_the_per_account_root() {
+        let home = shekyl_os_account::account_home().expect("the test account has a home");
+        let root = if cfg!(windows) { "Shekyl" } else { ".shekyl" };
+        assert_eq!(default_wallet_dir(), Some(home.join(root).join("wallets")));
+    }
+
+    /// With no directory, a command that needs one refuses in words.
+    #[tokio::test]
+    async fn no_wallet_dir_refuses_in_words() {
+        let state = AppState::new();
+        *state.wallet_dir.write().await = None;
+        assert_eq!(state.wallet_dir().await, Err(NO_WALLET_DIR.to_owned()));
+    }
 }
