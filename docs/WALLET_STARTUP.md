@@ -138,9 +138,14 @@ settings directory, `shekyl-gui-wallet` in the per-account root
 `%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\gui-config.json` on Windows;
 `src-tauri/src/account_root.rs`, `src-tauri/src/gui_config.rs`), never
 Tauri's config folder (`XDG_CONFIG_HOME`, Roaming AppData). The node's
-settings (`daemon.json`) and its error output (`shekyld.stderr`) sit
-beside it. An account with no home keeps no settings, and the wallet's
-node says it has nowhere to keep them and is not started. At startup, `AppState::new` reads
+settings (`daemon.json`), its error output (`shekyld.stderr`) and the
+shard render cache (`shard-visual/`) sit beside it. The app makes the
+root once, at its start, as the node does (owner-only with the no-read-up
+label on Windows), and reads every place in it off what that start left
+(`AccountRoot`). An account with no home, or a root the start could not
+make, keeps no settings and no render cache: the wallet's node says it
+has nowhere to keep its settings, and why, and is not started, and
+nothing is made in the root another way. At startup, `AppState::on` reads
 the override and probes the directory. If the override is missing,
 malformed, or unreachable (permission denied, target-is-a-file, broken
 symlink), the app silently falls back to the default; the

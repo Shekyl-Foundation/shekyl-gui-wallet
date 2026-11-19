@@ -22,7 +22,8 @@ use std::path::{Path, PathBuf};
 
 /// The GUI's settings directory's name in the per-account root: the
 /// wallet's settings (`gui-config.json`), its node's settings
-/// (`daemon.json`) and the node's error output (`shekyld.stderr`).
+/// (`daemon.json`), the node's error output (`shekyld.stderr`) and the
+/// shard render cache (`shard-visual`; `crate::shard_visual::cache_dir_in`).
 pub const SETTINGS_DIR_NAME: &str = "shekyl-gui-wallet";
 
 /// What a command that needs the wallet directory says when the account

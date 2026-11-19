@@ -20,6 +20,10 @@
     (`~/.config/org.shekyl.wallet`, Roaming `%APPDATA%\org.shekyl.wallet`,
     `~/Library/Application Support/org.shekyl.wallet`). Settings kept
     there by an earlier version are not read.
+  - So does the shard card render cache, to `shard-visual` in the same
+    folder, out of the app's cache folder (`~/.cache/org.shekyl.wallet`,
+    found through `XDG_CACHE_HOME` or `HOME`). Without a root the cards
+    are drawn on every view and nothing is kept.
 
 - **A send that was not sent stays yours to confirm again or cancel.** When
   a send could not be saved, or the chain moved under it, or it could not
