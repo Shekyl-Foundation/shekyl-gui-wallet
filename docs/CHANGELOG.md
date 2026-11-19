@@ -10,8 +10,10 @@
   `~/Library/Application Support/shekyl/wallets` and Windows used Roaming
   `%APPDATA%\shekyl\wallets`, which domain profiles copy to servers. The
   wallet makes that root at its start as the node does (owner-only on
-  Windows). An account with no home has no default folder,
-  and the wallet asks for one instead of writing to the working directory.
+  Windows). If it cannot, it makes nothing there: it says which folder
+  failed and why, asks for a wallet folder, and does not start its node.
+  An account with no home has no default folder, and the wallet asks for
+  one instead of writing to the working directory.
   - The wallet's settings move with them: `gui-config.json`, the node's
     `daemon.json` and its `shekyld.stderr` are in `shekyl-gui-wallet` in
     the same root, no longer in the app's config folder

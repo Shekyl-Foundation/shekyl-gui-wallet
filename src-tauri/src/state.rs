@@ -31,6 +31,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
+use crate::account_root::AccountRoot;
 use crate::{engine_session, gui_config};
 use shekyl_engine_core::Network;
 
@@ -76,10 +77,6 @@ impl NetworkType {
     }
 }
 
-/// What a command that needs the wallet directory says when there is none.
-pub const NO_WALLET_DIR: &str =
-    "This account has no home folder, so there is no default wallet folder. Choose a folder for your wallets.";
-
 pub struct AppState {
     // Daemon
     /// The node address a person typed, which the wallet then uses, local
@@ -93,10 +90,13 @@ pub struct AppState {
     pub settings: gui_config::Store,
 
     // Wallet directory / open metadata
-    /// The wallet directory: the person's choice, else
-    /// [`crate::account_root::default_wallet_dir`]. `None` only when the
-    /// account has no home and the person has chosen none; read it through
-    /// [`AppState::wallet_dir`].
+    /// This account's per-account root as the app's start left it: the
+    /// default wallet directory, or why there is none.
+    pub root: AccountRoot,
+    /// The wallet directory: the person's choice, else the root's
+    /// [`AccountRoot::default_wallet_dir`]. `None` only when there is no
+    /// default and the person has chosen none; read it through
+    /// [`AppState::wallet_dir`], which then says why.
     pub wallet_dir: RwLock<Option<PathBuf>>,
     /// `Some(path)` when the persisted wallet-dir override was
     /// unreachable at startup and we fell back to the platform default.
@@ -119,23 +119,28 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// The app's state on mainnet, for a test.
+    /// The app's state on mainnet, for a test: no root, so nothing is read
+    /// from or made in the home of the account the tests run under.
     #[cfg(test)]
     pub fn new() -> Self {
-        Self::on(NetworkType::default(), gui_config::Store::none())
+        Self::on(
+            NetworkType::default(),
+            gui_config::Store::none(),
+            AccountRoot::NoHome,
+        )
     }
 
     /// The app's state on `net`, the network its node starts on, with its
-    /// settings kept in `settings`.
-    pub fn on(net: NetworkType, settings: gui_config::Store) -> Self {
-        let resolved = gui_config::resolve_wallet_dir(
-            settings.load(),
-            crate::account_root::default_wallet_dir(),
-        );
+    /// settings kept in `settings` and its default wallet directory read
+    /// off `root`.
+    pub fn on(net: NetworkType, settings: gui_config::Store, root: AccountRoot) -> Self {
+        let resolved =
+            gui_config::resolve_wallet_dir(settings.load(), root.default_wallet_dir().ok());
         Self {
             node_address: RwLock::new(None),
             network: RwLock::new(net),
             settings,
+            root,
             wallet_dir: RwLock::new(resolved.dir),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
             wallet_open: RwLock::new(false),
@@ -144,13 +149,13 @@ impl AppState {
         }
     }
 
-    /// The wallet directory, or [`NO_WALLET_DIR`] when there is none.
+    /// The wallet directory: the person's choice, else the root's default,
+    /// else the words that say why there is none.
     pub async fn wallet_dir(&self) -> Result<PathBuf, String> {
-        self.wallet_dir
-            .read()
-            .await
-            .clone()
-            .ok_or_else(|| NO_WALLET_DIR.to_owned())
+        match self.wallet_dir.read().await.clone() {
+            Some(dir) => Ok(dir),
+            None => self.root.default_wallet_dir(),
+        }
     }
 
     /// The node address a person typed, if any.
@@ -198,11 +203,34 @@ fn strip_json_rpc(url: &str) -> &str {
 mod wallet_dir_tests {
     use super::*;
 
-    /// With no directory, a command that needs one refuses in words.
+    use crate::account_root::NO_WALLET_DIR;
+
+    /// With no home and no choice, a command that needs the wallet
+    /// directory refuses in words.
     #[tokio::test]
     async fn no_wallet_dir_refuses_in_words() {
         let state = AppState::new();
-        *state.wallet_dir.write().await = None;
+        assert_eq!(*state.wallet_dir.read().await, None);
         assert_eq!(state.wallet_dir().await, Err(NO_WALLET_DIR.to_owned()));
+    }
+
+    /// A root the start could not make gives no default wallet directory:
+    /// a command that needs one says which folder failed and why, and
+    /// nothing makes the root without its protections. Red edit: a
+    /// default read off the root's path whatever the start left (the old
+    /// `default_wallet_dir()`) fails here.
+    #[tokio::test]
+    async fn a_root_not_made_gives_no_wallet_dir_and_says_why() {
+        let root =
+            std::env::temp_dir().join(format!("shekyl-gui-state-root-{}", std::process::id()));
+        let state = AppState::on(
+            NetworkType::Testnet,
+            gui_config::Store::none(),
+            AccountRoot::not_made_at(root.clone()),
+        );
+        assert_eq!(*state.wallet_dir.read().await, None);
+        let words = state.wallet_dir().await.unwrap_err();
+        assert!(words.contains(&root.display().to_string()), "{words}");
+        assert!(!root.exists(), "nothing made the root");
     }
 }

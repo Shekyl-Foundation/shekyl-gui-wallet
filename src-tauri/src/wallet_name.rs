@@ -98,7 +98,7 @@ pub fn sanitize(input: &str) -> String {
 
 /// Ensure the wallet directory exists, making it and any missing parents
 /// (`mkdir -p`). The per-account root it usually sits in was made at the
-/// app's start ([`crate::account_root::ensure_root`]).
+/// app's start ([`crate::account_root::AccountRoot::ensure`]).
 ///
 /// Returns a user-safe error message that does not echo the input path
 /// back, preserving the no-secret-leakage posture asserted in

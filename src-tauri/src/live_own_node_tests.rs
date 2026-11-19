@@ -81,7 +81,7 @@ pub(crate) fn manager_with(
         instance: cfg!(windows).then(|| test_instance(port)),
         extra_args,
     };
-    DaemonManager::new(config_dir, env)
+    DaemonManager::new(Ok(config_dir), env)
 }
 
 /// Wait until the manager's state is `want`, and panic with the state and
@@ -450,7 +450,8 @@ async fn with_testnet_saved_the_first_node_is_a_testnet_node() {
         ..crate::gui_config::GuiConfig::default()
     });
     let network = settings.load().startup_network();
-    let state = crate::state::AppState::on(network, settings);
+    let state =
+        crate::state::AppState::on(network, settings, crate::account_root::AccountRoot::NoHome);
     assert_eq!(*state.network.read().await, NetworkType::Testnet);
 
     let dm = manager(&dir, port);

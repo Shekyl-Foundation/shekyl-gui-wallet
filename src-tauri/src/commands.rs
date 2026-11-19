@@ -45,7 +45,7 @@ use crate::balance::Balance;
 use crate::daemon_rpc;
 use crate::drain_balance::DrainBalance;
 use crate::staking_view::StakingView;
-use crate::state::{self, AppState};
+use crate::state::AppState;
 use crate::validate;
 use crate::wallet_name;
 use shekyl_rpc_client::wire::chain::CurveSelect;
@@ -225,7 +225,7 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
 /// persisted override.
 #[tauri::command]
 pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let default = crate::account_root::default_wallet_dir().ok_or(state::NO_WALLET_DIR)?;
+    let default = state.root.default_wallet_dir()?;
     wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
     let mut cfg = state.settings.load();

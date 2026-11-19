@@ -5,7 +5,7 @@
 
 //! The wallet's node settings: what a person chose for the node the wallet
 //! starts, kept as `daemon.json` in the GUI's settings directory
-//! ([`crate::account_root::settings_dir`]), and read back at the next
+//! ([`crate::account_root::AccountRoot::settings_dir`]), and read back at the next
 //! start.
 
 use std::path::Path;
@@ -27,11 +27,6 @@ pub struct DaemonConfig {
     #[serde(default)]
     pub clearnet_inbound: bool,
 }
-
-/// What the wallet says when the account has no home folder: its node has
-/// nowhere to keep its settings, so it is not started and nothing is saved.
-pub(crate) const NO_SETTINGS_DIR: &str =
-    "This account has no home folder, so the wallet's node has nowhere to keep its settings and is not started.";
 
 impl DaemonConfig {
     pub fn load(config_dir: &Path) -> Self {

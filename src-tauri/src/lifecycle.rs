@@ -423,7 +423,7 @@ mod tests {
         *state.node_address.write().await = Some("http://127.0.0.1:1/json_rpc".into());
 
         let node = DaemonManager::new(
-            dir.0.join("settings"),
+            Ok(dir.0.join("settings")),
             crate::daemon_manager::LaunchEnv::default(),
         );
         let refused = open_wallet_in(&state, &node, "alpha11".into(), password)
@@ -456,6 +456,7 @@ mod tests {
         let state = AppState::on(
             NetworkType::Testnet,
             crate::gui_config::Store::at(dir.0.join("gui-config.json")),
+            crate::account_root::AccountRoot::NoHome,
         );
         *state.wallet_dir.write().await = Some(dir.0.clone());
         *state.node_address.write().await = Some("http://127.0.0.1:1".into());
@@ -466,7 +467,7 @@ mod tests {
             instance: cfg!(windows).then(|| format!("t{}", std::process::id() % 60_000)),
             ..Default::default()
         };
-        let node = DaemonManager::new(dir.0.join("settings"), env);
+        let node = DaemonManager::new(Ok(dir.0.join("settings")), env);
         (dir, state, node)
     }
 

@@ -12,7 +12,6 @@ use tokio::sync::{watch, RwLock};
 use crate::node_launch::{self, Launch, Life, OwnNode};
 use crate::state::NetworkType;
 pub use config::DaemonConfig;
-pub(crate) use config::NO_SETTINGS_DIR;
 
 /// The diagnostic a node refuses its start with while another process
 /// holds its data directory (shekyl-core `shekyl-options`, `DataDirLocked`).
@@ -363,10 +362,11 @@ pub struct DaemonManager {
     inner: RwLock<Inner>,
     config: RwLock<DaemonConfig>,
     /// The GUI's settings directory, where `daemon.json` and the node's
-    /// `shekyld.stderr` are kept ([`crate::account_root::settings_dir`]).
-    /// `None` when the account has no home: the defaults are used, nothing
-    /// is saved, and the node is not started.
-    config_dir: Option<PathBuf>,
+    /// `shekyld.stderr` are kept
+    /// ([`crate::account_root::AccountRoot::settings_dir`]), or the words
+    /// for why there is none: the defaults are then used, nothing is saved,
+    /// and the node is not started.
+    config_dir: Result<PathBuf, String>,
     /// A person's "Stop waiting", read by the flow that waits.
     stop_waiting: watch::Sender<bool>,
     /// Every network a node was launched on, in order, for a test that
@@ -376,8 +376,7 @@ pub struct DaemonManager {
 }
 
 impl DaemonManager {
-    pub(crate) fn new(config_dir: impl Into<Option<PathBuf>>, env: LaunchEnv) -> Arc<Self> {
-        let config_dir = config_dir.into();
+    pub(crate) fn new(config_dir: Result<PathBuf, String>, env: LaunchEnv) -> Arc<Self> {
         let config = config_dir
             .as_deref()
             .map(DaemonConfig::load)
@@ -661,10 +660,12 @@ impl DaemonManager {
             .await;
             return None;
         };
-        let Some(config_dir) = self.config_dir.clone() else {
-            self.set_state(NodeState::Unavailable(NO_SETTINGS_DIR.to_owned()))
-                .await;
-            return None;
+        let config_dir = match self.config_dir.clone() {
+            Ok(dir) => dir,
+            Err(words) => {
+                self.set_state(NodeState::Unavailable(words)).await;
+                return None;
+            }
         };
         let (network, args) = self.launch_args().await;
         let launch = Launch {
@@ -918,7 +919,7 @@ impl DaemonManager {
         if changed == *config {
             return Ok(false);
         }
-        let dir = self.config_dir.as_deref().ok_or(NO_SETTINGS_DIR)?;
+        let dir = self.config_dir.as_deref().map_err(String::clone)?;
         changed.save(dir)?;
         *config = changed;
         Ok(true)

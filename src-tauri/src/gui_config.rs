@@ -5,7 +5,7 @@
 
 //! Persistent GUI preferences stored as `gui-config.json` in the GUI's
 //! settings directory in the per-account root
-//! ([`crate::account_root::settings_dir`]).
+//! ([`AccountRoot::settings_dir`]).
 //!
 //! Today the only persisted item is the user's choice of wallet
 //! directory (set via the Advanced settings dialog). Holding it across
@@ -23,7 +23,7 @@
 //!
 //! Failure is always silent and recoverable: a missing, malformed, or
 //! unreadable config file falls back to the default
-//! ([`crate::account_root::default_wallet_dir`]) without surfacing an error to
+//! ([`AccountRoot::default_wallet_dir`]) without surfacing an error to
 //! the user. The on-write side is best-effort for the same reason —
 //! the GUI must remain usable on read-only filesystems and in container
 //! sandboxes that block writes to the config dir.
@@ -32,6 +32,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tracing::warn;
+
+use crate::account_root::AccountRoot;
 
 /// Filename within the per-app config directory.
 const CONFIG_FILENAME: &str = "gui-config.json";
@@ -98,13 +100,6 @@ fn default_schema_version() -> u32 {
 /// Current schema version. Increment on breaking changes.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// The on-disk path for `gui-config.json`: in the GUI's settings
-/// directory ([`crate::account_root::settings_dir`]). `None` when the
-/// account has no home: nothing is read and nothing is kept.
-pub fn config_path() -> Option<PathBuf> {
-    crate::account_root::settings_dir().map(|dir| dir.join(CONFIG_FILENAME))
-}
-
 /// Where the GUI's settings are kept: one file, named once, when the app
 /// starts. Everything that reads or writes the settings goes through the
 /// store the app's state holds, so a test's state, which names a file of
@@ -114,9 +109,16 @@ pub fn config_path() -> Option<PathBuf> {
 pub struct Store(Option<PathBuf>);
 
 impl Store {
-    /// This account's settings file ([`config_path`]).
-    pub fn of_this_account() -> Self {
-        Self(config_path())
+    /// This account's settings file: `gui-config.json` in the GUI's
+    /// settings directory in `root` ([`AccountRoot::settings_dir`]). None
+    /// when the root has no settings directory (no home, or a root the
+    /// start could not make): nothing is read and nothing is kept.
+    pub fn in_root(root: &AccountRoot) -> Self {
+        Self(
+            root.settings_dir()
+                .ok()
+                .map(|dir| dir.join(CONFIG_FILENAME)),
+        )
     }
 
     /// No file: nothing is read and nothing is kept. A test's store.
@@ -303,7 +305,7 @@ mod tests {
     }
 
     /// A test's own settings directory under `base`, with the file named
-    /// as production names it ([`config_path`]), so a test never touches
+    /// as production names it ([`Store::in_root`]), so a test never touches
     /// the settings of the account it runs under.
     fn test_config_path(base: &Path) -> PathBuf {
         base.join(crate::account_root::SETTINGS_DIR_NAME)
