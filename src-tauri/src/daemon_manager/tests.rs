@@ -173,14 +173,12 @@ fn a_settings_file_with_the_retired_key_still_loads() {
     assert_eq!(config.data_dir.as_deref(), Some("/d"));
 }
 
-/// A test's own directory, removed when it goes.
-#[cfg(unix)]
+/// A test's own directory, removed when it goes, with a socket directory
+/// `s` that is the account's alone on Unix.
 struct TestDir(PathBuf);
 
-#[cfg(unix)]
 impl TestDir {
     fn new(what: &str) -> Self {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!(
             "shekyl-gui-{what}-{}-{}",
             std::process::id(),
@@ -190,12 +188,16 @@ impl TestDir {
                 .as_nanos()
         ));
         std::fs::create_dir_all(dir.join("s")).unwrap();
-        std::fs::set_permissions(dir.join("s"), std::fs::Permissions::from_mode(0o700)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.join("s"), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+        }
         Self(dir)
     }
 }
 
-#[cfg(unix)]
 impl Drop for TestDir {
     fn drop(&mut self) {
         drop(std::fs::remove_dir_all(&self.0));
@@ -525,9 +527,11 @@ async fn two_settings_changed_at_once_both_stick() {
 /// Red edits: in `launch_locked`, fall back to `PathBuf::from(".")` when
 /// there is no settings directory (the old Tauri fallback): a node is
 /// launched; or read the settings directory off the root's path whatever
-/// the start left: the root is made without its protections. Unix: the
-/// test names its own socket directory.
-#[cfg(unix)]
+/// the start left: the root is made without its protections. The test
+/// names its own socket directory (Unix) or instance (Windows), so it
+/// never meets a node of the account it runs under; on Windows, the
+/// platform whose root carries the owner-only and no-read-up protections,
+/// a root not made is the case this pins.
 #[tokio::test(flavor = "multi_thread")]
 async fn with_no_settings_dir_no_node_starts_and_no_setting_is_kept() {
     use crate::account_root::{AccountRoot, NO_SETTINGS_DIR};
@@ -545,8 +549,8 @@ async fn with_no_settings_dir_no_node_starts_and_no_setting_is_kept() {
             program: Some(dir.0.join("no-node-here")),
             tor_file: None,
             service_rendezvous: Some(services.clone()),
-            socket_dir: Some(dir.0.join("s")),
-            instance: None,
+            socket_dir: cfg!(unix).then(|| dir.0.join("s")),
+            instance: cfg!(windows).then(|| format!("nh-{}", std::process::id())),
             extra_args: Vec::new(),
         };
         let words = root.settings_dir().unwrap_err();
