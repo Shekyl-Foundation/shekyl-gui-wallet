@@ -8,9 +8,9 @@
   per-account root shekyl-core names (`shekyl_os_account`), read from the
   account interface rather than `HOME` or `%APPDATA%`. macOS used
   `~/Library/Application Support/shekyl/wallets` and Windows used Roaming
-  `%APPDATA%\shekyl\wallets`, which domain profiles copy to servers. When
-  the wallet makes that root first, it makes it as the node does
-  (owner-only on Windows). An account with no home has no default folder,
+  `%APPDATA%\shekyl\wallets`, which domain profiles copy to servers. The
+  wallet makes that root at its start as the node does (owner-only on
+  Windows). An account with no home has no default folder,
   and the wallet asks for one instead of writing to the working directory.
   - The wallet's settings move with them: `gui-config.json`, the node's
     `daemon.json` and its `shekyld.stderr` are in `shekyl-gui-wallet` in

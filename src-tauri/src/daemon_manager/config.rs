@@ -44,7 +44,7 @@ impl DaemonConfig {
 
     pub fn save(&self, config_dir: &Path) -> Result<(), String> {
         let path = config_dir.join("daemon.json");
-        shekyl_os_account::make_account_dir(config_dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(config_dir).map_err(|e| e.to_string())?;
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(&path, json).map_err(|e| e.to_string())
     }

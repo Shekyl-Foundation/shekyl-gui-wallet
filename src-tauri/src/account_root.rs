@@ -7,10 +7,9 @@
 //! names it (core rule 83 IG-13 and IG-Q29; `shekyl_os_account`):
 //! `~/.shekyl` on Linux, FreeBSD and macOS, `%LOCALAPPDATA%\Shekyl` on
 //! Windows, read from the account interface, never `HOME`, `XDG_*` or
-//! `%APPDATA%`. The wallet directory and the GUI's settings sit in it, and
-//! every directory the GUI makes is made through
-//! `shekyl_os_account::make_account_dir`, so the root is the one the node
-//! makes.
+//! `%APPDATA%`. The wallet directory and the GUI's settings sit in it. The
+//! app makes the root at its start ([`ensure_root`]), as the node makes it,
+//! before anything is made in it.
 
 use std::path::PathBuf;
 
@@ -31,6 +30,23 @@ pub fn default_wallet_dir() -> Option<PathBuf> {
 /// root. `None` when the account has no home: nothing is kept.
 pub fn settings_dir() -> Option<PathBuf> {
     shekyl_os_account::per_account_root().map(|root| root.join(SETTINGS_DIR_NAME))
+}
+
+/// Make this account's per-account root where it does not exist, as the
+/// node makes it (owner-only with the no-read-up label on Windows;
+/// `shekyl_os_account::ensure_per_account_root`). Called once at the app's
+/// start, before anything is made in the root: every directory made in it
+/// afterwards, under whatever spelling of its path, finds it made with its
+/// protections, whichever of the wallet and its node ran first. Nothing to
+/// do when the account has no home. A failure is logged: the directories
+/// that need the root then say what failed when they are made.
+pub fn ensure_root() {
+    let Some(root) = shekyl_os_account::per_account_root() else {
+        return;
+    };
+    if let Err(e) = shekyl_os_account::ensure_per_account_root(&root) {
+        tracing::warn!(root = %root.display(), error = %e, "the per-account root could not be made");
+    }
 }
 
 #[cfg(test)]

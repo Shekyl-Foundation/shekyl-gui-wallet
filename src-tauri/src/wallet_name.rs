@@ -96,14 +96,15 @@ pub fn sanitize(input: &str) -> String {
         .to_string()
 }
 
-/// Ensure the wallet directory exists, making it with
-/// [`shekyl_os_account::make_account_dir`].
+/// Ensure the wallet directory exists, making it and any missing parents
+/// (`mkdir -p`). The per-account root it usually sits in was made at the
+/// app's start ([`crate::account_root::ensure_root`]).
 ///
 /// Returns a user-safe error message that does not echo the input path
 /// back, preserving the no-secret-leakage posture asserted in
 /// [`crate::validate`] tests.
 pub fn ensure_dir_exists(dir: &Path) -> Result<(), String> {
-    match shekyl_os_account::make_account_dir(dir) {
+    match std::fs::create_dir_all(dir) {
         Ok(()) => Ok(()),
         Err(e) => Err(match e.kind() {
             std::io::ErrorKind::PermissionDenied => {

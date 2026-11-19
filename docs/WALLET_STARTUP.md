@@ -117,9 +117,10 @@ the node's data sits in too, as shekyl-core names it (core rule 83 IG-13;
 
 The home is read from the account interface (the passwd entry, or
 `FOLDERID_LocalAppData` on Windows), never from `HOME` or `%APPDATA%`, and
-never Roaming AppData, which copies wallets to domain servers. A wallet
-command that first makes the directory makes the root as the daemon does
-(owner-only on Windows), so the root is the same whichever runs first. An
+never Roaming AppData, which copies wallets to domain servers. The app
+makes the root at its start as the daemon does (owner-only on Windows),
+before it makes anything in it, so the root is the same whichever runs
+first. An
 account with no home has no default: with no reachable override there is
 no wallet directory, and the commands that need one say so.
 

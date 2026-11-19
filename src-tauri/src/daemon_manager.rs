@@ -672,7 +672,7 @@ impl DaemonManager {
             args: args.clone(),
             stderr: config_dir.join("shekyld.stderr"),
         };
-        if let Err(e) = shekyl_os_account::make_account_dir(&config_dir) {
+        if let Err(e) = std::fs::create_dir_all(&config_dir) {
             self.set_state(NodeState::Failed(format!(
                 "The wallet's settings directory {} could not be made: {e}",
                 config_dir.display()

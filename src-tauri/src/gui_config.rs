@@ -200,7 +200,7 @@ fn load_from_path(path: &Path) -> GuiConfig {
 /// as [`save`]: any error is logged and swallowed.
 fn save_to_path(cfg: &GuiConfig, path: &Path) {
     if let Some(parent) = path.parent() {
-        if let Err(e) = shekyl_os_account::make_account_dir(parent) {
+        if let Err(e) = std::fs::create_dir_all(parent) {
             warn!(error = %e, "failed to create gui-config dir; not persisting");
             return;
         }
@@ -271,7 +271,7 @@ pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: Option<PathBuf>) -> Resol
 }
 
 fn probe_dir(path: &Path) -> Result<(), std::io::Error> {
-    shekyl_os_account::make_account_dir(path)?;
+    std::fs::create_dir_all(path)?;
     // Confirm the path actually resolves to a directory after create
     // (handles the "target is a file" / symlink-to-file edge case
     // where create_dir_all succeeds because the path exists).

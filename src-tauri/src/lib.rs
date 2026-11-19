@@ -84,6 +84,9 @@ mod wire_vectors;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The per-account root first, as the node makes it: the settings and
+    // the wallets are made inside it.
+    account_root::ensure_root();
     // The network the person chose last, or mainnet on a fresh install.
     let settings = gui_config::Store::of_this_account();
     let startup_network = settings.load().startup_network();
