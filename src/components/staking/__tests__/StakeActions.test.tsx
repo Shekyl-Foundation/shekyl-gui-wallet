@@ -29,8 +29,9 @@ const DISCARD_FAILED: SendError = {
   reservation: "held",
 };
 const NOT_SAVED: SendError = {
-  code: "SEND_NOT_SAVED",
-  message: "The send was not saved, so it was not sent.",
+  code: "SAVE_NOT_WRITABLE",
+  message:
+    "the send was not saved, so it was not sent — the wallet's folder is not writable; make it writable for this account and submit again, or discard the send",
   reservation: "held",
 };
 
