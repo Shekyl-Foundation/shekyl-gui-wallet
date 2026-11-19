@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+- **A stake that could not be saved says why.** When the wallet cannot
+  save a stake's record safely before sending it (a read-only file, a
+  network drive, a volume that cannot confirm the write), nothing is sent,
+  and the wallet names the cause and what to change before trying again,
+  in the same words the wallet RPC answers with.
+
+- **Wallets live where the node's data does, on every platform.** The
+  default wallet folder is `~/.shekyl/wallets` on Linux, FreeBSD and macOS
+  and `%LOCALAPPDATA%\Shekyl\wallets` on Windows: `wallets` under the
+  per-account root shekyl-core names (`shekyl_os_account`), read from the
+  account interface rather than `HOME` or `%APPDATA%`. macOS used
+  `~/Library/Application Support/shekyl/wallets` and Windows used Roaming
+  `%APPDATA%\shekyl\wallets`, which domain profiles copy to servers. The
+  wallet makes that root at its start as the node does (owner-only on
+  Windows). If it cannot, it makes nothing there: it says which folder
+  failed and why, asks for a wallet folder, and does not start its node.
+  An account with no home has no default folder, and the wallet asks for
+  one instead of writing to the working directory.
+  - The wallet's settings move with them: `gui-config.json`, the node's
+    `daemon.json` and its `shekyld.stderr` are in `shekyl-gui-wallet` in
+    the same root, no longer in the app's config folder
+    (`~/.config/org.shekyl.wallet`, Roaming `%APPDATA%\org.shekyl.wallet`,
+    `~/Library/Application Support/org.shekyl.wallet`). Settings kept
+    there by an earlier version are not read.
+  - So does the shard card render cache, to `shard-visual` in the same
+    folder, out of the app's cache folder (`~/.cache/org.shekyl.wallet`,
+    found through `XDG_CACHE_HOME` or `HOME`). Without a root the cards
+    are drawn on every view and nothing is kept.
+
+- **A send that was not sent stays yours to confirm again or cancel.** When
+  a send could not be saved, or the chain moved under it, or it could not
+  be re-anchored yet, or it needs its inputs chosen again, nothing was sent
+  and the review stays open: confirm to try again once the cause is fixed,
+  or cancel to release the funds. Staking's fund works the same way. A send
+  that may already be on the network is left to the network, as before.
+  Which failures leave the send with you is the engine's answer, not the
+  wallet's own list.
+
 - **The wallet's node no longer reads the machine's daemon settings file.**
   It runs on the wallet's own settings and the daemon's defaults, so a
   service installed on the same computer can no longer stop it from

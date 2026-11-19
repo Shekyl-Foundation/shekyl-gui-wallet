@@ -30,6 +30,7 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
+mod account_root;
 mod balance;
 mod chain_constants;
 mod clipboard;
@@ -83,22 +84,27 @@ mod wire_vectors;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The per-account root first, as the node makes it: the settings and
+    // the wallets are made inside it, and only when it was made with its
+    // protections.
+    let root = account_root::AccountRoot::ensure();
     // The network the person chose last, or mainnet on a fresh install.
-    let settings = gui_config::Store::of_this_account();
+    let settings = gui_config::Store::in_root(&root);
     let startup_network = settings.load().startup_network();
+    // The GUI's settings directory in the per-account root (core rule 83
+    // IG-13), never Tauri's config folder: without a root (no home, or one
+    // the start could not make) the node says it has nowhere to keep its
+    // settings, and why.
+    let config_dir = root.settings_dir();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         // The network is read before anything starts: the node starts on
         // it, and no node runs on another network first.
-        .manage(state::AppState::on(startup_network, settings))
+        .manage(state::AppState::on(startup_network, settings, root))
         .manage(clipboard::ClipboardOwner::new())
         .setup(move |app| {
-            let config_dir = app
-                .path()
-                .app_config_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."));
             let resource_dir = app.path().resource_dir();
             if let Err(e) = &resource_dir {
                 // Without the resource directory the wallet cannot name its

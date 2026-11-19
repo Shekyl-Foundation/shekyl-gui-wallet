@@ -5,12 +5,13 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use shekyl_rpc_transport::local::{LocalFault, LocalTarget};
 use tokio::sync::{watch, RwLock};
 
 use crate::node_launch::{self, Launch, Life, OwnNode};
 use crate::state::NetworkType;
+pub use config::DaemonConfig;
 
 /// The diagnostic a node refuses its start with while another process
 /// holds its data directory (shekyl-core `shekyl-options`, `DataDirLocked`).
@@ -153,38 +154,6 @@ pub(crate) fn may_switch(
 pub(crate) const KEEP_RUNNING_NOT_YET: &str =
     "Keeping the node running after the wallet closes is not yet implemented. \
      The node this wallet starts stops when the wallet closes.";
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DaemonConfig {
-    #[serde(default)]
-    pub data_dir: Option<String>,
-    /// The Tor fix a person took; none is the node's own defaults with the
-    /// bundled Tor (`crate::tor_fix`).
-    #[serde(default)]
-    pub tor_fix: Option<crate::tor_fix::TorFix>,
-    /// Whether the node accepts inbound connections over clearnet. Off by
-    /// default: the wallet's node dials out and takes none (Rick,
-    /// 2026-11-17). On, it listens on its network's peer port.
-    #[serde(default)]
-    pub clearnet_inbound: bool,
-}
-
-impl DaemonConfig {
-    pub fn load(config_dir: &Path) -> Self {
-        let path = config_dir.join("daemon.json");
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
-    }
-
-    pub fn save(&self, config_dir: &Path) -> Result<(), String> {
-        let path = config_dir.join("daemon.json");
-        std::fs::create_dir_all(config_dir).map_err(|e| e.to_string())?;
-        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(&path, json).map_err(|e| e.to_string())
-    }
-}
 
 /// Where the wallet's own node stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,7 +361,12 @@ pub struct DaemonManager {
     lifecycle: tokio::sync::Mutex<()>,
     inner: RwLock<Inner>,
     config: RwLock<DaemonConfig>,
-    config_dir: PathBuf,
+    /// The GUI's settings directory, where `daemon.json` and the node's
+    /// `shekyld.stderr` are kept
+    /// ([`crate::account_root::AccountRoot::settings_dir`]), or the words
+    /// for why there is none: the defaults are then used, nothing is saved,
+    /// and the node is not started.
+    config_dir: Result<PathBuf, String>,
     /// A person's "Stop waiting", read by the flow that waits.
     stop_waiting: watch::Sender<bool>,
     /// Every network a node was launched on, in order, for a test that
@@ -402,8 +376,11 @@ pub struct DaemonManager {
 }
 
 impl DaemonManager {
-    pub(crate) fn new(config_dir: PathBuf, env: LaunchEnv) -> Arc<Self> {
-        let config = DaemonConfig::load(&config_dir);
+    pub(crate) fn new(config_dir: Result<PathBuf, String>, env: LaunchEnv) -> Arc<Self> {
+        let config = config_dir
+            .as_deref()
+            .map(DaemonConfig::load)
+            .unwrap_or_default();
         Arc::new(Self {
             env,
             lifecycle: tokio::sync::Mutex::new(()),
@@ -683,16 +660,23 @@ impl DaemonManager {
             .await;
             return None;
         };
+        let config_dir = match self.config_dir.clone() {
+            Ok(dir) => dir,
+            Err(words) => {
+                self.set_state(NodeState::Unavailable(words)).await;
+                return None;
+            }
+        };
         let (network, args) = self.launch_args().await;
         let launch = Launch {
             program,
             args: args.clone(),
-            stderr: self.config_dir.join("shekyld.stderr"),
+            stderr: config_dir.join("shekyld.stderr"),
         };
-        if let Err(e) = std::fs::create_dir_all(&self.config_dir) {
+        if let Err(e) = std::fs::create_dir_all(&config_dir) {
             self.set_state(NodeState::Failed(format!(
                 "The wallet's settings directory {} could not be made: {e}",
-                self.config_dir.display()
+                config_dir.display()
             )))
             .await;
             return None;
@@ -935,12 +919,14 @@ impl DaemonManager {
         if changed == *config {
             return Ok(false);
         }
-        changed.save(&self.config_dir)?;
+        let dir = self.config_dir.as_deref().map_err(String::clone)?;
+        changed.save(dir)?;
         *config = changed;
         Ok(true)
     }
 }
 
+mod config;
 mod engine;
 mod payout;
 mod replace;
