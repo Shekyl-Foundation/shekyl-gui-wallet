@@ -225,7 +225,7 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
 /// persisted override.
 #[tauri::command]
 pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let default = state::default_wallet_dir().ok_or(state::NO_WALLET_DIR)?;
+    let default = crate::account_root::default_wallet_dir().ok_or(state::NO_WALLET_DIR)?;
     wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
     let mut cfg = state.settings.load();

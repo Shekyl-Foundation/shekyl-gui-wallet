@@ -96,28 +96,14 @@ pub fn sanitize(input: &str) -> String {
         .to_string()
 }
 
-/// Make the wallet directory `dir` and any missing parents (`mkdir -p`).
-/// A directory inside this account's per-account root has the root made
-/// first, as the daemon makes it (owner-only on Windows; core
-/// `shekyl_os_account::ensure_per_account_root`), so the root is the same
-/// whichever of the wallet and the node makes it first.
-///
-/// # Errors
-/// The root or the directory could not be made.
-pub fn make_dir(dir: &Path) -> std::io::Result<()> {
-    if let Some(root) = shekyl_os_account::per_account_root().filter(|root| dir.starts_with(root)) {
-        shekyl_os_account::ensure_per_account_root(&root)?;
-    }
-    std::fs::create_dir_all(dir)
-}
-
-/// Ensure the wallet directory exists, making it with [`make_dir`].
+/// Ensure the wallet directory exists, making it with
+/// [`shekyl_os_account::make_account_dir`].
 ///
 /// Returns a user-safe error message that does not echo the input path
 /// back, preserving the no-secret-leakage posture asserted in
 /// [`crate::validate`] tests.
 pub fn ensure_dir_exists(dir: &Path) -> Result<(), String> {
-    match make_dir(dir) {
+    match shekyl_os_account::make_account_dir(dir) {
         Ok(()) => Ok(()),
         Err(e) => Err(match e.kind() {
             std::io::ErrorKind::PermissionDenied => {

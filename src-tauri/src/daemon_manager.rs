@@ -169,6 +169,11 @@ pub struct DaemonConfig {
     pub clearnet_inbound: bool,
 }
 
+/// What the wallet says when the account has no home folder: its node has
+/// nowhere to keep its settings, so it is not started and nothing is saved.
+pub(crate) const NO_SETTINGS_DIR: &str =
+    "This account has no home folder, so the wallet's node has nowhere to keep its settings and is not started.";
+
 impl DaemonConfig {
     pub fn load(config_dir: &Path) -> Self {
         let path = config_dir.join("daemon.json");
@@ -180,7 +185,7 @@ impl DaemonConfig {
 
     pub fn save(&self, config_dir: &Path) -> Result<(), String> {
         let path = config_dir.join("daemon.json");
-        std::fs::create_dir_all(config_dir).map_err(|e| e.to_string())?;
+        shekyl_os_account::make_account_dir(config_dir).map_err(|e| e.to_string())?;
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(&path, json).map_err(|e| e.to_string())
     }
@@ -392,7 +397,11 @@ pub struct DaemonManager {
     lifecycle: tokio::sync::Mutex<()>,
     inner: RwLock<Inner>,
     config: RwLock<DaemonConfig>,
-    config_dir: PathBuf,
+    /// The GUI's settings directory, where `daemon.json` and the node's
+    /// `shekyld.stderr` are kept ([`crate::account_root::settings_dir`]).
+    /// `None` when the account has no home: the defaults are used, nothing
+    /// is saved, and the node is not started.
+    config_dir: Option<PathBuf>,
     /// A person's "Stop waiting", read by the flow that waits.
     stop_waiting: watch::Sender<bool>,
     /// Every network a node was launched on, in order, for a test that
@@ -402,8 +411,12 @@ pub struct DaemonManager {
 }
 
 impl DaemonManager {
-    pub(crate) fn new(config_dir: PathBuf, env: LaunchEnv) -> Arc<Self> {
-        let config = DaemonConfig::load(&config_dir);
+    pub(crate) fn new(config_dir: impl Into<Option<PathBuf>>, env: LaunchEnv) -> Arc<Self> {
+        let config_dir = config_dir.into();
+        let config = config_dir
+            .as_deref()
+            .map(DaemonConfig::load)
+            .unwrap_or_default();
         Arc::new(Self {
             env,
             lifecycle: tokio::sync::Mutex::new(()),
@@ -683,16 +696,21 @@ impl DaemonManager {
             .await;
             return None;
         };
+        let Some(config_dir) = self.config_dir.clone() else {
+            self.set_state(NodeState::Unavailable(NO_SETTINGS_DIR.to_owned()))
+                .await;
+            return None;
+        };
         let (network, args) = self.launch_args().await;
         let launch = Launch {
             program,
             args: args.clone(),
-            stderr: self.config_dir.join("shekyld.stderr"),
+            stderr: config_dir.join("shekyld.stderr"),
         };
-        if let Err(e) = std::fs::create_dir_all(&self.config_dir) {
+        if let Err(e) = shekyl_os_account::make_account_dir(&config_dir) {
             self.set_state(NodeState::Failed(format!(
                 "The wallet's settings directory {} could not be made: {e}",
-                self.config_dir.display()
+                config_dir.display()
             )))
             .await;
             return None;
@@ -935,7 +953,8 @@ impl DaemonManager {
         if changed == *config {
             return Ok(false);
         }
-        changed.save(&self.config_dir)?;
+        let dir = self.config_dir.as_deref().ok_or(NO_SETTINGS_DIR)?;
+        changed.save(dir)?;
         *config = changed;
         Ok(true)
     }

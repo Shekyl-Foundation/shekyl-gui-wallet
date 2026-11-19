@@ -131,11 +131,15 @@ disclosure on the Create, Import, and Unlock screens. The Tauri commands
 this UI; `set_wallet_dir` validates the path, runs `mkdir -p` on it, and
 refreshes the wallet-file list.
 
-The override persists across launches via `gui-config.json` in the
-Tauri app-config dir (`~/.config/org.shekyl.wallet/gui-config.json` on
-Linux, `~/Library/Application Support/org.shekyl.wallet/gui-config.json`
-on macOS, `%APPDATA%\org.shekyl.wallet\gui-config.json` on Windows;
-see `src-tauri/src/gui_config.rs`). At startup, `AppState::new` reads
+The override persists across launches via `gui-config.json` in the GUI's
+settings directory, `shekyl-gui-wallet` in the per-account root
+(`~/.shekyl/shekyl-gui-wallet/gui-config.json`, or
+`%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\gui-config.json` on Windows;
+`src-tauri/src/account_root.rs`, `src-tauri/src/gui_config.rs`), never
+Tauri's config folder (`XDG_CONFIG_HOME`, Roaming AppData). The node's
+settings (`daemon.json`) and its error output (`shekyld.stderr`) sit
+beside it. An account with no home keeps no settings, and the wallet's
+node says it has nowhere to keep them and is not started. At startup, `AppState::new` reads
 the override and probes the directory. If the override is missing,
 malformed, or unreachable (permission denied, target-is-a-file, broken
 symlink), the app silently falls back to the default; the

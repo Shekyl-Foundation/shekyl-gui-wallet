@@ -76,15 +76,6 @@ impl NetworkType {
     }
 }
 
-/// The wallet directory when the person names none: `wallets` under this
-/// account's per-account root, the one the node's data sits in too, as core
-/// names it (rule 83 IG-13; `shekyl_os_account`): `~/.shekyl/wallets`, or
-/// `%LOCALAPPDATA%\Shekyl\wallets` on Windows. `None` when the account has
-/// no home: there is then no default, and the person chooses a directory.
-pub fn default_wallet_dir() -> Option<PathBuf> {
-    shekyl_os_account::per_account_root().map(|root| shekyl_os_account::wallet_dir_in(&root))
-}
-
 /// What a command that needs the wallet directory says when there is none.
 pub const NO_WALLET_DIR: &str =
     "This account has no home folder, so there is no default wallet folder. Choose a folder for your wallets.";
@@ -103,8 +94,9 @@ pub struct AppState {
 
     // Wallet directory / open metadata
     /// The wallet directory: the person's choice, else
-    /// [`default_wallet_dir`]. `None` only when the account has no home and
-    /// the person has chosen none; read it through [`AppState::wallet_dir`].
+    /// [`crate::account_root::default_wallet_dir`]. `None` only when the
+    /// account has no home and the person has chosen none; read it through
+    /// [`AppState::wallet_dir`].
     pub wallet_dir: RwLock<Option<PathBuf>>,
     /// `Some(path)` when the persisted wallet-dir override was
     /// unreachable at startup and we fell back to the platform default.
@@ -136,7 +128,10 @@ impl AppState {
     /// The app's state on `net`, the network its node starts on, with its
     /// settings kept in `settings`.
     pub fn on(net: NetworkType, settings: gui_config::Store) -> Self {
-        let resolved = gui_config::resolve_wallet_dir(settings.load(), default_wallet_dir());
+        let resolved = gui_config::resolve_wallet_dir(
+            settings.load(),
+            crate::account_root::default_wallet_dir(),
+        );
         Self {
             node_address: RwLock::new(None),
             network: RwLock::new(net),
@@ -202,19 +197,6 @@ fn strip_json_rpc(url: &str) -> &str {
 #[cfg(test)]
 mod wallet_dir_tests {
     use super::*;
-
-    /// The default wallet directory is `wallets` under core's per-account
-    /// root (rule 83 IG-13), pinned as the rule states it: never Roaming
-    /// AppData or `Application Support`, which the regenesis upgrade does not
-    /// clear. Red edit: the old per-platform defaults
-    /// (`%APPDATA%\shekyl\wallets`, `~/Library/Application
-    /// Support/shekyl/wallets`) fail on Windows and macOS.
-    #[test]
-    fn the_default_wallet_dir_is_wallets_in_the_per_account_root() {
-        let home = shekyl_os_account::account_home().expect("the test account has a home");
-        let root = if cfg!(windows) { "Shekyl" } else { ".shekyl" };
-        assert_eq!(default_wallet_dir(), Some(home.join(root).join("wallets")));
-    }
 
     /// With no directory, a command that needs one refuses in words.
     #[tokio::test]

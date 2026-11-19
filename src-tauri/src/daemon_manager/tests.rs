@@ -508,3 +508,37 @@ async fn two_settings_changed_at_once_both_stick() {
     );
     drop(std::fs::remove_dir_all(&dir));
 }
+
+/// **An account with no home: the node has nowhere to keep its settings,
+/// so it is not started, and a settings change is refused, both in
+/// words** (core rule 83 IG-13: no home, no default paths). Red edit: in
+/// `launch_locked`, fall back to `PathBuf::from(".")` when there is no
+/// settings directory (the old Tauri fallback): a node is launched.
+/// Unix: the test names its own socket directory.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn with_no_settings_dir_no_node_starts_and_no_setting_is_kept() {
+    let dir = TestDir::new("no-home");
+    let services = dir.0.join("services");
+    std::fs::create_dir_all(&services).unwrap();
+    let env = LaunchEnv {
+        // A program that is never run: the test fails if anything launches.
+        program: Some(dir.0.join("no-node-here")),
+        tor_file: None,
+        service_rendezvous: Some(services),
+        socket_dir: Some(dir.0.join("s")),
+        instance: None,
+        extra_args: Vec::new(),
+    };
+    let dm = DaemonManager::new(None, env);
+    dm.start(NetworkType::Testnet).await;
+
+    let status = dm.status().await;
+    assert_eq!(status.state, "unavailable", "{status:?}");
+    assert_eq!(status.message.as_deref(), Some(NO_SETTINGS_DIR));
+    assert!(dm.launched().is_empty(), "no node is launched");
+    assert_eq!(
+        dm.change_config(|c| c.clearnet_inbound = true).await,
+        Err(NO_SETTINGS_DIR.to_owned())
+    );
+}

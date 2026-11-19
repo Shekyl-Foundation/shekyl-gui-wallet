@@ -30,6 +30,7 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
+mod account_root;
 mod balance;
 mod chain_constants;
 mod clipboard;
@@ -95,10 +96,11 @@ pub fn run() {
         .manage(state::AppState::on(startup_network, settings))
         .manage(clipboard::ClipboardOwner::new())
         .setup(move |app| {
-            let config_dir = app
-                .path()
-                .app_config_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            // The GUI's settings directory in the per-account root (core
+            // rule 83 IG-13), never Tauri's config folder: `None` when the
+            // account has no home, and the node then says it has nowhere
+            // to keep its settings.
+            let config_dir = account_root::settings_dir();
             let resource_dir = app.path().resource_dir();
             if let Err(e) = &resource_dir {
                 // Without the resource directory the wallet cannot name its

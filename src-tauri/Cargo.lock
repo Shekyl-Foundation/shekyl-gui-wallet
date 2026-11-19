@@ -1389,15 +1389,6 @@ dependencies = [
 
 [[package]]
 name = "dirs"
-version = "6.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
-dependencies = [
- "dirs-sys",
-]
-
-[[package]]
-name = "dirs"
 version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d57d423b3c82e89b9a24ca3091fee61f456a26edbd28d26c65906f4bc1dcd8f"
@@ -5895,8 +5886,8 @@ dependencies = [
  "shekyl-crypto-pq",
  "shekyl-engine-prefs",
  "shekyl-engine-state",
+ "shekyl-os-account",
  "shekyl-types",
- "tempfile",
  "thiserror 2.0.21",
  "tracing",
  "zeroize",
@@ -5908,11 +5899,10 @@ version = "3.1.0"
 dependencies = [
  "hkdf",
  "hmac",
- "rustix",
  "serde",
  "sha2 0.10.9",
+ "shekyl-os-account",
  "shekyl-units",
- "tempfile",
  "thiserror 2.0.21",
  "toml 0.8.2",
  "tracing",
@@ -6429,6 +6419,7 @@ dependencies = [
  "sha2 0.10.9",
  "shekyl-onion-key",
  "shekyl-onion-v3",
+ "shekyl-os-account",
  "shekyl-spawn",
  "shekyl-timing-engine",
  "shekyl-tor-status",
@@ -6444,6 +6435,7 @@ version = "3.1.0"
 dependencies = [
  "getrandom 0.2.17",
  "kameo",
+ "shekyl-os-account",
  "shekyl-tor-control-client",
  "tokio",
 ]
@@ -6529,7 +6521,6 @@ name = "shekyl-wallet"
 version = "3.1.0+alpha.11"
 dependencies = [
  "base64 0.22.1",
- "dirs 6.0.0",
  "hex",
  "libc",
  "proptest",
@@ -7006,7 +6997,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "cookie",
- "dirs 7.0.0",
+ "dirs",
  "dunce",
  "embed_plist",
  "getrandom 0.3.4",
@@ -7056,7 +7047,7 @@ checksum = "73d80784e874fa117b9b00a6680cf2f9b8a51bbd14406bea980cf8f328b00646"
 dependencies = [
  "anyhow",
  "cargo_toml",
- "dirs 7.0.0",
+ "dirs",
  "glob",
  "heck 0.5.0",
  "json-patch",
@@ -7714,7 +7705,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2b9c52859a94554803ccd4a24b98f74148ebc73b90676d783f3490b1bff9d72"
 dependencies = [
  "crossbeam-channel",
- "dirs 7.0.0",
+ "dirs",
  "libappindicator",
  "muda",
  "objc2",
@@ -8746,7 +8737,7 @@ dependencies = [
  "block2",
  "cookie",
  "crossbeam-channel",
- "dirs 7.0.0",
+ "dirs",
  "dom_query 0.29.0",
  "dpi",
  "dunce",

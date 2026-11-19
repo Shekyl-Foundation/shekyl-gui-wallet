@@ -12,6 +12,12 @@
   the wallet makes that root first, it makes it as the node does
   (owner-only on Windows). An account with no home has no default folder,
   and the wallet asks for one instead of writing to the working directory.
+  - The wallet's settings move with them: `gui-config.json`, the node's
+    `daemon.json` and its `shekyld.stderr` are in `shekyl-gui-wallet` in
+    the same root, no longer in the app's config folder
+    (`~/.config/org.shekyl.wallet`, Roaming `%APPDATA%\org.shekyl.wallet`,
+    `~/Library/Application Support/org.shekyl.wallet`). Settings kept
+    there by an earlier version are not read.
 
 - **The wallet's node no longer reads the machine's daemon settings file.**
   It runs on the wallet's own settings and the daemon's defaults, so a

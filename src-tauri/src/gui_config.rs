@@ -3,8 +3,9 @@
 // All rights reserved.
 // BSD-3-Clause
 
-//! Persistent GUI preferences stored as `gui-config.json` in the
-//! platform's per-app config directory.
+//! Persistent GUI preferences stored as `gui-config.json` in the GUI's
+//! settings directory in the per-account root
+//! ([`crate::account_root::settings_dir`]).
 //!
 //! Today the only persisted item is the user's choice of wallet
 //! directory (set via the Advanced settings dialog). Holding it across
@@ -21,8 +22,8 @@
 //! ```
 //!
 //! Failure is always silent and recoverable: a missing, malformed, or
-//! unreadable config file falls back to the platform default
-//! ([`crate::state::default_wallet_dir`]) without surfacing an error to
+//! unreadable config file falls back to the default
+//! ([`crate::account_root::default_wallet_dir`]) without surfacing an error to
 //! the user. The on-write side is best-effort for the same reason —
 //! the GUI must remain usable on read-only filesystems and in container
 //! sandboxes that block writes to the config dir.
@@ -31,13 +32,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tracing::warn;
-
-/// Bundle identifier used for the per-app config directory.
-///
-/// Must match `tauri.conf.json` `identifier`. Mirrors Tauri v2's
-/// `PathResolver::app_config_dir` mapping so the persisted file lands
-/// in the same place across release channels.
-const BUNDLE_IDENTIFIER: &str = "org.shekyl.wallet";
 
 /// Filename within the per-app config directory.
 const CONFIG_FILENAME: &str = "gui-config.json";
@@ -104,22 +98,11 @@ fn default_schema_version() -> u32 {
 /// Current schema version. Increment on breaking changes.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// Resolve the on-disk path for `gui-config.json`.
-///
-/// Returns `None` if the platform doesn't expose a config directory at
-/// all (extremely rare; only happens on stripped-down embedded
-/// targets). Callers must treat `None` the same as "file missing" —
-/// fall back to defaults silently.
+/// The on-disk path for `gui-config.json`: in the GUI's settings
+/// directory ([`crate::account_root::settings_dir`]). `None` when the
+/// account has no home: nothing is read and nothing is kept.
 pub fn config_path() -> Option<PathBuf> {
-    Some(config_path_in(dirs::config_dir()?))
-}
-
-/// Test-overrideable variant: compose the config-file path under an
-/// explicit base directory. Production code goes through
-/// [`config_path`]; tests inject a [`tempfile::TempDir`]-like base so
-/// they don't touch the developer's real config.
-fn config_path_in(base: PathBuf) -> PathBuf {
-    base.join(BUNDLE_IDENTIFIER).join(CONFIG_FILENAME)
+    crate::account_root::settings_dir().map(|dir| dir.join(CONFIG_FILENAME))
 }
 
 /// Where the GUI's settings are kept: one file, named once, when the app
@@ -217,7 +200,7 @@ fn load_from_path(path: &Path) -> GuiConfig {
 /// as [`save`]: any error is logged and swallowed.
 fn save_to_path(cfg: &GuiConfig, path: &Path) {
     if let Some(parent) = path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
+        if let Err(e) = shekyl_os_account::make_account_dir(parent) {
             warn!(error = %e, "failed to create gui-config dir; not persisting");
             return;
         }
@@ -288,7 +271,7 @@ pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: Option<PathBuf>) -> Resol
 }
 
 fn probe_dir(path: &Path) -> Result<(), std::io::Error> {
-    crate::wallet_name::make_dir(path)?;
+    shekyl_os_account::make_account_dir(path)?;
     // Confirm the path actually resolves to a directory after create
     // (handles the "target is a file" / symlink-to-file edge case
     // where create_dir_all succeeds because the path exists).
@@ -319,11 +302,12 @@ mod tests {
         dir
     }
 
-    /// Same composition rule as production [`config_path`], but rooted
-    /// at the caller-supplied base instead of the OS-derived config
-    /// dir. Mirrors [`config_path_in`].
+    /// A test's own settings directory under `base`, with the file named
+    /// as production names it ([`config_path`]), so a test never touches
+    /// the settings of the account it runs under.
     fn test_config_path(base: &Path) -> PathBuf {
-        base.join(BUNDLE_IDENTIFIER).join(CONFIG_FILENAME)
+        base.join(crate::account_root::SETTINGS_DIR_NAME)
+            .join(CONFIG_FILENAME)
     }
 
     /// [`resolve_wallet_dir`] over a test's own config file.
