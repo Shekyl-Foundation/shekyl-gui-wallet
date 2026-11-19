@@ -5,12 +5,14 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use shekyl_rpc_transport::local::{LocalFault, LocalTarget};
 use tokio::sync::{watch, RwLock};
 
 use crate::node_launch::{self, Launch, Life, OwnNode};
 use crate::state::NetworkType;
+pub use config::DaemonConfig;
+pub(crate) use config::NO_SETTINGS_DIR;
 
 /// The diagnostic a node refuses its start with while another process
 /// holds its data directory (shekyl-core `shekyl-options`, `DataDirLocked`).
@@ -153,43 +155,6 @@ pub(crate) fn may_switch(
 pub(crate) const KEEP_RUNNING_NOT_YET: &str =
     "Keeping the node running after the wallet closes is not yet implemented. \
      The node this wallet starts stops when the wallet closes.";
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DaemonConfig {
-    #[serde(default)]
-    pub data_dir: Option<String>,
-    /// The Tor fix a person took; none is the node's own defaults with the
-    /// bundled Tor (`crate::tor_fix`).
-    #[serde(default)]
-    pub tor_fix: Option<crate::tor_fix::TorFix>,
-    /// Whether the node accepts inbound connections over clearnet. Off by
-    /// default: the wallet's node dials out and takes none (Rick,
-    /// 2026-11-17). On, it listens on its network's peer port.
-    #[serde(default)]
-    pub clearnet_inbound: bool,
-}
-
-/// What the wallet says when the account has no home folder: its node has
-/// nowhere to keep its settings, so it is not started and nothing is saved.
-pub(crate) const NO_SETTINGS_DIR: &str =
-    "This account has no home folder, so the wallet's node has nowhere to keep its settings and is not started.";
-
-impl DaemonConfig {
-    pub fn load(config_dir: &Path) -> Self {
-        let path = config_dir.join("daemon.json");
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
-    }
-
-    pub fn save(&self, config_dir: &Path) -> Result<(), String> {
-        let path = config_dir.join("daemon.json");
-        shekyl_os_account::make_account_dir(config_dir).map_err(|e| e.to_string())?;
-        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(&path, json).map_err(|e| e.to_string())
-    }
-}
 
 /// Where the wallet's own node stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -960,6 +925,7 @@ impl DaemonManager {
     }
 }
 
+mod config;
 mod engine;
 mod payout;
 mod replace;
