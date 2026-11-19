@@ -8,6 +8,15 @@
   and the wallet names the cause and what to change before trying again,
   in the same words the wallet RPC answers with.
 
+- **A send that was not sent stays yours to confirm again or cancel.** When
+  a send could not be saved, or the chain moved under it, or it could not
+  be re-anchored yet, or it needs its inputs chosen again, nothing was sent
+  and the review stays open: confirm to try again once the cause is fixed,
+  or cancel to release the funds. Staking's fund works the same way. A send
+  that may already be on the network is left to the network, as before.
+  Which failures leave the send with you is the engine's answer, not the
+  wallet's own list.
+
 - **The wallet's node no longer reads the machine's daemon settings file.**
   It runs on the wallet's own settings and the daemon's defaults, so a
   service installed on the same computer can no longer stop it from
