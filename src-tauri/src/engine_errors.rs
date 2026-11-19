@@ -17,7 +17,7 @@ use shekyl_crypto_pq::wallet_envelope::WalletEnvelopeError;
 use shekyl_engine_core::{FirstStakeError, IoError, OpenError, RefreshError};
 use shekyl_engine_file::WalletFileError;
 use shekyl_rpc_client::DaemonFault;
-use shekyl_wallet_contract::error::WalletRpcError;
+use shekyl_wallet_contract::error::{from_unsaved_send, SaveOf, WalletRpcError};
 
 /// Open, create and close failures as operator text: the wallet contract's
 /// message for the cause (`shekyl-wallet-contract`), the same words the
@@ -204,6 +204,13 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
             "staking recovered an earlier attempt in this session; close and reopen \
              the wallet to finish, then check your staking status"
                 .into()
+        }
+        // The bond's seal was not saved, so nothing was sent and the seal
+        // was taken back: the save's own cause and remedy, in the
+        // contract's words — the same answer `stake` gives over the wallet
+        // RPC (a FAT volume, a network drive, a read-only file).
+        FirstStakeError::SealNotSaved(cause) => {
+            from_unsaved_send(&cause, SaveOf::Staking).message()
         }
         FirstStakeError::FeeUnreasonable(v) => {
             format!(
@@ -401,5 +408,25 @@ mod tests {
         let refusal = OpenRefusal::from(String::from("Wallet file not found"));
         assert_eq!(refusal.kind, OpenRefusalKind::Other);
         assert_eq!(refusal.message, "Wallet file not found");
+    }
+
+    /// A stake whose seal could not be saved answers the save's own cause
+    /// and remedy, in the staking wording: nothing was sent, try again — never
+    /// the mid-flow "call activate again" text, which would send the user
+    /// back into the same unsaved write.
+    #[test]
+    fn an_unsaved_stake_seal_names_the_save_cause() {
+        use shekyl_engine_core::PersistenceError;
+        use shekyl_engine_file::Unconfirmed;
+        let message = map_first_stake_err(FirstStakeError::SealNotSaved(
+            PersistenceError::DurabilityUnconfirmed(Unconfirmed::Remote("NTFS".to_owned())),
+        ));
+        assert!(
+            message.starts_with("the staking transaction was not sent")
+                && message.contains("local drive")
+                && !message.contains("activate")
+                && !message.contains("discard"),
+            "{message}"
+        );
     }
 }

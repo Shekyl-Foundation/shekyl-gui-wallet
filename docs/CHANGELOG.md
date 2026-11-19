@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **A stake that could not be saved says why.** When the wallet cannot
+  save a stake's record safely before sending it (a read-only file, a
+  network drive, a volume that cannot confirm the write), nothing is sent,
+  and the wallet names the cause and what to change before trying again,
+  in the same words the wallet RPC answers with.
+
 - **Wallets live where the node's data does, on every platform.** The
   default wallet folder is `~/.shekyl/wallets` on Linux, FreeBSD and macOS
   and `%LOCALAPPDATA%\Shekyl\wallets` on Windows: `wallets` under the
@@ -33,6 +39,7 @@
   that may already be on the network is left to the network, as before.
   Which failures leave the send with you is the engine's answer, not the
   wallet's own list.
+
 - **The wallet's node no longer reads the machine's daemon settings file.**
   It runs on the wallet's own settings and the daemon's defaults, so a
   service installed on the same computer can no longer stop it from
