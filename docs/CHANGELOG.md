@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **A stake that could not be saved says why.** When the wallet cannot
+  save a stake's record safely before sending it (a read-only file, a
+  network drive, a volume that cannot confirm the write), nothing is sent,
+  and the wallet names the cause and what to change before trying again,
+  in the same words the wallet RPC answers with.
+
 - **The wallet's node no longer reads the machine's daemon settings file.**
   It runs on the wallet's own settings and the daemon's defaults, so a
   service installed on the same computer can no longer stop it from
