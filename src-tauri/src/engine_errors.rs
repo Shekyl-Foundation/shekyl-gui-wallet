@@ -200,6 +200,11 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
              written and your funds were not touched"
                 .into()
         }
+        // Core fills the persona body store before it posts (WSS-Q4); its
+        // refusals already name their remedies in plain words. The desktop
+        // wallet stakes Market, which refuses before any fill, so this arm
+        // is for the day it does not.
+        fill @ FirstStakeError::Fill(_) => fill.to_string(),
         FirstStakeError::RecoveredPendingReopen => {
             "staking recovered an earlier attempt in this session; close and reopen \
              the wallet to finish, then check your staking status"
