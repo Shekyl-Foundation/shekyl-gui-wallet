@@ -278,8 +278,9 @@ mod tests {
 
     /// The render cache is in the GUI's directory in the per-account root
     /// (core rule 83 IG-13), and there is none without a root. Red edit:
-    /// the old `app_cache_dir()` (`~/.cache/org.shekyl.wallet`, found
-    /// through `XDG_CACHE_HOME` or `HOME`) fails the first assertion.
+    /// read the cache off the root's path whatever the start left (a
+    /// `NotMade` root's path), and a cache write would make the root
+    /// without its protections: the last assertion fails.
     #[test]
     fn the_render_cache_is_in_the_per_account_root_or_nowhere() {
         let root = std::env::temp_dir().join("shekyl-gui-shard-root");
@@ -293,7 +294,9 @@ mod tests {
 
     /// With a cache directory a render is kept there and read back; with
     /// none it is drawn all the same and nothing is kept, so a wallet
-    /// whose root could not be made still draws its cards.
+    /// whose root could not be made still draws its cards. Red edit: skip
+    /// the read in `render_cached` (render on every view, the cost the
+    /// cache exists to spare the floor device): the last assertion fails.
     #[test]
     fn a_render_is_kept_in_its_cache_and_drawn_without_one() {
         let fixture = fixtures::all().into_iter().next().expect("a fixture");
