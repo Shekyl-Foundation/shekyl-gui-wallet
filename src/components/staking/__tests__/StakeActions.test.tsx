@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import StakeActions from "../StakeActions";
-import { CONTENT_CHANGED_NOTICE, RELEASE_FAILED_ADVICE, RETAINED_ADVICE } from "../../../types/send";
+import {
+  CONTENT_CHANGED_NOTICE,
+  HELD_ADVICE,
+  IN_FLIGHT_ADVICE,
+  RELEASE_FAILED_ADVICE,
+} from "../../../types/send";
 import type { BuiltPendingTx, SendError } from "../../../types/send";
 
 const BUILT: BuiltPendingTx = { pending_tx_id: "42", fee: "250000000", content_gen: 3 };
@@ -11,17 +16,22 @@ const REBUILT: BuiltPendingTx = { pending_tx_id: "43", fee: "350000000", content
 const MISMATCH: SendError = {
   code: "CONTENT_GEN_MISMATCH",
   message: "content generation mismatch",
-  reservation_retained: true,
+  reservation: "held",
 };
 const AMBIGUOUS: SendError = {
   code: "SUBMIT_AMBIGUOUS",
   message: "daemon submit ambiguous",
-  reservation_retained: true,
+  reservation: "in-flight",
 };
 const DISCARD_FAILED: SendError = {
   code: "INTERNAL_ERROR",
   message: "discard transaction: io",
-  reservation_retained: true,
+  reservation: "held",
+};
+const NOT_SAVED: SendError = {
+  code: "SEND_NOT_SAVED",
+  message: "The send was not saved, so it was not sent.",
+  reservation: "held",
 };
 
 type Handler = (args?: Record<string, unknown>) => unknown;
@@ -84,7 +94,34 @@ describe("StakeActions fund reservation", () => {
     expect(calls("discard_pending_tx")).toHaveLength(1);
   });
 
-  it("does not discard a reservation the engine kept", async () => {
+  /**
+   * A fund that was not saved sent nothing; its reservation is still the
+   * page's (finding on #74). The review stays, Fund stake submits the same
+   * reservation again, and Cancel would release it. Red edit: treat `held`
+   * as in flight (the review is gone, its inputs locked).
+   */
+  it("keeps a held reservation under review, to fund again or cancel", async () => {
+    let submits = 0;
+    route({
+      stake_in: () => BUILT,
+      submit_pending_tx: () => {
+        submits += 1;
+        if (submits === 1) throw NOT_SAVED;
+        return { tx_hash: "ab".repeat(32), verdict: "ACCEPTED", verdict_saved: true, confirmed_height: null };
+      },
+    });
+    const user = await review();
+    await user.click(screen.getByRole("button", { name: "Fund stake" }));
+    expect(await screen.findByText(new RegExp(HELD_ADVICE))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(calls("discard_pending_tx")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Fund stake" }));
+    expect(calls("submit_pending_tx")).toHaveLength(2);
+    expect(calls("submit_pending_tx")[1]?.[1]).toEqual({ pendingTxId: "42", seenGen: 3 });
+    expect(calls("stake_in")).toHaveLength(1);
+  });
+
+  it("does not discard a reservation in flight", async () => {
     route({
       stake_in: () => BUILT,
       submit_pending_tx: () => {
@@ -93,7 +130,7 @@ describe("StakeActions fund reservation", () => {
     });
     const user = await review();
     await user.click(screen.getByRole("button", { name: "Fund stake" }));
-    expect(await screen.findByText(new RegExp(RETAINED_ADVICE))).toBeInTheDocument();
+    expect(await screen.findByText(new RegExp(IN_FLIGHT_ADVICE))).toBeInTheDocument();
     expect(calls("discard_pending_tx")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: "Fund stake" })).not.toBeInTheDocument();
   });

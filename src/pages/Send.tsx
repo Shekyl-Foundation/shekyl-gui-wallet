@@ -16,7 +16,8 @@ import {
   DEFAULT_TIER,
   isSendError,
   RELEASE_FAILED_ADVICE,
-  RETAINED_ADVICE,
+  HELD_ADVICE,
+  IN_FLIGHT_ADVICE,
   sendErrorMessage,
 } from "../types/send";
 import { PAYMENT_URI_SCHEME, type ParsedPaymentUri } from "../types/receiving";
@@ -298,11 +299,20 @@ export default function Send() {
         await build();
         return;
       }
-      if (isSendError(e) && e.reservation_retained) {
+      if (isSendError(e) && e.reservation === "held") {
+        // Nothing was sent and the reservation is still ours, its inputs
+        // locked: stay in review with it, so the person confirms again once
+        // the cause is fixed, or cancels to release it. Leaving the page
+        // releases it too.
+        setError(`${e.message} ${HELD_ADVICE}`);
+        enterPhase("review");
+        return;
+      }
+      if (isSendError(e) && e.reservation === "in-flight") {
         // Ambiguous or still pending on the network: the engine keeps the
         // reservation so a retry cannot double-spend. It is no longer ours.
         owned.current = null;
-        setError(`${e.message} ${RETAINED_ADVICE}`);
+        setError(`${e.message} ${IN_FLIGHT_ADVICE}`);
         setBuilt(null);
         enterPhase("compose");
         return;
