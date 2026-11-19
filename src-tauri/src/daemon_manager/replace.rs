@@ -308,7 +308,7 @@ mod tests {
     #[tokio::test]
     async fn an_accepted_stop_waiting_is_never_lost_to_a_ready_node() {
         let dm = DaemonManager::new(
-            std::env::temp_dir().join("shekyl-gui-none"),
+            Ok(std::env::temp_dir().join("shekyl-gui-none")),
             LaunchEnv::default(),
         );
         assert!(dm.stop_waiting().await.is_err(), "nothing waits");
@@ -369,7 +369,7 @@ mod tests {
             instance: None,
             extra_args: Vec::new(),
         };
-        let dm = DaemonManager::new(dir.join("settings"), env);
+        let dm = DaemonManager::new(Ok(dir.join("settings")), env);
         dm.inner.write().await.network = network;
 
         let said = dm

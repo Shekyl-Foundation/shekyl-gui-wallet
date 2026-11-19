@@ -3,8 +3,9 @@
 // All rights reserved.
 // BSD-3-Clause
 
-//! Persistent GUI preferences stored as `gui-config.json` in the
-//! platform's per-app config directory.
+//! Persistent GUI preferences stored as `gui-config.json` in the GUI's
+//! settings directory in the per-account root
+//! ([`AccountRoot::settings_dir`]).
 //!
 //! Today the only persisted item is the user's choice of wallet
 //! directory (set via the Advanced settings dialog). Holding it across
@@ -21,8 +22,8 @@
 //! ```
 //!
 //! Failure is always silent and recoverable: a missing, malformed, or
-//! unreadable config file falls back to the platform default
-//! ([`crate::state::default_wallet_dir`]) without surfacing an error to
+//! unreadable config file falls back to the default
+//! ([`AccountRoot::default_wallet_dir`]) without surfacing an error to
 //! the user. The on-write side is best-effort for the same reason —
 //! the GUI must remain usable on read-only filesystems and in container
 //! sandboxes that block writes to the config dir.
@@ -32,12 +33,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-/// Bundle identifier used for the per-app config directory.
-///
-/// Must match `tauri.conf.json` `identifier`. Mirrors Tauri v2's
-/// `PathResolver::app_config_dir` mapping so the persisted file lands
-/// in the same place across release channels.
-const BUNDLE_IDENTIFIER: &str = "org.shekyl.wallet";
+use crate::account_root::AccountRoot;
 
 /// Filename within the per-app config directory.
 const CONFIG_FILENAME: &str = "gui-config.json";
@@ -104,24 +100,6 @@ fn default_schema_version() -> u32 {
 /// Current schema version. Increment on breaking changes.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// Resolve the on-disk path for `gui-config.json`.
-///
-/// Returns `None` if the platform doesn't expose a config directory at
-/// all (extremely rare; only happens on stripped-down embedded
-/// targets). Callers must treat `None` the same as "file missing" —
-/// fall back to defaults silently.
-pub fn config_path() -> Option<PathBuf> {
-    Some(config_path_in(dirs::config_dir()?))
-}
-
-/// Test-overrideable variant: compose the config-file path under an
-/// explicit base directory. Production code goes through
-/// [`config_path`]; tests inject a [`tempfile::TempDir`]-like base so
-/// they don't touch the developer's real config.
-fn config_path_in(base: PathBuf) -> PathBuf {
-    base.join(BUNDLE_IDENTIFIER).join(CONFIG_FILENAME)
-}
-
 /// Where the GUI's settings are kept: one file, named once, when the app
 /// starts. Everything that reads or writes the settings goes through the
 /// store the app's state holds, so a test's state, which names a file of
@@ -131,9 +109,16 @@ fn config_path_in(base: PathBuf) -> PathBuf {
 pub struct Store(Option<PathBuf>);
 
 impl Store {
-    /// This account's settings file ([`config_path`]).
-    pub fn of_this_account() -> Self {
-        Self(config_path())
+    /// This account's settings file: `gui-config.json` in the GUI's
+    /// settings directory in `root` ([`AccountRoot::settings_dir`]). None
+    /// when the root has no settings directory (no home, or a root the
+    /// start could not make): nothing is read and nothing is kept.
+    pub fn in_root(root: &AccountRoot) -> Self {
+        Self(
+            root.settings_dir()
+                .ok()
+                .map(|dir| dir.join(CONFIG_FILENAME)),
+        )
     }
 
     /// No file: nothing is read and nothing is kept. A test's store.
@@ -247,9 +232,10 @@ fn save_to_path(cfg: &GuiConfig, path: &Path) {
 #[derive(Debug, Clone)]
 pub struct ResolvedWalletDir {
     /// The effective wallet directory after override + reachability
-    /// checks. Guaranteed to be a real, writable directory by the time
-    /// the GUI commands see it.
-    pub dir: PathBuf,
+    /// checks: a reachable override, else the default, which a command
+    /// makes when it first needs it. `None` when neither exists: the
+    /// account has no home and the override is unset or unreachable.
+    pub dir: Option<PathBuf>,
     /// `Some(path)` when an override existed but was unreachable. The
     /// UI shows this as "your custom location is unavailable; falling
     /// back to default." `None` means either no override was set or
@@ -266,7 +252,7 @@ pub struct ResolvedWalletDir {
 /// [`std::fs::create_dir_all`] failure. A reachable-but-empty
 /// directory is considered usable (a fresh override is a valid
 /// override).
-pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: PathBuf) -> ResolvedWalletDir {
+pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: Option<PathBuf>) -> ResolvedWalletDir {
     let Some(override_path) = cfg.wallet_dir_override else {
         return ResolvedWalletDir {
             dir: default_dir,
@@ -276,7 +262,7 @@ pub fn resolve_wallet_dir(cfg: GuiConfig, default_dir: PathBuf) -> ResolvedWalle
 
     match probe_dir(&override_path) {
         Ok(()) => ResolvedWalletDir {
-            dir: override_path,
+            dir: Some(override_path),
             fallback_from: None,
         },
         Err(_) => ResolvedWalletDir {
@@ -318,16 +304,17 @@ mod tests {
         dir
     }
 
-    /// Same composition rule as production [`config_path`], but rooted
-    /// at the caller-supplied base instead of the OS-derived config
-    /// dir. Mirrors [`config_path_in`].
+    /// A test's own settings directory under `base`, with the file named
+    /// as production names it ([`Store::in_root`]), so a test never touches
+    /// the settings of the account it runs under.
     fn test_config_path(base: &Path) -> PathBuf {
-        base.join(BUNDLE_IDENTIFIER).join(CONFIG_FILENAME)
+        base.join(crate::account_root::SETTINGS_DIR_NAME)
+            .join(CONFIG_FILENAME)
     }
 
     /// [`resolve_wallet_dir`] over a test's own config file.
     fn resolve_wallet_dir_in(base: &Path, default_dir: PathBuf) -> ResolvedWalletDir {
-        resolve_wallet_dir(load_from_path(&test_config_path(base)), default_dir)
+        resolve_wallet_dir(load_from_path(&test_config_path(base)), Some(default_dir))
     }
 
     #[test]
@@ -412,7 +399,7 @@ mod tests {
         let default = base.join("default");
         std::fs::create_dir_all(&default).unwrap();
         let resolved = resolve_wallet_dir_in(&base, default.clone());
-        assert_eq!(resolved.dir, default);
+        assert_eq!(resolved.dir, Some(default));
         assert!(resolved.fallback_from.is_none());
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -434,7 +421,7 @@ mod tests {
         );
 
         let resolved = resolve_wallet_dir_in(&base, default.clone());
-        assert_eq!(resolved.dir, override_dir);
+        assert_eq!(resolved.dir, Some(override_dir));
         assert!(resolved.fallback_from.is_none());
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -460,7 +447,8 @@ mod tests {
 
         let resolved = resolve_wallet_dir_in(&base, default.clone());
         assert_eq!(
-            resolved.dir, default,
+            resolved.dir,
+            Some(default),
             "fallback must use the platform default"
         );
         assert_eq!(
@@ -468,6 +456,34 @@ mod tests {
             Some(override_path.clone()),
             "fallback_from must record the unreachable override"
         );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// An account with no home has no default wallet directory (rule 83
+    /// IG-13): with no override, or an unreachable one, there is none, and
+    /// an unreachable override is still reported. Red edit: a `"."`
+    /// fallback (the old default) puts wallets in the working directory.
+    #[test]
+    fn no_home_and_no_reachable_override_is_no_wallet_dir() {
+        let base = fresh_test_dir("resolve_no_home");
+        let path = test_config_path(&base);
+        let resolved = resolve_wallet_dir(load_from_path(&path), None);
+        assert_eq!(resolved.dir, None);
+        assert_eq!(resolved.fallback_from, None);
+
+        let override_path = base.join("override_as_file");
+        std::fs::write(&override_path, b"not a dir").unwrap();
+        save_to_path(
+            &GuiConfig {
+                schema_version: SCHEMA_VERSION,
+                wallet_dir_override: Some(override_path.clone()),
+                network: None,
+            },
+            &path,
+        );
+        let resolved = resolve_wallet_dir(load_from_path(&path), None);
+        assert_eq!(resolved.dir, None);
+        assert_eq!(resolved.fallback_from, Some(override_path));
         let _ = std::fs::remove_dir_all(&base);
     }
 

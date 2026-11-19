@@ -21,12 +21,12 @@ use serde::Serialize;
 use shekyl_shard_visual::{CandidateRecipe, ShardAggregate};
 use shekyl_wallet_contract::error::WalletRpcError;
 use shekyl_wallet_contract::shard_view::{fetch_shard_view, ShardViewResult};
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use crate::contract_error::{open_engine, ContractError};
 use crate::daemon_rpc;
 use crate::shard_visual::{
-    cache_digest, recipe_for, render_cached, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE,
+    cache_digest, cache_dir_in, recipe_for, render_cached, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE,
 };
 use crate::state::AppState;
 use shekyl_rpc_client::wire::archival::{Coverage, CoverageShard};
@@ -96,7 +96,6 @@ pub struct ShardViewRender {
 
 #[tauri::command]
 pub async fn get_shard_view(
-    app: AppHandle,
     state: State<'_, AppState>,
     shard_id: u64,
     size: Option<u32>,
@@ -122,9 +121,10 @@ pub async fn get_shard_view(
     // Recipe + PNG cache/render are sync I/O and 69–385 ms CPU on the
     // rule-76 floor (`shard_visual.rs` cache_digest). Keep them off the
     // async runtime so visible cards cannot stall unrelated Tauri work.
+    let cache = cache_dir_in(&state.root);
     let (recipe, png, cache_key) = tokio::task::spawn_blocking(move || {
         let recipe: CandidateRecipe = recipe_for(&aggregate, None);
-        let png = render_cached(&app, &cache_key, &aggregate, None, size)?;
+        let png = render_cached(cache.as_deref(), &cache_key, &aggregate, None, size)?;
         Ok::<_, String>((recipe, png, cache_key))
     })
     .await

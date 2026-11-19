@@ -191,8 +191,7 @@ Download the new version from the
 and install it over the existing version. Wallet files and settings are stored
 in your home directory and are preserved across updates.
 
-| Platform | Wallet data location |
-|----------|---------------------|
-| Linux | `~/.local/share/shekyl-wallet/` |
-| macOS | `~/Library/Application Support/shekyl-wallet/` |
-| Windows | `%APPDATA%\shekyl-wallet\` |
+| Platform | Wallet files |
+|----------|--------------|
+| Linux, FreeBSD, macOS | `~/.shekyl/wallets/` |
+| Windows | `%LOCALAPPDATA%\Shekyl\wallets\` |

@@ -113,9 +113,8 @@ When you open the wallet for the first time, it does three things automatically:
 
 2. **Scans for existing wallets** -- the wallet ensures the default data
    directory exists (creating it if needed) and checks for `.keys` files:
-   - **Linux**: `~/.shekyl/wallets/`
-   - **macOS**: `~/Library/Application Support/shekyl/wallets/`
-   - **Windows**: `%APPDATA%\shekyl\wallets\`
+   - **Linux, FreeBSD and macOS**: `~/.shekyl/wallets/`
+   - **Windows**: `%LOCALAPPDATA%\Shekyl\wallets\`
 
    Advanced users can point at a different folder (for example, an
    encrypted volume) via the **Advanced: wallet file location**
