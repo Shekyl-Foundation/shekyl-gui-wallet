@@ -65,10 +65,28 @@ pub fn webview_dir_in(root: &AccountRoot) -> Option<PathBuf> {
         .map(|dir| dir.join(WEBVIEW_DIR_NAME))
 }
 
+/// The web view's data folder, made here so the window can open whatever is
+/// in its way: `Some(dir)` once it exists, else `None` with the cause
+/// logged. Tauri makes a folder it is given and aborts the start when it
+/// cannot, before any window says why (a regular file where the settings
+/// folder should be, a refused permission), so the folder is made first and
+/// a folder that cannot be made is the same fallback as no root.
+#[cfg(any(not(target_os = "macos"), test))]
+fn made(dir: PathBuf) -> Option<PathBuf> {
+    match std::fs::create_dir_all(&dir) {
+        Ok(()) => Some(dir),
+        Err(e) => {
+            tracing::warn!(dir = %dir.display(), error = %e, "the web view's data folder could not be made; it uses the app-data folder");
+            None
+        }
+    }
+}
+
 /// Opens the window, its web view's data in `data_dir` where the platform
-/// takes a folder. Without one (no root) WebKitGTK and WebView2 fall back to
-/// Tauri's app-data folder, the one place the GUI then writes outside the
-/// root: the window must open to say why there is no root.
+/// takes a folder. Without one (no root, or a folder that cannot be made)
+/// WebKitGTK and WebView2 fall back to Tauri's app-data folder, the one
+/// place the GUI then writes outside the root: the window must open to say
+/// why (Rick, 2026-11-20).
 pub fn open(app: &tauri::App, data_dir: Option<PathBuf>) -> tauri::Result<()> {
     let window = WebviewWindowBuilder::new(app, MAIN_WINDOW, WebviewUrl::default())
         .title("Shekyl Wallet")
@@ -81,6 +99,8 @@ pub fn open(app: &tauri::App, data_dir: Option<PathBuf>) -> tauri::Result<()> {
         drop(data_dir);
         window.incognito(true)
     };
+    #[cfg(not(target_os = "macos"))]
+    let data_dir = data_dir.and_then(made);
     #[cfg(not(any(target_os = "macos", windows)))]
     let window = match data_dir {
         Some(dir) => window.data_directory(dir),
@@ -116,5 +136,31 @@ mod tests {
             webview_dir_in(&AccountRoot::not_made_at(root.clone())),
             None
         );
+    }
+
+    /// A data folder that cannot be made is no folder, so the window still
+    /// opens on the app-data fallback rather than Tauri aborting the start
+    /// (finding on #83); one that can is made and given. Red edit: return
+    /// `Some(dir)` without making it, and the blocked case is given anyway.
+    #[test]
+    fn a_data_folder_that_cannot_be_made_is_the_fallback() {
+        let scratch = std::env::temp_dir().join(format!(
+            "shekyl-gui-webview-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&scratch).unwrap();
+        // A regular file where the settings folder should be.
+        let blocked = scratch.join("shekyl-gui-wallet");
+        std::fs::write(&blocked, b"not a folder").unwrap();
+        assert_eq!(made(blocked.join(WEBVIEW_DIR_NAME)), None);
+
+        let open = scratch.join("open").join(WEBVIEW_DIR_NAME);
+        assert_eq!(made(open.clone()), Some(open.clone()));
+        assert!(open.is_dir());
+        std::fs::remove_dir_all(&scratch).unwrap();
     }
 }
