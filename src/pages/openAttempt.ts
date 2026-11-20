@@ -8,7 +8,13 @@ import type { OpenRefusal } from "../types/wallet";
  * this file's sentence.
  */
 export interface OpenAttempt {
-  file: string;
+  /**
+   * The file's full path, its folder included (`WalletFileInfo.path`). The
+   * folder can change under the Unlock page (the advanced folder picker),
+   * and a file of the same name in another folder is another file: its
+   * refusal is not this one's.
+   */
+  path: string;
   refusal: OpenRefusal;
 }
 

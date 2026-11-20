@@ -80,6 +80,20 @@ export const CONTENT_CHANGED_NOTICE =
   "The chain moved while you were reviewing and the transaction's fee or change " +
   "would have differed. It has been rebuilt — please check the figures again before confirming.";
 
+/**
+ * A submit that went out and stands, whose node answer the wallet could not
+ * save (`verdict_saved: false`): it must not be sent again, and the wallet
+ * asks about it when it reopens if it stops before its next save. Said
+ * after the verdict wherever a verdict is shown (Send, a stake's funding).
+ */
+export const VERDICT_NOT_SAVED =
+  "It went out: do not send it again. The wallet could not save your node's answer; it will on its next save, and if it stops first it will ask you about this send when it reopens.";
+
+/** `VERDICT_NOT_SAVED` for a result whose answer was not saved, else `null`. */
+export function verdictNotSaved(r: SubmitResult): string | null {
+  return r.verdict_saved ? null : VERDICT_NOT_SAVED;
+}
+
 /** A submit that may be on the network. Never discarded: that could spend twice. */
 export const IN_FLIGHT_ADVICE = "Refresh your balance and check Transactions before trying again.";
 

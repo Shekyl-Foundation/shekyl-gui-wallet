@@ -177,4 +177,36 @@ describe("Unlock", () => {
     fireEvent.click(screen.getByRole("button", { name: "alpha11" }));
     expect(screen.getByText(EARLIER)).toBeInTheDocument();
   });
+
+  /**
+   * The folder can change under the page (the advanced folder picker): a
+   * file of the same name in the new folder is another file, and the old
+   * file's refusal is not shown for it, nor its new-wallet offer. Back in
+   * the first folder, the refusal is the file's again. Red edit: key the
+   * attempt by the name alone.
+   */
+  it("does not show a refusal for a same-named file in another folder", async () => {
+    openWallet.mockRejectedValue({ kind: "earlier_release", message: EARLIER });
+    const { rerender } = renderGate();
+    unlock();
+    expect(await screen.findByText(EARLIER)).toBeInTheDocument();
+
+    files.current = [{ name: "alpha11", path: "/elsewhere/alpha11.wallet.keys" }];
+    rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WalletGate />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText(EARLIER)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create a new wallet/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/forgot your password/i)).toBeInTheDocument();
+
+    files.current = [ALPHA11];
+    rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WalletGate />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(EARLIER)).toBeInTheDocument();
+  });
 });
