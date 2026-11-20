@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import NodeNotice from "./NodeNotice";
 import NodeAddress from "./NodeAddress";
@@ -26,23 +26,47 @@ export default function PreWalletNode() {
   const [error, setError] = useState<string | null>(null);
   const [editingNode, setEditingNode] = useState(false);
 
+  // Each read of the connection is numbered, as Settings numbers its own,
+  // and a change of network or node numbers out every read in flight: a
+  // read asked before the change and answered after it would otherwise
+  // paint the old network or node over the new one, and the node editor
+  // would then send that old network back.
+  const readGeneration = useRef(0);
+
   const load = useCallback(async () => {
+    const generation = ++readGeneration.current;
     try {
       const current = await invoke<DaemonConnection | undefined>(
         "daemon_connection_disclosures",
       );
+      if (generation !== readGeneration.current) return;
       if (current) setConnection(current);
     } catch {
       // The notice below says what the node is doing.
     }
   }, []);
 
+  // The connection the backend applied, after a switch or a node address:
+  // it stands over any read still in flight.
+  const applied = useCallback((now: DaemonConnection) => {
+    readGeneration.current += 1;
+    setConnection(now);
+  }, []);
+
+  // Each read is asked for once the one before it has finished, never on a
+  // fixed beat: a read slower than the beat would otherwise be numbered out
+  // by the next one every time, and nothing would ever be shown.
   useEffect(() => {
-    const first = setTimeout(load, 0);
-    const timer = setInterval(load, CONNECTION_POLL_MS);
+    let closed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const read = async () => {
+      await load();
+      if (!closed) timer = setTimeout(read, CONNECTION_POLL_MS);
+    };
+    timer = setTimeout(read, 0);
     return () => {
-      clearTimeout(first);
-      clearInterval(timer);
+      closed = true;
+      clearTimeout(timer);
     };
   }, [load]);
 
@@ -53,7 +77,7 @@ export default function PreWalletNode() {
     setSwitching(true);
     setError(null);
     try {
-      setConnection(
+      applied(
         await invoke<DaemonConnection>("set_daemon_connection", { network: net }),
       );
     } catch (e) {
@@ -100,7 +124,7 @@ export default function PreWalletNode() {
       </div>
       {editingNode && (
         <div className="mx-auto max-w-lg px-4 pb-3">
-          <NodeAddress connection={connection} onApplied={setConnection} />
+          <NodeAddress connection={connection} onApplied={applied} />
         </div>
       )}
     </div>

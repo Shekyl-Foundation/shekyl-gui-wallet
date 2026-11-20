@@ -11,36 +11,46 @@ export default function Unlock() {
   const { attempt, recordAttempt, clearAttempt } = useOpenAttempt();
   const navigate = useNavigate();
 
-  const [selectedFile, setSelectedFile] = useState(
-    walletFiles[0]?.name ?? "",
-  );
+  // The name the person picked, if any. What is selected is resolved from
+  // it against the files in the folder in effect on every render: the
+  // folder can change under this page, and a pick that is not there is no
+  // selection.
+  const [pickedName, setPickedName] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
 
-  // The stored attempt outlives this page. It is shown only while the file
-  // it was tried against is still the one on screen, including when the
-  // refusal arrives after the selection has moved on.
+  // The selected file: the person's pick while the folder in effect holds
+  // it, else the folder's first file, else none. The picker shows it, the
+  // Unlock button is enabled by it and opens it, so nothing on screen names
+  // a file the folder does not hold. The stored attempt outlives this page.
+  // It is shown only while the file it was tried against is still the one
+  // on screen, by path: a change of folder with a file of the same name, or
+  // a refusal that arrives after the selection has moved on, shows nothing.
+  const selected =
+    walletFiles.find((f) => f.name === pickedName) ?? walletFiles[0];
   const refusal =
-    attempt?.file === selectedFile ? attempt.refusal : null;
+    selected !== undefined && attempt?.path === selected.path
+      ? attempt.refusal
+      : null;
   const offerNewWallet = refusal
     ? openRefusalAffordance(refusal.kind).offerNewWallet
     : false;
 
   const handleUnlock = useCallback(async () => {
-    if (!selectedFile || password.length === 0) return;
-    const file = selectedFile;
+    if (selected === undefined || password.length === 0) return;
+    const file = selected;
     clearAttempt();
     setLoading(true);
     try {
-      await openWallet(file, password);
+      await openWallet(file.name, password);
     } catch (e) {
-      recordAttempt({ file, refusal: asOpenRefusal(e) });
+      recordAttempt({ path: file.path, refusal: asOpenRefusal(e) });
     } finally {
       setLoading(false);
     }
-  }, [selectedFile, password, openWallet, clearAttempt, recordAttempt]);
+  }, [selected, password, openWallet, clearAttempt, recordAttempt]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -91,7 +101,7 @@ export default function Unlock() {
                   className="input flex w-full items-center justify-between text-left"
                 >
                   <span className="text-sm text-white">
-                    {selectedFile || "Select a wallet"}
+                    {selected?.name ?? "Select a wallet"}
                   </span>
                   <ChevronDown className="h-4 w-4 text-purple-400" />
                 </button>
@@ -101,11 +111,11 @@ export default function Unlock() {
                       <button
                         key={f.path}
                         onClick={() => {
-                          setSelectedFile(f.name);
+                          setPickedName(f.name);
                           setShowPicker(false);
                         }}
                         className={`block w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-purple-700/60 ${
-                          f.name === selectedFile
+                          f.path === selected?.path
                             ? "text-gold-400"
                             : "text-white"
                         }`}
@@ -124,7 +134,7 @@ export default function Unlock() {
             <div className="text-center">
               <p className="text-xs text-purple-300">Wallet</p>
               <p className="text-sm font-semibold text-white">
-                {walletFiles[0].name}
+                {selected?.name}
               </p>
             </div>
           )}
@@ -160,7 +170,7 @@ export default function Unlock() {
 
           <button
             onClick={handleUnlock}
-            disabled={loading || !selectedFile || password.length === 0}
+            disabled={loading || selected === undefined || password.length === 0}
             className="btn btn-primary w-full"
           >
             {loading ? "Unlocking..." : "Unlock"}

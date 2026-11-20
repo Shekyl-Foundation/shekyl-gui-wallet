@@ -30,6 +30,24 @@ the bundled `shekyld` and the Engine path-deps.
   on Linux, macOS and FreeBSD. On a network share, or on Windows a volume
   other than NTFS, it still saves but sends and stakes nothing, and says why.
 
+- **A stake's funding that went out but could not be saved says so.** When
+  the wallet could not save the node's answer to a stake's funding, the
+  notice says the node has them, they must not be sent again, and the
+  wallet asks about them when it reopens, in the same words as Send.
+- **An unlock refusal stays with its file.** A refusal is shown only for
+  the file it was given for, by its full path: after a change of wallet
+  folder, a file of the same name there is not shown the old file's
+  refusal or offered a new wallet.
+- **Unlock always names a file the folder holds.** After a change of
+  wallet folder, the selection is the file picked if the new folder holds
+  it, otherwise the folder's first file; the picker shows it, and Unlock
+  opens it. A pick from the old folder no longer leaves an Unlock button
+  that does nothing.
+- **A network switch before a wallet is open stays switched.** A read of
+  the node connection that was under way when the network or the node
+  address changed no longer paints the old one back over the bar, and the
+  node editor no longer sends the old network back.
+
 - **A stake that could not be saved says why.** When the wallet cannot
   save a stake's record safely before sending it (a read-only file, a
   network drive, a volume that cannot confirm the write), nothing is sent,
