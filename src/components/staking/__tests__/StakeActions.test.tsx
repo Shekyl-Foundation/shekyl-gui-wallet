@@ -8,6 +8,7 @@ import {
   HELD_ADVICE,
   IN_FLIGHT_ADVICE,
   RELEASE_FAILED_ADVICE,
+  VERDICT_NOT_SAVED,
 } from "../../../types/send";
 import type { BuiltPendingTx, SendError } from "../../../types/send";
 
@@ -120,6 +121,31 @@ describe("StakeActions fund reservation", () => {
     expect(calls("submit_pending_tx")).toHaveLength(2);
     expect(calls("submit_pending_tx")[1]?.[1]).toEqual({ pendingTxId: "42", seenGen: 3 });
     expect(calls("stake_in")).toHaveLength(1);
+  });
+
+  /**
+   * A fund the node took but whose answer the wallet could not save says
+   * the node has it, that it must not be sent again, and that the wallet
+   * asks about it at reopen, the same sentence Send shows (finding on #80).
+   * Red edit: the plain "Funds sent" line for every accepted fund.
+   */
+  it("says a fund whose answer was not saved must not be sent again", async () => {
+    route({
+      stake_in: () => BUILT,
+      submit_pending_tx: () => ({
+        tx_hash: "ab".repeat(32),
+        verdict: "ACCEPTED",
+        verdict_saved: false,
+        confirmed_height: null,
+      }),
+    });
+    const user = await review();
+    await user.click(screen.getByRole("button", { name: "Fund stake" }));
+    expect(
+      await screen.findByText(
+        `Funds sent. They join your stake after the network confirms. ${VERDICT_NOT_SAVED}`,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("does not discard a reservation in flight", async () => {

@@ -10,6 +10,7 @@ import {
   HELD_ADVICE,
   IN_FLIGHT_ADVICE,
   sendErrorMessage,
+  verdictNotSaved,
 } from "../../types/send";
 
 interface SealedReceipt {
@@ -28,7 +29,21 @@ type CollectReceipt =
     }
   | { status: "NOTHING_LEFT" };
 
-function fundNote(result: SubmitResult): string {
+/**
+ * What a fund that went out says: its verdict, and when the wallet could
+ * not save the node's answer, that it must not be sent again
+ * (`verdictNotSaved`), as a caution the person reads rather than a done
+ * line.
+ */
+function fundNotice(result: SubmitResult): StakeNotice {
+  const verdict = fundVerdict(result);
+  const notSaved = verdictNotSaved(result);
+  return notSaved === null
+    ? ready(verdict)
+    : { kind: "caution", text: `${verdict} ${notSaved}` };
+}
+
+function fundVerdict(result: SubmitResult): string {
   switch (result.verdict) {
     case "ACCEPTED":
       return "Funds sent. They join your stake after the network confirms.";
@@ -159,7 +174,7 @@ export default function StakeActions() {
       });
       owned.current = null;
       reviewedAmount.current = null;
-      setNotice(ready(fundNote(result)));
+      setNotice(fundNotice(result));
       setBuilt(null);
       setAmount("");
     } catch (err) {
