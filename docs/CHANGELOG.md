@@ -38,6 +38,11 @@ the bundled `shekyld` and the Engine path-deps.
   the file it was given for, by its full path: after a change of wallet
   folder, a file of the same name there is not shown the old file's
   refusal or offered a new wallet.
+- **Unlock always names a file the folder holds.** After a change of
+  wallet folder, the selection is the file picked if the new folder holds
+  it, otherwise the folder's first file; the picker shows it, and Unlock
+  opens it. A pick from the old folder no longer leaves an Unlock button
+  that does nothing.
 - **A network switch before a wallet is open stays switched.** A read of
   the node connection that was under way when the network or the node
   address changed no longer paints the old one back over the bar, and the
