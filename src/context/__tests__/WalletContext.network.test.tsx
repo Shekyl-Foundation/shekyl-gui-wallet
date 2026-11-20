@@ -124,4 +124,35 @@ describe("a change of network before a wallet is open", () => {
     await act(async () => {});
     expect(screen.getByPlaceholderText("My Wallet")).toHaveValue("Half Typed");
   });
+
+  /**
+   * After a switch to a network whose folder holds other wallets, Unlock
+   * names and opens the new folder's wallet, never the old network's name,
+   * through the real gate and provider (finding on #81, fixed by #86). Red
+   * edit: keep the stale pick in Unlock, and the open goes nowhere.
+   */
+  it("unlocks the new network's wallet after a switch", async () => {
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <WalletProvider>
+          <WalletGate />
+        </WalletProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByPlaceholderText(/enter your password/i);
+    expect(screen.getByText("main_one")).toBeInTheDocument();
+
+    await userEvent.click(await screen.findByRole("button", { name: "stagenet" }));
+    expect(await screen.findByRole("button", { name: "stage_one" })).toBeInTheDocument();
+    expect(screen.queryByText("main_one")).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText(/enter your password/i), "pw-for-test");
+    await userEvent.click(screen.getByRole("button", { name: /^unlock$/i }));
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("open_wallet", {
+        filename: "stage_one",
+        password: "pw-for-test",
+      }),
+    );
+  });
 });
