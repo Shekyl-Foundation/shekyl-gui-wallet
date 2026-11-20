@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.12] - 2026-11-20
+
+Paired with shekyl-core `v3.1.0-alpha.12`: `release.yml` clones that tag for
+the bundled `shekyld` and the Engine path-deps.
+
+- **Remove everything alpha.11 kept, wallets included.** shekyl-core
+  alpha.12 is a regenesis: every network's genesis block changed, so
+  alpha.11's chain does not continue and its wallets mean nothing on the new
+  one. Remove the whole Shekyl data folder (`~/.shekyl` on Linux, FreeBSD
+  and macOS, `%LOCALAPPDATA%\Shekyl` on Windows), and the places alpha.11's
+  wallet kept things outside it, which this wallet does not read: its
+  wallets on macOS (`~/Library/Application Support/shekyl/wallets/`) and on
+  Windows (`%APPDATA%\shekyl\wallets\`), and its settings, the folder
+  `org.shekyl.wallet` in `~/.config` on Linux, in
+  `~/Library/Application Support` on macOS and in `%APPDATA%` on Windows.
+  This wallet keeps its wallets in `wallets` and its settings in
+  `shekyl-gui-wallet` inside the data folder. A node given alpha.11's data
+  directory refuses it and names the directory.
+- **The wallet and its node move together.** The bundled node is shekyl-core
+  alpha.12's, which answers daemon RPC 4.7. The wallet speaks 4.x and
+  refuses a node of another version before it reads anything from it, so
+  this wallet cannot use an alpha.11 node and the alpha.11 wallet cannot use
+  this one.
+- **Keep your wallets on a local disk.** A wallet sends and stakes only when
+  its save is confirmed: on a local NTFS volume on Windows, on a local disk
+  on Linux, macOS and FreeBSD. On a network share, or on Windows a volume
+  other than NTFS, it still saves but sends and stakes nothing, and says why.
+
 - **A stake that could not be saved says why.** When the wallet cannot
   save a stake's record safely before sending it (a read-only file, a
   network drive, a volume that cannot confirm the write), nothing is sent,
