@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **"Your stake" says what each outstanding staking record sets aside.**
+  Under each record in progress the panel says how much is set aside for
+  it, that nothing is (a zero-fee reward claim reserves no inputs), or,
+  before the staking scan has run, that it is not known yet. The amount is
+  core's (`staking_info`'s `reserved`, WR-Q6), so a record with an end
+  date is no longer left to look as if it held funds or held none.
+
 - **The window's web view keeps nothing outside the per-account root.**
   On Linux and Windows its data is in `webview` in the GUI's settings
   folder (`~/.shekyl/shekyl-gui-wallet/webview`,
