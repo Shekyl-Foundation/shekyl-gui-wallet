@@ -193,8 +193,8 @@ pub(crate) async fn open_wallet_in(
     // read inside it, the directory from the same read of the network.
     let mut eng = state.engine.lock().await;
     let network = *state.network.read().await;
+    // A directory not made yet holds no wallet; an open makes none.
     let wallet_dir = state.wallet_dir_on(network).await?;
-    wallet_name::ensure_dir_exists(&wallet_dir)?;
 
     if !engine_session::engine_wallet_exists(&wallet_dir, &sanitized) {
         return Err(format!(
@@ -548,6 +548,35 @@ mod tests {
             tokio::join!(open_wallet_in(&state, &node, "w".into(), password), switch);
         opened.expect("the open finds the wallet in the folder of the network it reads");
         assert!(close_wallet_in(&state, &node).await.expect("it closes"));
+    }
+
+    /// **An open makes no wallet folder.** A network whose folder was never
+    /// made holds no wallet: the open says so and leaves no empty
+    /// `wallets/<network>` behind, as a start and a switch make none (only a
+    /// create or restore makes one). Red edit: make the folder before the
+    /// open looks (the old `ensure_dir_exists`), and the folder is left.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_open_makes_no_wallet_folder() {
+        let (dir, _, node) = offline("nofolder").await;
+        let root = dir.0.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        let state = AppState::on(
+            NetworkType::Testnet,
+            crate::gui_config::Store::none(),
+            crate::account_root::AccountRoot::Ready(root.clone()),
+        );
+        let folder = state.wallet_dir().await.unwrap();
+        let refused = open_wallet_in(&state, &node, "w".into(), engine_session::test_password())
+            .await
+            .expect_err("no wallet in a folder never made");
+        assert!(
+            serde_json::to_value(&refused).unwrap()["message"]
+                .as_str()
+                .unwrap()
+                .contains("no wallet found"),
+            "{refused:?}"
+        );
+        assert!(!folder.exists(), "{} was made", folder.display());
     }
 
     /// **With a wallet open, the node it uses does not change under it.**

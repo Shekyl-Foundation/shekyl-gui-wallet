@@ -189,13 +189,15 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
     Ok(wallets)
 }
 
-/// Startup: guarantee the configured wallet directory exists before any
-/// create/open flow runs (mkdir -p semantics on POSIX and Windows). The
-/// Engine connects to the daemon per wallet-open; there is no global handle
-/// to initialise, which is why this is all the old `init_wallet_rpc` did.
+/// Whether there is a wallet directory, and the words that say why not
+/// (no home or a root not made, and no folder chosen). It makes nothing:
+/// a wallet's directory is made when a wallet is created or restored in
+/// it, so starting the app or switching network leaves no empty
+/// `wallets/<network>` behind, as `shekyl-cli` makes its own only to make
+/// a wallet. The start and a network switch ask it before listing.
 #[tauri::command]
-pub async fn ensure_wallet_dir(state: State<'_, AppState>) -> Result<(), String> {
-    wallet_name::ensure_dir_exists(&state.wallet_dir().await?)
+pub async fn check_wallet_dir(state: State<'_, AppState>) -> Result<(), String> {
+    state.wallet_dir().await.map(drop)
 }
 
 /// Override the wallet directory with a user-chosen path (Advanced
@@ -229,7 +231,6 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
 pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
     let network = state.network.read().await.network();
     let default = state.root.default_wallet_dir(network)?;
-    wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
     let mut cfg = state.settings.load();
     cfg.wallet_dir_override = None;

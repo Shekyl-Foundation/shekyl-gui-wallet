@@ -37,7 +37,7 @@ beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
     switch (cmd) {
-      case "ensure_wallet_dir":
+      case "check_wallet_dir":
         return undefined;
       case "get_wallet_dir":
         return { dir: FOLDERS[network].dir };

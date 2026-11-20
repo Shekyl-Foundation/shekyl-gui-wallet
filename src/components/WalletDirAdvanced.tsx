@@ -12,8 +12,8 @@ import CollapsibleSection from "./CollapsibleSection";
  * at a different directory without losing the default as a fallback.
  *
  * The missing-directory case is handled invisibly by the backend —
- * `set_wallet_dir` runs mkdir -p on the chosen path and the default
- * `ensure_wallet_dir` does the same for the platform default on startup.
+ * `set_wallet_dir` runs mkdir -p on the chosen path, and the network's
+ * default folder is made when a wallet is created or restored in it.
  */
 export default function WalletDirAdvanced() {
   const {

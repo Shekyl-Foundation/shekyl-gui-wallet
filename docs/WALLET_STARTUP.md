@@ -215,8 +215,12 @@ most recently modified.
 
 ### Initialization
 
-`ensure_wallet_dir` (Tauri command) guarantees the configured wallet
-directory exists before any create/open flow runs. Nothing else is
+`check_wallet_dir` (Tauri command) says whether there is a wallet
+directory, and why not when there is none (no home or a root not made, and
+no folder chosen). It makes nothing: a network's wallet folder is made when
+a wallet is created or restored in it, so starting the app, switching
+network or opening leaves no empty `wallets/<network>` behind, as
+`shekyl-cli` makes its own only to make a wallet. Nothing else is
 initialised at startup: the Engine connects to the daemon per wallet-open,
 and no external process is started.
 

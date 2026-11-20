@@ -77,7 +77,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const loadWallets = useCallback(
     async (cancelled: () => boolean) => {
       try {
-        await invoke<void>("ensure_wallet_dir");
+        await invoke<void>("check_wallet_dir");
         if (cancelled()) return;
         try {
           const resp = await invoke<WalletDirResponse>("get_wallet_dir");
@@ -93,7 +93,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setError(
           `Could not start wallet service: ${String(e)}. ` +
             "The wallet runs inside this app — nothing separate to install. " +
-            "This step only prepares the wallet folder, so choose a different " +
+            "This step only finds the wallet folder, so choose a different " +
             "folder in Settings if the current one can't be used.",
         );
         setPhase((prev) => (prev === "ready" ? prev : "no_wallet"));
