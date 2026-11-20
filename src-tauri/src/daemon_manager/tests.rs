@@ -401,12 +401,16 @@ fn only_a_dial_that_says_no_node_is_there_starts_one() {
 /// engine's.** Latched in the manager, the notice says `refused` in the
 /// check's words, and the engine's way to "this computer" is refused in
 /// the same words with no dial: a client is not built, and the target core
-/// dials itself is not handed out. A node address a person typed is theirs
-/// and is not behind the latch. Red edit: in `engine_transport`, drop the
-/// read of the latch (the engine dials the address the check failed at).
+/// dials itself is not handed out, on the unstake path (`core_target`) or
+/// the stake's (`EngineNode::core_target`). A node address a person typed is
+/// theirs and is not behind the latch, loopback included: each path hands it
+/// back as typed. Red edits: in `engine_transport`, drop the read of the
+/// latch (the engine dials the address the check failed at); in
+/// `EngineNode::core_target`, drop it (the stake's fill dials it).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
     use crate::engine_daemon::{core_target, make_daemon, EngineNode};
+    use shekyl_rpc_transport::DaemonTarget;
     let dm = DaemonManager::new(
         Ok(std::env::temp_dir().join("shekyl-gui-none")),
         LaunchEnv::default(),
@@ -431,13 +435,36 @@ async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
     };
     assert_eq!(refused, words);
     assert_eq!(core_target(&state, &dm).await.unwrap_err(), words);
+    assert_eq!(
+        node.core_target(Network::Testnet).await.unwrap_err(),
+        words,
+        "the stake's fill target is behind the same latch"
+    );
 
-    *state.node_address.write().await = Some("http://127.0.0.1:1".into());
-    assert!(matches!(
-        EngineNode::of(&state, &dm).await,
-        EngineNode::Address(_)
-    ));
-    assert!(core_target(&state, &dm).await.is_ok(), "a typed address");
+    let typed = "http://127.0.0.1:1";
+    *state.node_address.write().await = Some(typed.into());
+    let node = EngineNode::of(&state, &dm).await;
+    let EngineNode::Address(DaemonTarget::Address { proxy, .. }) = &node else {
+        panic!("a typed address is the node");
+    };
+    let proxy = proxy.clone();
+    for (path, target) in [
+        ("unstake", core_target(&state, &dm).await),
+        ("stake", node.core_target(Network::Testnet).await),
+    ] {
+        let Ok(DaemonTarget::Address {
+            url,
+            proxy: through,
+        }) = target
+        else {
+            panic!("{path}: a typed address is not behind the latch");
+        };
+        assert_eq!(
+            (url.as_str(), &through),
+            (typed, &proxy),
+            "{path}: as typed"
+        );
+    }
 }
 
 /// **Start mining pays the open wallet, and with none open it says so.**

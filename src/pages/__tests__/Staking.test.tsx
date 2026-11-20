@@ -409,6 +409,7 @@ describe("Staking view panel (GUI-PR3b)", () => {
           attempts: 2,
           funds_return_at: 5100,
           reason: "This node cannot accept a stake yet.",
+          reserved: "2500000000",
         },
       ],
       outcomes: [
@@ -432,6 +433,7 @@ describe("Staking view panel (GUI-PR3b)", () => {
     expect(
       screen.getByText(/Decided when the wallet's scan reaches block 5,100/),
     ).toBeInTheDocument();
+    expect(screen.getByText("2.500000 SKL is set aside for it.")).toBeInTheDocument();
     expect(screen.getByText("Recently ended")).toBeInTheDocument();
     expect(screen.getByText("Reward claim")).toBeInTheDocument();
     expect(
@@ -525,10 +527,11 @@ describe("Staking view panel for a wallet that is not staking", () => {
 
   /**
    * An expired zero-fee reward claim carries an end date but reserved no
-   * inputs. The line under it names the date and never says funds are set
-   * aside, because the read does not say whether any were.
+   * inputs: the panel says nothing is set aside, from the record's own
+   * `reserved` (WR-Q6), never an amount inferred from the end date. Red
+   * edit: showing the end date's record as holding funds.
    */
-  it("never says funds are set aside for a record with an end date", async () => {
+  it("says nothing is set aside for a record that reserved nothing", async () => {
     mockNotStaking(
       notStakingView({
         in_flight: [
@@ -539,6 +542,7 @@ describe("Staking view panel for a wallet that is not staking", () => {
             attempts: 1,
             funds_return_at: 5100,
             reason: null,
+            reserved: "0",
           },
         ],
       }),
@@ -551,6 +555,38 @@ describe("Staking view panel for a wallet that is not staking", () => {
     expect(
       screen.getByText(/Decided when the wallet's scan reaches block 5,100/),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/set aside/)).toBeNull();
+    expect(screen.getByText("Nothing is set aside for it.")).toBeInTheDocument();
+    expect(screen.queryByText(/SKL is set aside/)).toBeNull();
+  });
+
+  /**
+   * Before the staking scan has run, what a record holds cannot be read:
+   * the panel says so, and never that nothing is set aside. Red edit:
+   * reading a null `reserved` as zero.
+   */
+  it("says what a record sets aside is not known before the scan", async () => {
+    mockNotStaking(
+      notStakingView({
+        in_flight: [
+          {
+            kind: "stake",
+            state: "pending",
+            dispatched_at_height: null,
+            attempts: 0,
+            funds_return_at: null,
+            reason: null,
+            reserved: null,
+          },
+        ],
+      }),
+    );
+    renderStaking({ phase: "ready", walletName: "alice" });
+
+    expect(
+      await screen.findByText(
+        "What it sets aside is known once the staking scan has run.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Nothing is set aside for it.")).toBeNull();
   });
 });

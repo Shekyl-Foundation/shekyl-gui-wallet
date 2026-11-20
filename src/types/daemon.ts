@@ -233,6 +233,12 @@ export interface InFlightView {
   funds_return_at: number | null;
   /** User sentence, when this state has one. */
   reason: string | null;
+  /**
+   * What the record still holds (WR-Q6), atomic units: `"0"` when it holds
+   * nothing (a zero-fee reward claim). Null before the staking scan has
+   * run, when what it holds cannot be read.
+   */
+  reserved: string | null;
 }
 
 /** How one kind of staking action last ended (`get_staking_view`, WR-Q2). */
