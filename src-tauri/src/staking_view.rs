@@ -59,7 +59,8 @@ pub struct StakingView {
 /// One outstanding staking record. `kind` and `state` are open strings:
 /// `stake` / `claim` / `drain` / `exit`, and `pending` / `dispatched` /
 /// `refused` / `expired` / `held`. An unknown value is shown as itself.
-#[derive(Debug, PartialEq, Eq, Serialize)]
+/// Its `Debug` redacts `reserved`, as core's `InFlightRecord` does.
+#[derive(PartialEq, Eq, Serialize)]
 pub struct InFlightView {
     pub kind: String,
     pub state: String,
@@ -77,6 +78,24 @@ pub struct InFlightView {
     /// claim). `None` before the staking scan has run, when what it holds
     /// cannot be read.
     pub reserved: Option<AtomicUnitsString>,
+}
+
+impl std::fmt::Debug for InFlightView {
+    /// Redacts `reserved`: the amount ties a persona's funding to its
+    /// staking work, and core redacts the same field
+    /// (`shekyl_engine_core::InFlightRecord`). It reaches the page only
+    /// through the wire serialization, never through a log or a panic.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InFlightView")
+            .field("kind", &self.kind)
+            .field("state", &self.state)
+            .field("dispatched_at_height", &self.dispatched_at_height)
+            .field("attempts", &self.attempts)
+            .field("funds_return_at", &self.funds_return_at)
+            .field("reason", &self.reason)
+            .field("reserved", &"<redacted>")
+            .finish()
+    }
 }
 
 /// How one kind of staking action last ended (WR-Q2). `outcome` is an open
@@ -311,6 +330,27 @@ mod tests {
             true,
         );
         assert!(StakingView::from(view).recovery_pending_reopen);
+    }
+
+    /// A record's `Debug` never prints what it holds, as core's does not:
+    /// the amount ties a persona's funding to its staking work. The wire
+    /// keeps it. Red edit: derive `Debug` on `InFlightView`.
+    #[test]
+    fn a_record_s_debug_redacts_what_it_holds() {
+        let view = InFlightView {
+            kind: "stake".to_owned(),
+            state: "pending".to_owned(),
+            dispatched_at_height: None,
+            attempts: 0,
+            funds_return_at: None,
+            reason: None,
+            reserved: Some(AtomicUnits::from_raw(2_500_000_000).into()),
+        };
+        let printed = format!("{view:?}");
+        assert!(!printed.contains("2500000000"), "{printed}");
+        assert!(printed.contains("<redacted>"), "{printed}");
+        let wire = serde_json::to_value(&view).expect("the view encodes");
+        assert_eq!(wire["reserved"], "2500000000");
     }
 
     /// Dropping `in_flight` or `outcomes` from `From` is how the panel would
