@@ -66,6 +66,27 @@ impl EngineNode {
     }
 }
 
+impl EngineNode {
+    /// Core's target for this node, for a call core dials itself (the
+    /// stake's body-store fill): refused while a failed peer check at "this
+    /// computer" is latched, as [`core_target`] is.
+    pub(crate) async fn core_target(&self, network: Network) -> Result<DaemonTarget, String> {
+        match self {
+            Self::ThisComputer(manager) => {
+                if let Some(words) = manager.refusal().await {
+                    return Err(words);
+                }
+                Ok(DaemonTarget::ThisComputer { network })
+            }
+            Self::Address(target) => Ok(target.clone()),
+            // A test node's owner's leg is no `DaemonTarget`; the tests that
+            // stake refuse before core dials it.
+            #[cfg(test)]
+            Self::Local(_) => Ok(DaemonTarget::ThisComputer { network }),
+        }
+    }
+}
+
 /// Core's target for a call core dials itself (`unstake`): the same one
 /// target, refused while a failed peer check at "this computer" is
 /// latched, so that call does not dial the address either.
