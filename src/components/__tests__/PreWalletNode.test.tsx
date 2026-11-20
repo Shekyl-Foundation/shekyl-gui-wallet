@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -64,6 +64,55 @@ describe("PreWalletNode", () => {
         "aria-pressed",
         "true",
       ),
+    );
+  });
+
+  /**
+   * A read of the connection asked before a switch and answered after it is
+   * stale: the switch's answer stands, and the bar stays on the new network
+   * (finding on #80). Red edit: drop the generation check from the read.
+   */
+  it("keeps a switch over a read answered after it", async () => {
+    let answerHeld: (value: unknown) => void = () => {};
+    let reads = 0;
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === "daemon_status") return status({ state: "running", message: null });
+      if (cmd === "daemon_connection_disclosures") {
+        reads += 1;
+        if (reads === 1) return { url: null, warnings: [], network: "mainnet" };
+        // The second read is held, and answered with the old network after
+        // the switch has been applied.
+        return new Promise((resolve) => {
+          answerHeld = resolve;
+        });
+      }
+      if (cmd === "set_daemon_connection") {
+        return { url: null, warnings: [], network: (args as { network: string }).network };
+      }
+      return null;
+    });
+    render(<PreWalletNode />);
+    const mainnet = await screen.findByRole("button", { name: "mainnet" });
+    await waitFor(() => expect(mainnet).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(reads).toBe(2), { timeout: 4000 });
+
+    await userEvent.click(screen.getByRole("button", { name: "testnet" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "testnet" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    await act(async () => {
+      answerHeld({ url: null, warnings: [], network: "mainnet" });
+    });
+    expect(screen.getByRole("button", { name: "testnet" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "mainnet" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
     );
   });
 
