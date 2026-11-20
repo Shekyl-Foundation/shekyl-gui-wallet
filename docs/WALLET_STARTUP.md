@@ -143,11 +143,12 @@ shard render cache (`shard-visual/`) and the web view's data folder
 (`webview/`) sit beside it. The window is built in code
 (`src-tauri/src/main_window.rs`), not in `tauri.conf.json`, because a
 configured window can name its data folder only inside Tauri's app-data
-folder (`org.shekyl.wallet`). Its web view is incognito, since the page
-keeps no web storage: WebKitGTK and WKWebView then keep their data in
-memory, and WebView2 keeps its browser files in `webview/`. With no root,
-WebView2 falls back to Tauri's `%LOCALAPPDATA%\org.shekyl.wallet`, so the
-window that says why can still open. The app makes the
+folder (`org.shekyl.wallet`). Each platform's web view is given what keeps
+it in the root, as measured on each: WebKitGTK keeps its cache, HSTS and
+storage in `webview/`; WKWebView is incognito (a non-persistent store) and
+keeps nothing; WebView2 keeps its browser files in `webview/` and is
+InPrivate. With no root, WebKitGTK and WebView2 fall back to Tauri's
+app-data folder, so the window that says why can still open. The app makes the
 root once, at its start, as the node does (owner-only with the no-read-up
 label on Windows), and reads every place in it off what that start left
 (`AccountRoot`). An account with no home, or a root the start could not

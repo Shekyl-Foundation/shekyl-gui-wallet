@@ -3,15 +3,15 @@
 ## [Unreleased]
 
 - **The window's web view keeps nothing outside the per-account root.**
-  The web view is incognito: the wallet's pages keep no web storage, so on
-  Linux and macOS it keeps its data in memory and writes nothing. On
-  Windows, WebView2 still needs a folder for its browser files, which is
-  now `webview` in the GUI's settings folder
-  (`%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\webview`), no longer
-  `%LOCALAPPDATA%\org.shekyl.wallet`. alpha.12 and earlier left web view
-  data in `org.shekyl.wallet` folders (`~/.local/share`, `~/.cache`,
-  `%LOCALAPPDATA%`, and on macOS `~/Library/WebKit` and `~/Library/Caches`);
-  this wallet does not read them, and they can be removed.
+  On Linux and Windows its data is in `webview` in the GUI's settings
+  folder (`~/.shekyl/shekyl-gui-wallet/webview`,
+  `%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\webview`); on macOS the web
+  view keeps nothing at all. Earlier releases left web view data in
+  `org.shekyl.wallet` folders: `~/.local/share/org.shekyl.wallet` on
+  Linux, `~/Library/WebKit/org.shekyl.wallet` and
+  `~/Library/Caches/org.shekyl.wallet` on macOS, and
+  `%LOCALAPPDATA%\org.shekyl.wallet` on Windows. This wallet does not read
+  them, and they can be removed.
 
 ## [3.1.0-alpha.12] - 2026-11-20
 
