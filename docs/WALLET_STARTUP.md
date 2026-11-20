@@ -216,8 +216,12 @@ most recently modified.
 ### Initialization
 
 `check_wallet_dir` (Tauri command) says whether there is a wallet
-directory, and why not when there is none (no home or a root not made, and
-no folder chosen). It makes nothing: a network's wallet folder is made when
+directory a listing can read, and why not: no home or a root not made and
+no folder chosen, or a path holding a file or a folder this account cannot
+read. A folder not made yet is fine. Every full read of the folder (the
+start, a network switch, a folder chosen or reset, a lock) is numbered in
+`WalletContext`, and only the newest commits the folder, its wallets and
+the phase. It makes nothing: a network's wallet folder is made when
 a wallet is created or restored in it, so starting the app, switching
 network or opening leaves no empty `wallets/<network>` behind, as
 `shekyl-cli` makes its own only to make a wallet. Nothing else is

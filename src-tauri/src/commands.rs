@@ -189,15 +189,18 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
     Ok(wallets)
 }
 
-/// Whether there is a wallet directory, and the words that say why not
-/// (no home or a root not made, and no folder chosen). It makes nothing:
+/// Whether there is a wallet directory a listing can read, and the words
+/// that say why not: no home or a root not made and no folder chosen, or a
+/// path that holds a file or a folder this account cannot read
+/// ([`wallet_name::check_dir_readable`]). A folder not made yet is fine. It
+/// makes nothing:
 /// a wallet's directory is made when a wallet is created or restored in
 /// it, so starting the app or switching network leaves no empty
 /// `wallets/<network>` behind, as `shekyl-cli` makes its own only to make
 /// a wallet. The start and a network switch ask it before listing.
 #[tauri::command]
 pub async fn check_wallet_dir(state: State<'_, AppState>) -> Result<(), String> {
-    state.wallet_dir().await.map(drop)
+    wallet_name::check_dir_readable(&state.wallet_dir().await?)
 }
 
 /// Override the wallet directory with a user-chosen path (Advanced

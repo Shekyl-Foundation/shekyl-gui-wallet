@@ -60,7 +60,6 @@ const walletStub: WalletContextValue = {
   restoreWallet: () => Promise.reject("stub"),
   lockWallet: () => Promise.resolve(),
   setPhase: () => {},
-  refreshFiles: async () => [],
   walletDir: null,
   walletDirFallbackFrom: null,
   setCustomWalletDir: async () => "",

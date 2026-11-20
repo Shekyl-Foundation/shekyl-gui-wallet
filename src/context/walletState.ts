@@ -26,7 +26,6 @@ export interface WalletContextValue {
   ) => Promise<OpenedWallet>;
   lockWallet: () => Promise<void>;
   setPhase: (phase: WalletPhase) => void;
-  refreshFiles: () => Promise<WalletFileInfo[]>;
 
   /**
    * Currently active wallet directory, as a display string. Updated
@@ -82,7 +81,6 @@ export const WalletContext = createContext<WalletContextValue>({
   restoreWallet: () => Promise.reject("Not initialized"),
   lockWallet: () => Promise.reject("Not initialized"),
   setPhase: () => {},
-  refreshFiles: () => Promise.resolve([]),
 
   walletDir: null,
   walletDirFallbackFrom: null,

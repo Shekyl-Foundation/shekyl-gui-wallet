@@ -20,10 +20,14 @@ const FOLDERS: Record<string, { dir: string; files: string[] }> = {
 
 /** The phase, the folder and its wallets, as WalletGate would read them. */
 function Probe() {
-  const { phase, walletDir, walletFiles } = useWallet();
+  const { phase, walletDir, walletFiles, error, resetWalletDir } = useWallet();
   return (
     <div>
       <span data-testid="phase">{phase}</span>
+      <span data-testid="error">{error}</span>
+      <button type="button" onClick={() => void resetWalletDir()}>
+        reset folder
+      </button>
       <span data-testid="dir">{walletDir}</span>
       <span data-testid="files">{walletFiles.map((f) => f.name).join(",")}</span>
     </div>
@@ -31,18 +35,34 @@ function Probe() {
 }
 
 let network = "mainnet";
+/** When set, the next listing is held until the test answers it. */
+let holdNextList = false;
+let answerHeld: () => void = () => {};
+/** When set, the folder check refuses with these words. */
+let folderRefusal: string | null = null;
 
 beforeEach(() => {
   network = "mainnet";
+  holdNextList = false;
+  folderRefusal = null;
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
     switch (cmd) {
       case "check_wallet_dir":
+        if (folderRefusal !== null) throw folderRefusal;
         return undefined;
       case "get_wallet_dir":
         return { dir: FOLDERS[network].dir };
-      case "check_wallet_files":
-        return FOLDERS[network].files.map((name) => ({ name, path: "", modified: 0 }));
+      case "check_wallet_files": {
+        const listed = FOLDERS[network].files.map((name) => ({ name, path: "", modified: 0 }));
+        if (!holdNextList) return listed;
+        holdNextList = false;
+        return new Promise((resolve) => {
+          answerHeld = () => resolve(listed);
+        });
+      }
+      case "reset_wallet_dir":
+        return FOLDERS[network].dir;
       case "daemon_connection_disclosures":
         return { url: null, warnings: [], network };
       case "set_daemon_connection":
@@ -154,5 +174,57 @@ describe("a change of network before a wallet is open", () => {
         password: "pw-for-test",
       }),
     );
+  });
+
+  /**
+   * A folder read that answers after a newer one is dropped: a reset of
+   * mainnet's folder whose listing is slow, then a switch to testnet, then
+   * the slow listing answering last, leaves testnet's folder and wallets
+   * (finding on #81: a stale list paired with the new folder let Unlock
+   * submit another network's names). Red edit: commit every answer, and
+   * mainnet's list lands on testnet's folder.
+   */
+  it("drops a folder read that answers after a newer one", async () => {
+    render(
+      <WalletProvider>
+        <PreWalletNode />
+        <Probe />
+      </WalletProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("unlock"));
+
+    holdNextList = true;
+    await userEvent.click(screen.getByRole("button", { name: "reset folder" }));
+    await userEvent.click(await screen.findByRole("button", { name: "testnet" }));
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("no_wallet"));
+    expect(screen.getByTestId("dir")).toHaveTextContent("/root/wallets/testnet");
+
+    await act(async () => {
+      answerHeld();
+    });
+    expect(screen.getByTestId("dir")).toHaveTextContent("/root/wallets/testnet");
+    expect(screen.getByTestId("files")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("phase")).toHaveTextContent("no_wallet");
+  });
+
+  /**
+   * A folder the wallet cannot read (a file in its place, a refused
+   * permission) is said on the start's error path, never shown as a
+   * folder with no wallets (finding on #81). Red edit: treat a refused
+   * check as an empty list.
+   */
+  it("says a folder that cannot be read rather than listing no wallets", async () => {
+    folderRefusal = "The wallet folder could not be read.";
+    render(
+      <WalletProvider>
+        <Probe />
+      </WalletProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("error")).toHaveTextContent(
+        "The wallet folder could not be read.",
+      ),
+    );
+    expect(screen.getByTestId("phase")).toHaveTextContent("no_wallet");
   });
 });
