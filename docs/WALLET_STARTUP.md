@@ -138,8 +138,16 @@ settings directory, `shekyl-gui-wallet` in the per-account root
 `%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\gui-config.json` on Windows;
 `src-tauri/src/account_root.rs`, `src-tauri/src/gui_config.rs`), never
 Tauri's config folder (`XDG_CONFIG_HOME`, Roaming AppData). The node's
-settings (`daemon.json`), its error output (`shekyld.stderr`) and the
-shard render cache (`shard-visual/`) sit beside it. The app makes the
+settings (`daemon.json`), its error output (`shekyld.stderr`), the
+shard render cache (`shard-visual/`) and the web view's data folder
+(`webview/`) sit beside it. The window is built in code
+(`src-tauri/src/main_window.rs`), not in `tauri.conf.json`, because a
+configured window can name its data folder only inside Tauri's app-data
+folder (`org.shekyl.wallet`). Its web view is incognito, since the page
+keeps no web storage: WebKitGTK and WKWebView then keep their data in
+memory, and WebView2 keeps its browser files in `webview/`. With no root,
+WebView2 falls back to Tauri's `%LOCALAPPDATA%\org.shekyl.wallet`, so the
+window that says why can still open. The app makes the
 root once, at its start, as the node does (owner-only with the no-read-up
 label on Windows), and reads every place in it off what that start left
 (`AccountRoot`). An account with no home, or a root the start could not
