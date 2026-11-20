@@ -52,6 +52,22 @@ one of these rules, stop and ask the human first.
    on short-lived branches owned by a single contributor, and only when
    that contributor has explicitly asked for it.
 
+7. **A pull request merges on its owner's `merge-ready` label, which
+   GitHub holds to the head** (ruled 2026-11-19, the same check as
+   shekyl-core's; a core and GUI pair merges together). Required checks
+   going green is not the end of a pull request: other workflows and the
+   lane's fleet runs on the same head can still be going. The owning lane
+   applies `merge-ready` when every check on the current head has
+   concluded, not only the required ones, its fleet and local runs for
+   that head are done, and its review threads are resolved; the handoff
+   to the merger is "labelled merge-ready at <sha>". The required status
+   `merge-ready` (`merge-ready.yml`, `scripts/ci/merge_ready.py`) is
+   pending until then. The label going on is refused, and taken off with
+   a comment naming each reason, while a check runs or is red, a review
+   thread is open, or the pull request is a draft; a push takes it off.
+   Cursor Bugbot is not judged, by name: its check run can stay queued
+   forever here.
+
 ## Default workflow for any code change
 
 1. Confirm you are on `dev` (or a short-lived branch off `dev`).
