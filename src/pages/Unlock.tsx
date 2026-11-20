@@ -19,28 +19,33 @@ export default function Unlock() {
   const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
 
-  // The stored attempt outlives this page. It is shown only while the file
-  // it was tried against is still the one on screen, including when the
-  // refusal arrives after the selection has moved on.
+  // The selection is a name in the folder in effect; the file is that name
+  // there, its full path. The stored attempt outlives this page. It is
+  // shown only while the file it was tried against is still the one on
+  // screen, by path: a change of folder with a file of the same name, or a
+  // refusal that arrives after the selection has moved on, shows nothing.
+  const selected = walletFiles.find((f) => f.name === selectedFile);
   const refusal =
-    attempt?.file === selectedFile ? attempt.refusal : null;
+    selected !== undefined && attempt?.path === selected.path
+      ? attempt.refusal
+      : null;
   const offerNewWallet = refusal
     ? openRefusalAffordance(refusal.kind).offerNewWallet
     : false;
 
   const handleUnlock = useCallback(async () => {
-    if (!selectedFile || password.length === 0) return;
-    const file = selectedFile;
+    if (selected === undefined || password.length === 0) return;
+    const file = selected;
     clearAttempt();
     setLoading(true);
     try {
-      await openWallet(file, password);
+      await openWallet(file.name, password);
     } catch (e) {
-      recordAttempt({ file, refusal: asOpenRefusal(e) });
+      recordAttempt({ path: file.path, refusal: asOpenRefusal(e) });
     } finally {
       setLoading(false);
     }
-  }, [selectedFile, password, openWallet, clearAttempt, recordAttempt]);
+  }, [selected, password, openWallet, clearAttempt, recordAttempt]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
