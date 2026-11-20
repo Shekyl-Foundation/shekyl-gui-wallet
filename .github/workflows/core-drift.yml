@@ -217,6 +217,52 @@ jobs:
             exit 1
           fi
 
+      # Core's lock is the authority for every package this wallet shares
+      # with it, and this lock holds core's crypto-closure record (every
+      # package on a proving, signing, wiping, RNG or seed path at its
+      # reviewed version; shekyl-core rust/.cargo/crypto-closure.toml). Both
+      # checks are core's scripts and parse lockfiles only, and each names
+      # the package and the locks that differ. They run on the daily run
+      # against core dev and on a pull request of this repository that
+      # changes src-tauri/Cargo.lock (against the same-named core branch
+      # when there is one), before the unlocked `cargo check` below could
+      # rewrite the lock. A core pull request runs the same two checks in
+      # its own gui-drift job, so a called run skips them here.
+      - name: Does this run check the lock?
+        id: lock-scope
+        if: github.event_name == 'schedule' || (github.event_name == 'pull_request' && github.event.pull_request.base.repo.full_name == 'Shekyl-Foundation/shekyl-gui-wallet')
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -u
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            echo "check=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fail closed: a base that cannot be fetched or compared checks
+          # the lock rather than skipping it.
+          if ! git -C gui fetch --depth 1 --quiet origin "$BASE_SHA"; then
+            echo "check=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git -C gui diff --quiet "$BASE_SHA" HEAD -- src-tauri/Cargo.lock
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "src-tauri/Cargo.lock is unchanged; the daily run checks it"
+            echo "check=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "check=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Shared packages are at core's versions
+        if: steps.lock-scope.outputs.check == 'true'
+        run: python3 shekyl-core/scripts/ci/check_gui_lock_shared.py --core shekyl-core/rust/Cargo.lock --gui gui/src-tauri/Cargo.lock
+
+      - name: The lock holds core's crypto-closure record
+        if: ${{ !cancelled() && steps.lock-scope.outputs.check == 'true' }}
+        run: python3 shekyl-core/scripts/ci/check_crypto_closure.py --record shekyl-core/rust/.cargo/crypto-closure.toml --lock gui/src-tauri/Cargo.lock
+
       # No `npm ci` / `npm run build`: the frontend bundle is a bundle-time
       # resource, and `cargo check` completes without `dist/` (verified).
       # This job asks one question — does the wallet still compile against
