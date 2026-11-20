@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import NodeNotice from "./NodeNotice";
 import NodeAddress from "./NodeAddress";
 import type { DaemonConnection } from "../types/node";
+import { useWallet } from "../context/useWallet";
 
 /** The networks a person can choose before a wallet is open. */
 const NETWORKS = ["mainnet", "testnet", "stagenet"] as const;
@@ -25,6 +26,7 @@ export default function PreWalletNode() {
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingNode, setEditingNode] = useState(false);
+  const { networkChanged } = useWallet();
 
   const load = useCallback(async () => {
     try {
@@ -48,7 +50,8 @@ export default function PreWalletNode() {
 
   // No address rides the switch: a typed address names a node of one
   // network, so the wallet is pointed back at this computer's node, which
-  // follows the network.
+  // follows the network. Each network keeps its wallets in its own folder,
+  // so the list under the bar is read again for the new one.
   async function choose(net: string) {
     setSwitching(true);
     setError(null);
@@ -56,6 +59,7 @@ export default function PreWalletNode() {
       setConnection(
         await invoke<DaemonConnection>("set_daemon_connection", { network: net }),
       );
+      await networkChanged();
     } catch (e) {
       setError(String(e));
     } finally {

@@ -46,10 +46,18 @@ export interface WalletContextValue {
    * exist (mkdir -p semantics). Returns the canonical display path.
    */
   setCustomWalletDir: (dir: string) => Promise<string>;
-  /** Reset to the platform default (~/.shekyl/wallets, etc.). */
+  /**
+   * Reset to the default: the current network's own folder,
+   * `wallets/<network>` in the per-account root.
+   */
   resetWalletDir: () => Promise<string>;
   /** Re-read the current directory from the backend into `walletDir`. */
   refreshWalletDir: () => Promise<string>;
+  /**
+   * The network changed before a wallet was open: re-read the folder (each
+   * network has its own), its wallets, and the phase they call for.
+   */
+  networkChanged: () => Promise<void>;
 }
 
 /**
@@ -81,4 +89,5 @@ export const WalletContext = createContext<WalletContextValue>({
   setCustomWalletDir: () => Promise.reject("Not initialized"),
   resetWalletDir: () => Promise.reject("Not initialized"),
   refreshWalletDir: () => Promise.reject("Not initialized"),
+  networkChanged: () => Promise.resolve(),
 });

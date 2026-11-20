@@ -66,6 +66,7 @@ const walletStub: WalletContextValue = {
   setCustomWalletDir: async () => "",
   resetWalletDir: async () => "",
   refreshWalletDir: async () => "",
+  networkChanged: async () => {},
 };
 
 function renderStaking(wallet: Partial<WalletContextValue> = {}) {

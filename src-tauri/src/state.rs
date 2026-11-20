@@ -93,10 +93,10 @@ pub struct AppState {
     /// This account's per-account root as the app's start left it: the
     /// default wallet directory, or why there is none.
     pub root: AccountRoot,
-    /// The wallet directory: the person's choice, else the root's
-    /// [`AccountRoot::default_wallet_dir`]. `None` only when there is no
-    /// default and the person has chosen none; read it through
-    /// [`AppState::wallet_dir`], which then says why.
+    /// The wallet directory the person chose, taken as given on every
+    /// network; `None` when they chose none. Read the wallet directory
+    /// through [`AppState::wallet_dir`], which gives the network's default
+    /// when there is no choice.
     pub wallet_dir: RwLock<Option<PathBuf>>,
     /// `Some(path)` when the persisted wallet-dir override was
     /// unreachable at startup and we fell back to the platform default.
@@ -134,14 +134,13 @@ impl AppState {
     /// settings kept in `settings` and its default wallet directory read
     /// off `root`.
     pub fn on(net: NetworkType, settings: gui_config::Store, root: AccountRoot) -> Self {
-        let resolved =
-            gui_config::resolve_wallet_dir(settings.load(), root.default_wallet_dir().ok());
+        let resolved = gui_config::resolve_wallet_dir(settings.load());
         Self {
             node_address: RwLock::new(None),
             network: RwLock::new(net),
             settings,
             root,
-            wallet_dir: RwLock::new(resolved.dir),
+            wallet_dir: RwLock::new(resolved.choice),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
             wallet_open: RwLock::new(false),
             wallet_name: RwLock::new(None),
@@ -149,12 +148,17 @@ impl AppState {
         }
     }
 
-    /// The wallet directory: the person's choice, else the root's default,
-    /// else the words that say why there is none.
+    /// The wallet directory: the person's choice, else the default of the
+    /// network the wallet is on now (`wallets/<network>` in the root), else
+    /// the words that say why there is none. The default is read here, not
+    /// kept, because the network changes while the app runs.
     pub async fn wallet_dir(&self) -> Result<PathBuf, String> {
         match self.wallet_dir.read().await.clone() {
             Some(dir) => Ok(dir),
-            None => self.root.default_wallet_dir(),
+            None => {
+                let network = self.network.read().await.network();
+                self.root.default_wallet_dir(network)
+            }
         }
     }
 
@@ -232,5 +236,34 @@ mod wallet_dir_tests {
         let words = state.wallet_dir().await.unwrap_err();
         assert!(words.contains(&root.display().to_string()), "{words}");
         assert!(!root.exists(), "nothing made the root");
+    }
+
+    /// Each network's wallets are in their own folder, read off the network
+    /// the wallet is on when it is needed (Rick, 2026-11-20), and a folder
+    /// the person chose is used on every network as given. Red edit: the
+    /// default fixed at the start (the old `AppState::on`) keeps a switched
+    /// wallet in the first network's folder.
+    #[tokio::test]
+    async fn the_default_wallet_dir_follows_the_network_and_a_choice_does_not() {
+        let root = std::path::PathBuf::from("root");
+        let state = AppState::on(
+            NetworkType::Mainnet,
+            gui_config::Store::none(),
+            AccountRoot::Ready(root.clone()),
+        );
+        assert_eq!(
+            state.wallet_dir().await,
+            Ok(root.join("wallets").join("mainnet"))
+        );
+        *state.network.write().await = NetworkType::Testnet;
+        assert_eq!(
+            state.wallet_dir().await,
+            Ok(root.join("wallets").join("testnet"))
+        );
+        let chosen = std::path::PathBuf::from("chosen");
+        *state.wallet_dir.write().await = Some(chosen.clone());
+        assert_eq!(state.wallet_dir().await, Ok(chosen.clone()));
+        *state.network.write().await = NetworkType::Stagenet;
+        assert_eq!(state.wallet_dir().await, Ok(chosen));
     }
 }

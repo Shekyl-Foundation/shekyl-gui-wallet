@@ -106,14 +106,21 @@ for `.keys` files.
 
 ### Default directory
 
-The default is `wallets` under the account's per-account root, the root
-the node's data sits in too, as shekyl-core names it (core rule 83 IG-13;
-`shekyl_os_account::per_account_root` and `wallet_dir_in`):
+The default is `wallets/<network>` under the account's per-account root,
+the root the node's data sits in too, as shekyl-core names it for every
+wallet binary (core rule 83 IG-13; `shekyl_os_account::per_account_root`
+and `shekyl_engine_file::paths::wallet_dir_in`):
 
-| Platform              | Default Path                    |
-|-----------------------|---------------------------------|
-| Linux, FreeBSD, macOS | `~/.shekyl/wallets/`            |
-| Windows               | `%LOCALAPPDATA%\Shekyl\wallets\` |
+| Platform              | Default Path                              |
+|-----------------------|-------------------------------------------|
+| Linux, FreeBSD, macOS | `~/.shekyl/wallets/<network>/`            |
+| Windows               | `%LOCALAPPDATA%\Shekyl\wallets\<network>\` |
+
+The default is read off the network the wallet is on when it is needed
+(`AppState::wallet_dir`), never kept, since the network can change before
+a wallet is open; a change of network on the pre-wallet bar re-reads the
+folder and its wallets (`WalletContext.networkChanged`). A folder the
+person chose (`set_wallet_dir`) is used as it is on every network.
 
 The home is read from the account interface (the passwd entry, or
 `FOLDERID_LocalAppData` on Windows), never from `HOME` or `%APPDATA%`, and
@@ -161,7 +168,7 @@ When the user types a wallet name like `My Wallet`, `wallet_name::sanitize`
 normalizes it to `My_Wallet` before any filesystem call, and
 `wallet_name::build_wallet_path` joins it with the active directory via
 `PathBuf::join` so the host separator is always correct (e.g.
-`C:\Users\<user>\AppData\Local\Shekyl\wallets\My_Wallet.keys` on
+`C:\Users\<user>\AppData\Local\Shekyl\wallets\mainnet\My_Wallet.keys` on
 Windows).
 
 As of alpha.5, `sanitize` is the single source of truth for filename

@@ -150,8 +150,9 @@ pub async fn get_pqc_status() -> Result<PqcStatus, String> {
 
 #[tauri::command]
 pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<WalletFileInfo>, String> {
-    // No directory, or one not made yet, holds no wallets.
-    let Some(dir) = state.wallet_dir.read().await.clone() else {
+    // No directory, or one not made yet, holds no wallets. The directory
+    // is the network's own unless the person chose one.
+    let Ok(dir) = state.wallet_dir().await else {
         return Ok(vec![]);
     };
     if !dir.exists() {
@@ -221,17 +222,19 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
     Ok(display)
 }
 
-/// Reset the wallet directory to the platform default and clear any
-/// persisted override.
+/// Reset the wallet directory to the default, the current network's
+/// folder, and clear any persisted override. The default is not kept: it
+/// follows the network from here on.
 #[tauri::command]
 pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let default = state.root.default_wallet_dir()?;
+    let network = state.network.read().await.network();
+    let default = state.root.default_wallet_dir(network)?;
     wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
     let mut cfg = state.settings.load();
     cfg.wallet_dir_override = None;
     state.settings.save(&cfg);
-    *state.wallet_dir.write().await = Some(default);
+    *state.wallet_dir.write().await = None;
     *state.wallet_dir_warning.write().await = None;
     Ok(display)
 }
