@@ -65,20 +65,12 @@ describe("ImportWallet", () => {
     expect(screen.getByText("23/24 words")).toBeInTheDocument();
   });
 
-  it("accepts a testnet wallet's 64-hex raw seed and sends it verbatim", () => {
-    const hex = "ab".repeat(32);
+  it("refuses a hex seed: the 24 words are the only backup, testnet included", () => {
     renderPage();
-    fill({ seed: hex });
-    expect(screen.getByText("64/64 hex characters (testnet seed)")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /restore from recovery phrase/i }));
-    expect(restoreWallet).toHaveBeenCalledWith("Restored Wallet", "correct horse battery", hex, 0);
-  });
-
-  it("refuses a hex seed that is not exactly 64 characters", () => {
-    renderPage();
-    fill({ seed: "ab".repeat(31) });
-    expect(screen.getByText("62/64 hex characters (testnet seed)")).toBeInTheDocument();
+    fill({ seed: "ab".repeat(32) });
+    expect(screen.getByText("1/24 words")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /restore from recovery phrase/i })).toBeDisabled();
+    expect(screen.queryByText(/hex/i)).not.toBeInTheDocument();
   });
 
   it("shows the engine's refusal and returns to the form", async () => {

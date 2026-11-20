@@ -1,6 +1,6 @@
 [package]
 name = "shekyl-wallet"
-version = "3.1.0+alpha.11"
+version = "3.1.0+alpha.12"
 description = "Shekyl desktop wallet"
 authors = ["The Shekyl Foundation"]
 license = "BSD-3-Clause"
@@ -17,7 +17,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 # Recovery-phrase clipboard slot. Rust writes and clears; no webview
 # capability is granted. The plugin's Rust API does not consult one.
@@ -25,19 +24,28 @@ tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
-dirs = "6"
 hex = "0.4"
 base64 = "0.22"
 sha2 = "0.10"
 shekyl-shard-visual = { path = "../../shekyl-core/rust/shekyl-shard-visual" }
 shekyl-scanner = { path = "../../shekyl-core/rust/shekyl-scanner" }
 shekyl-rpc-client = { path = "../../shekyl-core/rust/shekyl-rpc-client" }
+shekyl-rpc-types = { path = "../../shekyl-core/rust/shekyl-rpc-types" }
 shekyl-rpc-transport = { path = "../../shekyl-core/rust/shekyl-rpc-transport" }
+# The launcher the wallet starts its node with, holding the node's owning
+# connection (GUI_SYNC_LANE.md GS-2). One copy per process: it holds the
+# process's one spawn lock (scripts/ci/check_one_spawn_lock.py).
+shekyl-spawn = { path = "../../shekyl-core/rust/shekyl-spawn" }
+# The Tor status's one definition and its one renderer (GS-3).
+shekyl-tor-status = { path = "../../shekyl-core/rust/shekyl-tor-status" }
 shekyl-engine-core = { path = "../../shekyl-core/rust/shekyl-engine-core" }
 shekyl-engine-file = { path = "../../shekyl-core/rust/shekyl-engine-file" }
 shekyl-engine-prefs = { path = "../../shekyl-core/rust/shekyl-engine-prefs" }
 shekyl-engine-state = { path = "../../shekyl-core/rust/shekyl-engine-state" }
+shekyl-consensus = { path = "../../shekyl-core/rust/shekyl-consensus" }
+# The target block time (`T_SECONDS`) a count of blocks is shown as a time
+# by. A leaf crate, already in the graph through core.
+shekyl-difficulty = { path = "../../shekyl-core/rust/shekyl-difficulty" }
 # The wallet contract's error vocabulary: the engine-error -> code + message
 # mapping the wallet RPC answers with, so the GUI says the same thing.
 shekyl-wallet-contract = { path = "../../shekyl-core/rust/shekyl-wallet-contract" }
@@ -45,6 +53,10 @@ shekyl-wire = { path = "../../shekyl-core/rust/shekyl-wire" }
 shekyl-crypto-pq = { path = "../../shekyl-core/rust/shekyl-crypto-pq" }
 shekyl-address = { path = "../../shekyl-core/rust/shekyl-address" }
 shekyl-units = { path = "../../shekyl-core/rust/shekyl-units" }
+# The default wallet directory: `wallets` under this account's per-account
+# root, read from the account interface as core names it (rule 83 IG-13),
+# and that root made as the daemon makes it.
+shekyl-os-account = { path = "../../shekyl-core/rust/shekyl-os-account" }
 # Production: IncomingFact / HistoryOrder carry domain newtypes until the
 # Tauri JSON edge. Tests also construct StakingReadView fixtures with them.
 shekyl-types = { path = "../../shekyl-core/rust/shekyl-types" }
@@ -66,4 +78,20 @@ multisig = []
 libc = "0.2"
 
 [dev-dependencies]
+# A test's node lives in a socket directory or instance of its own, named
+# with `LocalTarget::test_override`: core's TEST_ONLY feature, which a dev
+# edge alone may enable. The wallet itself names "this computer" by its
+# network alone.
+shekyl-rpc-transport = { path = "../../shekyl-core/rust/shekyl-rpc-transport", features = ["test-override"] }
 proptest = "1"
+# The node's own admission check (`Authority::VIEW_LISTENER`), so the
+# grant-reach test asks the daemon's code what the wallet's own node lets
+# it call, never a copy of its grant set.
+shekyl-daemon-rpc = { path = "../../shekyl-core/rust/shekyl-daemon-rpc" }
+# A live test names its node's own socket directory, and resolves "this
+# computer" there (`LocalTarget::resolve`), so it never meets a node of the
+# account it runs under.
+shekyl-rpc-rendezvous = { path = "../../shekyl-core/rust/shekyl-rpc-rendezvous" }
+# A live test holds a data directory's lock as a daemon does (`Lock::take`),
+# so the wallet's node meets a held directory with no second daemon.
+shekyl-daemon-config = { path = "../../shekyl-core/rust/shekyl-daemon-config" }

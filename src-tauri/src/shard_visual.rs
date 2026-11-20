@@ -44,7 +44,10 @@ use shekyl_shard_visual::{
     render_candidate_png_from_params, CandidateRecipe, ShardAggregate, VisualError,
     RENDER_REVISION,
 };
-use tauri::{AppHandle, Manager};
+use tauri::State;
+
+use crate::account_root::AccountRoot;
+use crate::state::AppState;
 
 pub(crate) const MIN_SIZE: u32 = 64;
 pub(crate) const MAX_SIZE: u32 = 512;
@@ -89,7 +92,7 @@ pub fn list_shard_preview_fixtures() -> Vec<ShardPreviewFixtureInfo> {
 
 #[tauri::command]
 pub fn render_shard_preview(
-    app: AppHandle,
+    state: State<'_, AppState>,
     request: RenderShardPreviewRequest,
 ) -> Result<RenderShardPreviewResponse, String> {
     let fixture = fixtures::by_id(&request.fixture_id)
@@ -108,8 +111,15 @@ pub fn render_shard_preview(
         size,
     );
     let recipe = recipe_for(&fixture.aggregate, hash_override);
-    let png = render_cached(&app, &cache_key, &fixture.aggregate, hash_override, size)
-        .map_err(|e| e.to_string())?;
+    let cache = cache_dir_in(&state.root);
+    let png = render_cached(
+        cache.as_deref(),
+        &cache_key,
+        &fixture.aggregate,
+        hash_override,
+        size,
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(RenderShardPreviewResponse {
         png_base64: STANDARD.encode(&png),
@@ -119,7 +129,9 @@ pub fn render_shard_preview(
     })
 }
 
-/// Return the cached PNG for `cache_key`, rendering and persisting it on miss.
+/// Return the cached PNG for `cache_key` in `cache`, rendering and
+/// persisting it on miss. With no cache directory (no per-account root:
+/// [`cache_dir_in`]) the PNG is rendered and nothing is kept.
 ///
 /// Concurrent renders for the same key can race on the write: both miss the
 /// cache, both render, and the second `rename` may fail (especially on
@@ -127,19 +139,22 @@ pub fn render_shard_preview(
 /// other writer already produced a valid file — read it back rather than
 /// failing a successful render.
 pub(crate) fn render_cached(
-    app: &AppHandle,
+    cache: Option<&Path>,
     cache_key: &str,
     aggregate: &ShardAggregate,
     hash_override: Option<[u8; 32]>,
     size: u32,
 ) -> Result<Vec<u8>, String> {
-    if let Some(png) = read_cache(app, cache_key, size)? {
+    let Some(dir) = cache else {
+        return render_png(aggregate, hash_override, size).map_err(|e| e.to_string());
+    };
+    if let Some(png) = read_cache(dir, cache_key, size)? {
         return Ok(png);
     }
     let png = render_png(aggregate, hash_override, size).map_err(|e| e.to_string())?;
-    match write_cache(app, cache_key, size, &png) {
+    match write_cache(dir, cache_key, size, &png) {
         Ok(()) => Ok(png),
-        Err(write_err) => match read_cache(app, cache_key, size)? {
+        Err(write_err) => match read_cache(dir, cache_key, size)? {
             Some(cached) => Ok(cached),
             None => Err(write_err),
         },
@@ -220,34 +235,91 @@ pub(crate) fn cache_digest(
     hex::encode(hasher.finalize())
 }
 
-fn cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_cache_dir()
-        .map(|p| p.join("shard-visual"))
-        .map_err(|e| e.to_string())
+/// The render cache's directory's name in the GUI's directory in the
+/// per-account root.
+pub(crate) const CACHE_DIR_NAME: &str = "shard-visual";
+
+/// The render cache: [`CACHE_DIR_NAME`] in the GUI's directory in the
+/// per-account root ([`AccountRoot::settings_dir`]; core rule 83 IG-13),
+/// never a cache folder found through `XDG_CACHE_HOME` or `HOME`, which
+/// the regenesis upgrade does not clear. `None` when the start left no
+/// root (no home, or a root it could not make): the PNG is then rendered
+/// on every view and nothing is kept.
+pub(crate) fn cache_dir_in(root: &AccountRoot) -> Option<PathBuf> {
+    root.settings_dir().ok().map(|dir| dir.join(CACHE_DIR_NAME))
 }
 
-fn cache_path(app: &AppHandle, key: &str, size: u32) -> Result<PathBuf, String> {
-    Ok(cache_dir(app)?.join(format!("{key}_{size}.png")))
+fn cache_path(dir: &Path, key: &str, size: u32) -> PathBuf {
+    dir.join(format!("{key}_{size}.png"))
 }
 
-fn read_cache(app: &AppHandle, key: &str, size: u32) -> Result<Option<Vec<u8>>, String> {
-    let path = cache_path(app, key, size)?;
+fn read_cache(dir: &Path, key: &str, size: u32) -> Result<Option<Vec<u8>>, String> {
+    let path = cache_path(dir, key, size);
     if !path.is_file() {
         return Ok(None);
     }
     fs::read(&path).map(Some).map_err(|e| e.to_string())
 }
 
-fn write_cache(app: &AppHandle, key: &str, size: u32, png: &[u8]) -> Result<(), String> {
-    let dir = cache_dir(app)?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = cache_path(app, key, size)?;
-    atomic_write(&path, png)
+fn write_cache(dir: &Path, key: &str, size: u32, png: &[u8]) -> Result<(), String> {
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    atomic_write(&cache_path(dir, key, size), png)
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp = path.with_extension("png.part");
     fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
     fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The render cache is in the GUI's directory in the per-account root
+    /// (core rule 83 IG-13), and there is none without a root. Red edit:
+    /// read the cache off the root's path whatever the start left (a
+    /// `NotMade` root's path), and a cache write would make the root
+    /// without its protections: the last assertion fails.
+    #[test]
+    fn the_render_cache_is_in_the_per_account_root_or_nowhere() {
+        let root = std::env::temp_dir().join("shekyl-gui-shard-root");
+        assert_eq!(
+            cache_dir_in(&AccountRoot::Ready(root.clone())),
+            Some(root.join("shekyl-gui-wallet").join("shard-visual"))
+        );
+        assert_eq!(cache_dir_in(&AccountRoot::NoHome), None);
+        assert_eq!(cache_dir_in(&AccountRoot::not_made_at(root)), None);
+    }
+
+    /// With a cache directory a render is kept there and read back; with
+    /// none it is drawn all the same and nothing is kept, so a wallet
+    /// whose root could not be made still draws its cards. Red edit: skip
+    /// the read in `render_cached` (render on every view, the cost the
+    /// cache exists to spare the floor device): the last assertion fails.
+    #[test]
+    fn a_render_is_kept_in_its_cache_and_drawn_without_one() {
+        let fixture = fixtures::all().into_iter().next().expect("a fixture");
+        let key = cache_digest(&fixture.id, fixture.aggregate.shard_hash, None, MIN_SIZE);
+        let base =
+            std::env::temp_dir().join(format!("shekyl-gui-shard-cache-{}", std::process::id()));
+        let dir = base.join(CACHE_DIR_NAME);
+
+        let drawn = render_cached(None, &key, &fixture.aggregate, None, MIN_SIZE).expect("drawn");
+        assert!(!drawn.is_empty());
+        assert!(!base.exists(), "nothing is kept without a cache");
+
+        let kept = render_cached(Some(&dir), &key, &fixture.aggregate, None, MIN_SIZE)
+            .expect("drawn and kept");
+        assert_eq!(kept, drawn);
+        let path = cache_path(&dir, &key, MIN_SIZE);
+        assert_eq!(fs::read(&path).expect("kept"), drawn);
+        // A second view reads the kept file, not a fresh render.
+        fs::write(&path, b"kept").unwrap();
+        assert_eq!(
+            render_cached(Some(&dir), &key, &fixture.aggregate, None, MIN_SIZE).unwrap(),
+            b"kept"
+        );
+        fs::remove_dir_all(&base).unwrap();
+    }
 }

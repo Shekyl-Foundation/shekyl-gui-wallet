@@ -7,7 +7,7 @@ export default function Welcome() {
   const { error } = useWallet();
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-purple-900">
+    <div className="flex min-h-full w-full items-center justify-center bg-purple-900">
       <div className="mx-auto max-w-md space-y-8 px-6 text-center">
         {/* Branding */}
         <div className="space-y-3">

@@ -16,7 +16,7 @@ export interface WalletContextValue {
   createWallet: (name: string, password: string) => Promise<CreatedWallet>;
   /**
    * The contract's `restore_wallet(name, password, mnemonic, restore_height)`.
-   * `mnemonic` is the seed backup in the network's encoding.
+   * `mnemonic` is the seed backup: its 24 BIP-39 words, on every network.
    */
   restoreWallet: (
     name: string,

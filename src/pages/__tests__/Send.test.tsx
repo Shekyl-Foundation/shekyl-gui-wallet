@@ -3,21 +3,32 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import Send from "../Send";
+import { TorContext } from "../../context/torState";
+import type { TorRead } from "../../types/tor";
 import type { BuiltPendingTx, FeeTierQuote, SendError, SubmitResult } from "../../types/send";
 
 const QUOTE: FeeTierQuote = {
-  default_priority: "STANDARD",
-  economy_fee: "100000000",
-  standard_fee: "200000000",
-  priority_fee: "400000000",
+  economy: "100000000",
+  standard: "200000000",
+  high: "400000000",
   tree_depth: 6,
 };
 const BUILT: BuiltPendingTx = { pending_tx_id: "42", fee: "250000000", content_gen: 0 };
 const REBUILT: BuiltPendingTx = { pending_tx_id: "43", fee: "250000001", content_gen: 0 };
-const ACCEPTED: SubmitResult = { tx_hash: "ab".repeat(32), verdict: "ACCEPTED", confirmed_height: null };
-const MISMATCH: SendError = { code: "CONTENT_GEN_MISMATCH", message: "content generation mismatch", reservation_retained: true };
-const AMBIGUOUS: SendError = { code: "SUBMIT_AMBIGUOUS", message: "daemon submit ambiguous", reservation_retained: true };
-const DISCARD_FAILED: SendError = { code: "INTERNAL_ERROR", message: "discard transaction: io", reservation_retained: true };
+const ACCEPTED: SubmitResult = {
+  tx_hash: "ab".repeat(32),
+  verdict: "ACCEPTED",
+  verdict_saved: true,
+  confirmed_height: null,
+};
+const MISMATCH: SendError = { code: "CONTENT_GEN_MISMATCH", message: "content generation mismatch", reservation: "held" };
+const AMBIGUOUS: SendError = { code: "SUBMIT_AMBIGUOUS", message: "daemon submit ambiguous", reservation: "in-flight" };
+const DISCARD_FAILED: SendError = { code: "INTERNAL_ERROR", message: "discard transaction: io", reservation: "held" };
+const NOT_SAVED: SendError = {
+  code: "SAVE_NOT_WRITABLE",
+  message: "the send was not saved, so it was not sent — the wallet's folder is not writable; make it writable for this account and submit again, or discard the send",
+  reservation: "held",
+};
 
 type Handler = (args?: Record<string, unknown>) => unknown;
 
@@ -78,10 +89,10 @@ describe("Send page", () => {
     route({ get_default_fee_priority: () => QUOTE, build_pending_tx: () => BUILT });
     const u = user();
     render(<Send />);
-    await u.click(screen.getByRole("radio", { name: /^priority/i }));
+    await u.click(screen.getByRole("radio", { name: /^high/i }));
     await reachReview(u);
     expect(calls("build_pending_tx")).toEqual([
-      ["build_pending_tx", { address: "shekyl1abc123", amount: "1500000000", priority: "PRIORITY" }],
+      ["build_pending_tx", { address: "shekyl1abc123", amount: "1500000000", priority: "high" }],
     ]);
     expect(screen.getByTestId("exact-fee")).toHaveTextContent("0.250000000 SKL");
     expect(screen.getByTestId("total")).toHaveTextContent("1.750000000 SKL");
@@ -112,6 +123,16 @@ describe("Send page", () => {
     expect(await screen.findByText("Transaction accepted by your node.")).toBeInTheDocument();
     expect(calls("submit_pending_tx")).toEqual([["submit_pending_tx", { pendingTxId: "42", seenGen: 0 }]]);
     expect(calls("discard_pending_tx")).toHaveLength(0);
+  });
+
+  it("a send whose verdict was not saved says so beside the verdict", async () => {
+    const unsaved: SubmitResult = { ...ACCEPTED, verdict_saved: false };
+    route({ get_default_fee_priority: () => QUOTE, build_pending_tx: () => BUILT, submit_pending_tx: () => unsaved });
+    const u = user();
+    render(<Send />);
+    await reachReview(u);
+    await confirm(u);
+    expect(await screen.findByText(/^Transaction accepted by your node\. The wallet could not save/)).toBeInTheDocument();
   });
 
   it("Cancel discards the reservation and returns to the form", async () => {
@@ -227,7 +248,7 @@ describe("Send page", () => {
     route({
       get_default_fee_priority: () => QUOTE,
       build_pending_tx: () => {
-        throw { code: "INSUFFICIENT_FUNDS", message: "insufficient funds", reservation_retained: false };
+        throw { code: "INSUFFICIENT_FUNDS", message: "insufficient funds", reservation: "gone" };
       },
     });
     const u = user();
@@ -358,7 +379,62 @@ describe("Send page", () => {
     expect(screen.queryByTestId("link-notice")).not.toBeInTheDocument();
   });
 
-  it("a retained reservation is never discarded by the page", async () => {
+  /**
+   * A send that was not saved sent nothing, and its reservation is still
+   * the page's (finding on #74): the page stays in review with it, so
+   * Confirm submits the same reservation again and Cancel releases it.
+   * Red edit: treat `held` as in flight (the handle is dropped and the
+   * inputs stay locked with nothing to release them).
+   */
+  it("keeps a held reservation under review, to confirm again or cancel", async () => {
+    let submits = 0;
+    route({
+      get_default_fee_priority: () => QUOTE,
+      build_pending_tx: () => BUILT,
+      submit_pending_tx: () => {
+        submits += 1;
+        if (submits === 1) throw NOT_SAVED;
+        return ACCEPTED;
+      },
+      discard_pending_tx: () => ({}),
+    });
+    const u = user();
+    render(<Send />);
+    await reachReview(u);
+    await confirm(u);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Nothing was sent\. Confirm to try again/);
+    expect(screen.getByTestId("review")).toBeInTheDocument();
+    expect(calls("discard_pending_tx")).toHaveLength(0);
+    await confirm(u);
+    expect(await screen.findByText("Transaction accepted by your node.")).toBeInTheDocument();
+    expect(calls("submit_pending_tx")).toEqual([
+      ["submit_pending_tx", { pendingTxId: "42", seenGen: 0 }],
+      ["submit_pending_tx", { pendingTxId: "42", seenGen: 0 }],
+    ]);
+    expect(calls("build_pending_tx")).toHaveLength(1);
+  });
+
+  it("cancels a held reservation by releasing it", async () => {
+    route({
+      get_default_fee_priority: () => QUOTE,
+      build_pending_tx: () => BUILT,
+      submit_pending_tx: () => {
+        throw NOT_SAVED;
+      },
+      discard_pending_tx: () => ({}),
+    });
+    const u = user();
+    render(<Send />);
+    await reachReview(u);
+    await confirm(u);
+    await screen.findByRole("alert");
+    await u.click(screen.getByRole("button", { name: /cancel/i }));
+    await waitFor(() =>
+      expect(calls("discard_pending_tx")).toEqual([["discard_pending_tx", { pendingTxId: "42" }]]),
+    );
+  });
+
+  it("a reservation in flight is never discarded by the page", async () => {
     route({
       get_default_fee_priority: () => QUOTE,
       build_pending_tx: () => BUILT,
@@ -374,5 +450,42 @@ describe("Send page", () => {
     view.unmount();
     await new Promise((r) => setTimeout(r, 50));
     expect(calls("discard_pending_tx")).toHaveLength(0);
+  });
+});
+
+describe("Send — what the node's Tor state meant for an accepted send", () => {
+  const torRead = (sends: TorRead["sends"]): TorRead => ({
+    shown: true,
+    text: "core's words",
+    sends,
+    fixes: [],
+  });
+
+  /**
+   * The sentence beside an accepted send is of the node as it was when the
+   * person confirmed (finding on #73). The node then reads differently: a
+   * send that was held when confirmed is still said to have been held, and
+   * a later "offline" never makes one that went out read as not gone out.
+   * Red edit: pass the live reading to `verdictLine` (the line follows the
+   * node after the send).
+   */
+  it("keeps the reading the person confirmed against", async () => {
+    route({ get_default_fee_priority: () => QUOTE, build_pending_tx: () => BUILT, submit_pending_tx: () => ACCEPTED });
+    const u = user();
+    const page = (sends: TorRead["sends"]) => (
+      <TorContext.Provider value={{ read: torRead(sends), error: null, refresh: () => {} }}>
+        <Send />
+      </TorContext.Provider>
+    );
+    const { rerender } = render(page("held"));
+    await reachReview(u);
+    await confirm(u);
+    const held = /Your node was holding its own transactions when it took this one/;
+    expect(await screen.findByText(held)).toBeInTheDocument();
+    rerender(page("offline"));
+    expect(screen.getByText(held)).toBeInTheDocument();
+    expect(screen.queryByText(/offline/)).toBeNull();
+    rerender(page("hidden"));
+    expect(screen.getByText(held)).toBeInTheDocument();
   });
 });

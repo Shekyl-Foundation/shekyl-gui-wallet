@@ -5,18 +5,19 @@ This document describes the security architecture of the Shekyl GUI wallet (Taur
 ## Architecture Overview
 
 ```
-┌──────────────────────┐
-│   React UI (Webview)  │  ← CSP-restricted, no remote scripts
-│                      │
-│   Tauri IPC bridge   │  ← validate.rs: all inputs validated
-├──────────────────────┤
-│   engine_session.rs  │  ← Rust: type-safe, no unsafe
-│   commands.rs        │
-├──────────────────────┤
-│ shekyl-engine-core   │  ← Rust Engine (lifecycle/build/submit)
-│ shekyl-scanner       │  ← Rust scanner (scan/balance/state)
-│ shekyl-tx-builder    │  ← Rust signing (FCMP++ / PQC)
-└──────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│   React UI (Webview)     CSP-restricted, no remote scripts   │
+│   Tauri IPC bridge                                           │
+│     validate.rs        names, passwords, addresses, amounts  │
+│     seed_phrase.rs     the recovery phrase, decoded once     │
+├──────────────────────────────────────────────────────────────┤
+│   engine_session.rs      Rust: type-safe, no unsafe          │
+│   commands.rs                                                │
+├──────────────────────────────────────────────────────────────┤
+│   shekyl-engine-core     Rust Engine (lifecycle/build/submit)│
+│   shekyl-scanner         Rust scanner (scan/balance/state)   │
+│   shekyl-tx-builder      Rust signing (FCMP++ / PQC)         │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 The React webview communicates with the Rust backend exclusively through Tauri's IPC mechanism. No network access is permitted from the webview.
@@ -62,7 +63,7 @@ Capabilities are defined in `capabilities/default.json`:
 
 ## Input Validation
 
-Commands that take user input check it in `validate.rs` before it reaches the Engine:
+Commands that take user input check it before it reaches the Engine. Names, passwords, addresses and amounts go through `validate.rs`. The recovery phrase goes through `seed_phrase::seed_from_phrase`, which decodes it once via `shekyl-crypto-pq`'s `entropy_from_mnemonic`. There is no second word-count parser in front of that decoder.
 
 | Input | Validation |
 |-------|-----------|
@@ -70,7 +71,7 @@ Commands that take user input check it in `validate.rs` before it reaches the En
 | Amount | Non-zero u64, carried across the Tauri edge as a decimal string (`AtomicUnitsString`, `src-tauri/src/wire.rs`) — never a JS `number` |
 | Wallet name | No path separators, no dots prefix, max 255 chars |
 | Password | No null bytes, max 1024 chars |
-| Recovery phrase | Exactly 24 ASCII words, no null bytes |
+| Recovery phrase | A null byte is refused at the edge. Every other refusal is the decoder's `PhraseError`: the word count, a word that is not in the English list, or a checksum mismatch. The words are not in the message. |
 
 Malformed inputs are rejected at the Rust bridge with a human-readable error. No malformed input reaches the Engine.
 

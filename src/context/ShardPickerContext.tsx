@@ -5,19 +5,21 @@ import { atomicAmount } from "../lib/format";
 import { ShardPickerContext } from "./shardPickerState";
 
 export function ShardPickerProvider({ children }: { children: ReactNode }) {
-  const [selected, setSelected] = useState<Map<number, bigint>>(
+  // Each selected shard's profit estimate, `null` where the node has none.
+  const [selected, setSelected] = useState<Map<number, bigint | null>>(
     () => new Map(),
   );
 
   const toggle = useCallback(
-    (shardId: number, expectedProfitAtomic: string) => {
+    (shardId: number, expectedProfitAtomic: string | null) => {
       // Decide from the render that handled the click so the caller (cap
       // notice) matches what we enqueue. The updater still guards a burst
       // of clicks in the same tick.
       const removing = selected.has(shardId);
       const rejected = !removing && selected.size >= MAX_HOLDINGS_SHARDS;
       if (!rejected) {
-        const profit = atomicAmount(expectedProfitAtomic);
+        const profit =
+          expectedProfitAtomic === null ? null : atomicAmount(expectedProfitAtomic);
         setSelected((prev) => {
           const next = new Map(prev);
           if (next.has(shardId)) {
@@ -39,11 +41,14 @@ export function ShardPickerProvider({ children }: { children: ReactNode }) {
   const registerCoverage = useCallback((rows: readonly ShardCoverageRow[]) => {
     setSelected((prev) => {
       if (prev.size === 0) return prev;
-      const live = new Map<number, bigint>();
+      const live = new Map<number, bigint | null>();
       for (const row of rows) {
-        live.set(row.shard_id, atomicAmount(row.expected_profit_atomic));
+        live.set(
+          row.shard_id,
+          row.expected_profit_atomic === null ? null : atomicAmount(row.expected_profit_atomic),
+        );
       }
-      const next = new Map<number, bigint>();
+      const next = new Map<number, bigint | null>();
       let changed = false;
       for (const [id, profit] of prev) {
         const fresh = live.get(id);
@@ -68,6 +73,7 @@ export function ShardPickerProvider({ children }: { children: ReactNode }) {
   const expectedProfitSumAtomic = useMemo(() => {
     let sum = 0n;
     for (const v of selected.values()) {
+      if (v === null) return null;
       sum += v;
     }
     return sum;

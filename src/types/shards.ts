@@ -1,10 +1,11 @@
 import type { CandidateRecipe } from "./shardPreview";
 
 /**
- * One row of `list_shards` (daemon `get_archival_shard_coverage`).
+ * One row of `list_shards` (the node's `shard_coverage`).
  * Ranking uses join-adjusted scarcity; the GUI shows `expected_profit_atomic`.
  * That field is a decimal string of atomic units so values above 2^53 stay
- * exact across the Tauri JSON edge.
+ * exact across the Tauri JSON edge, or `null` when the node has not
+ * estimated it.
  */
 export interface ShardCoverageRow {
   shard_id: number;
@@ -12,18 +13,22 @@ export interface ShardCoverageRow {
   served_count: number;
   freeze_height: number;
   join_scarcity_micro: number;
-  expected_profit_atomic: string;
+  expected_profit_atomic: string | null;
 }
 
-/** Full coverage list. `frozen_count === 0` is an honest empty, not a fault. */
+/**
+ * Full coverage list. `frozen_count === 0` is an honest empty, not a fault.
+ * `budget_atomic` and `sigma_work_milli` are `null` before the first
+ * settlement pass. Each shard's `expected_profit_atomic` is `null` when the
+ * node has no estimate for it; the page reads that per shard.
+ */
 export interface ShardCoverageList {
   as_of_height: number;
   leaf_count: number;
   frozen_count: number;
   settled_epoch: number;
-  budget_atomic: string;
-  sigma_work_milli: number;
-  profit_estimate_available: boolean;
+  budget_atomic: string | null;
+  sigma_work_milli: number | null;
   shards: ShardCoverageRow[];
 }
 

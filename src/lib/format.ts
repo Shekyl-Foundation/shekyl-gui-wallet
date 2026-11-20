@@ -1,3 +1,5 @@
+import type { ChainConstants } from "../types/daemon";
+
 const ATOMIC_PER_SKL = 1_000_000_000n;
 const MILLION_SKL_ATOMIC = 1_000_000n * ATOMIC_PER_SKL;
 const THOUSAND_SKL_ATOMIC = 1_000n * ATOMIC_PER_SKL;
@@ -101,8 +103,8 @@ export function formatMultiplier(fixedPoint: number, scale = FIXED_POINT_SCALE):
   return `${value.toFixed(2)}x`;
 }
 
-export function formatHashRate(difficulty: number, blockTimeSeconds = 120): string {
-  const hashRate = difficulty / blockTimeSeconds;
+/** A rate in hashes per second, scaled to its largest whole unit. */
+export function formatHashRate(hashRate: number): string {
   if (hashRate >= 1e12) return `${(hashRate / 1e12).toFixed(2)} TH/s`;
   if (hashRate >= 1e9) return `${(hashRate / 1e9).toFixed(2)} GH/s`;
   if (hashRate >= 1e6) return `${(hashRate / 1e6).toFixed(2)} MH/s`;
@@ -110,14 +112,60 @@ export function formatHashRate(difficulty: number, blockTimeSeconds = 120): stri
   return `${hashRate.toFixed(0)} H/s`;
 }
 
+/** `n` of `unit`, singular for exactly one. */
+function counted(n: number, unit: string): string {
+  return n === 1 ? `1 ${unit}` : `${n} ${unit}s`;
+}
+
 export function formatDuration(hours: number): string {
-  if (hours >= 24 * 30) return `${Math.round(hours / (24 * 30))} months`;
-  if (hours >= 24) return `${Math.round(hours / 24)} days`;
-  return `${Math.round(hours)} hours`;
+  if (hours >= 24 * 30) return counted(Math.round(hours / (24 * 30)), "month");
+  if (hours >= 24) return counted(Math.round(hours / 24), "day");
+  return counted(Math.round(hours), "hour");
+}
+
+/**
+ * A count of blocks as the time it takes: the count times core's target
+ * block spacing, in minutes under two hours and in hours, days or months
+ * above. Blocks arrive at the target on average, so this is the estimate a
+ * person reads ("3 minutes", never "1.5 blocks"; rule 81). Never under a
+ * minute: a wait of any blocks is not "now".
+ */
+export function blocksAsTime(blocks: number, blockSpacing: number): string {
+  const minutes = Math.max(1, Math.round((blocks * blockSpacing) / 60));
+  return minutes < 120 ? counted(minutes, "minute") : formatDuration(minutes / 60);
 }
 
 export function emissionProgress(generatedCoins: string): number {
   const generated = parseInt(generatedCoins, 10) || 0;
   const supply = generated / ATOMIC_DIVISOR;
   return Math.min((supply / MAX_SUPPLY) * 100, 100);
+}
+
+/**
+ * The tooltip every block number carries. Blocks are numbered from 0, so a
+ * block's number is one less than the count of blocks up to and including it.
+ */
+export const BLOCK_NUMBER_TIP =
+  "The number of a block. Blocks are numbered from 0, the genesis block, so block 1,199 is the newest of 1,200 blocks.";
+
+/**
+ * The block number of the last block a count covers: a count of blocks (the
+ * wallet's synced height, a scan's exclusive frontier) shown as the newest
+ * block it includes. `null` for 0: no block yet. The one place a count
+ * becomes a block number.
+ */
+export function blockNumberOfCount(count: number): number | null {
+  return count > 0 ? count - 1 : null;
+}
+
+/**
+ * How long a mined reward waits before it can be spent: core's lock window
+ * and the time it takes at core's block spacing, both constants of this
+ * build (`get_chain_constants`, known without the node). `null` only while
+ * the constants are unread.
+ */
+export function coinbaseLockText(constants: ChainConstants | null): string | null {
+  if (constants === null) return null;
+  const lock = constants.coinbase_lock_window;
+  return `${lock.toLocaleString()} blocks (about ${blocksAsTime(lock, constants.block_spacing)})`;
 }

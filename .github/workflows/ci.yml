@@ -41,7 +41,7 @@ jobs:
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf squashfs-tools
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -62,6 +62,21 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # One spawn lock per process (shekyl-core #1372): the committed lock
+      # holds at most one shekyl-spawn, read before any cargo step can rewrite
+      # it. The selftest first: a gate that cannot go red is not one.
+      - name: One spawn lock — negative controls
+        run: python3 scripts/ci/check_one_spawn_lock.py --selftest
+
+      - name: One spawn lock
+        run: python3 scripts/ci/check_one_spawn_lock.py
+
+      # merge-ready (merge-ready.yml): an early, red or draft label is
+      # refused, a push clears it, every event posts a state. The status
+      # itself is posted by its own workflow; this holds the script.
+      - name: merge-ready — negative controls
+        run: python3 scripts/ci/merge_ready.py --selftest
+
       # Structural anti-drift (composition discipline): production modules
       # stay under NEW_FILE_CAP unless baselined; baselined ceilings can only
       # shrink. Same family as shekyl-core's engine decomposition ratchet.
@@ -81,6 +96,11 @@ jobs:
 
       - name: Command-surface gate — three legs
         run: scripts/ci/check_command_surface.sh
+
+      # The release's archive stager: every check that refuses, refuses.
+      # The network legs run in the release dry run.
+      - name: Core archive stager tests
+        run: python3 scripts/release/test_core_archive.py
 
       - name: ESLint
         run: npm run lint

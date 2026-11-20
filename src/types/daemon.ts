@@ -1,33 +1,46 @@
+/**
+ * The chain as the node reports it (`get_chain_health`): the node's
+ * `daemon_status` on the 4.0 wire, with the tip's header and curve tree.
+ * `height` is the chain's block count (the tip's height plus one, as the
+ * CLI prints it). Ratios are millionths. Amounts are atomic-unit
+ * decimal strings. A read the node did not answer is `null`, never zero.
+ */
 export interface ChainHealth {
   height: number;
-  target_height: number;
-  top_block_hash: string;
-  difficulty: number;
+  hash: string;
+  /** A 128-bit value, as a decimal string. */
+  difficulty: string;
   tx_count: number;
-  tx_pool_size: number;
-  database_size: number;
-  version: string;
+  /** `null` while the node's pool is retired. */
+  txpool_count: number | null;
   synchronized: boolean;
-  already_generated_coins: string;
-  release_multiplier: number;
-  burn_pct: number;
-  stake_ratio: number;
-  /** Atomic units, decimal string (`AtomicUnitsString`). */
-  total_burned: string;
-  staker_pool_balance: string;
-  staker_emission_share_effective: number;
-  last_block_reward: string;
-  last_block_timestamp: number;
-  last_block_hash: string;
-  last_block_size: number;
-  total_staked: string;
-  tier_0_lock_blocks: number;
-  tier_1_lock_blocks: number;
-  tier_2_lock_blocks: number;
+  /** Coins emitted so far. */
+  emission: string;
+  emission_multiplier: number;
+  burn: number;
+  burn_total: string;
+  /** The stakers' effective share of emission. */
+  stake_share: number;
+  /** Seconds. */
+  block_spacing: number;
   network: string;
-  curve_tree_root?: string;
-  curve_tree_leaf_count?: number;
-  curve_tree_depth?: number;
+  last_block: LastBlock | null;
+  curve_tree: CurveTree | null;
+}
+
+export interface LastBlock {
+  reward: string;
+  /** Unix seconds. */
+  time: number;
+  hash: string;
+  /** Bytes. */
+  weight: number;
+}
+
+export interface CurveTree {
+  root: string;
+  layers: number;
+  leaf_count: number;
 }
 
 export interface WalletStatus {
@@ -37,26 +50,35 @@ export interface WalletStatus {
   daemon_address: string | null;
   network: string;
   synced: boolean;
-  sync_height: number;
-  daemon_height: number;
 }
 
 /**
- * The contract's `GetBalanceResult` (`get_balance`), projected once in
- * engine-core for this wallet and wallet-rpc alike. Atomic amounts are decimal
- * strings; format with `formatSkl`. `staked` and `claimable_rewards` are
- * **absent, never `"0"`,** when the wallet's staking state could not be read:
- * the liquid fields stay authoritative while the staking figures degrade, and
- * the card must render "unavailable", not "nothing staked".
+ * The contract's `GetBalanceResult` (`get_balance`, contract 0.19.0),
+ * projected once in engine-core for this wallet and wallet-rpc alike. Atomic
+ * amounts are decimal strings; format with `formatSkl`.
+ *
+ * `balance` = `spendable` + `incoming`, each leg once; `outgoing`
+ * and `unspendable` sit beside the balance, never in it. `staked` and
+ * `claimable_rewards` are **absent, never `"0"`,** when the wallet's staking
+ * state could not be read: the ledger's legs stay authoritative while the
+ * staking figures degrade, and the card must render "unavailable", not
+ * "nothing staked".
  */
 export interface Balance {
-  /** The one-glance figure (engine-core `project_balance`, shekyl-core `48d515145`, assigns it and `unlocked` alike). */
-  liquid: string;
-  /** Spendable right now. */
-  unlocked: string;
-  /** Committed to a send awaiting confirmation: counted, never spendable. */
-  pending: string;
-  /** Received but never spendable by this wallet; counted nowhere else. */
+  /** spendable + incoming. */
+  balance: string;
+  /** What a send could use now. */
+  spendable: string;
+  /** Received and not yet spendable, plus in-flight sends' change. */
+  incoming: string;
+  /**
+   * Blocks until the soonest on-chain incoming output is spendable; absent
+   * when none is on chain. Shown as a time (`blocksAsTime`), never as blocks.
+   */
+  incoming_wait?: number;
+  /** Recipients plus fee of the sends in flight. Beside the balance. */
+  outgoing: string;
+  /** Received but never spendable by this wallet. Beside the balance. */
   unspendable: string;
   /** Bond principal under confirmed and in-flight bonds. */
   staked?: string;
@@ -86,17 +108,39 @@ export interface TierYield {
   estimated_apy: number;
 }
 
+/**
+ * The node's miner (`get_mining_status`, the node's `mine_status`). The
+ * miner pays the node's own mining address, set when the node starts. The
+ * posted job's figures are `null` while no job is posted, and `cause`
+ * says why.
+ */
 export interface MiningStatus {
   active: boolean;
-  speed: number;
-  threads_count: number;
-  address: string;
-  pow_algorithm: string;
-  is_background_mining_enabled: boolean;
-  block_target: number;
+  /** Hashes per second over the node's last window; `null` before one. */
+  hash_rate: number | null;
+  threads: number;
+  /** The address the miner pays; `null` when the node has none set. */
+  address: string | null;
+  /** Seconds. */
+  block_spacing: number;
+  height: number | null;
   /** Atomic units, decimal string. */
-  block_reward: string;
-  difficulty: number;
+  block_reward: string | null;
+  /** A 128-bit value, as a decimal string. */
+  difficulty: string | null;
+  cause: string | null;
+  /** Whose address the miner pays, as the wallet can tell. */
+  payout:
+    | "open-wallet"
+    | "another-wallet"
+    | "set-by-the-node"
+    | "nothing"
+    | "none-on-the-node";
+  /**
+   * Whether Start mining here pays the open wallet: on the wallet's own
+   * node, never on a node address a person typed.
+   */
+  start_pays_the_open_wallet: boolean;
 }
 
 export interface PqcStatus {
@@ -113,9 +157,10 @@ export interface SecurityStatus {
   classical: string;
   post_quantum: string;
   tx_version: number;
-  anonymity_set_size: number;
-  tree_depth: number;
-  tree_root_short: string;
+  /** `null` when the node could not say. */
+  anonymity_set_size: number | null;
+  tree_depth: number | null;
+  tree_root_short: string | null;
   reference_block_window: number;
   proof_type: string;
   max_inputs: number;
@@ -201,3 +246,11 @@ export interface StakingOutcomeView {
   funds: string;
 }
 
+
+/** Core's consensus constants a page names (`get_chain_constants`). */
+export interface ChainConstants {
+  /** Blocks a mined reward waits before it can be spent. */
+  coinbase_lock_window: number;
+  /** Target seconds between blocks: what a count of blocks is multiplied by to read as a time. */
+  block_spacing: number;
+}

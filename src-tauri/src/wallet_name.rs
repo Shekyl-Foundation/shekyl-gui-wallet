@@ -96,9 +96,9 @@ pub fn sanitize(input: &str) -> String {
         .to_string()
 }
 
-/// Ensure the wallet directory exists, creating it (and any missing
-/// parents) if necessary. Equivalent to `mkdir -p` on POSIX; on Windows
-/// [`std::fs::create_dir_all`] handles nested paths the same way.
+/// Ensure the wallet directory exists, making it and any missing parents
+/// (`mkdir -p`). The per-account root it usually sits in was made at the
+/// app's start ([`crate::account_root::AccountRoot::ensure`]).
 ///
 /// Returns a user-safe error message that does not echo the input path
 /// back, preserving the no-secret-leakage posture asserted in

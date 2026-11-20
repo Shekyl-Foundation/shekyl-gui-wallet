@@ -15,7 +15,9 @@ export default function SecurityBadge() {
   const connected = security !== null || pqc !== null;
   if (!connected) return null;
 
-  const hasTree = security && security.anonymity_set_size > 0;
+  // `null` when the node could not say: not an empty tree.
+  const anonymity = security?.anonymity_set_size ?? null;
+  const hasTree = anonymity !== null && anonymity > 0;
 
   return (
     <button
@@ -27,7 +29,7 @@ export default function SecurityBadge() {
       }`}
       title={
         hasTree
-          ? `3-layer protection active — ${security.anonymity_set_size.toLocaleString()} outputs in anonymity set`
+          ? `3-layer protection active — ${anonymity.toLocaleString()} outputs in anonymity set`
           : pqc
             ? "PQC active — waiting for curve tree data"
             : "Connecting to daemon..."
@@ -39,7 +41,7 @@ export default function SecurityBadge() {
         <ShieldAlert className="h-3 w-3" />
       )}
       {hasTree
-        ? `3-layer — ${compactOutputs(security.anonymity_set_size)} outputs`
+        ? `3-layer — ${compactOutputs(anonymity)} outputs`
         : pqc
           ? `${pqc.classical} + ${pqc.post_quantum.split(" ")[0]}`
           : "Connecting..."}

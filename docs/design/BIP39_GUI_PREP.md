@@ -3,7 +3,8 @@
 **Status:** Prep landed; **Engine path integration landed in GUI-PR1**.
 
 Create/restore on the pure-Rust Engine backend uses BIP-39 via
-`shekyl-crypto-pq` (`generate_account_from_bip39` / `mnemonic_from_entropy`)
+`shekyl-crypto-pq` (`mnemonic_from_entropy` / `entropy_from_mnemonic`: the
+32-byte seed as 24 words on every network, no passphrase)
 — **not** `wallet2_ffi_*` symbols. The Engine is the sole wallet backend; the
 transitional Wallet2 path and the `SHEKYL_ENGINE_BACKEND` flag have been
 removed.

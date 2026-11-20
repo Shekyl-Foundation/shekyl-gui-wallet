@@ -28,12 +28,22 @@
 
 use std::path::PathBuf;
 
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
+use crate::account_root::AccountRoot;
 use crate::{engine_session, gui_config};
+use shekyl_engine_core::Network;
 
+/// The networks a wallet can be on: the wallet contract's three
+/// (`wallet_rpc.yaml`, `MAINNET` / `TESTNET` / `STAGENET`). Core's
+/// [`Network`] also has regtest, whose row alone serves the test levers
+/// (NI-R6) and which no wallet contract names, so this type stays the
+/// contract's and maps to core's in [`NetworkType::network`], the one
+/// mapping. Every fact about a network (its name, its ports, its data
+/// subdirectory) is read from core's row through it; the GUI holds none.
+///
+/// The default is mainnet (Rick, 2026-11-13).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkType {
@@ -44,65 +54,50 @@ pub enum NetworkType {
 }
 
 impl NetworkType {
-    pub fn default_rpc_port(self) -> u16 {
+    /// Every wallet network.
+    pub const ALL: [Self; 3] = [Self::Mainnet, Self::Testnet, Self::Stagenet];
+
+    /// Core's network: its row holds every fact about it.
+    pub const fn network(self) -> Network {
         match self {
-            Self::Mainnet => 11029,
-            Self::Testnet => 12029,
-            Self::Stagenet => 13029,
+            Self::Mainnet => Network::Mainnet,
+            Self::Testnet => Network::Testnet,
+            Self::Stagenet => Network::Stagenet,
         }
     }
 
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Mainnet => "mainnet",
-            Self::Testnet => "testnet",
-            Self::Stagenet => "stagenet",
-        }
-    }
-}
-
-pub fn default_wallet_dir() -> PathBuf {
-    #[cfg(target_os = "linux")]
-    {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".shekyl")
-            .join("wallets")
+    /// The network's name, from core's row (`mainnet`, ...).
+    pub const fn as_str(self) -> &'static str {
+        self.network().name()
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("shekyl")
-            .join("wallets")
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("shekyl")
-            .join("wallets")
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".shekyl")
-            .join("wallets")
+    /// The network a name names, among the wallet's networks.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|n| n.as_str() == name)
     }
 }
 
 pub struct AppState {
     // Daemon
-    pub daemon_url: RwLock<String>,
+    /// The node address a person typed, which the wallet then uses, local
+    /// or not: their choice (Rick, 2026-11-18). `None`: "this computer",
+    /// the one target (core `RPC_CHANNEL.md` RT-15), reached over its
+    /// owner's leg.
+    pub node_address: RwLock<Option<String>>,
     pub network: RwLock<NetworkType>,
-    pub http: Client,
+    /// Where the GUI's settings are kept: this account's file, named once
+    /// at the start; a test's state names its own or none.
+    pub settings: gui_config::Store,
 
     // Wallet directory / open metadata
-    pub wallet_dir: RwLock<PathBuf>,
+    /// This account's per-account root as the app's start left it: the
+    /// default wallet directory, or why there is none.
+    pub root: AccountRoot,
+    /// The wallet directory: the person's choice, else the root's
+    /// [`AccountRoot::default_wallet_dir`]. `None` only when there is no
+    /// default and the person has chosen none; read it through
+    /// [`AppState::wallet_dir`], which then says why.
+    pub wallet_dir: RwLock<Option<PathBuf>>,
     /// `Some(path)` when the persisted wallet-dir override was
     /// unreachable at startup and we fell back to the platform default.
     /// Surfaced via `get_wallet_dir` so the UI can warn the user;
@@ -112,23 +107,40 @@ pub struct AppState {
     pub wallet_open: RwLock<bool>,
     pub wallet_name: RwLock<Option<String>>,
     /// Pure-Rust Engine session — the sole wallet backend.
+    ///
+    /// Its mutex is also the session guard. Whatever opens or closes a
+    /// wallet, and whatever changes the network or the node address, holds
+    /// it from its first read of them to its last write, and tells the
+    /// node's manager of the wallet inside it. So a wallet is never opened
+    /// on a network or a node that a change is replacing, and the manager
+    /// hears of opens and closes in the order they happened. Lock order:
+    /// this guard, then the fields above, then the manager.
     pub engine: tokio::sync::Mutex<engine_session::EngineSession>,
 }
 
 impl AppState {
+    /// The app's state on mainnet, for a test: no root, so nothing is read
+    /// from or made in the home of the account the tests run under.
+    #[cfg(test)]
     pub fn new() -> Self {
-        let net = NetworkType::default();
-        let resolved = gui_config::resolve_wallet_dir(default_wallet_dir());
+        Self::on(
+            NetworkType::default(),
+            gui_config::Store::none(),
+            AccountRoot::NoHome,
+        )
+    }
+
+    /// The app's state on `net`, the network its node starts on, with its
+    /// settings kept in `settings` and its default wallet directory read
+    /// off `root`.
+    pub fn on(net: NetworkType, settings: gui_config::Store, root: AccountRoot) -> Self {
+        let resolved =
+            gui_config::resolve_wallet_dir(settings.load(), root.default_wallet_dir().ok());
         Self {
-            daemon_url: RwLock::new(format!(
-                "http://127.0.0.1:{}/json_rpc",
-                net.default_rpc_port()
-            )),
+            node_address: RwLock::new(None),
             network: RwLock::new(net),
-            http: Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-                .expect("failed to create HTTP client"),
+            settings,
+            root,
             wallet_dir: RwLock::new(resolved.dir),
             wallet_dir_warning: RwLock::new(resolved.fallback_from),
             wallet_open: RwLock::new(false),
@@ -137,25 +149,41 @@ impl AppState {
         }
     }
 
-    /// HTTP base URL for Engine daemon client (no `/json_rpc` suffix).
-    pub async fn daemon_http_base(&self) -> String {
-        self.base_url().await
+    /// The wallet directory: the person's choice, else the root's default,
+    /// else the words that say why there is none.
+    pub async fn wallet_dir(&self) -> Result<PathBuf, String> {
+        match self.wallet_dir.read().await.clone() {
+            Some(dir) => Ok(dir),
+            None => self.root.default_wallet_dir(),
+        }
     }
 
-    pub async fn url(&self) -> String {
-        self.daemon_url.read().await.clone()
+    /// The node address a person typed, if any.
+    pub async fn node_address(&self) -> Option<String> {
+        self.node_address.read().await.clone()
     }
 
-    /// Base URL without the `/json_rpc` suffix, for plain HTTP endpoints
-    /// like `/mining_status`, `/start_mining`, `/stop_mining`, and as the
-    /// Engine daemon-client base.
-    ///
-    /// Trailing slashes are stripped *before* the `/json_rpc` suffix so a
-    /// configured URL like `http://host:port/json_rpc/` collapses to
-    /// `http://host:port` rather than leaving a stray `json_rpc` behind.
-    pub async fn base_url(&self) -> String {
-        let url = self.daemon_url.read().await.clone();
-        strip_json_rpc(&url).to_owned()
+    /// Whether the wallet is pointed at the node on this computer, the
+    /// default, and not at a node address a person typed. An address a
+    /// person typed is theirs even when it names this computer: it is
+    /// called as any explicit node is, over HTTP, with what it grants.
+    pub async fn targets_this_computer(&self) -> bool {
+        self.node_address.read().await.is_none()
+    }
+
+    /// The node the wallet engine reads, one target with no fallback (core
+    /// `RPC_CHANNEL.md` RT-15; Rick, 2026-11-18): "this computer", named by
+    /// its network alone as core defines it, or the node address a person
+    /// typed.
+    pub async fn engine_target(&self) -> shekyl_rpc_transport::DaemonTarget {
+        match self.node_address().await {
+            Some(address) => {
+                shekyl_rpc_transport::DaemonTarget::address(strip_json_rpc(&address).to_owned())
+            }
+            None => shekyl_rpc_transport::DaemonTarget::ThisComputer {
+                network: self.network.read().await.network(),
+            },
+        }
     }
 }
 
@@ -169,4 +197,40 @@ fn strip_json_rpc(url: &str) -> &str {
         .strip_suffix("/json_rpc")
         .unwrap_or(trimmed)
         .trim_end_matches('/')
+}
+
+#[cfg(test)]
+mod wallet_dir_tests {
+    use super::*;
+
+    use crate::account_root::NO_WALLET_DIR;
+
+    /// With no home and no choice, a command that needs the wallet
+    /// directory refuses in words.
+    #[tokio::test]
+    async fn no_wallet_dir_refuses_in_words() {
+        let state = AppState::new();
+        assert_eq!(*state.wallet_dir.read().await, None);
+        assert_eq!(state.wallet_dir().await, Err(NO_WALLET_DIR.to_owned()));
+    }
+
+    /// A root the start could not make gives no default wallet directory:
+    /// a command that needs one says which folder failed and why, and
+    /// nothing makes the root without its protections. Red edit: a
+    /// default read off the root's path whatever the start left (the old
+    /// `default_wallet_dir()`) fails here.
+    #[tokio::test]
+    async fn a_root_not_made_gives_no_wallet_dir_and_says_why() {
+        let root =
+            std::env::temp_dir().join(format!("shekyl-gui-state-root-{}", std::process::id()));
+        let state = AppState::on(
+            NetworkType::Testnet,
+            gui_config::Store::none(),
+            AccountRoot::not_made_at(root.clone()),
+        );
+        assert_eq!(*state.wallet_dir.read().await, None);
+        let words = state.wallet_dir().await.unwrap_err();
+        assert!(words.contains(&root.display().to_string()), "{words}");
+        assert!(!root.exists(), "nothing made the root");
+    }
 }

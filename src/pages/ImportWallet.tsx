@@ -2,22 +2,18 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Eye, EyeOff, Loader2, Check } from "lucide-react";
 import { useWallet } from "../context/useWallet";
-import {
-  BIP39_RECOVERY_PHRASE_WORD_COUNT,
-  RAW_SEED_HEX_LENGTH,
-  seedBackupShape,
-} from "../constants/wallet";
+import { BIP39_RECOVERY_PHRASE_WORD_COUNT, hasRecoveryPhraseShape } from "../constants/wallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
+import { BLOCK_NUMBER_TIP } from "../lib/format";
 
 /**
  * Restore a wallet from its seed backup — the contract's `restore_wallet`
  * (name, password, mnemonic, restore_height). That is the only restore path
  * a Shekyl wallet has: hybrid post-quantum keys are derived from the seed, so
  * there is no separate spend/view key pair to import, and the seed takes no
- * BIP-39 passphrase. The backup's encoding is network-governed, as
- * `create_wallet` handed it out: 24 words on mainnet/stagenet, the 64-hex raw
- * seed on testnet. The page accepts either shape; Rust refuses the one the
- * running network does not use.
+ * BIP-39 passphrase. The backup is the 24 words `create_wallet` handed out,
+ * the one encoding on every network; the page refuses anything that is not
+ * 24 words, and Rust refuses words that do not decode.
  */
 type Restore = "idle" | "restoring" | "complete";
 
@@ -68,20 +64,16 @@ export default function ImportWallet() {
     }
   }, [restoreWallet, name, seed, password, restoreHeight, navigate, setPhase]);
 
-  const seedTrimmed = seed.trim();
-  const seedWordCount = seedTrimmed.split(/\s+/).filter(Boolean).length;
-  const looksHex = seedWordCount === 1 && /^[0-9a-fA-F]+$/.test(seedTrimmed);
-  const seedProgress = looksHex
-    ? `${seedTrimmed.length}/${RAW_SEED_HEX_LENGTH} hex characters (testnet seed)`
-    : `${seedWordCount}/${BIP39_RECOVERY_PHRASE_WORD_COUNT} words`;
+  const seedWordCount = seed.trim().split(/\s+/).filter(Boolean).length;
+  const seedProgress = `${seedWordCount}/${BIP39_RECOVERY_PHRASE_WORD_COUNT} words`;
   const canSubmit =
     name.trim().length > 0 &&
     password.length >= MIN_PASSWORD_LENGTH &&
-    seedBackupShape(seed) !== null;
+    hasRecoveryPhraseShape(seed);
   const busy = restore !== "idle";
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-purple-900">
+    <div className="flex min-h-full w-full items-center justify-center bg-purple-900">
       <div className="mx-auto w-full max-w-lg space-y-6 px-6">
         {/* Header */}
         <div className="flex items-center gap-3">
@@ -148,14 +140,13 @@ export default function ImportWallet() {
                   className="input min-h-[100px] resize-none font-mono text-sm"
                   value={seed}
                   onChange={(e) => setSeed(e.target.value)}
-                  placeholder="Enter your 24-word recovery phrase, separated by spaces"
+                  placeholder={`Enter your ${BIP39_RECOVERY_PHRASE_WORD_COUNT}-word recovery phrase, separated by spaces`}
                   spellCheck={false}
                   autoComplete="off"
                 />
                 <p className="text-[10px] text-purple-400">{seedProgress}</p>
                 <p className="text-[10px] text-purple-400">
-                  Your {BIP39_RECOVERY_PHRASE_WORD_COUNT} words — or, for a testnet wallet, the{" "}
-                  {RAW_SEED_HEX_LENGTH}-character hex seed shown when it was created.
+                  The {BIP39_RECOVERY_PHRASE_WORD_COUNT} words shown when the wallet was created.
                 </p>
               </div>
 
@@ -181,10 +172,10 @@ export default function ImportWallet() {
                 </div>
               </div>
 
-              {/* Restore height */}
+              {/* Restore from block */}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-purple-200">
-                  Restore Height <span className="text-purple-400">(optional)</span>
+                <label className="text-xs font-medium text-purple-200" title={BLOCK_NUMBER_TIP}>
+                  Restore from block <span className="text-purple-400">(optional)</span>
                 </label>
                 <input
                   type="number"
@@ -195,8 +186,7 @@ export default function ImportWallet() {
                   min={0}
                 />
                 <p className="text-[10px] text-purple-400">
-                  Block height to start scanning from. Leave at 0 to scan the entire
-                  blockchain (slower but safest).
+                  The first block to scan. Leave at 0 to scan from the genesis block.
                 </p>
               </div>
 

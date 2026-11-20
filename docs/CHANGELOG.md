@@ -2,6 +2,241 @@
 
 ## [Unreleased]
 
+## [3.1.0-alpha.12] - 2026-11-20
+
+Paired with shekyl-core `v3.1.0-alpha.12`: `release.yml` clones that tag for
+the bundled `shekyld` and the Engine path-deps.
+
+- **Remove everything alpha.11 kept, wallets included.** shekyl-core
+  alpha.12 is a regenesis: every network's genesis block changed, so
+  alpha.11's chain does not continue and its wallets mean nothing on the new
+  one. Remove the whole Shekyl data folder (`~/.shekyl` on Linux, FreeBSD
+  and macOS, `%LOCALAPPDATA%\Shekyl` on Windows), and the places alpha.11's
+  wallet kept things outside it, which this wallet does not read: its
+  wallets on macOS (`~/Library/Application Support/shekyl/wallets/`) and on
+  Windows (`%APPDATA%\shekyl\wallets\`), and its settings, the folder
+  `org.shekyl.wallet` in `~/.config` on Linux, in
+  `~/Library/Application Support` on macOS and in `%APPDATA%` on Windows.
+  This wallet keeps its wallets in `wallets` and its settings in
+  `shekyl-gui-wallet` inside the data folder. A node given alpha.11's data
+  directory refuses it and names the directory.
+- **The wallet and its node move together.** The bundled node is shekyl-core
+  alpha.12's, which answers daemon RPC 4.7. The wallet speaks 4.x and
+  refuses a node of another version before it reads anything from it, so
+  this wallet cannot use an alpha.11 node and the alpha.11 wallet cannot use
+  this one.
+- **Keep your wallets on a local disk.** A wallet sends and stakes only when
+  its save is confirmed: on a local NTFS volume on Windows, on a local disk
+  on Linux, macOS and FreeBSD. On a network share, or on Windows a volume
+  other than NTFS, it still saves but sends and stakes nothing, and says why.
+
+- **A stake that could not be saved says why.** When the wallet cannot
+  save a stake's record safely before sending it (a read-only file, a
+  network drive, a volume that cannot confirm the write), nothing is sent,
+  and the wallet names the cause and what to change before trying again,
+  in the same words the wallet RPC answers with.
+
+- **Wallets live where the node's data does, on every platform.** The
+  default wallet folder is `~/.shekyl/wallets` on Linux, FreeBSD and macOS
+  and `%LOCALAPPDATA%\Shekyl\wallets` on Windows: `wallets` under the
+  per-account root shekyl-core names (`shekyl_os_account`), read from the
+  account interface rather than `HOME` or `%APPDATA%`. macOS used
+  `~/Library/Application Support/shekyl/wallets` and Windows used Roaming
+  `%APPDATA%\shekyl\wallets`, which domain profiles copy to servers. The
+  wallet makes that root at its start as the node does (owner-only on
+  Windows). If it cannot, it makes nothing there: it says which folder
+  failed and why, asks for a wallet folder, and does not start its node.
+  An account with no home has no default folder, and the wallet asks for
+  one instead of writing to the working directory.
+  - The wallet's settings move with them: `gui-config.json`, the node's
+    `daemon.json` and its `shekyld.stderr` are in `shekyl-gui-wallet` in
+    the same root, no longer in the app's config folder
+    (`~/.config/org.shekyl.wallet`, Roaming `%APPDATA%\org.shekyl.wallet`,
+    `~/Library/Application Support/org.shekyl.wallet`). Settings kept
+    there by an earlier version are not read.
+  - So does the shard card render cache, to `shard-visual` in the same
+    folder, out of the app's cache folder (`~/.cache/org.shekyl.wallet`,
+    found through `XDG_CACHE_HOME` or `HOME`). Without a root the cards
+    are drawn on every view and nothing is kept.
+
+- **A send that was not sent stays yours to confirm again or cancel.** When
+  a send could not be saved, or the chain moved under it, or it could not
+  be re-anchored yet, or it needs its inputs chosen again, nothing was sent
+  and the review stays open: confirm to try again once the cause is fixed,
+  or cancel to release the funds. Staking's fund works the same way. A send
+  that may already be on the network is left to the network, as before.
+  Which failures leave the send with you is the engine's answer, not the
+  wallet's own list.
+
+- **The wallet's node no longer reads the machine's daemon settings file.**
+  It runs on the wallet's own settings and the daemon's defaults, so a
+  service installed on the same computer can no longer stop it from
+  starting when you change its Tor or clearnet settings.
+
+- **The wallet says what your node will do with a send.** When your node
+  would not send a transaction hidden behind Tor, the header says why, in
+  the node's own words.
+  - The review card says so before you confirm: a held transaction waits on
+    your node until Tor carries it and does not go out over the open
+    network. An offline node's send is not offered.
+  - After the node accepts a send, the wallet says whether it is waiting or
+    is going out over the open network. Pending sends show as "Held on your
+    node" for as long as the node holds them.
+  - Settings shows the fixes the node offers for its Tor, each in the
+    node's words. Taking one restarts the node with it; the wallet keeps
+    it in its own settings and never writes the node's configuration file.
+    "Go back to the bundled Tor" undoes it, even when the node will not
+    start.
+
+- **The wallet holds its own node, and has full access to it.** The wallet
+  starts its node holding an owning connection (shekyl-core's
+  `shekyl-spawn`), and calls it on the owner's leg, where it is the node's
+  administrator. Mining works from the Mining page again: the miner pays
+  the open wallet's address, and the node restarts once to take it.
+  Settings shows the node's Tor state in the node's own words.
+  - Closing the wallet stops the node cleanly; nothing kills it, and a
+    wallet that crashes cannot leave a node behind. Tor's cache is written
+    back, so the next start is a quick one.
+  - Changing network or the miner's address shows "Stopping the node…"
+    until the running node is gone, with a Force stop button. Force stop is
+    the only thing that kills a node.
+  - A node of yours already running on the network is not used. The wallet
+    says so and offers "Stop it and start the wallet's own". If the data
+    directory is still held after that node took its stop, the wallet names
+    the directory and keeps trying at growing intervals; "Stop waiting"
+    ends that, kills nothing, and leaves a Retry.
+  - Opening another wallet restarts the node only while it is mining, so
+    the running miner pays the open wallet. Otherwise the node is left
+    alone until mining is started.
+  - Something else answering at the node's local address is reported as a
+    security failure, and nothing is started or retried.
+  - Before any wallet is open, the welcome and unlock screens show the
+    node's state with its actions, and let you choose the network and the
+    node address.
+  - With a wallet open, the node it uses does not change: close the wallet
+    to name another node or network. Settings' "Close Wallet" button
+    closes it.
+  - A node that is slow to start says so after ten seconds, with Force
+    stop. The start that follows stopping your own node offers "Stop
+    waiting" throughout.
+  - A setting that could not be applied because the node did not start is
+    tried again when you choose it again.
+  - The wallet reads its node over the node's own local connection, never
+    over a network port, and the node opens no such port. An address you
+    type is used as it is.
+  - If this computer's node runs as a service, the wallet starts none
+    beside it, says so, and offers to use the service's node.
+  - If the miner cannot be moved to the wallet you open, it is stopped and
+    the wallet says so.
+  - The wallet remembers the network you chose, and its node starts on it.
+    A wallet set to testnet never starts a mainnet node first.
+  - The wallet's node takes no inbound connections over clearnet by
+    default; it only dials out. Settings has "Accept incoming connections
+    over clearnet" to turn them on, which restarts the node.
+  - "Keep daemon running after wallet closes" answers that it is not yet
+    implemented.
+- **The balance shows its legs, and the fee tiers have one spelling.**
+  shekyl-core's wallet PR 2 (A17, A18) makes the balance
+  `spendable + incoming`, each leg once, with the wait until
+  incoming money is spendable, shown as a time ("about 8 minutes", the
+  blocks times core's block spacing), and the sends in flight beside it; the
+  card's headline is the balance, and "Available" and "Pending" are gone
+  with the fields they read (`liquid`, `unlocked`, `pending`). The fee
+  tiers are `economy`, `standard` and `high`, lowercase, read through
+  core's one `FeePriority`; the third is "High", and the quote's fields
+  are `economy`, `standard` and `high`. The tier hints say "may take
+  longer" and "fastest" rather than counting blocks.
+- **A send whose verdict could not be saved says so.** shekyl-core now
+  saves a send before its bytes leave and saves the node's verdict before
+  the submit returns (A19). When that second save fails the send still
+  stands, and the Send page says, beside the verdict, that the wallet could
+  not save the node's answer and will ask about the send if it stops before
+  its next save. The wallet builds against core's renamed submit and build
+  calls and its `SubmitReceipt`.
+- **The wallet speaks the daemon's 4.0 interface.** shekyl-core alpha.12
+  renamed the daemon's methods and fields (`CORE_RPC_VERSION` 4.0). The
+  wallet now reads the node through core's own client and types, so a
+  renamed field is a build error, not a figure that silently reads zero:
+  the chain read is `daemon_status` with the tip's header and curve tree,
+  the shard list is `shard_coverage`, and the sidecar health check is the
+  node's `version` read. Figures the node does not report are no longer
+  shown as zero: the stake ratio, staker pool, total staked and tier lock
+  lengths are gone from the Chain Health panel and the Staking page (no
+  daemon ever served them), the node's build string is gone (the wallet's
+  own node does not share it), and a last block, curve tree, shard profit
+  or settlement budget the node has not reported reads "—". The Mining page
+  no longer takes an address or a background switch: the node mines to the
+  address it was started with, the page shows it, and when the node refuses
+  the wallet's mining controls the page says so in the node's words.
+- **Blocks are shown by their number.** What the wallet shows people says
+  "block" and a block's own number, counted from 0 at genesis, never
+  "height": the newest block in the header, Settings and the Chain Health
+  panel, where a refresh or rescan synced to, where the persona scan reached,
+  when a staked output unlocks, and where a restore starts. A tooltip says
+  how blocks are numbered, and Help has "Block number" and "Block count".
+  A synced wallet shows its node's block. Two numbers were one off: after a
+  refresh the wallet showed the block before the one it had synced to, and
+  the persona scan showed the first block it had not scanned.
+- **The wallet's own node runs the wallet's network.** It ran mainnet
+  whatever the wallet was on, so a testnet wallet's node was not its node.
+  The node now starts on the network chosen in Settings (mainnet by
+  default), and a switch restarts it on that network, at that network's
+  port and, with a configured data directory, in that network's own store.
+  While a wallet is open, a switch to another network waits until it is
+  closed. Ports and network names come from core; the wallet keeps no table
+  of them.
+- **The Mining page and Help take chain facts from core.** The coinbase lock
+  window is core's constant, named even when the node is down, and so is
+  its time: core's target block spacing (`get_chain_constants`), the same
+  figure the node reports; the
+  page no longer says mined outputs join a "mix ring", since Shekyl has no
+  rings.
+- **A group payment this wallet cannot spend says which check failed.**
+  A receive that belongs to a multisig group and can never be spent keeps
+  its own reason: the record is missing, the group is different, the record
+  will not open, this wallet's part will not open, the key does not match,
+  a member is repeated, or the record does not match the group. Each
+  sentence says the output can never be spent and is counted in no balance.
+- **An earlier release's wallet file says what to do next.** Opening a
+  wallet file made by an earlier release (alpha.11 and before) now says that
+  this release cannot open it and that its backup words will not bring it
+  back here, and offers "Create a new wallet" on the same screen. That
+  screen stays with the other wallets: the warning belongs to the file
+  that was refused, and coming back from create returns to it. Before,
+  it said only that the files were written by a version this build cannot
+  read, and the help line suggested restoring from the 24 words. The Unlock
+  page now shows the refusal's own sentence, and reads the kind only to
+  choose that next step.
+- **Every installer carries core's daemon and Tor.** The `.deb`, `.rpm`,
+  AppImage, Windows setup and `.dmg` now carry shekyl-core's gitian-built
+  `shekyld` and its pinned Tor, and the wallet starts the daemon with
+  `--tor-file` naming that Tor. Before this, the installers carried a daemon
+  built on the release runner and no Tor, so the daemon held every own
+  transaction and said why only in a log. On macOS, Tor is the
+  Foundation's Developer ID-signed build. The release takes core's archives
+  from its signed release (a dry run takes a core gitian run by id), checks
+  each digest before unpacking, and fails if the bundled daemon cannot pin
+  the bundled Tor.
+- **Every wallet backs up as 24 words, on every network.** Built against
+  shekyl-core's network-identity change (one secret, one derivation): a
+  wallet's secret is 32 bytes on every network, shown as 24 BIP-39 English
+  words, with no passphrase. Testnet no longer shows a 64-character hex seed:
+  creating a testnet wallet shows and confirms the 24 words like any other,
+  and restore takes only the 24 words — a hex string is refused on every
+  network. `create_wallet` returns `mnemonic` alone (`raw_seed_hex` is gone
+  from the result). Restore decodes the phrase before it creates a
+  directory or talks to a daemon. A null byte is refused before the
+  decoder. Every other refusal is the decoder's own class: an empty
+  phrase, a count other than 24 (a 25-word phrase keeps its own sentence),
+  a word that is not in the list, or a checksum that does not match. No
+  refusal repeats what was typed. The keys are derived under the
+  network's name, so the same words on another network open a different,
+  empty wallet. Wallet files from earlier releases are refused when opened,
+  and their words derive different keys under this release.
+- **The wallet's daemon check is an exact identity match.** The wallet
+  refuses a daemon whose network is not its own before writing a wallet
+  file; there is no fakechain policy left to set.
+
 ## [3.1.0-alpha.11] - 2026-10-26
 
 Paired with shekyl-core `v3.1.0-alpha.11`: `release.yml` clones that tag for

@@ -13,15 +13,21 @@
 //! wallet-rpc — omitted on create, on a restore from genesis, and on a
 //! cache-hit open; present for a higher restore floor and for an open that
 //! rebuilt the ledger (`OpenedEngine::Restored`, including a zero floor).
-//! `create_wallet` adds the backup exactly once, in the network's encoding
-//! — `mnemonic` on mainnet/stagenet, `raw_seed_hex` on testnet — and the
-//! session keeps no copy of it.
+//! `create_wallet` adds the backup exactly once — `mnemonic`, the seed's 24
+//! BIP-39 words, on every network — and the session keeps no copy of it.
+
+use std::sync::Arc;
 
 use serde::Serialize;
 use shekyl_engine_core::Capability;
 use tauri::State;
+use zeroize::Zeroizing;
 
+use crate::daemon_manager::DaemonManager;
+use crate::engine_daemon::EngineNode;
+use crate::engine_errors::OpenRefusal;
 use crate::engine_session;
+use crate::seed_phrase;
 use crate::state::{AppState, NetworkType};
 use crate::validate;
 use crate::wallet_name;
@@ -51,15 +57,12 @@ pub struct OpenedWallet {
 }
 
 /// `create_wallet`: the contract's `CreateWalletResult`. Backup material is
-/// returned exactly once, in the network's encoding: `mnemonic` on
-/// mainnet/stagenet, `raw_seed_hex` on testnet, never both.
+/// returned exactly once: `mnemonic`, the seed's 24 BIP-39 words, the same
+/// encoding on every network.
 #[derive(Debug, Serialize)]
 pub struct CreatedWallet {
     pub wallet: WalletHandle,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mnemonic: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_seed_hex: Option<String>,
+    pub mnemonic: String,
 }
 
 /// The contract's spellings for a handle.
@@ -115,6 +118,7 @@ fn restore_floor(restore_height: Option<u64>) -> Result<u32, String> {
 #[tauri::command]
 pub async fn create_wallet(
     state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     name: String,
     password: String,
 ) -> Result<CreatedWallet, String> {
@@ -125,40 +129,64 @@ pub async fn create_wallet(
     validate::validate_wallet_name(&sanitized)?;
     validate::validate_password(&password)?;
 
-    let network = *state.network.read().await;
-
-    let wallet_dir = state.wallet_dir.read().await.clone();
+    let wallet_dir = state.wallet_dir().await?;
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
-    let daemon = state.daemon_http_base().await;
+    // The session guard: the network and the node are read inside it.
     let mut eng = state.engine.lock().await;
+    let network = *state.network.read().await;
+    let daemon = EngineNode::of(&state, &node).await;
     let created = eng
         .create(&wallet_dir, &sanitized, &password, network, &daemon)
         .await?;
-    *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(sanitized.clone());
+    publish_open(&state, &node, &eng, &sanitized).await;
     let wallet = wallet_handle(sanitized, network, &created.facts);
-    let (mnemonic, raw_seed_hex) = match created.backup {
-        engine_session::SeedBackup::Mnemonic(m) => (Some(m), None),
-        engine_session::SeedBackup::RawHex(h) => (None, Some(h)),
-    };
     Ok(CreatedWallet {
         wallet,
-        mnemonic,
-        raw_seed_hex,
+        mnemonic: created.backup.into_mnemonic(),
     })
 }
 
 #[tauri::command]
 pub async fn open_wallet(
     state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     filename: String,
     password: String,
-) -> Result<OpenedWallet, String> {
+) -> Result<OpenedWallet, OpenRefusal> {
+    open_wallet_in(&state, &node, filename, password).await
+}
+
+/// A wallet was opened: the state says so, and the node's manager is told
+/// its address, which a running miner is moved to beside the open and
+/// never inside it (Rick, 2026-11-17; `DaemonManager::wallet_is`). Called
+/// inside the session guard, which `eng` is, so the manager hears of opens
+/// and closes in the order they happened: an open told late would move
+/// the miner back to a wallet since closed.
+async fn publish_open(
+    state: &AppState,
+    node: &Arc<DaemonManager>,
+    eng: &engine_session::EngineSession,
+    name: &str,
+) {
+    *state.wallet_open.write().await = true;
+    *state.wallet_name.write().await = Some(name.to_owned());
+    if let Ok(address) = eng.primary_address().await {
+        node.wallet_is(Some(address)).await;
+    }
+}
+
+/// `open_wallet`'s body, on the state and the node's manager, so a test
+/// can drive it.
+pub(crate) async fn open_wallet_in(
+    state: &AppState,
+    node: &Arc<DaemonManager>,
+    filename: String,
+    password: String,
+) -> Result<OpenedWallet, OpenRefusal> {
     validate::validate_password(&password)?;
 
-    let network = *state.network.read().await;
-    let wallet_dir = state.wallet_dir.read().await.clone();
+    let wallet_dir = state.wallet_dir().await?;
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
     let sanitized = wallet_name::sanitize(&filename);
@@ -167,75 +195,97 @@ pub async fn open_wallet(
     if !engine_session::engine_wallet_exists(&wallet_dir, &sanitized) {
         return Err(format!(
             "no wallet found for '{sanitized}' (expected {sanitized}.wallet.keys)"
-        ));
+        )
+        .into());
     }
 
-    let daemon = state.daemon_http_base().await;
+    // The session guard: the network and the node are read inside it.
     let mut eng = state.engine.lock().await;
+    let network = *state.network.read().await;
+    let daemon = EngineNode::of(state, node).await;
     let facts = eng
         .open(&wallet_dir, &sanitized, &password, network, &daemon)
         .await?;
-    *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(sanitized.clone());
+    publish_open(state, node, &eng, &sanitized).await;
     Ok(OpenedWallet {
         wallet: wallet_handle(sanitized, network, &facts),
     })
 }
 
 #[tauri::command]
-pub async fn close_wallet(state: State<'_, AppState>) -> Result<bool, String> {
-    let close_result = {
-        let mut eng = state.engine.lock().await;
-        if eng.is_open() {
-            eng.close().await
-        } else {
-            Ok(())
-        }
+pub async fn close_wallet(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<bool, String> {
+    close_wallet_in(&state, &node).await
+}
+
+/// `close_wallet`'s body, on the state and the node's manager, so a test
+/// can drive it.
+pub(crate) async fn close_wallet_in(
+    state: &AppState,
+    node: &Arc<DaemonManager>,
+) -> Result<bool, String> {
+    // The session guard, held until the manager has been told.
+    let mut eng = state.engine.lock().await;
+    let close_result = if eng.is_open() {
+        eng.close().await
+    } else {
+        Ok(())
     };
     // Clear the open flags even if close errored, so the UI reflects the
     // teardown; the close error is then surfaced rather than swallowed.
     *state.wallet_open.write().await = false;
     *state.wallet_name.write().await = None;
+    // No wallet is open for a running miner to be moved to.
+    node.wallet_is(None).await;
+    drop(eng);
     close_result?;
     Ok(true)
 }
 
-/// The contract's `restore_wallet` (`mnemonic` is the seed backup in the
-/// network's encoding — see `validate_seed_backup`).
+/// The contract's `restore_wallet`. `mnemonic` is the 24 BIP-39 words.
+/// [`seed_phrase::seed_from_phrase`] decodes them before any directory or
+/// daemon work; the session installs the resulting seed.
 #[tauri::command]
 pub async fn restore_wallet(
     state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
     name: String,
     password: String,
     mnemonic: String,
     restore_height: Option<u64>,
 ) -> Result<OpenedWallet, String> {
+    // The words are key material: into `Zeroizing` before any other work,
+    // and dropped as soon as they are a seed.
+    let mnemonic = Zeroizing::new(mnemonic);
     let sanitized = wallet_name::sanitize(&name);
-    let network = *state.network.read().await;
     validate::validate_wallet_name(&sanitized)?;
-    validate::validate_seed_backup(&mnemonic, network)?;
+    let seed = seed_phrase::seed_from_phrase(mnemonic.as_str())?;
+    drop(mnemonic);
     validate::validate_password(&password)?;
 
     let height = restore_floor(restore_height)?;
 
-    let wallet_dir = state.wallet_dir.read().await.clone();
+    let wallet_dir = state.wallet_dir().await?;
     wallet_name::ensure_dir_exists(&wallet_dir)?;
 
-    let daemon = state.daemon_http_base().await;
+    // The session guard: the network and the node are read inside it.
     let mut eng = state.engine.lock().await;
+    let network = *state.network.read().await;
+    let daemon = EngineNode::of(&state, &node).await;
     let facts = eng
-        .restore_from_backup(
+        .restore_from_seed(
             &wallet_dir,
             &sanitized,
-            &mnemonic,
+            seed,
             &password,
             height,
             network,
             &daemon,
         )
         .await?;
-    *state.wallet_open.write().await = true;
-    *state.wallet_name.write().await = Some(sanitized.clone());
+    publish_open(&state, &node, &eng, &sanitized).await;
     Ok(OpenedWallet {
         wallet: wallet_handle(sanitized, network, &facts),
     })
@@ -305,27 +355,213 @@ mod tests {
     }
 
     #[test]
-    fn created_wallet_carries_exactly_one_backup_encoding() {
-        let wallet = handle_from(engine_session::WalletFacts::created(Capability::Full));
-        let mainnet = serde_json::to_value(CreatedWallet {
-            wallet: wallet.clone(),
-            mnemonic: Some("word ".repeat(24).trim().into()),
-            raw_seed_hex: None,
-        })
-        .unwrap();
-        assert!(mainnet.get("mnemonic").is_some() && mainnet.get("raw_seed_hex").is_none());
-        let testnet = serde_json::to_value(CreatedWallet {
-            wallet: wallet.clone(),
-            mnemonic: None,
-            raw_seed_hex: Some("ab".repeat(32)),
-        })
-        .unwrap();
-        assert!(testnet.get("mnemonic").is_none() && testnet.get("raw_seed_hex").is_some());
+    fn created_wallet_carries_the_24_words_on_every_network() {
+        let facts = engine_session::WalletFacts::created(Capability::Full);
+        let words = "word ".repeat(24).trim().to_owned();
+        for network in [
+            NetworkType::Mainnet,
+            NetworkType::Testnet,
+            NetworkType::Stagenet,
+        ] {
+            let created = serde_json::to_value(CreatedWallet {
+                wallet: wallet_handle("alice".into(), network, &facts),
+                mnemonic: words.clone(),
+            })
+            .unwrap();
+            assert_eq!(created["mnemonic"], words.as_str(), "{network:?}");
+            assert_eq!(created["wallet"]["network"], network_str(network));
+            assert!(
+                created.get("raw_seed_hex").is_none(),
+                "no hex backup on any network ({network:?})"
+            );
+        }
+        let wallet = handle_from(facts);
         let opened = serde_json::to_value(OpenedWallet { wallet }).unwrap();
         assert_eq!(opened["wallet"]["name"], "alice");
         assert!(
             opened.get("address").is_none(),
             "the address has one source: get_primary_address"
         );
+    }
+
+    /// A directory removed when the test ends, passed or not.
+    struct ScratchDir(std::path::PathBuf);
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A wallet file made by the alpha.11 release (`tests/fixtures/alpha11-wallet`),
+    /// opened through the command's own body. It is refused as an earlier
+    /// release's file, with the sentence and not a code, and nothing opens.
+    /// The daemon is unreachable on purpose: an outage lets open go on to
+    /// the file, so the verdict is the file's.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_earlier_releases_wallet_is_refused_in_words_that_point_to_a_new_wallet() {
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/alpha11-wallet");
+        let dir = ScratchDir(std::env::temp_dir().join(format!(
+            "shekyl-gui-alpha11-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )));
+        std::fs::create_dir_all(&dir.0).unwrap();
+        for f in ["alpha11.wallet", "alpha11.wallet.keys"] {
+            std::fs::copy(fixture.join(f), dir.0.join(f)).unwrap();
+        }
+        // The fixture carries its own password (see its README).
+        let password = std::fs::read_to_string(fixture.join("password")).unwrap();
+
+        let state = AppState::new();
+        *state.wallet_dir.write().await = Some(dir.0.clone());
+        *state.network.write().await = NetworkType::Testnet;
+        *state.node_address.write().await = Some("http://127.0.0.1:1/json_rpc".into());
+
+        let node = DaemonManager::new(
+            Ok(dir.0.join("settings")),
+            crate::daemon_manager::LaunchEnv::default(),
+        );
+        let refused = open_wallet_in(&state, &node, "alpha11".into(), password)
+            .await
+            .expect_err("an alpha.11 wallet file does not open");
+
+        assert_eq!(refused, OpenRefusal::earlier_release());
+        let wire = serde_json::to_value(&refused).unwrap();
+        assert_eq!(wire["kind"], "earlier_release");
+        assert!(!wire["message"]
+            .as_str()
+            .unwrap()
+            .contains(dir.0.to_str().unwrap()));
+        assert!(!*state.wallet_open.read().await);
+        assert!(state.wallet_name.read().await.is_none());
+    }
+
+    /// A scratch directory, the state on testnet pointed at a node address
+    /// nothing answers at (an outage lets a wallet be made and opened), and
+    /// a node's manager that starts nothing.
+    async fn offline(what: &str) -> (ScratchDir, AppState, Arc<DaemonManager>) {
+        let dir = ScratchDir(std::env::temp_dir().join(format!(
+            "shekyl-gui-{what}-{}-{}",
+            std::process::id(),
+            engine_session::test_password()
+        )));
+        std::fs::create_dir_all(&dir.0).unwrap();
+        // Its own settings file: a change of network or node is kept
+        // there, never in the settings of the account the tests run under.
+        let state = AppState::on(
+            NetworkType::Testnet,
+            crate::gui_config::Store::at(dir.0.join("gui-config.json")),
+            crate::account_root::AccountRoot::NoHome,
+        );
+        *state.wallet_dir.write().await = Some(dir.0.clone());
+        *state.node_address.write().await = Some("http://127.0.0.1:1".into());
+        // Its own "this computer", so a change of network here never
+        // dials the account's.
+        let env = crate::daemon_manager::LaunchEnv {
+            socket_dir: cfg!(unix).then(|| dir.0.join("s")),
+            instance: cfg!(windows).then(|| format!("t{}", std::process::id() % 60_000)),
+            ..Default::default()
+        };
+        let node = DaemonManager::new(Ok(dir.0.join("settings")), env);
+        (dir, state, node)
+    }
+
+    /// **The node's manager hears of an open and of a close, inside the
+    /// session guard.** A wallet is made, closed, and opened through the
+    /// command's body: the manager then holds its address, which a running
+    /// miner is moved to; after the close it holds none. Red edits: drop
+    /// `node.wallet_is` from `publish_open` (the manager never hears of the
+    /// open); drop it from `close_wallet_in` (a closed wallet stays the one
+    /// a miner is moved to).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_node_s_manager_hears_of_an_open_and_of_a_close() {
+        let (_dir, state, node) = offline("session").await;
+        let password = engine_session::test_password();
+        let address = {
+            let mut eng = state.engine.lock().await;
+            let daemon = EngineNode::of(&state, &node).await;
+            let wallet_dir = state.wallet_dir().await.unwrap();
+            eng.create(&wallet_dir, "w", &password, NetworkType::Testnet, &daemon)
+                .await
+                .expect("a wallet made offline");
+            let address = eng.primary_address().await.expect("its address");
+            eng.close().await.expect("it closes");
+            address
+        };
+        assert_eq!(node.open_wallet().await, None);
+
+        open_wallet_in(&state, &node, "w".into(), password)
+            .await
+            .expect("the wallet opens");
+        assert!(*state.wallet_open.read().await);
+        assert_eq!(node.open_wallet().await, Some(address));
+
+        assert!(close_wallet_in(&state, &node).await.expect("it closes"));
+        assert!(!*state.wallet_open.read().await);
+        assert_eq!(node.open_wallet().await, None);
+    }
+
+    /// **With a wallet open, the node it uses does not change under it.**
+    /// The open wallet's engine keeps the node it was opened on, so a
+    /// change of node address is refused in words until the wallet is
+    /// closed; saving the address already in use changes nothing and is
+    /// accepted; a change of network is refused as before. The connection
+    /// names the network. Red edit: in `point_at`, drop the open-wallet
+    /// check (the address changes while the engine reads the old node).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn with_a_wallet_open_the_node_it_uses_does_not_change() {
+        use crate::daemon_connection::{point_at, NODE_CHANGE_WAITS_FOR_CLOSE};
+        let (dir, state, node) = offline("target").await;
+        let password = engine_session::test_password();
+        {
+            let mut eng = state.engine.lock().await;
+            let daemon = EngineNode::of(&state, &node).await;
+            let wallet_dir = state.wallet_dir().await.unwrap();
+            eng.create(&wallet_dir, "w", &password, NetworkType::Testnet, &daemon)
+                .await
+                .expect("a wallet made offline");
+        }
+        let opened_on = state.node_address().await;
+
+        let other = Some("http://127.0.0.1:2".to_owned());
+        let refused = point_at(&state, &node, NetworkType::Testnet, other.clone())
+            .await
+            .expect_err("a change of node under an open wallet");
+        assert_eq!(refused, NODE_CHANGE_WAITS_FOR_CLOSE);
+        let refused = point_at(&state, &node, NetworkType::Testnet, None)
+            .await
+            .expect_err("this computer's node is a change too");
+        assert_eq!(refused, NODE_CHANGE_WAITS_FOR_CLOSE);
+        assert_eq!(state.node_address().await, opened_on);
+
+        let same = point_at(&state, &node, NetworkType::Testnet, opened_on.clone())
+            .await
+            .expect("the address already in use");
+        assert_eq!(same.url, opened_on);
+        assert_eq!(same.network, "testnet");
+
+        let refused = point_at(&state, &node, NetworkType::Stagenet, opened_on.clone())
+            .await
+            .expect_err("another network under an open wallet");
+        assert!(refused.contains("Close it before switching"), "{refused}");
+        assert_eq!(*state.network.read().await, NetworkType::Testnet);
+
+        close_wallet_in(&state, &node).await.expect("it closes");
+        let applied = point_at(&state, &node, NetworkType::Testnet, other.clone())
+            .await
+            .expect("with no wallet open the node changes");
+        assert_eq!(applied.url, other);
+        assert_eq!(state.node_address().await, other);
+        // The network is kept in the state's own settings file.
+        assert_eq!(
+            state.settings.load().startup_network(),
+            NetworkType::Testnet
+        );
+        assert!(dir.0.join("gui-config.json").is_file());
     }
 }

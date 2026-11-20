@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Lock } from "lucide-react";
-import { formatSklCompact } from "../../lib/format";
+import { BLOCK_NUMBER_TIP, blockNumberOfCount, formatSklCompact } from "../../lib/format";
 import type { StakingView } from "../../types/daemon";
 
 /**
@@ -108,6 +108,19 @@ function hasAnythingToShow(view: StakingView): boolean {
   );
 }
 
+/**
+ * `pscan_synced_height` is the scan's exclusive frontier: the first block it
+ * has not covered (`wallet_rpc.yaml`), so it has scanned through the block
+ * before it.
+ */
+function pscanSentence(frontier: number | null): string {
+  if (frontier === null) return "Persona scan has not sealed a frontier yet.";
+  const block = blockNumberOfCount(frontier);
+  return block === null
+    ? "Persona scan has scanned nothing yet."
+    : `Persona scan scanned through block ${block.toLocaleString()}.`;
+}
+
 function StakeViewBody({ view }: { view: StakingView }) {
   return (
     <>
@@ -115,9 +128,7 @@ function StakeViewBody({ view }: { view: StakingView }) {
       <StakeWork view={view} />
       {view.staking_enabled && (
         <p className="text-[10px] text-purple-300/80">
-          {view.pscan_synced_height === null
-            ? "Persona scan has not sealed a frontier yet."
-            : `Persona scan synced to block ${view.pscan_synced_height.toLocaleString()}.`}
+          {pscanSentence(view.pscan_synced_height)}
         </p>
       )}
     </>
@@ -166,11 +177,8 @@ function StakeHoldings({ view }: { view: StakingView }) {
                 <span className="font-semibold text-white">
                   {formatSklCompact(o.amount)} SKL
                 </span>
-                <span
-                  className="text-purple-300"
-                  title="Block height at which this output becomes spendable."
-                >
-                  unlocks at {o.unlock_height.toLocaleString()}
+                <span className="text-purple-300" title={BLOCK_NUMBER_TIP}>
+                  unlocks at block {o.unlock_height.toLocaleString()}
                 </span>
               </li>
             ))}

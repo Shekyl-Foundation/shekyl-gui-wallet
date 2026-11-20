@@ -48,7 +48,7 @@ pub async fn refresh(state: State<'_, AppState>) -> Result<RefreshOut, ContractE
     Ok(RefreshOut {
         blocks_processed: summary.blocks_processed,
         transfers_detected: count_as_u64(summary.transfers_detected),
-        synced_height: synced_height(&shared).await,
+        synced_height: synced_height(&shared).await?,
         reorg_fork_height: summary
             .reorg
             .as_ref()
@@ -70,7 +70,7 @@ pub async fn rescan_blockchain(state: State<'_, AppState>) -> Result<RescanOut, 
     Ok(RescanOut {
         blocks_processed: summary.blocks_processed,
         transfers_detected: count_as_u64(summary.transfers_detected),
-        synced_height: synced_height(&shared).await,
+        synced_height: synced_height(&shared).await?,
     })
 }
 
@@ -101,8 +101,25 @@ fn accept_passwords(old_password: &str, new_password: &str) -> Result<(), Contra
     Ok(())
 }
 
-async fn synced_height(shared: &SharedEngine) -> u64 {
-    shared.read().await.ledger().ledger.height().to_raw()
+/// The block count the wallet is synced through
+/// ([`LedgerBlock::synced_count`](shekyl_engine_state::LedgerBlock::synced_count)):
+/// the contract's count, as the CLI and the wallet RPC report it. The page
+/// shows it as the block number it reaches (`blockNumberOfCount`), so a
+/// synced wallet shows its node's block. `0` for a wallet that has scanned
+/// nothing.
+async fn synced_height(shared: &SharedEngine) -> Result<u64, ContractError> {
+    shared
+        .read()
+        .await
+        .ledger()
+        .ledger
+        .synced_count()
+        .map(|count| count.to_raw())
+        .ok_or_else(|| {
+            ContractError::from_rpc(WalletRpcError::InternalError(
+                "the wallet's synced tip names no chain count".into(),
+            ))
+        })
 }
 
 #[cfg(test)]

@@ -54,12 +54,10 @@ function frameFromRefusal(err: unknown): ShardFrame {
 export default function ShardCard({
   row,
   selected,
-  profitAvailable,
   onToggle,
 }: {
   row: ShardCoverageRow;
   selected: boolean;
-  profitAvailable: boolean;
   onToggle: () => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -124,9 +122,10 @@ export default function ShardCard({
     setAttempt((n) => n + 1);
   };
 
-  const profitLabel = profitAvailable
-    ? `${formatSklCompact(row.expected_profit_atomic)} SKL / epoch`
-    : "profit estimate unavailable";
+  const profitLabel =
+    row.expected_profit_atomic !== null
+      ? `${formatSklCompact(row.expected_profit_atomic)} SKL / epoch`
+      : "profit estimate unavailable";
 
   return (
     <div

@@ -10,20 +10,13 @@ interface FeeTierPickerProps {
 }
 
 const TIERS: readonly { tier: FeePriorityTier; label: string; hint: string }[] = [
-  { tier: "ECONOMY", label: "Economy", hint: "cheapest; a few blocks" },
-  { tier: "STANDARD", label: "Standard", hint: "balanced" },
-  { tier: "PRIORITY", label: "Priority", hint: "next block" },
+  { tier: "economy", label: "Economy", hint: "cheapest; may take longer" },
+  { tier: "standard", label: "Standard", hint: "balanced" },
+  { tier: "high", label: "High", hint: "fastest" },
 ];
 
 function quoteFor(quote: FeeTierQuote, tier: FeePriorityTier): string {
-  switch (tier) {
-    case "ECONOMY":
-      return quote.economy_fee;
-    case "STANDARD":
-      return quote.standard_fee;
-    case "PRIORITY":
-      return quote.priority_fee;
-  }
+  return quote[tier];
 }
 
 /**

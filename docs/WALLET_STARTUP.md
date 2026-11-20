@@ -106,11 +106,23 @@ for `.keys` files.
 
 ### Default directory
 
-| Platform | Default Path                                    |
-|----------|-------------------------------------------------|
-| Linux    | `~/.shekyl/wallets/`                            |
-| macOS    | `~/Library/Application Support/shekyl/wallets/` |
-| Windows  | `%APPDATA%\shekyl\wallets\`                     |
+The default is `wallets` under the account's per-account root, the root
+the node's data sits in too, as shekyl-core names it (core rule 83 IG-13;
+`shekyl_os_account::per_account_root` and `wallet_dir_in`):
+
+| Platform              | Default Path                    |
+|-----------------------|---------------------------------|
+| Linux, FreeBSD, macOS | `~/.shekyl/wallets/`            |
+| Windows               | `%LOCALAPPDATA%\Shekyl\wallets\` |
+
+The home is read from the account interface (the passwd entry, or
+`FOLDERID_LocalAppData` on Windows), never from `HOME` or `%APPDATA%`, and
+never Roaming AppData, which copies wallets to domain servers. The app
+makes the root at its start as the daemon does (owner-only on Windows),
+before it makes anything in it, so the root is the same whichever runs
+first. An
+account with no home has no default: with no reachable override there is
+no wallet directory, and the commands that need one say so.
 
 ### Custom directory
 
@@ -120,14 +132,23 @@ disclosure on the Create, Import, and Unlock screens. The Tauri commands
 this UI; `set_wallet_dir` validates the path, runs `mkdir -p` on it, and
 refreshes the wallet-file list.
 
-The override persists across launches via `gui-config.json` in the
-Tauri app-config dir (`~/.config/org.shekyl.wallet/gui-config.json` on
-Linux, `~/Library/Application Support/org.shekyl.wallet/gui-config.json`
-on macOS, `%APPDATA%\org.shekyl.wallet\gui-config.json` on Windows;
-see `src-tauri/src/gui_config.rs`). At startup, `AppState::new` reads
+The override persists across launches via `gui-config.json` in the GUI's
+settings directory, `shekyl-gui-wallet` in the per-account root
+(`~/.shekyl/shekyl-gui-wallet/gui-config.json`, or
+`%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\gui-config.json` on Windows;
+`src-tauri/src/account_root.rs`, `src-tauri/src/gui_config.rs`), never
+Tauri's config folder (`XDG_CONFIG_HOME`, Roaming AppData). The node's
+settings (`daemon.json`), its error output (`shekyld.stderr`) and the
+shard render cache (`shard-visual/`) sit beside it. The app makes the
+root once, at its start, as the node does (owner-only with the no-read-up
+label on Windows), and reads every place in it off what that start left
+(`AccountRoot`). An account with no home, or a root the start could not
+make, keeps no settings and no render cache: the wallet's node says it
+has nowhere to keep its settings, and why, and is not started, and
+nothing is made in the root another way. At startup, `AppState::on` reads
 the override and probes the directory. If the override is missing,
 malformed, or unreachable (permission denied, target-is-a-file, broken
-symlink), the app silently falls back to the platform default; the
+symlink), the app silently falls back to the default; the
 original path is surfaced via `get_wallet_dir`'s `fallback_from` field
 so the Advanced disclosure can render a soft warning banner. Explicit
 `set_wallet_dir` / `reset_wallet_dir` calls write the new state and
@@ -140,7 +161,7 @@ When the user types a wallet name like `My Wallet`, `wallet_name::sanitize`
 normalizes it to `My_Wallet` before any filesystem call, and
 `wallet_name::build_wallet_path` joins it with the active directory via
 `PathBuf::join` so the host separator is always correct (e.g.
-`C:\Users\<user>\AppData\Roaming\shekyl\wallets\My_Wallet.keys` on
+`C:\Users\<user>\AppData\Local\Shekyl\wallets\My_Wallet.keys` on
 Windows).
 
 As of alpha.5, `sanitize` is the single source of truth for filename
@@ -211,19 +232,18 @@ When a wallet is closed (`close_wallet`) or the window is destroyed:
 `create_wallet(name, password)` creates the wallet through the Engine and
 returns the contract's `CreateWalletResult` — `wallet` (the `WalletHandle`:
 name, capability `FULL`, network, and `restore_height_hint` only when the
-contract reports one) and the backup exactly once, in the network's
-encoding: `mnemonic` (24 words) on mainnet/stagenet or `raw_seed_hex` on
-testnet. The address is not on the result; the page reads it from
-`get_primary_address` once the wallet is open, and a failed read is shown
-rather than a blank address. There is no `seed_language` and no
-mnemonic-language argument: which backup field is present says which
-encoding the Engine chose.
+contract reports one) and the backup exactly once: `mnemonic`, the wallet's
+32-byte seed as 24 BIP-39 English words, the one encoding on every network
+(testnet included — there is no hex form of the seed). The address is not
+on the result; the page reads it from `get_primary_address` once the wallet
+is open, and a failed read is shown rather than a blank address. There is
+no `seed_language`, no mnemonic-language argument and no passphrase.
 
 1. **setup** — name, password and confirmation.
-2. **seed** — the phrase in a numbered grid, or the testnet hex seed on its
-   own. "Copy to clipboard" hands that backup to Rust, which owns the
-   clipboard's timed, hash-checked clear (`GUI_SECURITY.md` "Recovery phrase").
-3. **confirm** — four randomly chosen words, or a re-entry of the hex seed.
+2. **seed** — the 24 words in a numbered grid. "Copy to clipboard" hands the
+   phrase to Rust, which owns the clipboard's timed, hash-checked clear
+   (`GUI_SECURITY.md` "Recovery phrase").
+3. **confirm** — four randomly chosen words.
 4. **done** — transitions to `phase: "ready"`.
 
 Every new wallet is a v3 wallet. The Engine derives hybrid Ed25519 + ML-DSA-65
@@ -243,15 +263,20 @@ classical segment by default; the PQC segment is handled internally.
 ### From Recovery Phrase
 
 The only restore path. `restore_wallet(name, password, mnemonic,
-restore_height)` — the contract's method and parameters — validates the backup in the encoding the running network
-hands out at creation (`validate_seed_backup`: a 24-word phrase on
-mainnet/stagenet, the 32-byte raw seed as 64 hex characters on testnet —
-the contract's `restore_wallet`) and calls `EngineSession::restore_from_backup`,
-whose `master_seed_from_backup` is the inverse of the create path's
-`generate_seed_material`. The hybrid post-quantum keys are derived from the
-seed, so nothing is "generated for" a restored wallet and no passphrase or
-mnemonic language is taken. `restore_height` defaults to 0 (full scan). On
-success the page shows "Restore complete" and transitions to `phase: "ready"`.
+restore_height)` — the contract's method and parameters — decodes the backup
+with `seed_phrase::seed_from_phrase` before any directory or daemon work.
+A null byte is refused at that edge. Every other refusal is the decoder's
+`PhraseError`: an empty phrase, a count other than 24 (including the
+one-word-longer legacy phrase, which keeps its own sentence), a 24-word
+phrase with a word that is not in the list, and a 24-word phrase whose
+checksum does not match. No refusal repeats the words.
+The session then installs that 32-byte seed, the same input `create`
+installs. The hybrid post-quantum keys are derived from the seed under the
+network's name, so nothing is "generated for" a restored wallet, no
+passphrase or mnemonic language is taken, and the same words on another
+network give an unrelated wallet. `restore_height` defaults to 0 (full
+scan). On success the page shows "Restore complete" and transitions to
+`phase: "ready"`.
 
 There is no import from raw spend/view keys: that was a Wallet2 path whose
 GUI command had become an unconditional refusal, and the command-surface

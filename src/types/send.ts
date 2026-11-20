@@ -12,14 +12,17 @@ export type AtomicUnitsString = string;
 
 /** `get_default_fee_priority`: tier quotes for the canonical 2-in/2-out shape. */
 export interface FeeTierQuote {
-  default_priority: "STANDARD";
-  economy_fee: AtomicUnitsString;
-  standard_fee: AtomicUnitsString;
-  priority_fee: AtomicUnitsString;
+  economy: AtomicUnitsString;
+  standard: AtomicUnitsString;
+  high: AtomicUnitsString;
   tree_depth: number;
 }
 
-export type FeePriorityTier = "ECONOMY" | "STANDARD" | "PRIORITY";
+/** The fee tiers, lowercase, one spelling each (IG-Q52). */
+export type FeePriorityTier = "economy" | "standard" | "high";
+
+/** The tier a send uses when the user picks none. */
+export const DEFAULT_TIER: FeePriorityTier = "standard";
 
 /** `build_pending_tx`: the reservation the user is asked to confirm. */
 export interface BuiltPendingTx {
@@ -36,6 +39,8 @@ export type SubmitVerdict = "ACCEPTED" | "ALREADY_IN_POOL" | "ALREADY_IN_CHAIN";
 export interface SubmitResult {
   tx_hash: string;
   verdict: SubmitVerdict;
+  /** False when the send went out and stands but the wallet could not save the node's answer. */
+  verdict_saved: boolean;
   confirmed_height: number | null;
 }
 
@@ -44,10 +49,14 @@ export interface SendError {
   code: string;
   message: string;
   /**
-   * The engine still holds the reservation. The page must NOT discard it: an
-   * ambiguous or still-pending submit may already be on the network.
+   * Where the reservation stands, as the engine says:
+   * - `held`: still the page's; nothing was sent. Keep it, to confirm again
+   *   once the cause is fixed or to cancel. Forgetting it would leave its
+   *   inputs locked with nothing to release them.
+   * - `in-flight`: the daemon may have it. Let go, and never discard it.
+   * - `gone`: released, or none was touched.
    */
-  reservation_retained: boolean;
+  reservation: "held" | "in-flight" | "gone";
 }
 
 export function isSendError(e: unknown): e is SendError {
@@ -55,7 +64,7 @@ export function isSendError(e: unknown): e is SendError {
     typeof e === "object" &&
     e !== null &&
     typeof (e as SendError).code === "string" &&
-    typeof (e as SendError).reservation_retained === "boolean"
+    typeof (e as SendError).reservation === "string"
   );
 }
 
@@ -71,8 +80,11 @@ export const CONTENT_CHANGED_NOTICE =
   "The chain moved while you were reviewing and the transaction's fee or change " +
   "would have differed. It has been rebuilt — please check the figures again before confirming.";
 
-/** A submit the engine kept. Do not discard it; discarding could spend twice. */
-export const RETAINED_ADVICE = "Refresh your balance and check Transactions before trying again.";
+/** A submit that may be on the network. Never discarded: that could spend twice. */
+export const IN_FLIGHT_ADVICE = "Refresh your balance and check Transactions before trying again.";
+
+/** A submit that sent nothing; the reservation is still the page's. */
+export const HELD_ADVICE = "Nothing was sent. Confirm to try again, or cancel to release the funds.";
 
 /** Cancel could not release the reservation. It is still this page's. */
 export const RELEASE_FAILED_ADVICE =

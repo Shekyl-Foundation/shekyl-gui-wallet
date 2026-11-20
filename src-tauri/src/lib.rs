@@ -30,7 +30,9 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
+mod account_root;
 mod balance;
+mod chain_constants;
 mod clipboard;
 mod commands;
 mod contract_error;
@@ -42,46 +44,81 @@ mod engine_daemon;
 mod engine_errors;
 mod engine_session;
 mod features;
+#[cfg(test)]
+mod grant_reach_tests;
 mod gui_config;
 mod lifecycle;
+#[cfg(test)]
+mod live_daemon_tests;
+#[cfg(test)]
+mod live_miner_tests;
+#[cfg(test)]
+mod live_own_node_tests;
+#[cfg(test)]
+mod live_tor_fix_tests;
 mod message_signing;
+mod mining;
 #[cfg(feature = "multisig")]
 mod multisig;
+mod node_commands;
+mod node_launch;
 mod proofs;
 mod receiving;
+mod seed_phrase;
 mod send;
 mod shard_coverage;
 mod shard_visual;
 mod staking_actions;
 mod staking_view;
 mod state;
+mod tor_fix;
+mod tor_status;
 mod transfer_history;
 mod transfer_lookup;
 mod tx_journal;
 mod validate;
 mod wallet_care;
 mod wallet_name;
+#[cfg(test)]
+mod wire_vectors;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The per-account root first, as the node makes it: the settings and
+    // the wallets are made inside it, and only when it was made with its
+    // protections.
+    let root = account_root::AccountRoot::ensure();
+    // The network the person chose last, or mainnet on a fresh install.
+    let settings = gui_config::Store::in_root(&root);
+    let startup_network = settings.load().startup_network();
+    // The GUI's settings directory in the per-account root (core rule 83
+    // IG-13), never Tauri's config folder: without a root (no home, or one
+    // the start could not make) the node says it has nowhere to keep its
+    // settings, and why.
+    let config_dir = root.settings_dir();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(state::AppState::new())
+        // The network is read before anything starts: the node starts on
+        // it, and no node runs on another network first.
+        .manage(state::AppState::on(startup_network, settings, root))
         .manage(clipboard::ClipboardOwner::new())
-        .setup(|app| {
-            let config_dir = app
-                .path()
-                .app_config_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let dm = daemon_manager::DaemonManager::new(config_dir);
+        .setup(move |app| {
+            let resource_dir = app.path().resource_dir();
+            if let Err(e) = &resource_dir {
+                // Without the resource directory the wallet cannot name its
+                // Tor; the daemon then searches for one and announces what
+                // it found.
+                tracing::warn!("no resource directory for the bundled Tor: {e}");
+            }
+            let env = daemon_manager::LaunchEnv::bundled(resource_dir.ok().as_deref());
+            let dm = daemon_manager::DaemonManager::new(config_dir, env);
             app.manage(dm.clone());
 
-            let handle = app.handle().clone();
+            let network = startup_network;
             tauri::async_runtime::spawn(async move {
-                dm.start(&handle).await;
+                dm.start(network).await;
             });
             Ok(())
         })
@@ -90,6 +127,7 @@ pub fn run() {
             commands::get_wallet_status,
             daemon_connection::get_chain_health,
             daemon_connection::set_daemon_connection,
+            daemon_connection::use_service_node,
             daemon_connection::daemon_connection_disclosures,
             commands::get_pqc_status,
             commands::get_security_status,
@@ -97,9 +135,10 @@ pub fn run() {
             clipboard::copy_to_clipboard,
             clipboard::clear_clipboard,
             // Mining
-            commands::get_mining_status,
-            commands::start_mining_cmd,
-            commands::stop_mining_cmd,
+            chain_constants::get_chain_constants,
+            mining::get_mining_status,
+            mining::start_mining_cmd,
+            mining::stop_mining_cmd,
             // Wallet startup
             commands::check_wallet_files,
             commands::ensure_wallet_dir,
@@ -171,9 +210,15 @@ pub fn run() {
             #[cfg(feature = "multisig")]
             multisig::export_signature_response_file,
             // Daemon lifecycle
-            commands::daemon_status,
-            commands::get_daemon_settings,
-            commands::set_daemon_settings,
+            node_commands::daemon_status,
+            node_commands::get_daemon_settings,
+            node_commands::set_daemon_settings,
+            node_commands::replace_found_node,
+            node_commands::start_node,
+            node_commands::force_stop_node,
+            node_commands::stop_waiting_for_node,
+            node_commands::set_tor_fix,
+            tor_status::get_tor_status,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -186,6 +231,9 @@ pub fn run() {
                     let _ = eng.close().await;
                 });
 
+                // The node is asked to stop and not waited for: it stops
+                // cleanly on its own, and this process's exit closes its
+                // owning connection in any case. Nothing here kills it.
                 let dm: tauri::State<'_, Arc<daemon_manager::DaemonManager>> = window.state();
                 let dm = dm.inner().clone();
                 tauri::async_runtime::block_on(async { dm.shutdown().await });

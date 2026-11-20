@@ -36,7 +36,8 @@ src-tauri/src/
   shard_visual.rs     // shard preview + list commands
   daemon_*.rs         // daemon process + JSON-RPC to shekyld
   gui_config.rs       // desktop config paths
-  validate.rs         // input validation at the command edge
+  validate.rs         // input validation at the command edge (no secrets)
+  seed_phrase.rs      // 24 words ↔ 32-byte seed; the only phrase parser
   wallet_name.rs      // wallet file naming
 ```
 
@@ -45,6 +46,7 @@ src-tauri/src/
 | Kind of code | Home |
 |--------------|------|
 | Open / create / close / one-shot shell calls | `engine_session` (shell). Refresh is `wallet_care` |
+| 24-word phrase ↔ 32-byte seed | `seed_phrase`. The session installs the seed and does not parse words |
 | Core → wire projection + unit tests | dedicated module (`transfer_history`, `staking_view`, `drain_balance`, …) |
 | Tauri `#[tauri::command]` | thin function in `commands` **or** in the feature module that owns the DTO (see `shard_visual`); register in `lib.rs` |
 | Daemon HTTP JSON-RPC types | `daemon_rpc` |

@@ -5,10 +5,11 @@ import type { ShardCoverageRow } from "../types/shards";
 export interface ShardPickerState {
   selectedIds: ReadonlySet<number>;
   selectedCount: number;
-  expectedProfitSumAtomic: bigint;
+  /** The selected shards' summed estimate; `null` when one has none. */
+  expectedProfitSumAtomic: bigint | null;
   atCap: boolean;
   isSelected: (shardId: number) => boolean;
-  toggle: (shardId: number, expectedProfitAtomic: string) => boolean;
+  toggle: (shardId: number, expectedProfitAtomic: string | null) => boolean;
   registerCoverage: (rows: readonly ShardCoverageRow[]) => void;
 }
 

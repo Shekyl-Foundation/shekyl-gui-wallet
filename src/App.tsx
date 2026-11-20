@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router";
 import { WalletProvider } from "./context/WalletContext";
 import { DaemonProvider } from "./context/DaemonContext";
+import { TorProvider } from "./context/TorContext";
 import { ShardPickerProvider } from "./context/ShardPickerContext";
 import { useWallet } from "./context/useWallet";
 import Layout from "./components/Layout";
@@ -21,7 +22,9 @@ import Welcome from "./pages/Welcome";
 import CreateWallet from "./pages/CreateWallet";
 import ImportWallet from "./pages/ImportWallet";
 import Unlock from "./pages/Unlock";
+import { OpenAttemptProvider } from "./pages/OpenAttemptProvider";
 import LoadingScreen from "./components/LoadingScreen";
+import PreWalletShell from "./components/PreWalletShell";
 
 function App() {
   return (
@@ -31,7 +34,27 @@ function App() {
   );
 }
 
-function WalletGate() {
+/**
+ * Routes for a wallet file that exists and is not open. The attempt lives
+ * on this shell: create is a child route, so the refusal survives the
+ * trip to the create screen and back, and it stays tied to its file.
+ */
+function UnlockPhaseRoutes() {
+  return (
+    <OpenAttemptProvider>
+      <PreWalletShell>
+        <Routes>
+          <Route index element={<Unlock />} />
+          <Route path="create" element={<CreateWallet />} />
+          <Route path="import" element={<ImportWallet />} />
+          <Route path="*" element={<Unlock />} />
+        </Routes>
+      </PreWalletShell>
+    </OpenAttemptProvider>
+  );
+}
+
+export function WalletGate() {
   const { phase } = useWallet();
 
   switch (phase) {
@@ -42,49 +65,47 @@ function WalletGate() {
     case "creating":
     case "importing":
       return (
-        <Routes>
-          <Route index element={<Welcome />} />
-          <Route path="create" element={<CreateWallet />} />
-          <Route path="import" element={<ImportWallet />} />
-          <Route path="*" element={<Welcome />} />
-        </Routes>
+        <PreWalletShell>
+          <Routes>
+            <Route index element={<Welcome />} />
+            <Route path="create" element={<CreateWallet />} />
+            <Route path="import" element={<ImportWallet />} />
+            <Route path="*" element={<Welcome />} />
+          </Routes>
+        </PreWalletShell>
       );
 
     case "unlock":
     case "select_wallet":
-      return (
-        <Routes>
-          <Route index element={<Unlock />} />
-          <Route path="import" element={<ImportWallet />} />
-          <Route path="*" element={<Unlock />} />
-        </Routes>
-      );
+      return <UnlockPhaseRoutes />;
 
     case "ready":
       return (
         <DaemonProvider>
-          <ShardPickerProvider>
-            <Routes>
-              <Route element={<Layout />}>
-                <Route index element={<Dashboard />} />
-                <Route path="send" element={<Send />} />
-                <Route path="receive" element={<Receive />} />
-                <Route path="mining" element={<Mining />} />
-                <Route path="staking" element={<Staking />} />
-                <Route path="shards" element={<Shards />} />
-                <Route path="transactions" element={<Transactions />} />
-                <Route path="proofs" element={<Proofs />} />
-                <Route path="sign" element={<Sign />} />
-                <Route path="settings" element={<Settings />} />
-                <Route path="chain-health" element={<ChainHealthPage />} />
-                <Route path="multisig" element={<MultisigRoute />} />
-                <Route path="help" element={<Help />} />
-                {/* Catch-all so stale URLs from the no-wallet/unlock phases
+          <TorProvider>
+            <ShardPickerProvider>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route index element={<Dashboard />} />
+                  <Route path="send" element={<Send />} />
+                  <Route path="receive" element={<Receive />} />
+                  <Route path="mining" element={<Mining />} />
+                  <Route path="staking" element={<Staking />} />
+                  <Route path="shards" element={<Shards />} />
+                  <Route path="transactions" element={<Transactions />} />
+                  <Route path="proofs" element={<Proofs />} />
+                  <Route path="sign" element={<Sign />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="chain-health" element={<ChainHealthPage />} />
+                  <Route path="multisig" element={<MultisigRoute />} />
+                  <Route path="help" element={<Help />} />
+                  {/* Catch-all so stale URLs from the no-wallet/unlock phases
                     (e.g. /create, /import) never render an empty tree. */}
-                <Route path="*" element={<Dashboard />} />
-              </Route>
-            </Routes>
-          </ShardPickerProvider>
+                  <Route path="*" element={<Dashboard />} />
+                </Route>
+              </Routes>
+            </ShardPickerProvider>
+          </TorProvider>
         </DaemonProvider>
       );
   }

@@ -106,15 +106,19 @@ xattr -cr /Applications/Shekyl\ Wallet.app
 When you open the Shekyl Wallet for the first time:
 
 1. **Create a new wallet** or **open an existing wallet file**.
-2. Configure the **daemon connection** under **Settings**:
+2. The wallet starts its own Shekyl daemon, which the installer carries
+   together with Tor. The daemon connects through Tor, and your own
+   transactions wait for Tor rather than going out over the open network.
+   If a daemon is already answering on the RPC port, the wallet uses that
+   one instead. To use a daemon you run yourself, set it under
+   **Settings**:
    - MainNet default: `http://127.0.0.1:11029`
    - TestNet default: `http://127.0.0.1:12029`
    - StageNet default: `http://127.0.0.1:13029`
 3. The wallet will sync with the daemon. Progress is shown in the header bar.
 
-You need a running `shekyld` daemon for the wallet to function. See the
-[shekyl-core documentation](https://github.com/Shekyl-Foundation/shekyl-core)
-for daemon setup instructions.
+To run a daemon yourself, see the
+[shekyl-core documentation](https://github.com/Shekyl-Foundation/shekyl-core).
 
 ---
 
@@ -172,7 +176,7 @@ Check the daemon status:
 
 ```bash
 curl -s http://127.0.0.1:11029/json_rpc \
-  -d '{"jsonrpc":"2.0","id":"0","method":"get_info"}' \
+  -d '{"jsonrpc":"2.0","id":"0","method":"daemon_status"}' \
   -H 'Content-Type: application/json' | head -c 200
 ```
 
@@ -187,8 +191,7 @@ Download the new version from the
 and install it over the existing version. Wallet files and settings are stored
 in your home directory and are preserved across updates.
 
-| Platform | Wallet data location |
-|----------|---------------------|
-| Linux | `~/.local/share/shekyl-wallet/` |
-| macOS | `~/Library/Application Support/shekyl-wallet/` |
-| Windows | `%APPDATA%\shekyl-wallet\` |
+| Platform | Wallet files |
+|----------|--------------|
+| Linux, FreeBSD, macOS | `~/.shekyl/wallets/` |
+| Windows | `%LOCALAPPDATA%\Shekyl\wallets\` |

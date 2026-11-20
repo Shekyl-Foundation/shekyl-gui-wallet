@@ -88,6 +88,13 @@ describe("state helpers", () => {
     expect(statusTitle("ABANDONED")).toMatch(/stop tracking/i);
     expect(statusTitle("UNSPENDABLE", "PQC_LEAF_MISMATCH")).toMatch(/not created for this wallet/i);
     expect(statusTitle("UNSPENDABLE", "PQC_LEAF_ENTRY_ABSENT")).toMatch(/missing what a spend needs/i);
+    expect(statusTitle("UNSPENDABLE", "MULTISIG_ENTRY_ABSENT")).toMatch(/no record this group can spend/i);
+    expect(statusTitle("UNSPENDABLE", "MULTISIG_GROUP_SIZE")).toMatch(/different group/i);
+    expect(statusTitle("UNSPENDABLE", "MULTISIG_HASHES_UNDECRYPTABLE")).toMatch(/cannot open the group's record/i);
+    expect(statusTitle("UNSPENDABLE", "MULTISIG_MEMBER_DECAP")).toMatch(/its part of the payment/i);
+    expect(statusTitle("UNSPENDABLE", "MULTISIG_MEMBER_KEY_HASH")).toMatch(/different key/i);
+    expect(statusTitle("UNSPENDABLE", "MULTISIG_DUPLICATE_KEY_HASH")).toMatch(/repeats a member/i);
+    expect(statusTitle("UNSPENDABLE", "MULTISIG_LEAF_MISMATCH")).toMatch(/does not match this group/i);
     expect(statusTitle("UNSPENDABLE")).toMatch(/never spend/i);
     expect(statusTitle("PENDING")).toBeUndefined();
     expect(statusTitle("CONFIRMED")).toBeUndefined();

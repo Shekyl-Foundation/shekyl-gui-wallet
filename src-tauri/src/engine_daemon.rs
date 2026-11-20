@@ -6,37 +6,102 @@
 //! Verifying daemon client for Engine sessions (VC-4).
 //!
 //! Construction plus the identity handshake: [`DaemonClient::verifying`]
-//! with [`FakechainPolicy::Refuse`] (VC-R3), then one Engine RPC so a
-//! mismatch is known **before** `Engine::create` writes a wallet file.
+//! against this wallet's network — an exact identity match, with no
+//! policy to relax it — then one Engine RPC so a mismatch is known
+//! **before** `Engine::create` writes a wallet file.
 //! Transport failures are not stored and are not fatal — an unreachable
 //! daemon still lets create/open proceed (offline). The session owns when
 //! the client is attached.
 
-use shekyl_engine_core::{DaemonClient, DaemonExpectation, FakechainPolicy, Network};
+use std::sync::Arc;
+
+use shekyl_engine_core::{DaemonClient, DaemonExpectation, Network};
 use shekyl_rpc_client::{DaemonFault, Rpc};
-use shekyl_rpc_transport::HttpRpc;
+#[cfg(test)]
+use shekyl_rpc_transport::local::LocalRpc;
+use shekyl_rpc_transport::{DaemonTarget, DaemonTransport};
 use shekyl_wallet_contract::error::from_daemon_rpc_error;
 
+use crate::daemon_manager::DaemonManager;
+use crate::state::AppState;
+
+/// The node the wallet engine reads (core RT-W10 step 5; Rick,
+/// 2026-11-18): core's one target, "this computer" or a typed address
+/// ([`AppState::engine_target`]). A test names its own node's owner's leg
+/// directly, since a test node lives in a socket directory or instance of
+/// its own, which "this computer" does not name.
+#[derive(Clone)]
+pub(crate) enum EngineNode {
+    /// "This computer", named by the network alone. The node's manager
+    /// keeps the one latch for a failed peer check there
+    /// ([`DaemonManager::refuse`]): the engine's dial is refused while one
+    /// is latched, and latches the one it meets.
+    ThisComputer(Arc<DaemonManager>),
+    /// The node address a person typed.
+    Address(DaemonTarget),
+    /// A test node's owner's leg.
+    #[cfg(test)]
+    Local(shekyl_rpc_transport::local::LocalTarget),
+}
+
+impl std::fmt::Debug for EngineNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ThisComputer(_) => f.write_str("ThisComputer"),
+            Self::Address(target) => f.debug_tuple("Address").field(target).finish(),
+            #[cfg(test)]
+            Self::Local(target) => f.debug_tuple("Local").field(target).finish(),
+        }
+    }
+}
+
+impl EngineNode {
+    /// The node the wallet is pointed at now. Read inside the session
+    /// guard by whatever opens a wallet (see [`AppState::engine`]).
+    pub(crate) async fn of(state: &AppState, manager: &Arc<DaemonManager>) -> Self {
+        match state.engine_target().await {
+            DaemonTarget::ThisComputer { .. } => Self::ThisComputer(Arc::clone(manager)),
+            target @ DaemonTarget::Address { .. } => Self::Address(target),
+        }
+    }
+}
+
+/// Core's target for a call core dials itself (`unstake`): the same one
+/// target, refused while a failed peer check at "this computer" is
+/// latched, so that call does not dial the address either.
+pub(crate) async fn core_target(
+    state: &AppState,
+    manager: &DaemonManager,
+) -> Result<DaemonTarget, String> {
+    let target = state.engine_target().await;
+    if let DaemonTarget::ThisComputer { .. } = target {
+        if let Some(words) = manager.refusal().await {
+            return Err(words);
+        }
+    }
+    Ok(target)
+}
+
+/// Build the engine's verified client for `node`. A failed peer check or a
+/// service at "this computer" refuses here, in core's words, and nothing
+/// is written for a wallet against such a node. The failed check is
+/// latched in the node's manager as well as in the client, so the notice
+/// says it and no later client dials that address (Rick, 2026-11-18:
+/// latched as a refusal, never retried).
 pub(crate) async fn make_daemon(
-    daemon_http_base: &str,
+    node: &EngineNode,
     network: Network,
 ) -> Result<DaemonClient, String> {
-    let trimmed = daemon_http_base.trim_end_matches('/');
-    let url = trimmed
-        .strip_suffix("/json_rpc")
-        .unwrap_or(trimmed)
-        .trim_end_matches('/')
-        .to_owned();
-    let rpc = HttpRpc::new(url)
-        .await
-        .map_err(|e| format!("daemon unreachable: {e}"))?;
-    let daemon = DaemonClient::verifying(
-        rpc,
-        DaemonExpectation {
-            network,
-            fakechain: FakechainPolicy::Refuse,
-        },
-    );
+    let rpc: DaemonTransport = match node {
+        EngineNode::ThisComputer(manager) => manager.engine_transport(network).await?,
+        EngineNode::Address(target) => target
+            .connect(None)
+            .await
+            .map_err(|e| format!("daemon unreachable: {e}"))?,
+        #[cfg(test)]
+        EngineNode::Local(target) => LocalRpc::new(target.clone()).into(),
+    };
+    let daemon = DaemonClient::verifying(rpc, DaemonExpectation { network });
     // First Engine RPC runs the four-axis handshake. Identity mismatch
     // refuses here so create/restore never write a file the person cannot
     // recover (the phrase is create-once; there is no seed-returning
@@ -47,6 +112,17 @@ pub(crate) async fn make_daemon(
         Err(e) if matches!(e.fault(), DaemonFault::Identity(_)) => {
             Err(from_daemon_rpc_error(&e).message())
         }
-        Ok(_) | Err(_) => Ok(daemon),
+        Err(e) => match e.fault() {
+            DaemonFault::PeerCheck => {
+                let words = crate::daemon_rpc::said(&e, "the node");
+                if let EngineNode::ThisComputer(manager) = node {
+                    manager.refuse(words.clone()).await;
+                }
+                Err(words)
+            }
+            DaemonFault::Service(_) => Err(crate::daemon_rpc::said(&e, "the node")),
+            _ => Ok(daemon),
+        },
+        Ok(_) => Ok(daemon),
     }
 }

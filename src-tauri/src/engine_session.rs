@@ -8,6 +8,8 @@
 //! Embeds [`shekyl_engine_core::Engine`] directly — no `wallet2_ffi`.
 //! Mirrors the embedder choreography in `shekyl-wallet-rpc` lifecycle
 //! (create / open / close / P-scan wrap) without the HTTP JSON-RPC layer.
+//! The 24-word spelling of a seed lives in [`crate::seed_phrase`]. This
+//! session installs the 32 bytes and never parses the words.
 //!
 //! Wallet files use the Engine envelope pair:
 //! `{name}.wallet` + `{name}.wallet.keys` under the configured wallet dir.
@@ -16,31 +18,26 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::engine_daemon::make_daemon;
+use crate::engine_daemon::{make_daemon, EngineNode};
 use crate::engine_errors::{
-    is_identity_refusal, map_first_stake_err, map_open_err, map_refresh_err,
+    is_identity_refusal, map_first_stake_err, map_open_err, map_refresh_err, open_refusal,
+    OpenRefusal,
 };
-use rand::rngs::OsRng;
-use rand::RngCore;
-use shekyl_crypto_pq::account::{
-    generate_account_from_bip39, generate_account_from_raw_seed, DerivationNetwork, SeedFormat,
-    MASTER_SEED_BYTES, RAW_SEED_BYTES,
-};
-use shekyl_crypto_pq::bip39::{mnemonic_from_entropy, SHEKYL_BIP39_ENTROPY_BYTES};
 use shekyl_crypto_pq::wallet_envelope::KdfParams;
 use shekyl_engine_core::{
-    BalanceView, Capability, Credentials, DrainBalanceReadError, Engine, EngineCreateParams,
-    FirstStakeOutcome, Network, OpenedEngine, PScanHandle, RefreshError, RefreshOptions,
-    SoloSigner, StakeFacade, StakePosture,
+    BalanceView, Capability, CapabilityInput, Credentials, DaemonClient, DrainBalanceReadError,
+    Engine, EngineCreateParams, FirstStakeOutcome, Network, OpenedEngine, PScanHandle,
+    RefreshError, RefreshOptions, SoloSigner, StakeFacade, StakePosture,
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
 use shekyl_engine_prefs::WalletPrefs;
 use tokio::sync::RwLock;
 use tracing::warn;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use crate::drain_balance::DrainBalance;
+use crate::seed_phrase::{self, SeedBackup, WalletSeed};
 use crate::staking_view::StakingView;
 use crate::state::NetworkType;
 use crate::transfer_history::{self, IncomingFact, TransferRow};
@@ -56,7 +53,17 @@ pub struct EngineSession {
     /// Engine file base (`…/{name}.wallet`) for credentialed reopen.
     base_path: Option<PathBuf>,
     network: Option<Network>,
-    daemon_http_base: Option<String>,
+    daemon_node: Option<EngineNode>,
+}
+
+/// A password for a test's throwaway wallet, drawn fresh for each one and
+/// never printed.
+#[cfg(test)]
+pub(crate) fn test_password() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 impl EngineSession {
@@ -67,7 +74,7 @@ impl EngineSession {
             name: None,
             base_path: None,
             network: None,
-            daemon_http_base: None,
+            daemon_node: None,
         }
     }
 
@@ -78,8 +85,22 @@ impl EngineSession {
         self.engine.clone()
     }
 
+    /// The open wallet's network, `None` with no wallet open.
+    pub fn open_network(&self) -> Option<Network> {
+        self.network
+    }
+
     pub fn is_open(&self) -> bool {
         self.engine.is_some()
+    }
+
+    /// Create, restore, and open share this refusal so the wording stays one sentence.
+    fn reject_if_open(&self) -> Result<(), String> {
+        if self.is_open() {
+            Err("A wallet is already open".into())
+        } else {
+            Ok(())
+        }
     }
 
     fn remember_open(
@@ -87,7 +108,7 @@ impl EngineSession {
         name: &str,
         base: PathBuf,
         network: Network,
-        daemon_http_base: &str,
+        daemon_node: &EngineNode,
         shared: SharedEngine,
         pscan: Option<PScanHandle>,
     ) {
@@ -96,7 +117,7 @@ impl EngineSession {
         self.name = Some(name.to_owned());
         self.base_path = Some(base);
         self.network = Some(network);
-        self.daemon_http_base = Some(daemon_http_base.to_owned());
+        self.daemon_node = Some(daemon_node.clone());
     }
 
     fn clear_open(&mut self) {
@@ -105,160 +126,145 @@ impl EngineSession {
         self.name = None;
         self.base_path = None;
         self.network = None;
-        self.daemon_http_base = None;
+        self.daemon_node = None;
     }
 
-    /// Create a fresh Engine wallet (BIP-39 on mainnet/stagenet; raw32 on testnet).
+    /// Create a fresh Engine wallet: a 32-byte seed from the OS RNG, handed
+    /// out once as its 24 BIP-39 words — the same on every network.
+    ///
+    /// The daemon is asked before the seed is drawn. A refused daemon must
+    /// not mint words the person never sees.
     pub async fn create(
         &mut self,
         wallet_dir: &Path,
         name: &str,
         password: &str,
         network: NetworkType,
-        daemon_http_base: &str,
+        daemon_node: &EngineNode,
     ) -> Result<CreatedSession, String> {
-        if self.engine.is_some() {
-            return Err("A wallet is already open".into());
-        }
-
-        let base = engine_wallet_base(wallet_dir, name);
-        if keys_path_from(&base).exists() {
-            return Err("Wallet file already exists".into());
-        }
-        std::fs::create_dir_all(wallet_dir)
-            .map_err(|e| format!("Failed to create wallet directory: {e}"))?;
-
+        self.reject_if_open()?;
+        let base = reserve_new_wallet(wallet_dir, name)?;
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let engine_net = map_network(network);
-        let daemon = make_daemon(daemon_http_base, engine_net).await?;
-
-        let (master_seed, seed_format, backup) = generate_seed_material(engine_net)?;
-        let creation_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
-        let creds = Credentials::password_only(password.as_slice());
-        let create_params = EngineCreateParams {
-            base_path: &base,
-            credentials: &creds,
-            network: engine_net,
-            capability: shekyl_engine_core::CapabilityInput::Full {
-                master_seed_64: &master_seed,
-                seed_format,
-            },
-            creation_timestamp,
-            restore_height_hint: 0,
-            kdf: KdfParams::default(),
-            overrides: SafetyOverrides::none(),
-            prefs: WalletPrefs::default(),
-        };
-
-        let engine =
-            tokio::task::block_in_place(|| Engine::<SoloSigner>::create(create_params, daemon))
-                .map_err(map_open_err)?;
-        drop(master_seed);
-
-        // Create always omits `restore_height_hint`. Read the capability off
-        // the engine before it moves into the session lock.
-        let facts = WalletFacts::created(engine.capability());
-        let (shared, pscan) = wrap_and_start_pscan(engine).await?;
-        self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
-        self.catch_up_after_open().await?;
-
-        // The backup goes out ONCE, in the create response, and nothing here
-        // keeps a copy: a resident duplicate of the master secret held for
-        // the whole session was a rule-35 defect (it was a plain `String`,
-        // never zeroized, and its only reader was a command nothing called).
-        Ok(CreatedSession { backup, facts })
+        let daemon = make_daemon(daemon_node, engine_net).await?;
+        let (seed, backup) = seed_phrase::generate()?;
+        let capability = self
+            .install_full(FullWalletInstall {
+                name: name.to_owned(),
+                base,
+                password,
+                network: engine_net,
+                daemon_node: daemon_node.clone(),
+                daemon,
+                creation_timestamp: unix_now_secs(),
+                restore_height: 0,
+                seed,
+            })
+            .await?;
+        // The backup goes out once, in the create response. The session
+        // keeps no copy. A catch-up refusal drops it with this `Err`.
+        Ok(CreatedSession {
+            backup,
+            facts: WalletFacts::created(capability),
+        })
     }
 
-    /// Restore an Engine wallet from its seed backup. The backup's encoding is
-    /// network-governed, exactly as `generate_seed_material` chose it at
-    /// creation: a BIP-39 mnemonic on mainnet/stagenet, the 32-byte raw seed
-    /// as hex on testnet (the contract's `restore_wallet`).
+    /// Install a seed [`crate::seed_phrase::seed_from_phrase`] already decoded.
+    /// The session never sees the words.
     #[allow(clippy::too_many_arguments)]
-    pub async fn restore_from_backup(
+    pub async fn restore_from_seed(
         &mut self,
         wallet_dir: &Path,
         name: &str,
-        backup: &str,
+        seed: WalletSeed,
         password: &str,
         restore_height: u32,
         network: NetworkType,
-        daemon_http_base: &str,
+        daemon_node: &EngineNode,
     ) -> Result<WalletFacts, String> {
-        if self.engine.is_some() {
-            return Err("A wallet is already open".into());
-        }
-        let engine_net = map_network(network);
-
-        let base = engine_wallet_base(wallet_dir, name);
-        if keys_path_from(&base).exists() {
-            return Err("Wallet file already exists".into());
-        }
-        std::fs::create_dir_all(wallet_dir)
-            .map_err(|e| format!("Failed to create wallet directory: {e}"))?;
-
-        let (master_seed, seed_format) = master_seed_from_backup(backup, engine_net)?;
-
+        self.reject_if_open()?;
+        let base = reserve_new_wallet(wallet_dir, name)?;
         let password = Zeroizing::new(password.as_bytes().to_vec());
-        let daemon = make_daemon(daemon_http_base, engine_net).await?;
-        let creation_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
-        let creds = Credentials::password_only(password.as_slice());
-        let create_params = EngineCreateParams {
-            base_path: &base,
-            credentials: &creds,
-            network: engine_net,
-            capability: shekyl_engine_core::CapabilityInput::Full {
-                master_seed_64: &master_seed,
-                seed_format,
-            },
-            creation_timestamp,
-            restore_height_hint: restore_height,
-            kdf: KdfParams::default(),
-            overrides: SafetyOverrides::none(),
-            prefs: WalletPrefs::default(),
-        };
-
-        let engine =
-            tokio::task::block_in_place(|| Engine::<SoloSigner>::create(create_params, daemon))
-                .map_err(map_open_err)?;
-        drop(master_seed);
-
-        let facts = WalletFacts::restored(engine.capability(), restore_height);
-        let (shared, pscan) = wrap_and_start_pscan(engine).await?;
-        self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
-        self.catch_up_after_open().await?;
-
-        Ok(facts)
+        let engine_net = map_network(network);
+        let daemon = make_daemon(daemon_node, engine_net).await?;
+        let capability = self
+            .install_full(FullWalletInstall {
+                name: name.to_owned(),
+                base,
+                password,
+                network: engine_net,
+                daemon_node: daemon_node.clone(),
+                daemon,
+                creation_timestamp: unix_now_secs(),
+                restore_height,
+                seed,
+            })
+            .await?;
+        Ok(WalletFacts::restored(capability, restore_height))
     }
 
-    /// Open an existing Engine wallet.
+    /// Shared tail of create and restore, once a [`WalletSeed`] exists.
+    ///
+    /// The seed and the password are dropped after `Engine::create` returns
+    /// and before catch-up, so they do not sit in memory through refresh.
+    async fn install_full(&mut self, install: FullWalletInstall) -> Result<Capability, String> {
+        let FullWalletInstall {
+            name,
+            base,
+            password,
+            network,
+            daemon_node,
+            daemon,
+            creation_timestamp,
+            restore_height,
+            seed,
+        } = install;
+        let engine = {
+            let creds = Credentials::password_only(password.as_slice());
+            let create_params = EngineCreateParams {
+                base_path: &base,
+                credentials: &creds,
+                network,
+                capability: CapabilityInput::Full { seed: &seed },
+                creation_timestamp,
+                restore_height_hint: restore_height,
+                kdf: KdfParams::default(),
+                overrides: SafetyOverrides::none(),
+                prefs: WalletPrefs::default(),
+            };
+            tokio::task::block_in_place(|| Engine::<SoloSigner>::create(create_params, daemon))
+                .map_err(map_open_err)?
+        };
+        drop(seed);
+        drop(password);
+        let capability = engine.capability();
+        let (shared, pscan) = wrap_and_start_pscan(engine).await?;
+        self.remember_open(&name, base, network, &daemon_node, shared, pscan);
+        self.catch_up_after_open().await?;
+        Ok(capability)
+    }
+
+    /// Open an existing Engine wallet. The refusal carries its sentence and
+    /// a kind, so a caller tells an earlier release's file and a wrong
+    /// password from every other failure without reading the words.
     pub async fn open(
         &mut self,
         wallet_dir: &Path,
         name: &str,
         password: &str,
         network: NetworkType,
-        daemon_http_base: &str,
-    ) -> Result<WalletFacts, String> {
-        if self.engine.is_some() {
-            return Err("A wallet is already open".into());
-        }
+        daemon_node: &EngineNode,
+    ) -> Result<WalletFacts, OpenRefusal> {
+        self.reject_if_open()?;
 
         let base = engine_wallet_base(wallet_dir, name);
         if !keys_path_from(&base).exists() {
-            return Err("Wallet file not found".into());
+            return Err(String::from("Wallet file not found").into());
         }
 
         let password = Zeroizing::new(password.as_bytes().to_vec());
         let engine_net = map_network(network);
-        let daemon = make_daemon(daemon_http_base, engine_net).await?;
+        let daemon = make_daemon(daemon_node, engine_net).await?;
         let creds = Credentials::password_only(password.as_slice());
 
         let opened = tokio::task::block_in_place(|| {
@@ -270,7 +276,7 @@ impl EngineSession {
                 SafetyOverrides::none(),
             )
         })
-        .map_err(map_open_err)?;
+        .map_err(open_refusal)?;
 
         // Loaded omits the hint. Restored reports `from_height`, including zero.
         let (engine, ledger) = match opened {
@@ -283,13 +289,15 @@ impl EngineSession {
         let facts = WalletFacts::opened(engine.capability(), ledger);
 
         let (shared, pscan) = wrap_and_start_pscan(engine).await?;
-        self.remember_open(name, base, engine_net, daemon_http_base, shared, pscan);
+        self.remember_open(name, base, engine_net, daemon_node, shared, pscan);
 
         self.catch_up_after_open().await?;
         Ok(facts)
     }
 
-    /// Persist and close the open Engine wallet.
+    /// Persist and close the open Engine wallet. Returns once the wallet's
+    /// stores have closed their files, so the wallet can be reopened at
+    /// once (shekyl-core `CURVE_TREE_CLIENT.md` §11).
     pub async fn close(&mut self) -> Result<(), String> {
         let Some(shared) = self.engine.take() else {
             self.clear_open();
@@ -302,7 +310,7 @@ impl EngineSession {
             .map_err(|_| "cannot close: wallet engine still in use by another task".to_string())?;
         let engine = lock.into_inner();
         tokio::task::block_in_place(|| engine.persist_for_close()).map_err(map_open_err)?;
-        drop(engine);
+        engine.release().await;
         self.clear_open();
         Ok(())
     }
@@ -341,7 +349,7 @@ impl EngineSession {
             .network
             .ok_or_else(|| "Engine session missing network".to_string())?;
         let daemon_base = self
-            .daemon_http_base
+            .daemon_node
             .clone()
             .ok_or_else(|| "Engine session missing daemon address".to_string())?;
         let name = self
@@ -404,7 +412,7 @@ impl EngineSession {
         &mut self,
         base: &Path,
         network: Network,
-        daemon_http_base: &str,
+        daemon_node: &EngineNode,
         name: &str,
         password: Zeroizing<Vec<u8>>,
         slot: u32,
@@ -433,7 +441,7 @@ impl EngineSession {
             },
         )?;
 
-        let daemon = make_daemon(daemon_http_base, network).await?;
+        let daemon = make_daemon(daemon_node, network).await?;
 
         // Close current session (persist + scan shutdown).
         let shared = self
@@ -455,13 +463,15 @@ impl EngineSession {
                 name,
                 base.to_path_buf(),
                 network,
-                daemon_http_base,
+                daemon_node,
                 shared,
                 pscan,
             );
             return Err(format!("could not close for stake activation: {e}"));
         }
-        drop(engine);
+        // Awaited, not dropped: the reopen below opens the same stores, and
+        // a store still held is refused, not waited on.
+        engine.release().await;
 
         let reopened = tokio::task::block_in_place(|| {
             let creds = Credentials::password_only(password.as_slice());
@@ -481,7 +491,7 @@ impl EngineSession {
                 // Best-effort plain reopen so the user is not logged out.
                 let restore = async {
                     let pw = Zeroizing::new(password.as_slice().to_vec());
-                    let daemon = make_daemon(daemon_http_base, network).await?;
+                    let daemon = make_daemon(daemon_node, network).await?;
                     let creds = Credentials::password_only(pw.as_slice());
                     let opened = tokio::task::block_in_place(|| {
                         Engine::<SoloSigner>::open_full(
@@ -505,7 +515,7 @@ impl EngineSession {
                             name,
                             base.to_path_buf(),
                             network,
-                            daemon_http_base,
+                            daemon_node,
                             shared,
                             pscan,
                         );
@@ -532,7 +542,7 @@ impl EngineSession {
                     name,
                     base.to_path_buf(),
                     network,
-                    daemon_http_base,
+                    daemon_node,
                     shared.clone(),
                     Some(handle),
                 );
@@ -543,14 +553,7 @@ impl EngineSession {
                     error = %e,
                     "first-stake intent reopen: P-scan failed; wallet open without scan"
                 );
-                self.remember_open(
-                    name,
-                    base.to_path_buf(),
-                    network,
-                    daemon_http_base,
-                    shared,
-                    None,
-                );
+                self.remember_open(name, base.to_path_buf(), network, daemon_node, shared, None);
                 Err(format!(
                     "persona scan failed to start ({e}); wallet remains open — retry activation"
                 ))
@@ -731,28 +734,42 @@ pub fn engine_wallet_exists(wallet_dir: &Path, name: &str) -> bool {
 }
 
 pub(crate) fn map_network(n: NetworkType) -> Network {
-    match n {
-        NetworkType::Mainnet => Network::Mainnet,
-        NetworkType::Testnet => Network::Testnet,
-        NetworkType::Stagenet => Network::Stagenet,
-    }
+    n.network()
 }
 
-fn network_to_derivation(network: Network) -> DerivationNetwork {
-    match network {
-        Network::Mainnet => DerivationNetwork::Mainnet,
-        Network::Testnet => DerivationNetwork::Testnet,
-        Network::Stagenet => DerivationNetwork::Stagenet,
+/// Path for a wallet that does not exist yet, and the directory that holds it.
+fn reserve_new_wallet(wallet_dir: &Path, name: &str) -> Result<PathBuf, String> {
+    let base = engine_wallet_base(wallet_dir, name);
+    if keys_path_from(&base).exists() {
+        return Err("Wallet file already exists".into());
     }
+    std::fs::create_dir_all(wallet_dir)
+        .map_err(|e| format!("Failed to create wallet directory: {e}"))?;
+    Ok(base)
 }
 
-/// The backup handed out exactly once at creation, in the network's
-/// encoding — the contract's `CreateWalletResult.mnemonic` (mainnet /
-/// stagenet) or `raw_seed_hex` (testnet). Held only until the create
-/// response is built; never stored.
-pub enum SeedBackup {
-    Mnemonic(String),
-    RawHex(String),
+fn unix_now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Owned inputs to [`EngineSession::install_full`].
+///
+/// `Engine::create` takes the daemon by value and borrows the seed, the
+/// path, and the password. Owning them here keeps that borrow inside one
+/// function, with no lifetime threaded through the async calls above it.
+struct FullWalletInstall {
+    name: String,
+    base: PathBuf,
+    password: Zeroizing<Vec<u8>>,
+    network: Network,
+    daemon_node: EngineNode,
+    daemon: DaemonClient,
+    creation_timestamp: u64,
+    restore_height: u32,
+    seed: WalletSeed,
 }
 
 /// How `open` found the ledger. Decides whether the contract's
@@ -812,66 +829,6 @@ impl WalletFacts {
 pub struct CreatedSession {
     pub backup: SeedBackup,
     pub facts: WalletFacts,
-}
-
-/// The inverse of `generate_seed_material`: derive the master seed from the
-/// backup the user kept, in the encoding that network's create handed out.
-/// Messages name the failure class only — the backup is key material and is
-/// never reflected (rule 30).
-fn master_seed_from_backup(
-    backup: &str,
-    network: Network,
-) -> Result<(Zeroizing<[u8; MASTER_SEED_BYTES]>, SeedFormat), String> {
-    let derivation = network_to_derivation(network);
-    match network {
-        Network::Mainnet | Network::Stagenet => {
-            let (master, _blob) = generate_account_from_bip39(backup, "", derivation)
-                .map_err(|_| "Invalid recovery phrase".to_string())?;
-            Ok((master, SeedFormat::Bip39))
-        }
-        Network::Testnet => {
-            const EXPECTED: &str = "Testnet wallets back up as a 64-character hex seed";
-            let decoded =
-                Zeroizing::new(hex::decode(backup.trim()).map_err(|_| EXPECTED.to_string())?);
-            if decoded.len() != RAW_SEED_BYTES {
-                return Err(EXPECTED.into());
-            }
-            let mut raw = [0u8; RAW_SEED_BYTES];
-            raw.copy_from_slice(&decoded);
-            let derived = generate_account_from_raw_seed(&raw, derivation)
-                .map_err(|_| "Invalid testnet seed".to_string());
-            raw.zeroize();
-            let (master, _blob) = derived?;
-            Ok((master, SeedFormat::Raw32))
-        }
-    }
-}
-
-fn generate_seed_material(
-    network: Network,
-) -> Result<(Zeroizing<[u8; MASTER_SEED_BYTES]>, SeedFormat, SeedBackup), String> {
-    let derivation = network_to_derivation(network);
-    match network {
-        Network::Mainnet | Network::Stagenet => {
-            let mut entropy = [0u8; SHEKYL_BIP39_ENTROPY_BYTES];
-            OsRng.fill_bytes(&mut entropy);
-            let mnemonic = mnemonic_from_entropy(&entropy)
-                .map_err(|e| format!("mnemonic_from_entropy: {e}"))?;
-            entropy.zeroize();
-            let (master, _blob) = generate_account_from_bip39(&mnemonic, "", derivation)
-                .map_err(|e| format!("bip39 account: {e}"))?;
-            Ok((master, SeedFormat::Bip39, SeedBackup::Mnemonic(mnemonic)))
-        }
-        Network::Testnet => {
-            let mut raw = [0u8; RAW_SEED_BYTES];
-            OsRng.fill_bytes(&mut raw);
-            let seed_hex = hex::encode(raw);
-            let (master, _blob) = generate_account_from_raw_seed(&raw, derivation)
-                .map_err(|e| format!("raw account: {e}"))?;
-            raw.zeroize();
-            Ok((master, SeedFormat::Raw32, SeedBackup::RawHex(seed_hex)))
-        }
-    }
 }
 
 async fn wrap_and_start_pscan(

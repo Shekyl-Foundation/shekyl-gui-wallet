@@ -8,6 +8,9 @@ import {
   formatPercent,
   formatMultiplier,
   formatHashRate,
+  blockNumberOfCount,
+  blocksAsTime,
+  coinbaseLockText,
   formatDuration,
   emissionProgress,
 } from "../format";
@@ -79,15 +82,19 @@ describe("formatMultiplier", () => {
 
 describe("formatHashRate", () => {
   it("formats H/s for small values", () => {
-    expect(formatHashRate(1200)).toBe("10 H/s");
+    expect(formatHashRate(10)).toBe("10 H/s");
+  });
+
+  it("takes a rate, not a difficulty", () => {
+    expect(formatHashRate(1200)).toBe("1.20 KH/s");
   });
 
   it("formats MH/s for medium values", () => {
-    expect(formatHashRate(120_000_000)).toBe("1.00 MH/s");
+    expect(formatHashRate(1_000_000)).toBe("1.00 MH/s");
   });
 
   it("formats GH/s for large values", () => {
-    expect(formatHashRate(120_000_000_000)).toBe("1.00 GH/s");
+    expect(formatHashRate(1_000_000_000)).toBe("1.00 GH/s");
   });
 });
 
@@ -102,6 +109,30 @@ describe("formatDuration", () => {
 
   it("formats months", () => {
     expect(formatDuration(24 * 90)).toBe("3 months");
+  });
+
+  it("names one of a unit in the singular", () => {
+    expect(formatDuration(1)).toBe("1 hour");
+    expect(formatDuration(30)).toBe("1 day");
+    expect(formatDuration(24 * 40)).toBe("1 month");
+  });
+});
+
+describe("blocksAsTime", () => {
+  it("is the blocks times the spacing, in minutes under two hours", () => {
+    expect(blocksAsTime(4, 120)).toBe("8 minutes");
+    expect(blocksAsTime(59, 120)).toBe("118 minutes");
+  });
+
+  it("is hours, days or months above two hours", () => {
+    expect(blocksAsTime(60, 120)).toBe("2 hours");
+    expect(blocksAsTime(720, 120)).toBe("1 day");
+    expect(blocksAsTime(21_600, 120)).toBe("1 month");
+  });
+
+  it("names one minute in the singular, and never less", () => {
+    expect(blocksAsTime(1, 60)).toBe("1 minute");
+    expect(blocksAsTime(1, 10)).toBe("1 minute");
   });
 });
 
@@ -158,5 +189,34 @@ describe("SKL_AMOUNT_PATTERN", () => {
       expect(pattern.test(s), s).toBe(false);
       expect(() => parseSkl(s), s).toThrow(RangeError);
     }
+  });
+});
+
+describe("blockNumberOfCount", () => {
+  it("is no block for an empty count", () => {
+    expect(blockNumberOfCount(0)).toBeNull();
+  });
+
+  it("is genesis for one block", () => {
+    expect(blockNumberOfCount(1)).toBe(0);
+  });
+
+  it("is the newest block's number", () => {
+    expect(blockNumberOfCount(1200)).toBe(1199);
+  });
+});
+
+describe("coinbaseLockText", () => {
+  it("reads the window and its time at the constants' spacing", () => {
+    expect(coinbaseLockText({ coinbase_lock_window: 60, block_spacing: 120 })).toBe(
+      "60 blocks (about 2 hours)",
+    );
+    expect(coinbaseLockText({ coinbase_lock_window: 10, block_spacing: 60 })).toBe(
+      "10 blocks (about 10 minutes)",
+    );
+  });
+
+  it("names nothing while the constants are unread", () => {
+    expect(coinbaseLockText(null)).toBeNull();
   });
 });

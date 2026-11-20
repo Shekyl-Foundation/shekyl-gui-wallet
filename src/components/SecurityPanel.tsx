@@ -11,13 +11,14 @@ export default function SecurityPanel() {
     );
   }
 
+  const anonymity = security.anonymity_set_size;
   const layers = [
     {
       index: 1,
       label: "Membership proof",
       value:
-        security.anonymity_set_size > 0
-          ? `FCMP++ (${security.anonymity_set_size.toLocaleString()} outputs)`
+        anonymity !== null && anonymity > 0
+          ? `FCMP++ (${anonymity.toLocaleString()} outputs)`
           : "FCMP++",
     },
     {
@@ -52,7 +53,7 @@ export default function SecurityPanel() {
           <span className="font-mono text-white">{value}</span>
         </div>
       ))}
-      {security.tree_depth > 0 && (
+      {security.tree_depth !== null && security.tree_depth > 0 && (
         <p className="text-[10px] text-purple-400">
           Tree depth {security.tree_depth} — root{" "}
           <span className="font-mono">{security.tree_root_short}</span> —{" "}

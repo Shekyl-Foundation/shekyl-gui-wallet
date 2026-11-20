@@ -60,7 +60,7 @@
 //! behind a proof.
 
 use serde::Serialize;
-use shekyl_engine_core::engine::SubmitError;
+use shekyl_engine_core::engine::{ReservationAfterSubmit, SubmitError};
 use shekyl_engine_core::{
     FeePriority, InputCount, OutputCount, ReservationId, SubmitOutcome, TxDestination, TxRecipient,
     TxRequest,
@@ -78,12 +78,8 @@ use shekyl_units::AtomicUnitsString;
 /// on the same names the CLI and RPC clients see. Strings, not an enum, because
 /// they cross the Tauri edge as the contract spells them.
 pub mod contract {
-    /// Fee tiers (`build_pending_tx.priority`).
-    pub const TIER_ECONOMY: &str = "ECONOMY";
-    pub const TIER_STANDARD: &str = "STANDARD";
-    pub const TIER_PRIORITY: &str = "PRIORITY";
-    /// The tier a fresh page starts on (`get_default_fee_priority.default_priority`).
-    pub const DEFAULT_TIER: &str = TIER_STANDARD;
+    // Fee tiers are not listed here: their one spelling is the engine's
+    // `FeePriority` (`economy`, `standard`, `high`; IG-Q52).
 
     /// Submit verdicts (`SubmitVerdictView`).
     pub const VERDICT_ACCEPTED: &str = "ACCEPTED";
@@ -102,19 +98,15 @@ pub mod contract {
 const CANONICAL_INPUT_COUNT: usize = 2;
 const CANONICAL_OUTPUT_COUNT: usize = 2;
 
-/// The contract's tier names (`wallet_rpc.yaml`, `build_pending_tx.priority`).
+/// The contract's tier names (`wallet_rpc.yaml`, `build_pending_tx.priority`):
+/// `economy`, `standard`, `high`, lowercase, with one spelling each.
 pub fn parse_priority(tier: &str) -> Result<FeePriority, SendError> {
-    match tier {
-        contract::TIER_ECONOMY => Ok(FeePriority::Economy),
-        contract::TIER_STANDARD => Ok(FeePriority::Standard),
-        contract::TIER_PRIORITY => Ok(FeePriority::Priority),
-        other => Err(SendError::invalid(format!(
-            "unknown fee priority tier: {other} (expected {}, {} or {})",
-            contract::TIER_ECONOMY,
-            contract::TIER_STANDARD,
-            contract::TIER_PRIORITY
-        ))),
-    }
+    FeePriority::from_name(tier).ok_or_else(|| {
+        SendError::invalid(format!(
+            "unknown fee priority tier: {tier} (expected {})",
+            FeePriority::NAMES.join(", ")
+        ))
+    })
 }
 
 /// `get_default_fee_priority` result: the daemon's tier quotes for the
@@ -122,10 +114,9 @@ pub fn parse_priority(tier: &str) -> Result<FeePriority, SendError> {
 /// confirms; that comes from the build.
 #[derive(Debug, Serialize)]
 pub struct FeeTierQuote {
-    pub default_priority: &'static str,
-    pub economy_fee: AtomicUnitsString,
-    pub standard_fee: AtomicUnitsString,
-    pub priority_fee: AtomicUnitsString,
+    pub economy: AtomicUnitsString,
+    pub standard: AtomicUnitsString,
+    pub high: AtomicUnitsString,
     pub tree_depth: u8,
 }
 
@@ -148,23 +139,51 @@ pub struct BuiltPendingTx {
 pub struct SubmitResult {
     pub tx_hash: String,
     pub verdict: &'static str,
+    /// `false` when the send went out and stands but the wallet could not
+    /// save what the node's verdict changed (shekyl-core A19). The send is
+    /// not undone; the next save writes it.
+    pub verdict_saved: bool,
     /// Present iff `verdict` is `ALREADY_IN_CHAIN`: the daemon-claimed height,
     /// display metadata only — refresh remains the settlement authority.
     pub confirmed_height: Option<u64>,
 }
 
+/// Where a reservation stands after a send command failed, for the page:
+/// the engine's [`ReservationAfterSubmit`], one for one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Reservation {
+    /// Still the page's: nothing was sent. It submits again or discards.
+    Held,
+    /// The daemon may have it: the engine holds it, and the page lets go.
+    InFlight,
+    /// Released, or none was touched.
+    Gone,
+}
+
+impl From<ReservationAfterSubmit> for Reservation {
+    fn from(after: ReservationAfterSubmit) -> Self {
+        match after {
+            ReservationAfterSubmit::Held => Self::Held,
+            ReservationAfterSubmit::InFlight => Self::InFlight,
+            ReservationAfterSubmit::Gone => Self::Gone,
+        }
+    }
+}
+
 /// The typed error the send commands reject with. `code` and `message` are
 /// the wallet contract's (`shekyl_wallet_contract`: the same mapping the
 /// wallet RPC answers with), so the page branches on the same vocabulary the
-/// CLI and RPC clients see, and every cause has its own code. `reservation_retained` tells the page whether
-/// the engine still holds the reservation — when it does, the page must not
-/// discard it: an ambiguous or still-pending submit may already be on the
-/// network, and releasing the funds would open a double-spend path.
+/// CLI and RPC clients see, and every cause has its own code. `reservation`
+/// tells the page where the reservation stands: one it still holds it keeps,
+/// to submit again or discard (forgetting it would leave the inputs locked
+/// with nothing to release them); one in flight it lets go and never
+/// discards, since it may already be on the network.
 #[derive(Debug, Serialize)]
 pub struct SendError {
     pub code: &'static str,
     pub message: String,
-    pub reservation_retained: bool,
+    pub reservation: Reservation,
 }
 
 impl SendError {
@@ -174,42 +193,31 @@ impl SendError {
         Self {
             code: WalletRpcErrorCode::InvalidParams.name(),
             message,
-            reservation_retained: false,
+            reservation: Reservation::Gone,
         }
     }
 
     fn wallet_closed() -> Self {
-        Self::from_contract(WalletRpcError::WalletNotOpen, false)
+        Self::from_contract(WalletRpcError::WalletNotOpen, Reservation::Gone)
     }
 
-    /// The contract's answer for a failure, with whether the engine still
-    /// holds the reservation.
-    fn from_contract(err: WalletRpcError, reservation_retained: bool) -> Self {
+    /// The contract's answer for a failure, with where the reservation
+    /// stands.
+    fn from_contract(err: WalletRpcError, reservation: Reservation) -> Self {
         Self {
             code: err.code().name(),
             message: err.message(),
-            reservation_retained,
+            reservation,
         }
     }
 
-    /// Whether the engine keeps the reservation after this submit error, per
-    /// `SubmitError`'s own documentation of each arm. Not unit-testable from
-    /// this crate — the enum is `#[non_exhaustive]`, so no value of it can be
-    /// constructed here — the page tests cover the policy through
-    /// `reservation_retained`.
-    pub fn reservation_retained_after(err: &SubmitError) -> bool {
-        matches!(
-            err,
-            SubmitError::ContentChanged { .. }
-                | SubmitError::DaemonAmbiguous { .. }
-                | SubmitError::DaemonRejectedRetryable { .. }
-                | SubmitError::SubmitAlreadyPending { .. }
-        )
-    }
-
+    /// A failed submit: the contract's answer, and where the reservation
+    /// stands, which the engine alone answers
+    /// (`SubmitError::reservation_after`, exhaustive over its arms). The
+    /// wallet re-derives none of it.
     fn from_submit(err: SubmitError) -> Self {
-        let retained = Self::reservation_retained_after(&err);
-        Self::from_contract(err.into(), retained)
+        let after = err.reservation_after().into();
+        Self::from_contract(err.into(), after)
     }
 }
 
@@ -242,12 +250,11 @@ pub async fn get_default_fee_priority(
             OutputCount::clamped(CANONICAL_OUTPUT_COUNT),
         )
         .await
-        .map_err(|e| SendError::from_contract(e.into(), false))?;
+        .map_err(|e| SendError::from_contract(e.into(), Reservation::Gone))?;
     Ok(FeeTierQuote {
-        default_priority: contract::DEFAULT_TIER,
-        economy_fee: quote.economy_fee.into(),
-        standard_fee: quote.standard_fee.into(),
-        priority_fee: quote.priority_fee.into(),
+        economy: quote.economy.into(),
+        standard: quote.standard.into(),
+        high: quote.high.into(),
         tree_depth: quote.tree_depth,
     })
 }
@@ -284,9 +291,9 @@ pub async fn build_pending_tx(
     };
     let engine = shared.read().await;
     let pending = engine
-        .build_pending_tx_async(&request)
+        .build_pending_tx(&request)
         .await
-        .map_err(|e| SendError::from_contract(e.into(), false))?;
+        .map_err(|e| SendError::from_contract(e.into(), Reservation::Gone))?;
     Ok(BuiltPendingTx {
         pending_tx_id: pending.id.raw().to_string(),
         fee: pending.fee_atomic_units.into(),
@@ -303,8 +310,9 @@ pub async fn submit_pending_tx(
     let id = parse_pending_tx_id(&pending_tx_id)?;
     let shared = shared_engine(&state).await?;
     let engine = shared.read().await;
-    match engine.submit_pending_tx_async(id, seen_gen).await {
-        Ok(outcome) => {
+    match engine.submit_pending_tx(id, seen_gen).await {
+        Ok(receipt) => {
+            let outcome = receipt.outcome;
             let (verdict, confirmed_height) = match &outcome {
                 SubmitOutcome::Accepted { .. } => (contract::VERDICT_ACCEPTED, None),
                 SubmitOutcome::AlreadyInPool { .. } => (contract::VERDICT_ALREADY_IN_POOL, None),
@@ -315,19 +323,13 @@ pub async fn submit_pending_tx(
             Ok(SubmitResult {
                 tx_hash: outcome.hash().to_string(),
                 verdict,
+                verdict_saved: receipt.verdict_saved,
                 confirmed_height,
             })
         }
-        Err(err) => {
-            let mapped = SendError::from_submit(err);
-            if !mapped.reservation_retained {
-                // The engine has already released or invalidated it; make the
-                // release explicit so funds never stay locked behind a failed
-                // submit the page has stopped tracking.
-                let _ = engine.discard_pending_tx(id);
-            }
-            Err(mapped)
-        }
+        // Where the reservation stands is the engine's answer: one gone has
+        // released its locks, so the wallet discards nothing on its behalf.
+        Err(err) => Err(SendError::from_submit(err)),
     }
 }
 
@@ -339,10 +341,10 @@ pub async fn discard_pending_tx(
     let id = parse_pending_tx_id(&pending_tx_id)?;
     let shared = shared_engine(&state).await?;
     let engine = shared.read().await;
-    // A refused discard leaves the reservation where it was.
+    // A refused discard leaves the reservation where it was: the page's.
     engine
         .discard_pending_tx(id)
-        .map_err(|e| SendError::from_contract(e.into(), true))
+        .map_err(|e| SendError::from_contract(e.into(), Reservation::Held))
 }
 
 #[cfg(test)]
@@ -376,25 +378,26 @@ mod tests {
                 WalletRpcErrorCode::InvalidParams.name(),
                 "{bad:?}"
             );
-            assert!(!err.reservation_retained);
+            assert_eq!(err.reservation, Reservation::Gone);
         }
     }
 
     #[test]
     fn tiers_are_the_contracts_names_and_nothing_else() {
         assert!(matches!(
-            parse_priority("ECONOMY"),
+            parse_priority("economy"),
             Ok(FeePriority::Economy)
         ));
         assert!(matches!(
-            parse_priority("STANDARD"),
+            parse_priority("standard"),
             Ok(FeePriority::Standard)
         ));
-        assert!(matches!(
-            parse_priority("PRIORITY"),
-            Ok(FeePriority::Priority)
-        ));
-        for bad in ["standard", "Standard", "", "FAST", "2"] {
+        assert!(matches!(parse_priority("high"), Ok(FeePriority::High)));
+        // One spelling per tier: the uppercase names, the retired
+        // `priority`, and anything else are refused.
+        for bad in [
+            "STANDARD", "Standard", "PRIORITY", "priority", "", "FAST", "2",
+        ] {
             let err = parse_priority(bad).unwrap_err();
             assert_eq!(err.code, WalletRpcErrorCode::InvalidParams.name(), "{bad}");
         }
@@ -417,16 +420,14 @@ mod tests {
         assert_eq!(built["content_gen"], 0);
 
         let quote = serde_json::to_value(FeeTierQuote {
-            default_priority: contract::DEFAULT_TIER,
-            economy_fee: AtomicUnits::from_raw(1).into(),
-            standard_fee: AtomicUnits::from_raw(2).into(),
-            priority_fee: AtomicUnits::from_raw(BEYOND_DOUBLE).into(),
+            economy: AtomicUnits::from_raw(1).into(),
+            standard: AtomicUnits::from_raw(2).into(),
+            high: AtomicUnits::from_raw(BEYOND_DOUBLE).into(),
             tree_depth: 6,
         })
         .unwrap();
-        assert_eq!(quote["default_priority"], "STANDARD");
-        assert_eq!(quote["economy_fee"], "1");
-        assert_eq!(quote["priority_fee"], "9007199254740993");
+        assert_eq!(quote["economy"], "1");
+        assert_eq!(quote["high"], "9007199254740993");
         assert_eq!(quote["tree_depth"], 6);
     }
 

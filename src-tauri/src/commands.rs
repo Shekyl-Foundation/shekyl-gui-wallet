@@ -44,12 +44,14 @@ use tauri::State;
 use crate::balance::Balance;
 use crate::daemon_rpc;
 use crate::drain_balance::DrainBalance;
-use crate::gui_config;
 use crate::staking_view::StakingView;
-use crate::state::{self, AppState};
+use crate::state::AppState;
 use crate::validate;
 use crate::wallet_name;
-use shekyl_units::{AtomicUnits, AtomicUnitsString};
+use shekyl_rpc_client::wire::chain::CurveSelect;
+use shekyl_rpc_client::wire::shared::Selector;
+use shekyl_rpc_client::wire::{CurveShow, DaemonStatus};
+use shekyl_rpc_types::kinds::NoParams;
 
 // ─── Data types ──────────────────────────────────────────────────────────────
 
@@ -60,9 +62,8 @@ pub struct WalletStatus {
     pub wallet_name: Option<String>,
     pub daemon_address: Option<String>,
     pub network: String,
+    /// The node's own flag that it has caught up (`daemon_status`).
     pub synced: bool,
-    pub sync_height: u64,
-    pub daemon_height: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -88,9 +89,11 @@ pub struct SecurityStatus {
     pub classical: String,
     pub post_quantum: String,
     pub tx_version: u8,
-    pub anonymity_set_size: u64,
-    pub tree_depth: u8,
-    pub tree_root_short: String,
+    /// The curve tree at the tip (`curve_show`); `null` when the node
+    /// could not say, never zero.
+    pub anonymity_set_size: Option<u64>,
+    pub tree_depth: Option<u64>,
+    pub tree_root_short: Option<String>,
     pub reference_block_window: u16,
     pub proof_type: String,
     pub max_inputs: u8,
@@ -101,32 +104,32 @@ pub struct SecurityStatus {
 // ─── Daemon-connected commands ───────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_wallet_status(state: State<'_, AppState>) -> Result<WalletStatus, String> {
-    let url = state.url().await;
+pub async fn get_wallet_status(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<WalletStatus, String> {
+    let address = state.node_address().await;
     let network = state.network.read().await;
     let wallet_open = *state.wallet_open.read().await;
     let wallet_name = state.wallet_name.read().await.clone();
 
-    match daemon_rpc::get_info(&state.http, &url).await {
-        Ok(info) => Ok(WalletStatus {
+    match daemon_rpc::node_call::<DaemonStatus>(&state, &node, NoParams, "the node's status").await
+    {
+        Ok(status) => Ok(WalletStatus {
             connected: true,
             wallet_open,
             wallet_name,
-            daemon_address: Some(url),
+            daemon_address: address.clone(),
             network: network.as_str().into(),
-            synced: info.synchronized,
-            sync_height: info.height,
-            daemon_height: info.target_height,
+            synced: status.synchronized,
         }),
         Err(_) => Ok(WalletStatus {
             connected: false,
             wallet_open,
             wallet_name,
-            daemon_address: Some(url),
+            daemon_address: address.clone(),
             network: network.as_str().into(),
             synced: false,
-            sync_height: 0,
-            daemon_height: 0,
         }),
     }
 }
@@ -143,62 +146,14 @@ pub async fn get_pqc_status() -> Result<PqcStatus, String> {
     })
 }
 
-// ─── Mining commands ─────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize)]
-pub struct MiningStatus {
-    pub active: bool,
-    pub speed: u64,
-    pub threads_count: u32,
-    pub address: String,
-    pub pow_algorithm: String,
-    pub is_background_mining_enabled: bool,
-    pub block_target: u32,
-    pub block_reward: AtomicUnitsString,
-    pub difficulty: u64,
-}
-
-#[tauri::command]
-pub async fn get_mining_status(state: State<'_, AppState>) -> Result<MiningStatus, String> {
-    let base = state.base_url().await;
-    let ms = daemon_rpc::mining_status(&state.http, &base).await?;
-    Ok(MiningStatus {
-        active: ms.active,
-        speed: ms.speed,
-        threads_count: ms.threads_count,
-        address: ms.address,
-        pow_algorithm: ms.pow_algorithm,
-        is_background_mining_enabled: ms.is_background_mining_enabled,
-        block_target: ms.block_target,
-        block_reward: AtomicUnits::from_raw(ms.block_reward).into(),
-        difficulty: ms.difficulty,
-    })
-}
-
-#[tauri::command]
-pub async fn start_mining_cmd(
-    state: State<'_, AppState>,
-    address: String,
-    threads: u32,
-    background: bool,
-) -> Result<bool, String> {
-    let base = state.base_url().await;
-    daemon_rpc::start_mining(&state.http, &base, &address, threads, background, true).await?;
-    Ok(true)
-}
-
-#[tauri::command]
-pub async fn stop_mining_cmd(state: State<'_, AppState>) -> Result<bool, String> {
-    let base = state.base_url().await;
-    daemon_rpc::stop_mining(&state.http, &base).await?;
-    Ok(true)
-}
-
 // ─── Wallet startup commands ─────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<WalletFileInfo>, String> {
-    let dir = state.wallet_dir.read().await.clone();
+    // No directory, or one not made yet, holds no wallets.
+    let Some(dir) = state.wallet_dir.read().await.clone() else {
+        return Ok(vec![]);
+    };
     if !dir.exists() {
         return Ok(vec![]);
     }
@@ -239,8 +194,7 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
 /// to initialise, which is why this is all the old `init_wallet_rpc` did.
 #[tauri::command]
 pub async fn ensure_wallet_dir(state: State<'_, AppState>) -> Result<(), String> {
-    let wallet_dir = state.wallet_dir.read().await.clone();
-    wallet_name::ensure_dir_exists(&wallet_dir)
+    wallet_name::ensure_dir_exists(&state.wallet_dir().await?)
 }
 
 /// Override the wallet directory with a user-chosen path (Advanced
@@ -256,11 +210,11 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
     }
     wallet_name::ensure_dir_exists(&path)?;
     let display = path.to_string_lossy().to_string();
-    gui_config::save(&gui_config::GuiConfig {
-        schema_version: gui_config::SCHEMA_VERSION,
-        wallet_dir_override: Some(path.clone()),
-    });
-    *state.wallet_dir.write().await = path;
+    // The rest of the file (the saved network) is kept.
+    let mut cfg = state.settings.load();
+    cfg.wallet_dir_override = Some(path.clone());
+    state.settings.save(&cfg);
+    *state.wallet_dir.write().await = Some(path);
     // A successful explicit choice clears any stale "fell back from"
     // warning the user might still be looking at.
     *state.wallet_dir_warning.write().await = None;
@@ -271,14 +225,13 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
 /// persisted override.
 #[tauri::command]
 pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let default = state::default_wallet_dir();
+    let default = state.root.default_wallet_dir()?;
     wallet_name::ensure_dir_exists(&default)?;
     let display = default.to_string_lossy().to_string();
-    gui_config::save(&gui_config::GuiConfig {
-        schema_version: gui_config::SCHEMA_VERSION,
-        wallet_dir_override: None,
-    });
-    *state.wallet_dir.write().await = default;
+    let mut cfg = state.settings.load();
+    cfg.wallet_dir_override = None;
+    state.settings.save(&cfg);
+    *state.wallet_dir.write().await = Some(default);
     *state.wallet_dir_warning.write().await = None;
     Ok(display)
 }
@@ -300,7 +253,7 @@ pub struct WalletDirResponse {
 /// warning if it was reached via fallback (override unreachable).
 #[tauri::command]
 pub async fn get_wallet_dir(state: State<'_, AppState>) -> Result<WalletDirResponse, String> {
-    let dir = state.wallet_dir.read().await.clone();
+    let dir = state.wallet_dir().await?;
     let fallback = state.wallet_dir_warning.read().await.clone();
     Ok(WalletDirResponse {
         dir: dir.to_string_lossy().to_string(),
@@ -446,22 +399,22 @@ pub async fn get_primary_address(state: State<'_, AppState>) -> Result<PrimaryAd
 }
 
 #[tauri::command]
-pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityStatus, String> {
-    let url = state.url().await;
-    let tree = daemon_rpc::get_curve_tree_info(&state.http, &url)
-        .await
-        .unwrap_or(daemon_rpc::CurveTreeInfo {
-            root: String::new(),
-            depth: 0,
-            leaf_count: 0,
-            height: 0,
-        });
-
-    let root_short = if tree.root.len() >= 8 {
-        tree.root[..8].to_string()
-    } else {
-        tree.root.clone()
-    };
+pub async fn get_security_status(
+    state: State<'_, AppState>,
+    node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
+) -> Result<SecurityStatus, String> {
+    let tree = daemon_rpc::node_call::<CurveShow>(
+        &state,
+        &node,
+        CurveSelect(Selector::Tip),
+        "the curve tree",
+    )
+    .await
+    .ok();
+    let root_short = tree.as_ref().map(|t| {
+        let root = t.root.to_string();
+        root.chars().take(8).collect::<String>()
+    });
 
     let wallet_refreshed = *state.wallet_open.read().await;
 
@@ -470,8 +423,8 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
         classical: "Ed25519".into(),
         post_quantum: "ML-DSA-65 (FIPS 204)".into(),
         tx_version: 3,
-        anonymity_set_size: tree.leaf_count,
-        tree_depth: tree.depth,
+        anonymity_set_size: tree.as_ref().map(|t| t.leaf_count.0),
+        tree_depth: tree.as_ref().map(|t| t.layers.0),
         tree_root_short: root_short,
         reference_block_window: 100,
         proof_type: "FCMP++ Full-Chain Membership".into(),
@@ -479,43 +432,6 @@ pub async fn get_security_status(state: State<'_, AppState>) -> Result<SecurityS
         estimated_proof_size_kb: 4.5,
         paths_precomputed: wallet_refreshed,
     })
-}
-
-// ─── Daemon lifecycle commands ────────────────────────────────────────────────
-
-#[tauri::command]
-pub async fn daemon_status(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-) -> Result<crate::daemon_manager::DaemonStatus, String> {
-    Ok(dm.status().await)
-}
-
-#[tauri::command]
-pub async fn get_daemon_settings(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-) -> Result<crate::daemon_manager::DaemonConfig, String> {
-    Ok(dm.config().await)
-}
-
-#[tauri::command]
-pub async fn set_daemon_settings(
-    dm: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-    keep_running_on_exit: Option<bool>,
-    data_dir: Option<String>,
-    rpc_port: Option<u16>,
-) -> Result<crate::daemon_manager::DaemonConfig, String> {
-    let mut config = dm.config().await;
-    if let Some(v) = keep_running_on_exit {
-        config.keep_running_on_exit = v;
-    }
-    if let Some(v) = data_dir {
-        config.data_dir = if v.is_empty() { None } else { Some(v) };
-    }
-    if let Some(v) = rpc_port {
-        config.rpc_port = v;
-    }
-    dm.update_config(config.clone()).await?;
-    Ok(config)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

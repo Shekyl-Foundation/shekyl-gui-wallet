@@ -19,8 +19,10 @@ Thumbs.db
 # Tauri generated
 src-tauri/gen/
 
-# Sidecar binaries (downloaded from shekyl-core releases, not committed)
+# Placed from shekyl-core's gitian archive at release (src-tauri/binaries/README.md)
 src-tauri/binaries/shekyld-*
+src-tauri/binaries/tor/
+src-tauri/binaries/tor-licenses/
 
 # Environment
 .env
