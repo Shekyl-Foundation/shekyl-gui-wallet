@@ -400,7 +400,12 @@ impl EngineSession {
         // unbounded-storage obligation that engine-core documents as never
         // a default and never reachable without a caller naming it — there
         // is no acknowledgment path here for a caller to name it through.
-        let outcome = StakeFacade::first_stake(shared, slot, StakePosture::Market)
+        // Core fills the persona body store from this node before it posts
+        // (WSS-Q4), so `first_stake` takes the node it dials. Market
+        // refuses before any fill today, but the target is the session's
+        // own either way.
+        let node = daemon_base.core_target(network).await?;
+        let outcome = StakeFacade::first_stake(shared, &node, slot, StakePosture::Market)
             .await
             .map_err(map_first_stake_err)?;
 

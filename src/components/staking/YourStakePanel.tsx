@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Lock } from "lucide-react";
-import { BLOCK_NUMBER_TIP, blockNumberOfCount, formatSklCompact } from "../../lib/format";
+import {
+  BLOCK_NUMBER_TIP,
+  atomicAmount,
+  blockNumberOfCount,
+  formatSklCompact,
+} from "../../lib/format";
 import type { StakingView } from "../../types/daemon";
 
 /**
@@ -190,13 +195,27 @@ function StakeHoldings({ view }: { view: StakingView }) {
 }
 
 /**
+ * What an outstanding record sets aside, from its `reserved` amount (WR-Q6):
+ * an amount, nothing (a zero-fee reward claim reserves no inputs), or not
+ * yet known, before the staking scan has run. Three distinct sentences: a
+ * record whose amount cannot be read is never shown as holding nothing.
+ */
+function setAside(reserved: string | null): string {
+  if (reserved == null) {
+    return "What it sets aside is known once the staking scan has run.";
+  }
+  if (atomicAmount(reserved) === 0n) {
+    return "Nothing is set aside for it.";
+  }
+  return `${formatSklCompact(reserved)} SKL is set aside for it.`;
+}
+
+/**
  * Outstanding staking work and how each kind last ended, for any wallet.
  *
  * `funds_return_at` is the record's end date: past it the transaction can no
  * longer be mined, and the wallet settles the record once its scan reaches
- * it. The read does not say whether the record reserved any inputs (a
- * zero-fee reward claim reserves none), so the line states only the date and
- * never that funds are set aside.
+ * it, returning what it set aside (`setAside`).
  */
 function StakeWork({ view }: { view: StakingView }) {
   return (
@@ -218,6 +237,7 @@ function StakeWork({ view }: { view: StakingView }) {
                 {row.reason && (
                   <p className="mt-1 text-purple-200">{row.reason}</p>
                 )}
+                <p className="mt-1 text-purple-200">{setAside(row.reserved)}</p>
                 {(row.attempts > 0 || row.funds_return_at != null) && (
                   <p className="mt-1 text-purple-300">
                     {row.attempts === 1 && "Sent once."}
