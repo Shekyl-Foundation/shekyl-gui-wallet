@@ -148,7 +148,11 @@ it in the root, as measured on each: WebKitGTK keeps its cache, HSTS and
 storage in `webview/`; WKWebView is incognito (a non-persistent store) and
 keeps nothing; WebView2 keeps its browser files in `webview/` and is
 InPrivate. With no root, WebKitGTK and WebView2 fall back to Tauri's
-app-data folder, so the window that says why can still open. The app makes the
+app-data folder, so the window that says why can still open (Rick,
+2026-11-20). A graphics driver's own cache is the driver's, not a path
+the wallet chooses, and is outside IG-13 (Rick, 2026-11-20): on Linux,
+Mesa keeps its shader cache in `~/.cache/mesa_shader_cache*` for any
+program that draws with it, the wallet's web view included. The app makes the
 root once, at its start, as the node does (owner-only with the no-read-up
 label on Windows), and reads every place in it off what that start left
 (`AccountRoot`). An account with no home, or a root the start could not
