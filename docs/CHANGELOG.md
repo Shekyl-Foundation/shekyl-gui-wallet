@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **"Your stake" says what each outstanding staking record sets aside.**
+  Under each record in progress the panel says how much is set aside for
+  it, that nothing is (a zero-fee reward claim reserves no inputs), or,
+  before the staking scan has run, that it is not known yet. The amount is
+  core's (`staking_info`'s `reserved`, WR-Q6), so a record with an end
+  date is no longer left to look as if it held funds or held none.
+
 - **Each network keeps its wallets in its own folder.** The default wallet
   folder is `wallets/<network>` in the per-account root
   (`~/.shekyl/wallets/mainnet`, `%LOCALAPPDATA%\Shekyl\wallets\testnet`),
@@ -48,6 +55,11 @@ the bundled `shekyld` and the Engine path-deps.
   the file it was given for, by its full path: after a change of wallet
   folder, a file of the same name there is not shown the old file's
   refusal or offered a new wallet.
+- **Unlock always names a file the folder holds.** After a change of
+  wallet folder, the selection is the file picked if the new folder holds
+  it, otherwise the folder's first file; the picker shows it, and Unlock
+  opens it. A pick from the old folder no longer leaves an Unlock button
+  that does nothing.
 - **A network switch before a wallet is open stays switched.** A read of
   the node connection that was under way when the network or the node
   address changed no longer paints the old one back over the bar, and the

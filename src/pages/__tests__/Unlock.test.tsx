@@ -179,6 +179,36 @@ describe("Unlock", () => {
   });
 
   /**
+   * After a change of folder whose files do not include the picked name, the
+   * selection is the new folder's first file: the picker names it, and
+   * Unlock opens it (finding on #85). Red edit: keep the stale pick, and
+   * Unlock does nothing and says nothing.
+   */
+  it("selects a file the new folder holds after a change of folder", async () => {
+    files.current = [ALPHA11, CURRENT];
+    openWallet.mockResolvedValue({ wallet: { name: "other" } });
+    const { rerender } = renderGate();
+    fireEvent.click(screen.getByRole("button", { name: "alpha11" }));
+    fireEvent.click(screen.getByRole("button", { name: "current" }));
+
+    files.current = [
+      { name: "other", path: "/elsewhere/other.wallet.keys" },
+      { name: "more", path: "/elsewhere/more.wallet.keys" },
+    ];
+    rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WalletGate />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "other" })).toBeInTheDocument();
+    expect(screen.queryByText("current")).not.toBeInTheDocument();
+
+    unlock();
+    await act(async () => {});
+    expect(openWallet).toHaveBeenCalledWith("other", "fixture-password");
+  });
+
+  /**
    * The folder can change under the page (the advanced folder picker): a
    * file of the same name in the new folder is another file, and the old
    * file's refusal is not shown for it, nor its new-wallet offer. Back in
