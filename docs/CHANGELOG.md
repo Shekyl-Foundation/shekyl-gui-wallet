@@ -9,6 +9,17 @@
   core's (`staking_info`'s `reserved`, WR-Q6), so a record with an end
   date is no longer left to look as if it held funds or held none.
 
+- **The window's web view keeps nothing outside the per-account root.**
+  On Linux and Windows its data is in `webview` in the GUI's settings
+  folder (`~/.shekyl/shekyl-gui-wallet/webview`,
+  `%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\webview`); on macOS the web
+  view keeps nothing at all. Earlier releases left web view data in
+  `org.shekyl.wallet` folders: `~/.local/share/org.shekyl.wallet` on
+  Linux, `~/Library/WebKit/org.shekyl.wallet` and
+  `~/Library/Caches/org.shekyl.wallet` on macOS, and
+  `%LOCALAPPDATA%\org.shekyl.wallet` on Windows. This wallet does not read
+  them, and they can be removed.
+
 ## [3.1.0-alpha.12] - 2026-11-20
 
 Paired with shekyl-core `v3.1.0-alpha.12`: `release.yml` clones that tag for
