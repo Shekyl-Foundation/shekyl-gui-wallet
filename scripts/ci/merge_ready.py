@@ -45,6 +45,15 @@ pass. Rule 06's trap, a skipped job counting as a pass, does not reach it.
   unlabeled          pending
   opened, reopened   pending, or the label check when it is on
   ready_for_review   the label comes off (the draft's skipped jobs now run)
+  another label      nothing: the job's `if` skips it, so it neither posts
+                     nor cancels the run of an event that does
+
+The label check posts pending before it reads anything, so a request that
+fails leaves the head pending, never an earlier success standing. It reads
+the pull request again just before it posts success: the head must still be
+the one judged, the label still on and the pull request not a draft. A
+re-run of a `labeled` run replays the old event, label and all; this read is
+what stops it restoring success after the label came off.
 
 A check run created by the labelling itself (another workflow listening for
 labels, whose jobs skip at once) is given `SETTLE_SECONDS` to conclude
@@ -150,14 +159,32 @@ def judge(check_runs: list[dict], statuses: list[dict], open_threads: int, draft
 
 def decide(event: str, label: str, has_label: bool) -> str:
     """The step an event takes: 'clear' (remove the label, post pending),
-    'judge' (check the label), or 'wait' (post pending)."""
+    'judge' (check the label), 'wait' (post pending) or 'ignore' (another
+    label: nothing changes; the job's `if` already skips it)."""
+    if event in ("labeled", "unlabeled") and label != LABEL:
+        return "ignore"
     if event in ("synchronize", "ready_for_review"):
         return "clear" if has_label else "wait"
-    if event == "labeled" and label == LABEL:
+    if event == "labeled":
         return "judge"
-    if event in ("opened", "reopened", "labeled", "unlabeled"):
+    if event == "unlabeled":
+        return "wait"
+    if event in ("opened", "reopened"):
         return "judge" if has_label else "wait"
     raise ValueError(f"merge-ready.yml does not listen for {event!r}")
+
+
+def standing(pull: dict, head: str) -> str:
+    """Why the pull request as it is now cannot take success for `head`:
+    'moved' (another head, whose own event decides), 'unlabelled' or
+    'draft'. Empty means it can."""
+    if pull["head"]["sha"] != head:
+        return "moved"
+    if not any(lb["name"] == LABEL for lb in pull["labels"]):
+        return "unlabelled"
+    if pull["draft"]:
+        return "draft"
+    return ""
 
 
 def post(sha: str, state: str, description: str) -> None:
@@ -194,16 +221,24 @@ def with_suite_times(runs: list[dict]) -> list[dict]:
 
 
 def statuses(sha: str) -> list[dict]:
-    return json.loads(gh(f"repos/{repo()}/commits/{sha}/status"))["statuses"]
+    """The head's newest status per context, every page of them."""
+    out = subprocess.run(
+        ["gh", "api", "--paginate", f"repos/{repo()}/commits/{sha}/status?per_page=100", "--jq", ".statuses[]"],
+        check=True, capture_output=True, text=True).stdout
+    return [json.loads(x) for x in out.splitlines() if x]
 
 
 def open_threads(pr: int) -> int:
+    """The review threads still open, over every page of them."""
     owner, name = repo().split("/")
-    query = ("query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){"
-             "reviewThreads(first:100){nodes{isResolved}}}}}")
-    data = json.loads(gh("graphql", "-f", f"query={query}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"p={pr}"))
-    nodes = data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
-    return sum(1 for n in nodes if not n["isResolved"])
+    query = ("query($o:String!,$n:String!,$p:Int!,$endCursor:String){repository(owner:$o,name:$n){"
+             "pullRequest(number:$p){reviewThreads(first:100,after:$endCursor){nodes{isResolved}"
+             "pageInfo{hasNextPage endCursor}}}}}")
+    out = subprocess.run(
+        ["gh", "api", "graphql", "--paginate", "-f", f"query={query}", "-f", f"o={owner}", "-f", f"n={name}",
+         "-F", f"p={pr}", "--jq", ".data.repository.pullRequest.reviewThreads.nodes[].isResolved"],
+        check=True, capture_output=True, text=True).stdout
+    return sum(1 for x in out.split() if x == "false")
 
 
 def run() -> int:
@@ -211,6 +246,9 @@ def run() -> int:
     has_label = os.environ.get("HAS_LABEL") == "true"
     draft = os.environ.get("DRAFT") == "true"
     step = decide(event, os.environ.get("LABEL", ""), has_label)
+    if step == "ignore":
+        print(f"{event} of another label: {CONTEXT} unchanged")
+        return 0
     if step == "wait":
         post(head, "pending", WAITING)
         return 0
@@ -218,6 +256,7 @@ def run() -> int:
         remove_label(pr)
         post(head, "pending", f"{WAITING}: a push or a draft marked ready took it off")
         return 0
+    post(head, "pending", "checking every check on the head")
     deadline = time.monotonic() + SETTLE_SECONDS
     labelled_at = os.environ.get("LABELLED_AT")
     while True:
@@ -227,7 +266,13 @@ def run() -> int:
         time.sleep(POLL_SECONDS)
     why = [w for w, _ in found]
     if not why:
-        post(head, "success", f"labelled at {head[:10]}: every check concluded green, no review thread open")
+        now = standing(json.loads(gh(f"repos/{repo()}/pulls/{pr}")), head)
+        if now == "moved":
+            print(f"#{pr}: the head moved past {head[:10]}; that push's run decides")
+        elif now:
+            post(head, "pending", f"{WAITING}: the pull request is {now} now")
+        else:
+            post(head, "success", f"labelled at {head[:10]}: every check concluded green, no review thread open")
         return 0
     remove_label(pr)
     post(head, "pending", f"{LABEL} refused: {len(why)} reason(s); see the comment")
@@ -282,8 +327,10 @@ def selftest() -> int:
         ("a push to a labelled head clears the label", "synchronize", "", True, "clear"),
         ("a push to an unlabelled head waits", "synchronize", "", False, "wait"),
         ("the label going on is judged", "labeled", LABEL, True, "judge"),
-        ("another label on a labelled head re-judges", "labeled", "merge-next", True, "judge"),
-        ("another label on an unlabelled head waits", "labeled", "merge-next", False, "wait"),
+        # Negative control: another label changes nothing, labelled or not.
+        ("another label on a labelled head is ignored", "labeled", "documentation", True, "ignore"),
+        ("another label on an unlabelled head is ignored", "labeled", "documentation", False, "ignore"),
+        ("another label off a labelled head is ignored", "unlabeled", "documentation", True, "ignore"),
         ("the label coming off waits", "unlabeled", LABEL, False, "wait"),
         ("a draft marked ready clears the label", "ready_for_review", "", True, "clear"),
         ("opened without the label waits", "opened", "", False, "wait"),
@@ -291,6 +338,18 @@ def selftest() -> int:
     ]:
         if decide(event, lab, has) != want:
             problems.append(f"decide, {label}: {decide(event, lab, has)} != {want}")
+    # Just before success: a replayed `labeled` run, a moved head and a
+    # draft each keep it from posting.
+    pull = lambda sha, labels, draft: {"head": {"sha": sha}, "labels": [{"name": n} for n in labels],  # noqa: E731
+                                       "draft": draft}
+    for label, now, want in [
+        ("the head judged, labelled, ready", pull("a" * 40, [LABEL], False), ""),
+        ("a replay after the label came off", pull("a" * 40, ["documentation"], False), "unlabelled"),
+        ("a push since the judging", pull("b" * 40, [LABEL], False), "moved"),
+        ("converted to a draft since", pull("a" * 40, [LABEL], True), "draft"),
+    ]:
+        if standing(now, "a" * 40) != want:
+            problems.append(f"standing, {label}: {standing(now, 'a' * 40)!r} != {want!r}")
     try:
         decide("edited", "", False)
         problems.append("decide: an event the workflow does not list was accepted")
@@ -306,19 +365,23 @@ def selftest() -> int:
         (f"    name: {SELF_JOBS[0]}\n", "the job named as SELF_JOBS"),
         ("python3 scripts/ci/merge_ready.py run", "the step that runs this"),
         ("LABELLED_AT: ${{ github.event.pull_request.updated_at }}", "the label event's time"),
+        ("      (github.event.action != 'labeled' && github.event.action != 'unlabeled')\n"
+         "      || github.event.label.name == 'merge-ready'\n", "the `if` that skips another label"),
+        ("    concurrency:\n      group: merge-ready-", "the job's concurrency group"),
     ]:
         if needle not in workflow:
             problems.append(f"merge-ready.yml lacks {what} ({needle.strip()!r})")
     if CONTEXT in SELF_JOBS:
         problems.append(f"a job is named {CONTEXT!r}: its green check run would satisfy the required status")
-    job = workflow.split("\njobs:\n", 1)[-1]
-    if "\n    if:" in job:
-        problems.append("merge-ready.yml's job has an `if`: a skipped job is a pass to protection")
+    if "\nconcurrency:" in workflow:
+        problems.append("merge-ready.yml has a workflow-level concurrency group: a skipped event would enter it "
+                        "and cancel the run of an event that changes the label")
     for p in problems:
         print(f"selftest FAIL: {p}")
     if not problems:
         print("selftest: an early, red or draft label is refused, a push and a draft marked ready clear the label, "
-              "every event posts a state, and the workflow runs on every event it lists")
+              "another label changes nothing, a replay or moved head cannot post success, and the workflow runs "
+              "on every event it lists")
     return 1 if problems else 0
 
 

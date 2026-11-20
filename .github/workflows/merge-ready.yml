@@ -20,9 +20,12 @@
 #     check still running or red, an open review thread or a draft takes it
 #     off again, with a comment naming each.
 #
-# The job has no `if` and the status, not the job, is the required check:
-# a skipped job counts as a pass to protection, and a
-# head with no status at all is blocked as "expected". `pull_request`, not
+# The status, not the job, is the required check: a skipped job counts as
+# a pass to protection, and a head with no status at all is blocked as
+# "expected". So the job's `if` may skip an event that changes nothing: a
+# label other than `merge-ready` going on or off. Skipped, that event never
+# enters the job's concurrency group, so it cannot cancel a push's run
+# before the push's run takes the label off. `pull_request`, not
 # `pull_request_target`: the latter takes its workflow from the default
 # branch, which is `main`. A fork's run holds no write token and posts
 # nothing, so a fork's pull request stays blocked; this repository has
@@ -39,17 +42,21 @@ on:
 
 permissions: {}
 
-# The newest event decides: an older evaluation of the same pull request is
-# cancelled, and the newer one posts.
-concurrency:
-  group: merge-ready-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   # Not named `merge-ready`: a ruleset's required check matches a check run
   # and a commit status by name alike, and this job always ends green.
   label-check:
     name: merge-ready label check
+    if: >-
+      (github.event.action != 'labeled' && github.event.action != 'unlabeled')
+      || github.event.label.name == 'merge-ready'
+    # The newest event decides: an older evaluation of the same pull request
+    # is cancelled, and the newer one posts. On the job, not the workflow: a
+    # workflow-level group is entered before the `if` is read, so a skipped
+    # event would still cancel the run it should leave alone.
+    concurrency:
+      group: merge-ready-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 5  # API calls, and at most SETTLE_SECONDS of waiting
     permissions:
