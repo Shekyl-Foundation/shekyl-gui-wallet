@@ -72,6 +72,11 @@ pub struct InFlightView {
     pub funds_return_at: Option<u64>,
     /// The engine's user sentence, when this state has one.
     pub reason: Option<String>,
+    /// What the record still holds (WR-Q6): the unspent amounts of its
+    /// reserved inputs, `"0"` when it holds nothing (a zero-fee reward
+    /// claim). `None` before the staking scan has run, when what it holds
+    /// cannot be read.
+    pub reserved: Option<AtomicUnitsString>,
 }
 
 /// How one kind of staking action last ended (WR-Q2). `outcome` is an open
@@ -148,6 +153,7 @@ fn in_flight_view(record: &InFlightRecord) -> InFlightView {
         attempts: record.sends.map_or(0, |sends| sends.attempts),
         funds_return_at: funds_return_at.map(|height| height.to_raw()),
         reason: record.state.reason(),
+        reserved: record.reserved.map(AtomicUnitsString::from),
     }
 }
 
@@ -360,6 +366,7 @@ mod tests {
                 attempts: 2,
                 funds_return_at: Some(5_100),
                 reason: refused.state.reason(),
+                reserved: Some(AtomicUnits::from_raw(2_500_000_000).into()),
             }]
         );
         assert_eq!(
