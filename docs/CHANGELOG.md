@@ -32,7 +32,7 @@ the bundled `shekyld` and the Engine path-deps.
 
 - **A stake's funding that went out but could not be saved says so.** When
   the wallet could not save the node's answer to a stake's funding, the
-  notice says the funds went out, must not be sent again, and that the
+  notice says the node has them, they must not be sent again, and the
   wallet asks about them when it reopens, in the same words as Send.
 - **An unlock refusal stays with its file.** A refusal is shown only for
   the file it was given for, by its full path: after a change of wallet

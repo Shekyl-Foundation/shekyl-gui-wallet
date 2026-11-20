@@ -124,8 +124,8 @@ describe("StakeActions fund reservation", () => {
   });
 
   /**
-   * A fund that went out but whose node answer the wallet could not save
-   * says it was sent, that it must not be sent again, and that the wallet
+   * A fund the node took but whose answer the wallet could not save says
+   * the node has it, that it must not be sent again, and that the wallet
    * asks about it at reopen, the same sentence Send shows (finding on #80).
    * Red edit: the plain "Funds sent" line for every accepted fund.
    */
