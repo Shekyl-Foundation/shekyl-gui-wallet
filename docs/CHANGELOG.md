@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **"Your stake" says what each outstanding staking record sets aside.**
+  Under each record in progress the panel says how much is set aside for
+  it, that nothing is (a zero-fee reward claim reserves no inputs), or,
+  before the staking scan has run, that it is not known yet. The amount is
+  core's (`staking_info`'s `reserved`, WR-Q6), so a record with an end
+  date is no longer left to look as if it held funds or held none.
+
 ## [3.1.0-alpha.12] - 2026-11-20
 
 Paired with shekyl-core `v3.1.0-alpha.12`: `release.yml` clones that tag for
