@@ -105,6 +105,7 @@ describe("a change of network before a wallet is open", () => {
       </MemoryRouter>,
     );
     const name = await screen.findByPlaceholderText("My Wallet");
+    await userEvent.clear(name);
     await userEvent.type(name, "Half Typed");
 
     await userEvent.click(await screen.findByRole("button", { name: "mainnet" }));
