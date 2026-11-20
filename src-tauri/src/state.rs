@@ -153,12 +153,19 @@ impl AppState {
     /// the words that say why there is none. The default is read here, not
     /// kept, because the network changes while the app runs.
     pub async fn wallet_dir(&self) -> Result<PathBuf, String> {
+        let network = *self.network.read().await;
+        self.wallet_dir_on(network).await
+    }
+
+    /// The wallet directory for `network`: the person's choice, else that
+    /// network's default. A create, open or restore reads the network once
+    /// inside the session guard and its directory from that same read, so a
+    /// switch between two reads cannot put a wallet in another network's
+    /// folder.
+    pub async fn wallet_dir_on(&self, network: NetworkType) -> Result<PathBuf, String> {
         match self.wallet_dir.read().await.clone() {
             Some(dir) => Ok(dir),
-            None => {
-                let network = self.network.read().await.network();
-                self.root.default_wallet_dir(network)
-            }
+            None => self.root.default_wallet_dir(network.network()),
         }
     }
 

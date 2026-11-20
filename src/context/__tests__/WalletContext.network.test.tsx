@@ -1,10 +1,15 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { WalletProvider } from "../WalletContext";
 import { useWallet } from "../useWallet";
 import PreWalletNode from "../../components/PreWalletNode";
+import { MemoryRouter } from "react-router";
+import { WalletGate } from "../../App";
+
+// The wallet-dir panel polls the backend; it is not what these tests are about.
+vi.mock("../../components/WalletDirAdvanced", () => ({ default: () => null }));
 
 /** Each network's folder and the wallets in it, as the backend answers. */
 const FOLDERS: Record<string, { dir: string; files: string[] }> = {
@@ -80,5 +85,42 @@ describe("a change of network before a wallet is open", () => {
     );
     expect(screen.getByTestId("dir")).toHaveTextContent("/root/wallets/stagenet");
     expect(screen.getByTestId("files")).toHaveTextContent("stage_one,stage_two");
+  });
+
+  /**
+   * A create form under way keeps what was typed when a network switch
+   * finds wallets where there were none: every pre-wallet phase shares one
+   * route tree, so the phase changes from no wallet to unlock without
+   * remounting the form (finding on #81). Red edit: give the no-wallet
+   * phase its own `<PreWalletShell>` tree again, and the form is remounted
+   * empty.
+   */
+  it("keeps a create form's entries across a switch that finds wallets", async () => {
+    network = "testnet";
+    render(
+      <MemoryRouter initialEntries={["/create"]}>
+        <WalletProvider>
+          <WalletGate />
+        </WalletProvider>
+      </MemoryRouter>,
+    );
+    const name = await screen.findByPlaceholderText("My Wallet");
+    await userEvent.type(name, "Half Typed");
+
+    await userEvent.click(await screen.findByRole("button", { name: "mainnet" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "mainnet" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    // The start's list and the switch's: the phase has moved to unlock.
+    await waitFor(() =>
+      expect(
+        vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "check_wallet_files"),
+      ).toHaveLength(2),
+    );
+    await act(async () => {});
+    expect(screen.getByPlaceholderText("My Wallet")).toHaveValue("Half Typed");
   });
 });

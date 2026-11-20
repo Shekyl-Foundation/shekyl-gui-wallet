@@ -9,14 +9,6 @@ import {
 } from "../types/wallet";
 import { WalletContext, type WalletDirResponse } from "./walletState";
 
-/** The phases a wallet list decides: nothing open and no flow under way. */
-const RESTING_PHASES: ReadonlySet<WalletPhase> = new Set<WalletPhase>([
-  "loading",
-  "no_wallet",
-  "unlock",
-  "select_wallet",
-]);
-
 /** The resting phase a folder's wallets call for. */
 function phaseFor(files: WalletFileInfo[]): WalletPhase {
   if (files.length === 0) return "no_wallet";
@@ -74,11 +66,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   /**
    * Reads the wallet folder in effect (the network's own unless a folder
-   * was chosen), lists its wallets and, from a resting phase, moves to the
-   * one they call for. The start runs it, and so does a change of network
-   * before a wallet is open: each network keeps its wallets in its own
-   * folder, so the list and the screen follow the network. A create or an
-   * import in progress keeps its phase.
+   * was chosen), lists its wallets and, before a wallet is open, moves to
+   * the phase they call for. The start runs it, and so does a change of
+   * network before a wallet is open: each network keeps its wallets in its
+   * own folder, so the list and the screen follow the network. Every
+   * pre-wallet phase shares one route tree (`App`'s `PreWalletRoutes`), so
+   * a create or import form under way keeps what was typed in it. An open
+   * wallet's phase is not the list's to decide.
    */
   const loadWallets = useCallback(
     async (cancelled: () => boolean) => {
@@ -102,13 +96,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             "This step only prepares the wallet folder, so choose a different " +
             "folder in Settings if the current one can't be used.",
         );
-        setPhase((prev) => (RESTING_PHASES.has(prev) ? "no_wallet" : prev));
+        setPhase((prev) => (prev === "ready" ? prev : "no_wallet"));
         return;
       }
 
       const files = await refreshFiles();
       if (cancelled()) return;
-      setPhase((prev) => (RESTING_PHASES.has(prev) ? phaseFor(files) : prev));
+      setPhase((prev) => (prev === "ready" ? prev : phaseFor(files)));
     },
     [refreshFiles],
   );

@@ -79,18 +79,24 @@ The frontend uses a phase-based state machine to control what the user sees:
 | `no_wallet`    | Welcome             | No .keys files found; offer create/import  |
 | `select_wallet`| Unlock (with picker)| Multiple .keys files; user picks one       |
 | `unlock`       | Unlock              | Single .keys file; enter password          |
-| `creating`     | Create Wallet       | In the middle of wallet creation wizard    |
-| `importing`    | Import Wallet       | Restoring from the recovery phrase         |
 | `ready`        | Main app (Dashboard)| Wallet is open and authenticated           |
+
+Create and import are routes (`/create`, `/import`), not phases. Every
+phase before a wallet is open renders one route tree (`App.tsx`,
+`PreWalletRoutes`), and the phase chooses only its resting page: Welcome
+for `no_wallet`, Unlock for `unlock` and `select_wallet`. The folder's
+wallets set the phase at the start and after a network switch on the
+pre-wallet bar (`WalletContext`'s `loadWallets`), and a create or import
+under way stays mounted through that change with what was typed in it.
 
 Transitions:
 
 ```
-loading ──┬──► no_wallet ──┬──► creating ──► ready
-          │                └──► importing ──► ready
-          ├──► unlock ─────────────────────► ready
-          └──► select_wallet ──► unlock ──► ready
+loading ──┬──► no_wallet ──► (create or import) ──► ready
+          ├──► unlock ─────────────────────────────► ready
+          └──► select_wallet ──► unlock ───────────► ready
 
+no_wallet ◄──► unlock / select_wallet (network switch before a wallet is open)
 ready ──► unlock (lock wallet)
 ready ──► no_wallet (close wallet, no other wallets exist)
 ```

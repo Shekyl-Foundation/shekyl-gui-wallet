@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { Routes, Route } from "react-router";
 import { WalletProvider } from "./context/WalletContext";
 import { DaemonProvider } from "./context/DaemonContext";
@@ -35,19 +36,23 @@ function App() {
 }
 
 /**
- * Routes for a wallet file that exists and is not open. The attempt lives
- * on this shell: create is a child route, so the refusal survives the
+ * The routes before a wallet is open, one tree for every pre-wallet phase:
+ * the phase chooses only the resting page (`Welcome` with no wallet,
+ * `Unlock` with one or more). A change of phase, such as a network switch
+ * that finds wallets where there were none, keeps the tree and so keeps a
+ * create or import form under way with what was typed in it. The attempt
+ * lives on this shell: create is a child route, so a refusal survives the
  * trip to the create screen and back, and it stays tied to its file.
  */
-function UnlockPhaseRoutes() {
+function PreWalletRoutes({ resting }: { resting: ReactElement }) {
   return (
     <OpenAttemptProvider>
       <PreWalletShell>
         <Routes>
-          <Route index element={<Unlock />} />
+          <Route index element={resting} />
           <Route path="create" element={<CreateWallet />} />
           <Route path="import" element={<ImportWallet />} />
-          <Route path="*" element={<Unlock />} />
+          <Route path="*" element={resting} />
         </Routes>
       </PreWalletShell>
     </OpenAttemptProvider>
@@ -62,22 +67,11 @@ export function WalletGate() {
       return <LoadingScreen />;
 
     case "no_wallet":
-    case "creating":
-    case "importing":
-      return (
-        <PreWalletShell>
-          <Routes>
-            <Route index element={<Welcome />} />
-            <Route path="create" element={<CreateWallet />} />
-            <Route path="import" element={<ImportWallet />} />
-            <Route path="*" element={<Welcome />} />
-          </Routes>
-        </PreWalletShell>
-      );
+      return <PreWalletRoutes resting={<Welcome />} />;
 
     case "unlock":
     case "select_wallet":
-      return <UnlockPhaseRoutes />;
+      return <PreWalletRoutes resting={<Unlock />} />;
 
     case "ready":
       return (
