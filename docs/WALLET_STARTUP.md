@@ -151,8 +151,21 @@ settings directory, `shekyl-gui-wallet` in the per-account root
 `%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\gui-config.json` on Windows;
 `src-tauri/src/account_root.rs`, `src-tauri/src/gui_config.rs`), never
 Tauri's config folder (`XDG_CONFIG_HOME`, Roaming AppData). The node's
-settings (`daemon.json`), its error output (`shekyld.stderr`) and the
-shard render cache (`shard-visual/`) sit beside it. The app makes the
+settings (`daemon.json`), its error output (`shekyld.stderr`), the
+shard render cache (`shard-visual/`) and the web view's data folder
+(`webview/`) sit beside it. The window is built in code
+(`src-tauri/src/main_window.rs`), not in `tauri.conf.json`, because a
+configured window can name its data folder only inside Tauri's app-data
+folder (`org.shekyl.wallet`). Each platform's web view is given what keeps
+it in the root, as measured on each: WebKitGTK keeps its cache, HSTS and
+storage in `webview/`; WKWebView is incognito (a non-persistent store) and
+keeps nothing; WebView2 keeps its browser files in `webview/` and is
+InPrivate. With no root, WebKitGTK and WebView2 fall back to Tauri's
+app-data folder, so the window that says why can still open (Rick,
+2026-11-20). A graphics driver's own cache is the driver's, not a path
+the wallet chooses, and is outside IG-13 (Rick, 2026-11-20): on Linux,
+Mesa keeps its shader cache in `~/.cache/mesa_shader_cache*` for any
+program that draws with it, the wallet's web view included. The app makes the
 root once, at its start, as the node does (owner-only with the no-read-up
 label on Windows), and reads every place in it off what that start left
 (`AccountRoot`). An account with no home, or a root the start could not
