@@ -6,6 +6,7 @@ import Send from "../Send";
 import { TorContext } from "../../context/torState";
 import type { TorRead } from "../../types/tor";
 import type { BuiltPendingTx, FeeTierQuote, SendError, SubmitResult } from "../../types/send";
+import { VERDICT_NOT_SAVED } from "../../types/send";
 
 const QUOTE: FeeTierQuote = {
   economy: "100000000",
@@ -132,7 +133,11 @@ describe("Send page", () => {
     render(<Send />);
     await reachReview(u);
     await confirm(u);
-    expect(await screen.findByText(/^Transaction accepted by your node\. The wallet could not save/)).toBeInTheDocument();
+    expect(
+      await screen.findByText((text) =>
+        text.startsWith(`Transaction accepted by your node. ${VERDICT_NOT_SAVED}`),
+      ),
+    ).toBeInTheDocument();
   });
 
   it("Cancel discards the reservation and returns to the form", async () => {

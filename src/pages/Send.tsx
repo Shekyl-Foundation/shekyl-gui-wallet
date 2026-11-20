@@ -19,6 +19,7 @@ import {
   HELD_ADVICE,
   IN_FLIGHT_ADVICE,
   sendErrorMessage,
+  verdictNotSaved,
 } from "../types/send";
 import { PAYMENT_URI_SCHEME, type ParsedPaymentUri } from "../types/receiving";
 
@@ -74,9 +75,8 @@ function verdictLine(r: SubmitResult, atConfirm: SendsNow): string {
 }
 
 function verdictWords(r: SubmitResult): string {
-  const unsaved = r.verdict_saved
-    ? ""
-    : " The wallet could not save your node's answer; it will on its next save, and if it stops first it will ask you about this send when it reopens.";
+  const notSaved = verdictNotSaved(r);
+  const unsaved = notSaved === null ? "" : ` ${notSaved}`;
   switch (r.verdict) {
     case "ACCEPTED":
       return `Transaction accepted by your node.${unsaved}`;
