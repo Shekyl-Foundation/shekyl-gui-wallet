@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- **The audit fails on an "unsound" advisory, and the one it ignores is
+  checked.** `cargo audit` now denies unsound advisories, as shekyl-core's
+  does. glib 0.18's RUSTSEC-2024-0429 (`VariantStrIter` reads a NULL
+  pointer) stays in the graph through Tauri's GTK3 stack and is ignored,
+  and `scripts/ci/check_unreached_advisories.py` holds that ignore in the
+  same audit job: no package but glib, and nothing in the wallet's own
+  source, names `array_iter_str` or `VariantStrIter`, and any further
+  unsound ignore needs a row in its table. The wallet's dependencies follow
+  core's reviewed versions: fips203/204/205 0.5.0, zeroize 1.9.2 and the
+  rest of core's crypto-closure review.
+
 - **The wallet's dependencies are core's.** Every package the wallet
   shares with shekyl-core is at the version core's lock holds, including
   every package on a proving, signing, wiping, RNG or seed path, which is at
