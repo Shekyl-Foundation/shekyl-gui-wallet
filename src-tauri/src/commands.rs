@@ -150,8 +150,9 @@ pub async fn get_pqc_status() -> Result<PqcStatus, String> {
 
 #[tauri::command]
 pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<WalletFileInfo>, String> {
-    // No directory, or one not made yet, holds no wallets.
-    let Some(dir) = state.wallet_dir.read().await.clone() else {
+    // No directory, or one not made yet, holds no wallets. The directory
+    // is the network's own unless the person chose one.
+    let Ok(dir) = state.wallet_dir().await else {
         return Ok(vec![]);
     };
     if !dir.exists() {
@@ -188,13 +189,18 @@ pub async fn check_wallet_files(state: State<'_, AppState>) -> Result<Vec<Wallet
     Ok(wallets)
 }
 
-/// Startup: guarantee the configured wallet directory exists before any
-/// create/open flow runs (mkdir -p semantics on POSIX and Windows). The
-/// Engine connects to the daemon per wallet-open; there is no global handle
-/// to initialise, which is why this is all the old `init_wallet_rpc` did.
+/// Whether there is a wallet directory a listing can read, and the words
+/// that say why not: no home or a root not made and no folder chosen, or a
+/// path that holds a file or a folder this account cannot read
+/// ([`wallet_name::check_dir_readable`]). A folder not made yet is fine. It
+/// makes nothing:
+/// a wallet's directory is made when a wallet is created or restored in
+/// it, so starting the app or switching network leaves no empty
+/// `wallets/<network>` behind, as `shekyl-cli` makes its own only to make
+/// a wallet. The start and a network switch ask it before listing.
 #[tauri::command]
-pub async fn ensure_wallet_dir(state: State<'_, AppState>) -> Result<(), String> {
-    wallet_name::ensure_dir_exists(&state.wallet_dir().await?)
+pub async fn check_wallet_dir(state: State<'_, AppState>) -> Result<(), String> {
+    wallet_name::check_dir_readable(&state.wallet_dir().await?)
 }
 
 /// Override the wallet directory with a user-chosen path (Advanced
@@ -221,17 +227,18 @@ pub async fn set_wallet_dir(state: State<'_, AppState>, dir: String) -> Result<S
     Ok(display)
 }
 
-/// Reset the wallet directory to the platform default and clear any
-/// persisted override.
+/// Reset the wallet directory to the default, the current network's
+/// folder, and clear any persisted override. The default is not kept: it
+/// follows the network from here on.
 #[tauri::command]
 pub async fn reset_wallet_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let default = state.root.default_wallet_dir()?;
-    wallet_name::ensure_dir_exists(&default)?;
+    let network = state.network.read().await.network();
+    let default = state.root.default_wallet_dir(network)?;
     let display = default.to_string_lossy().to_string();
     let mut cfg = state.settings.load();
     cfg.wallet_dir_override = None;
     state.settings.save(&cfg);
-    *state.wallet_dir.write().await = Some(default);
+    *state.wallet_dir.write().await = None;
     *state.wallet_dir_warning.write().await = None;
     Ok(display)
 }

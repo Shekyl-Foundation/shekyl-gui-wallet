@@ -56,6 +56,7 @@ mod live_miner_tests;
 mod live_own_node_tests;
 #[cfg(test)]
 mod live_tor_fix_tests;
+mod main_window;
 mod message_signing;
 mod mining;
 #[cfg(feature = "multisig")]
@@ -96,6 +97,9 @@ pub fn run() {
     // the start could not make) the node says it has nowhere to keep its
     // settings, and why.
     let config_dir = root.settings_dir();
+    // The window's web view keeps its data in the root too, never in
+    // Tauri's app-data folder.
+    let webview_dir = main_window::webview_dir_in(&root);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -105,6 +109,7 @@ pub fn run() {
         .manage(state::AppState::on(startup_network, settings, root))
         .manage(clipboard::ClipboardOwner::new())
         .setup(move |app| {
+            main_window::open(app, webview_dir.clone())?;
             let resource_dir = app.path().resource_dir();
             if let Err(e) = &resource_dir {
                 // Without the resource directory the wallet cannot name its
@@ -141,7 +146,7 @@ pub fn run() {
             mining::stop_mining_cmd,
             // Wallet startup
             commands::check_wallet_files,
-            commands::ensure_wallet_dir,
+            commands::check_wallet_dir,
             commands::set_wallet_dir,
             commands::reset_wallet_dir,
             commands::get_wallet_dir,

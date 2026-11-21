@@ -20,7 +20,7 @@ beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation((cmd) => {
     switch (cmd) {
-      case "ensure_wallet_dir":
+      case "check_wallet_dir":
         return Promise.resolve(undefined);
       case "get_wallet_dir":
         return Promise.resolve({ dir: "/wallets", fallback_from: null });

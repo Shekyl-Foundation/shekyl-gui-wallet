@@ -79,18 +79,24 @@ The frontend uses a phase-based state machine to control what the user sees:
 | `no_wallet`    | Welcome             | No .keys files found; offer create/import  |
 | `select_wallet`| Unlock (with picker)| Multiple .keys files; user picks one       |
 | `unlock`       | Unlock              | Single .keys file; enter password          |
-| `creating`     | Create Wallet       | In the middle of wallet creation wizard    |
-| `importing`    | Import Wallet       | Restoring from the recovery phrase         |
 | `ready`        | Main app (Dashboard)| Wallet is open and authenticated           |
+
+Create and import are routes (`/create`, `/import`), not phases. Every
+phase before a wallet is open renders one route tree (`App.tsx`,
+`PreWalletRoutes`), and the phase chooses only its resting page: Welcome
+for `no_wallet`, Unlock for `unlock` and `select_wallet`. The folder's
+wallets set the phase at the start and after a network switch on the
+pre-wallet bar (`WalletContext`'s `loadWallets`), and a create or import
+under way stays mounted through that change with what was typed in it.
 
 Transitions:
 
 ```
-loading ──┬──► no_wallet ──┬──► creating ──► ready
-          │                └──► importing ──► ready
-          ├──► unlock ─────────────────────► ready
-          └──► select_wallet ──► unlock ──► ready
+loading ──┬──► no_wallet ──► (create or import) ──► ready
+          ├──► unlock ─────────────────────────────► ready
+          └──► select_wallet ──► unlock ───────────► ready
 
+no_wallet ◄──► unlock / select_wallet (network switch before a wallet is open)
 ready ──► unlock (lock wallet)
 ready ──► no_wallet (close wallet, no other wallets exist)
 ```
@@ -106,14 +112,21 @@ for `.keys` files.
 
 ### Default directory
 
-The default is `wallets` under the account's per-account root, the root
-the node's data sits in too, as shekyl-core names it (core rule 83 IG-13;
-`shekyl_os_account::per_account_root` and `wallet_dir_in`):
+The default is `wallets/<network>` under the account's per-account root,
+the root the node's data sits in too, as shekyl-core names it for every
+wallet binary (core rule 83 IG-13; `shekyl_os_account::per_account_root`
+and `shekyl_engine_file::paths::wallet_dir_in`):
 
-| Platform              | Default Path                    |
-|-----------------------|---------------------------------|
-| Linux, FreeBSD, macOS | `~/.shekyl/wallets/`            |
-| Windows               | `%LOCALAPPDATA%\Shekyl\wallets\` |
+| Platform              | Default Path                              |
+|-----------------------|-------------------------------------------|
+| Linux, FreeBSD, macOS | `~/.shekyl/wallets/<network>/`            |
+| Windows               | `%LOCALAPPDATA%\Shekyl\wallets\<network>\` |
+
+The default is read off the network the wallet is on when it is needed
+(`AppState::wallet_dir`), never kept, since the network can change before
+a wallet is open; a change of network on the pre-wallet bar re-reads the
+folder and its wallets (`WalletContext.networkChanged`). A folder the
+person chose (`set_wallet_dir`) is used as it is on every network.
 
 The home is read from the account interface (the passwd entry, or
 `FOLDERID_LocalAppData` on Windows), never from `HOME` or `%APPDATA%`, and
@@ -138,8 +151,21 @@ settings directory, `shekyl-gui-wallet` in the per-account root
 `%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\gui-config.json` on Windows;
 `src-tauri/src/account_root.rs`, `src-tauri/src/gui_config.rs`), never
 Tauri's config folder (`XDG_CONFIG_HOME`, Roaming AppData). The node's
-settings (`daemon.json`), its error output (`shekyld.stderr`) and the
-shard render cache (`shard-visual/`) sit beside it. The app makes the
+settings (`daemon.json`), its error output (`shekyld.stderr`), the
+shard render cache (`shard-visual/`) and the web view's data folder
+(`webview/`) sit beside it. The window is built in code
+(`src-tauri/src/main_window.rs`), not in `tauri.conf.json`, because a
+configured window can name its data folder only inside Tauri's app-data
+folder (`org.shekyl.wallet`). Each platform's web view is given what keeps
+it in the root, as measured on each: WebKitGTK keeps its cache, HSTS and
+storage in `webview/`; WKWebView is incognito (a non-persistent store) and
+keeps nothing; WebView2 keeps its browser files in `webview/` and is
+InPrivate. With no root, WebKitGTK and WebView2 fall back to Tauri's
+app-data folder, so the window that says why can still open (Rick,
+2026-11-20). A graphics driver's own cache is the driver's, not a path
+the wallet chooses, and is outside IG-13 (Rick, 2026-11-20): on Linux,
+Mesa keeps its shader cache in `~/.cache/mesa_shader_cache*` for any
+program that draws with it, the wallet's web view included. The app makes the
 root once, at its start, as the node does (owner-only with the no-read-up
 label on Windows), and reads every place in it off what that start left
 (`AccountRoot`). An account with no home, or a root the start could not
@@ -161,7 +187,7 @@ When the user types a wallet name like `My Wallet`, `wallet_name::sanitize`
 normalizes it to `My_Wallet` before any filesystem call, and
 `wallet_name::build_wallet_path` joins it with the active directory via
 `PathBuf::join` so the host separator is always correct (e.g.
-`C:\Users\<user>\AppData\Local\Shekyl\wallets\My_Wallet.keys` on
+`C:\Users\<user>\AppData\Local\Shekyl\wallets\mainnet\My_Wallet.keys` on
 Windows).
 
 As of alpha.5, `sanitize` is the single source of truth for filename
@@ -189,8 +215,16 @@ most recently modified.
 
 ### Initialization
 
-`ensure_wallet_dir` (Tauri command) guarantees the configured wallet
-directory exists before any create/open flow runs. Nothing else is
+`check_wallet_dir` (Tauri command) says whether there is a wallet
+directory a listing can read, and why not: no home or a root not made and
+no folder chosen, or a path holding a file or a folder this account cannot
+read. A folder not made yet is fine. Every full read of the folder (the
+start, a network switch, a folder chosen or reset, a lock) is numbered in
+`WalletContext`, and only the newest commits the folder, its wallets and
+the phase. It makes nothing: a network's wallet folder is made when
+a wallet is created or restored in it, so starting the app, switching
+network or opening leaves no empty `wallets/<network>` behind, as
+`shekyl-cli` makes its own only to make a wallet. Nothing else is
 initialised at startup: the Engine connects to the daemon per wallet-open,
 and no external process is started.
 

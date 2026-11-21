@@ -20,6 +20,29 @@
   core's (`staking_info`'s `reserved`, WR-Q6), so a record with an end
   date is no longer left to look as if it held funds or held none.
 
+- **The window's web view keeps nothing outside the per-account root.**
+  On Linux and Windows its data is in `webview` in the GUI's settings
+  folder (`~/.shekyl/shekyl-gui-wallet/webview`,
+  `%LOCALAPPDATA%\Shekyl\shekyl-gui-wallet\webview`); on macOS the web
+  view keeps nothing at all. Earlier releases left web view data in
+  `org.shekyl.wallet` folders: `~/.local/share/org.shekyl.wallet` on
+  Linux, `~/Library/WebKit/org.shekyl.wallet` and
+  `~/Library/Caches/org.shekyl.wallet` on macOS, and
+  `%LOCALAPPDATA%\org.shekyl.wallet` on Windows. This wallet does not read
+  them, and they can be removed.
+
+- **Each network keeps its wallets in its own folder.** The default wallet
+  folder is `wallets/<network>` in the per-account root
+  (`~/.shekyl/wallets/mainnet`, `%LOCALAPPDATA%\Shekyl\wallets\testnet`),
+  as `shekyl-cli` already keeps them; core names it once for both
+  (`shekyl_engine_file::paths::wallet_dir_in`). Switching network before a
+  wallet is open lists that network's wallets. A folder you chose yourself
+  is used as it is, on every network. A network's folder is made when a
+  wallet is created or restored in it; starting the app, switching
+  network or opening a wallet makes none. alpha.12's wallets in the flat
+  `wallets` folder are not listed: move them into the folder of their
+  network.
+
 ## [3.1.0-alpha.12] - 2026-11-20
 
 Paired with shekyl-core `v3.1.0-alpha.12`: `release.yml` clones that tag for
@@ -56,6 +79,11 @@ the bundled `shekyld` and the Engine path-deps.
   the file it was given for, by its full path: after a change of wallet
   folder, a file of the same name there is not shown the old file's
   refusal or offered a new wallet.
+- **Unlock always names a file the folder holds.** After a change of
+  wallet folder, the selection is the file picked if the new folder holds
+  it, otherwise the folder's first file; the picker shows it, and Unlock
+  opens it. A pick from the old folder no longer leaves an Unlock button
+  that does nothing.
 - **A network switch before a wallet is open stays switched.** A read of
   the node connection that was under way when the network or the node
   address changed no longer paints the old one back over the bar, and the

@@ -373,7 +373,6 @@ jobs:
       # Tor the checks refuse is never published.
       - name: Build (macOS / Windows)
         if: ${{ !startsWith(matrix.platform, 'ubuntu') }}
-        id: tauri-build
         uses: tauri-apps/tauri-action@v1
         with:
           args: ${{ matrix.args }} --config ${{ env.RELEASE_CONFIG }}
@@ -422,49 +421,62 @@ jobs:
       # The checked bundles, under the names the release has always carried:
       # GitHub turns the spaces in Tauri's file names into dots. The .app goes
       # up as a tarball named after its .dmg, as tauri-action uploaded it.
+      #
+      # Both runs locate them here, as the Linux job does, so a dry run
+      # proves the list a tag uploads. They are found by the paths the check
+      # steps above read, not by tauri-action's JSON output. The shell is
+      # macOS's bash 3.2 and Git for Windows' bash: no `mapfile`, and an
+      # unmatched glob stays literal, so every pattern is held to one existing
+      # file before it is used.
+      - name: Locate macOS / Windows bundles
+        if: ${{ !startsWith(matrix.platform, 'ubuntu') }}
+        id: desktop-bundles
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          TARGET: ${{ matrix.tauri_target }}
+        run: |
+          set -euo pipefail
+          bundle="src-tauri/target/${TARGET:+$TARGET/}release/bundle"
+          case "$PLATFORM" in
+            macos*)
+              dmgs=("$bundle"/dmg/*.dmg)
+              [ "${#dmgs[@]}" -eq 1 ] && [ -f "${dmgs[0]}" ] || { echo "::error::expected one .dmg, found ${dmgs[*]}"; exit 1; }
+              apps=("$bundle"/macos/*.app)
+              [ "${#apps[@]}" -eq 1 ] && [ -d "${apps[0]}" ] || { echo "::error::expected one .app, found ${apps[*]}"; exit 1; }
+              tarball="$bundle/macos/$(basename "${dmgs[0]}" .dmg).app.tar.gz"
+              tar -czf "$tarball" -C "$(dirname "${apps[0]}")" "$(basename "${apps[0]}")"
+              files=("${dmgs[0]}" "$tarball") ;;
+            windows*)
+              setups=("$bundle"/nsis/*-setup.exe)
+              [ "${#setups[@]}" -eq 1 ] && [ -f "${setups[0]}" ] || { echo "::error::expected one NSIS setup, found ${setups[*]}"; exit 1; }
+              files=("${setups[0]}") ;;
+            *)
+              echo "::error::no bundle layout for $PLATFORM"; exit 1 ;;
+          esac
+          {
+            echo 'files<<BUNDLES'
+            printf '%s\n' "${files[@]}"
+            echo 'BUNDLES'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Upload macOS / Windows bundles to release
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name == 'push' }}
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ARTIFACT_PATHS: ${{ steps.tauri-build.outputs.artifactPaths }}
+          TAG: ${{ github.ref_name }}
+          FILES: ${{ steps.desktop-bundles.outputs.files }}
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"
-          mapfile -t paths < <(jq -r '.[]' <<<"$ARTIFACT_PATHS")
-          uploads=()
-          for path in "${paths[@]}"; do
-            case "$path" in
-              *-setup.exe|*.dmg) uploads+=("$path") ;;
-              *.app)
-                dmgs=("$(dirname "$path")"/../dmg/*.dmg)
-                [ "${#dmgs[@]}" -eq 1 ] && [ -f "${dmgs[0]}" ] || { echo "::error::no one .dmg to name the .app after"; exit 1; }
-                tarball="$(dirname "$path")/$(basename "${dmgs[0]}" .dmg).app.tar.gz"
-                tar -czf "$tarball" -C "$(dirname "$path")" "$(basename "$path")"
-                uploads+=("$tarball") ;;
-            esac
-          done
-          [ "${#uploads[@]}" -gt 0 ] || { echo "::error::nothing to upload from $ARTIFACT_PATHS"; exit 1; }
-          for f in "${uploads[@]}"; do gh release upload "$TAG" "$f" --clobber; done
-
-      # artifactPaths is a JSON array; upload-artifact takes one path per line.
-      - name: List macOS / Windows bundles (dry run)
-        if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
-        id: tauri-bundles
-        shell: bash
-        env:
-          ARTIFACT_PATHS: ${{ steps.tauri-build.outputs.artifactPaths }}
-        run: |
-          {
-            echo 'paths<<BUNDLES'
-            jq -r '.[]' <<<"$ARTIFACT_PATHS"
-            echo 'BUNDLES'
-          } >> "$GITHUB_OUTPUT"
+          while IFS= read -r f; do
+            gh release upload "$TAG" "$f" --clobber
+          done <<<"$FILES"
 
       - name: Keep macOS / Windows bundles (dry run)
         if: ${{ !startsWith(matrix.platform, 'ubuntu') && github.event_name != 'push' }}
         uses: actions/upload-artifact@v7
         with:
           name: ${{ env.DRY_RUN_ARTIFACT }}
-          path: ${{ steps.tauri-bundles.outputs.paths }}
+          path: ${{ steps.desktop-bundles.outputs.files }}
           if-no-files-found: error

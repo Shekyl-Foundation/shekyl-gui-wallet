@@ -20,6 +20,8 @@
 
 use std::path::{Path, PathBuf};
 
+use shekyl_engine_core::Network;
+
 /// The GUI's settings directory's name in the per-account root: the
 /// wallet's settings (`gui-config.json`), its node's settings
 /// (`daemon.json`), the node's error output (`shekyld.stderr`) and the
@@ -89,12 +91,14 @@ impl AccountRoot {
         }
     }
 
-    /// The wallet directory when the person names none: `wallets` in the
-    /// root (`shekyl_os_account::wallet_dir_in`). Without a root there is
-    /// no default, the person chooses a directory, and the words say why.
-    pub fn default_wallet_dir(&self) -> Result<PathBuf, String> {
+    /// `network`'s wallet directory when the person names none:
+    /// `wallets/<network>` in the root, as core names it for every wallet
+    /// (`shekyl_engine_file::paths::wallet_dir_in`), so wallets on
+    /// different networks never share a folder. Without a root there is no
+    /// default, the person chooses a directory, and the words say why.
+    pub fn default_wallet_dir(&self, network: Network) -> Result<PathBuf, String> {
         match self {
-            Self::Ready(root) => Ok(shekyl_os_account::wallet_dir_in(root)),
+            Self::Ready(root) => Ok(shekyl_engine_file::paths::wallet_dir_in(root, network)),
             Self::NoHome => Err(NO_WALLET_DIR.to_owned()),
             Self::NotMade { root, error } => Err(format!(
                 "The wallet could not make its folder {} ({error}), so there is no default wallet folder. Choose a folder for your wallets.",
@@ -134,10 +138,12 @@ mod tests {
     /// The wallet directory and the settings are in core's per-account
     /// root (rule 83 IG-13), pinned as the rule states it: never Roaming
     /// AppData, `Application Support` or `XDG_CONFIG_HOME`, which the
-    /// regenesis upgrade does not clear. Red edit: the old per-platform
-    /// defaults (`%APPDATA%\shekyl\wallets`, `~/Library/Application
-    /// Support/shekyl/wallets`, Tauri's config folder) fail on Windows and
-    /// macOS, and a `HOME` read fails under a moved `HOME`.
+    /// regenesis upgrade does not clear. Each network has its own wallet
+    /// folder, `wallets/<network>`, mainnet included (Rick, 2026-11-20).
+    /// Red edits: the old per-platform defaults (`%APPDATA%\shekyl\wallets`,
+    /// `~/Library/Application Support/shekyl/wallets`, Tauri's config
+    /// folder) fail on Windows and macOS, a `HOME` read fails under a moved
+    /// `HOME`, and the flat `wallets` folder fails every network.
     #[test]
     fn the_wallet_and_settings_dirs_are_in_the_per_account_root() {
         let home = shekyl_os_account::account_home().expect("the test account has a home");
@@ -146,7 +152,16 @@ mod tests {
         // in the home of the account it runs under.
         let found = AccountRoot::made_by(shekyl_os_account::per_account_root(), |_| Ok(()));
         assert_eq!(found, AccountRoot::Ready(root.clone()));
-        assert_eq!(found.default_wallet_dir(), Ok(root.join("wallets")));
+        for (network, name) in [
+            (Network::Mainnet, "mainnet"),
+            (Network::Testnet, "testnet"),
+            (Network::Stagenet, "stagenet"),
+        ] {
+            assert_eq!(
+                found.default_wallet_dir(network),
+                Ok(root.join("wallets").join(name))
+            );
+        }
         assert_eq!(found.settings_dir(), Ok(root.join("shekyl-gui-wallet")));
     }
 
@@ -167,7 +182,7 @@ mod tests {
             }
         );
         for words in [
-            refused.default_wallet_dir().unwrap_err(),
+            refused.default_wallet_dir(Network::Testnet).unwrap_err(),
             refused.settings_dir().unwrap_err(),
         ] {
             assert!(words.contains(&root.display().to_string()), "{words}");
@@ -181,7 +196,10 @@ mod tests {
     fn no_home_gives_no_place_and_says_so() {
         let none = AccountRoot::made_by(None, |_| panic!("nothing is made without a home"));
         assert_eq!(none, AccountRoot::NoHome);
-        assert_eq!(none.default_wallet_dir(), Err(NO_WALLET_DIR.to_owned()));
+        assert_eq!(
+            none.default_wallet_dir(Network::Mainnet),
+            Err(NO_WALLET_DIR.to_owned())
+        );
         assert_eq!(none.settings_dir(), Err(NO_SETTINGS_DIR.to_owned()));
     }
 }

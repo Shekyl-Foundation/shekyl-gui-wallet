@@ -134,8 +134,6 @@ export type WalletPhase =
   | "no_wallet"
   | "select_wallet"
   | "unlock"
-  | "creating"
-  | "importing"
   | "ready";
 
 export interface WalletState {

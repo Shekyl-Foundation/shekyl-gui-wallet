@@ -193,5 +193,7 @@ in your home directory and are preserved across updates.
 
 | Platform | Wallet files |
 |----------|--------------|
-| Linux, FreeBSD, macOS | `~/.shekyl/wallets/` |
-| Windows | `%LOCALAPPDATA%\Shekyl\wallets\` |
+| Linux, FreeBSD, macOS | `~/.shekyl/wallets/<network>/` |
+| Windows | `%LOCALAPPDATA%\Shekyl\wallets\<network>\` |
+
+Each network (`mainnet`, `testnet`, `stagenet`) has its own folder.

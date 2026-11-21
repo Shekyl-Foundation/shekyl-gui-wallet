@@ -96,6 +96,26 @@ pub fn sanitize(input: &str) -> String {
         .to_string()
 }
 
+/// A wallet directory as a listing will find it, made or not: a directory
+/// not made yet holds no wallet and is fine (a create or restore makes it),
+/// and one that exists must be a directory this account can read. A
+/// regular file in its place, or a folder that cannot be read, is refused
+/// in words, so the start says what is wrong instead of listing no wallets.
+/// It makes nothing. Like [`ensure_dir_exists`], the words do not echo the
+/// path.
+pub fn check_dir_readable(dir: &Path) -> Result<(), String> {
+    match std::fs::metadata(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(meta) if !meta.is_dir() => {
+            Err("The wallet folder's path holds something that is not a folder.".into())
+        }
+        Ok(_) => std::fs::read_dir(dir)
+            .map(drop)
+            .map_err(|_| "The wallet folder could not be read.".into()),
+        Err(_) => Err("The wallet folder could not be read.".into()),
+    }
+}
+
 /// Ensure the wallet directory exists, making it and any missing parents
 /// (`mkdir -p`). The per-account root it usually sits in was made at the
 /// app's start ([`crate::account_root::AccountRoot::ensure`]).
@@ -332,6 +352,36 @@ mod tests {
                 prop_assert_eq!(once, twice);
             }
         }
+    }
+
+    // ── check_dir_readable ─────────────────────────────────────────────────
+
+    /// A folder not made yet is fine and is not made; a readable folder is
+    /// fine; a regular file in its place is refused in words that do not
+    /// echo the path (finding on #81: the listing then failed and showed
+    /// no wallets). Red edit: return `Ok(())` for an existing path without
+    /// looking at it.
+    #[test]
+    fn check_dir_readable_refuses_a_file_and_makes_nothing() {
+        let base = std::env::temp_dir().join(format!("shekyl_test_check_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+
+        let absent = base.join("wallets").join("testnet");
+        assert_eq!(check_dir_readable(&absent), Ok(()));
+        assert!(!absent.exists(), "a check makes nothing");
+
+        assert_eq!(check_dir_readable(&base), Ok(()));
+
+        let file = base.join("a-file");
+        std::fs::write(&file, b"not a folder").unwrap();
+        let err = check_dir_readable(&file).unwrap_err();
+        assert!(err.contains("not a folder"), "{err}");
+        assert!(
+            !err.contains(&file.to_string_lossy().to_string()),
+            "leaked the path"
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     // ── ensure_dir_exists ──────────────────────────────────────────────────
