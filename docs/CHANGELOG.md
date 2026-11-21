@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- **The wallet's dependencies are core's.** Every package the wallet
+  shares with shekyl-core is at the version core's lock holds, including
+  every package on a proving, signing, wiping, RNG or seed path, which is at
+  the version core's test vectors and constant-time checks ran against
+  (shekyl-core `rust/.cargo/crypto-closure.toml`): zeroize, generic-array,
+  rand, aes and the rest step back to those versions, and redb 4.6, rustix
+  1.1.6 and tokio 1.54 come with core's. heapless 0.7 (unsound) is gone.
+  `core-drift.yml` checks both on its daily run and on a pull request that
+  changes `src-tauri/Cargo.lock`, naming each package that differs. The
+  wallet's `prefs.toml` and the node's config file are TOML 1.1.
+
 - **"Your stake" says what each outstanding staking record sets aside.**
   Under each record in progress the panel says how much is set aside for
   it, that nothing is (a zero-fee reward claim reserves no inputs), or,
