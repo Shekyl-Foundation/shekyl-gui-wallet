@@ -36,6 +36,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The unreached-advisory check below reads `cargo metadata --locked`,
+      # which resolves the wallet's path dependencies on shekyl-core
+      # (`../../shekyl-core/rust/...` from src-tauri). `cargo audit` reads
+      # only Cargo.lock and needs none of it. The same checkout as ci.yml:
+      # the shekyl-core branch of the same name if it exists, else dev.
+      - name: Checkout Shekyl core (the wallet's path dependencies)
+        working-directory: .
+        run: |
+          set -euo pipefail
+          REF="${{ github.head_ref || github.ref_name }}"
+          case "$REF" in
+            main|dev) CORE_BRANCH=dev ;;
+            *)
+              if git ls-remote --heads https://github.com/Shekyl-Foundation/shekyl-core.git "$REF" | grep -q .; then
+                CORE_BRANCH="$REF"
+              else
+                CORE_BRANCH=dev
+              fi
+              ;;
+          esac
+          echo "Checking out shekyl-core branch: $CORE_BRANCH"
+          git clone --depth 1 --branch "$CORE_BRANCH" --recurse-submodules --shallow-submodules \
+            https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
+
       # The audit job only compiles the `cargo-audit` tool and reads
       # `Cargo.lock`; it does not build the project, so it tracks the latest
       # stable toolchain rather than the project MSRV pin. (Pinning to 1.94.0
