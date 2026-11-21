@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **A new wallet writes no preferences file.** The wallet used to write
+  `<wallet>.prefs.toml` and `<wallet>.prefs.toml.hmac` beside the wallet
+  when it was created; shekyl-core deleted that file and its crate
+  (shekyl-core `docs/WALLET_SETTINGS.md`), and the GUI read none of its
+  settings. A pair an earlier build left beside a wallet is not read,
+  moved or deleted; you may remove it.
+
 - **The wallet's dependencies are core's.** Every package the wallet
   shares with shekyl-core is at the version core's lock holds, including
   every package on a proving, signing, wiping, RNG or seed path, which is at
@@ -11,7 +18,7 @@
   1.1.6 and tokio 1.54 come with core's. heapless 0.7 (unsound) is gone.
   `core-drift.yml` checks both on its daily run and on a pull request that
   changes `src-tauri/Cargo.lock`, naming each package that differs. The
-  wallet's `prefs.toml` and the node's config file are TOML 1.1.
+  node's config file is TOML 1.1.
 
 - **"Your stake" says what each outstanding staking record sets aside.**
   Under each record in progress the panel says how much is set aside for

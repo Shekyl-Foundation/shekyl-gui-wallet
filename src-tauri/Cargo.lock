@@ -5332,7 +5332,6 @@ dependencies = [
  "shekyl-economics",
  "shekyl-encoding",
  "shekyl-engine-file",
- "shekyl-engine-prefs",
  "shekyl-engine-state",
  "shekyl-fcmp-proofs",
  "shekyl-network",
@@ -5369,29 +5368,11 @@ dependencies = [
  "fd-lock",
  "shekyl-address",
  "shekyl-crypto-pq",
- "shekyl-engine-prefs",
  "shekyl-engine-state",
  "shekyl-os-account",
  "shekyl-types",
  "thiserror 2.0.18",
  "tracing",
- "zeroize",
-]
-
-[[package]]
-name = "shekyl-engine-prefs"
-version = "3.1.0"
-dependencies = [
- "hkdf",
- "hmac",
- "serde",
- "sha2 0.10.9",
- "shekyl-os-account",
- "shekyl-units",
- "thiserror 2.0.18",
- "toml 1.2.1+spec-1.1.0",
- "tracing",
- "windows-sys 0.60.2",
  "zeroize",
 ]
 
@@ -6021,7 +6002,6 @@ dependencies = [
  "shekyl-difficulty",
  "shekyl-engine-core",
  "shekyl-engine-file",
- "shekyl-engine-prefs",
  "shekyl-engine-state",
  "shekyl-os-account",
  "shekyl-rpc-client",
@@ -6056,7 +6036,6 @@ dependencies = [
  "shekyl-crypto-pq",
  "shekyl-engine-core",
  "shekyl-engine-file",
- "shekyl-engine-prefs",
  "shekyl-engine-state",
  "shekyl-rpc-client",
  "shekyl-rpc-types",
