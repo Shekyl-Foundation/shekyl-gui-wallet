@@ -246,9 +246,10 @@ jobs:
             echo "check=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git -C gui diff --quiet "$BASE_SHA" HEAD -- src-tauri/Cargo.lock
-          rc=$?
-          if [ "$rc" -eq 0 ]; then
+          # In the `if`: the step's shell is `bash -e`, and `diff --quiet`
+          # exits 1 for a changed lock, which a bare call would turn into
+          # the step's failure.
+          if git -C gui diff --quiet "$BASE_SHA" HEAD -- src-tauri/Cargo.lock; then
             echo "src-tauri/Cargo.lock is unchanged; the daily run checks it"
             echo "check=false" >> "$GITHUB_OUTPUT"
           else
