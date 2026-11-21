@@ -20,6 +20,18 @@
   `%LOCALAPPDATA%\org.shekyl.wallet` on Windows. This wallet does not read
   them, and they can be removed.
 
+- **Each network keeps its wallets in its own folder.** The default wallet
+  folder is `wallets/<network>` in the per-account root
+  (`~/.shekyl/wallets/mainnet`, `%LOCALAPPDATA%\Shekyl\wallets\testnet`),
+  as `shekyl-cli` already keeps them; core names it once for both
+  (`shekyl_engine_file::paths::wallet_dir_in`). Switching network before a
+  wallet is open lists that network's wallets. A folder you chose yourself
+  is used as it is, on every network. A network's folder is made when a
+  wallet is created or restored in it; starting the app, switching
+  network or opening a wallet makes none. alpha.12's wallets in the flat
+  `wallets` folder are not listed: move them into the folder of their
+  network.
+
 ## [3.1.0-alpha.12] - 2026-11-20
 
 Paired with shekyl-core `v3.1.0-alpha.12`: `release.yml` clones that tag for

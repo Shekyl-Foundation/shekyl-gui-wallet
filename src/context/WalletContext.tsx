@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type ReactNode } from "react";
+import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   createdWalletFromWire,
@@ -8,6 +8,13 @@ import {
   type CreatedWalletWire,
 } from "../types/wallet";
 import { WalletContext, type WalletDirResponse } from "./walletState";
+
+/** The resting phase a folder's wallets call for. */
+function phaseFor(files: WalletFileInfo[]): WalletPhase {
+  if (files.length === 0) return "no_wallet";
+  if (files.length === 1) return "unlock";
+  return "select_wallet";
+}
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<WalletPhase>("loading");
@@ -19,89 +26,86 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     string | null
   >(null);
 
-  const refreshFiles = useCallback(async () => {
+  // Every full read of the wallet folder is numbered: the start, a network
+  // switch, a folder chosen or reset, a lock. Only the newest commits the
+  // folder, its wallets and the phase they call for, so a slow read never
+  // pairs one folder (or network) with another's wallets.
+  const folderRead = useRef(0);
+
+  /**
+   * Reads the wallet folder in effect (the network's own unless a folder
+   * was chosen), lists its wallets and, before a wallet is open, moves to
+   * the phase they call for. The start runs it, and so do a change of
+   * network before a wallet is open, a folder chosen or reset, and a lock:
+   * each network keeps its wallets in its own folder, so the list and the
+   * screen follow the folder in effect. Every pre-wallet phase shares one
+   * route tree (`App`'s `PreWalletRoutes`), so a create or import form
+   * under way keeps what was typed in it. An open wallet's phase is not the
+   * list's to decide. A folder that cannot be read (a file in its place, a
+   * refused permission) is said, never shown as no wallets.
+   */
+  const loadWallets = useCallback(async () => {
+    const read = ++folderRead.current;
+    const newest = () => read === folderRead.current;
     try {
+      await invoke<void>("check_wallet_dir");
+      const resp = await invoke<WalletDirResponse>("get_wallet_dir");
       const files = await invoke<WalletFileInfo[]>("check_wallet_files");
+      if (!newest()) return;
+      setWalletDir(resp.dir);
+      setWalletDirFallbackFrom(resp.fallback_from ?? null);
       setWalletFiles(files);
-      return files;
-    } catch {
+      setError(null);
+      setPhase((prev) => (prev === "ready" ? prev : phaseFor(files)));
+    } catch (e) {
+      if (!newest()) return;
       setWalletFiles([]);
-      return [];
+      setError(
+        `Could not start wallet service: ${String(e)}. ` +
+          "The wallet runs inside this app — nothing separate to install. " +
+          "This step only finds the wallet folder, so choose a different " +
+          "folder in Settings if the current one can't be used.",
+      );
+      setPhase((prev) => (prev === "ready" ? prev : "no_wallet"));
     }
   }, []);
 
+  /** The folder in effect alone, for a view that has none yet. */
   const refreshWalletDir = useCallback(async () => {
+    const read = folderRead.current;
     const resp = await invoke<WalletDirResponse>("get_wallet_dir");
-    setWalletDir(resp.dir);
-    setWalletDirFallbackFrom(resp.fallback_from ?? null);
+    // A full read begun since is newer; its folder stands.
+    if (read === folderRead.current) {
+      setWalletDir(resp.dir);
+      setWalletDirFallbackFrom(resp.fallback_from ?? null);
+    }
     return resp.dir;
   }, []);
 
   const setCustomWalletDir = useCallback(
     async (dir: string) => {
       const canonical = await invoke<string>("set_wallet_dir", { dir });
-      setWalletDir(canonical);
-      // An explicit successful choice clears any stale fallback warning.
-      setWalletDirFallbackFrom(null);
-      await refreshFiles();
+      await loadWallets();
       return canonical;
     },
-    [refreshFiles],
+    [loadWallets],
   );
 
   const resetWalletDir = useCallback(async () => {
     const canonical = await invoke<string>("reset_wallet_dir");
-    setWalletDir(canonical);
-    setWalletDirFallbackFrom(null);
-    await refreshFiles();
+    await loadWallets();
     return canonical;
-  }, [refreshFiles]);
+  }, [loadWallets]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function bootstrap() {
-      try {
-        await invoke<void>("ensure_wallet_dir");
-        if (cancelled) return;
-        try {
-          const resp = await invoke<WalletDirResponse>("get_wallet_dir");
-          if (!cancelled) {
-            setWalletDir(resp.dir);
-            setWalletDirFallbackFrom(resp.fallback_from ?? null);
-          }
-        } catch {
-          // non-fatal; UI can request it later
-        }
-      } catch (e) {
-        if (cancelled) return;
-        setError(
-          `Could not start wallet service: ${String(e)}. ` +
-            "The wallet runs inside this app — nothing separate to install. " +
-            "This step only prepares the wallet folder, so choose a different " +
-            "folder in Settings if the current one can't be used.",
-        );
-        setPhase("no_wallet");
-        return;
-      }
-
-      const files = await refreshFiles();
-      if (cancelled) return;
-
-      if (files.length === 0) {
-        setPhase("no_wallet");
-      } else if (files.length === 1) {
-        setPhase("unlock");
-      } else {
-        setPhase("select_wallet");
-      }
-    }
-
-    bootstrap();
+    loadWallets();
+    // Leaving numbers out the read in flight.
     return () => {
-      cancelled = true;
+      folderRead.current += 1;
     };
-  }, [refreshFiles]);
+  }, [loadWallets]);
+
+  const networkChanged = useCallback(() => loadWallets(), [loadWallets]);
 
   const openWallet = useCallback(
     async (filename: string, password: string) => {
@@ -158,9 +162,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // ignore close errors
     }
     setWalletName(null);
-    const files = await refreshFiles();
-    setPhase(files.length > 0 ? "unlock" : "no_wallet");
-  }, [refreshFiles]);
+    // Out of the open wallet's phase, then the folder's list decides.
+    setPhase("loading");
+    await loadWallets();
+  }, [loadWallets]);
 
   return (
     <WalletContext.Provider
@@ -174,12 +179,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         restoreWallet,
         lockWallet,
         setPhase,
-        refreshFiles,
         walletDir,
         walletDirFallbackFrom,
         setCustomWalletDir,
         resetWalletDir,
         refreshWalletDir,
+        networkChanged,
       }}
     >
       {children}

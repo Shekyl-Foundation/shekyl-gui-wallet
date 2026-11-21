@@ -111,10 +111,14 @@ When you open the wallet for the first time, it does three things automatically:
    separate background process is started. You'll briefly see a loading
    screen with the Shekyl logo.
 
-2. **Scans for existing wallets** -- the wallet ensures the default data
-   directory exists (creating it if needed) and checks for `.keys` files:
-   - **Linux, FreeBSD and macOS**: `~/.shekyl/wallets/`
-   - **Windows**: `%LOCALAPPDATA%\Shekyl\wallets\`
+2. **Scans for existing wallets** -- the wallet ensures the folder of the
+   network it is on exists (creating it if needed) and checks for `.keys`
+   files. Each network keeps its wallets in its own folder:
+   - **Linux, FreeBSD and macOS**: `~/.shekyl/wallets/<network>/`
+   - **Windows**: `%LOCALAPPDATA%\Shekyl\wallets\<network>\`
+
+   Choosing another network on the bar at the top lists that network's
+   wallets.
 
    Advanced users can point at a different folder (for example, an
    encrypted volume) via the **Advanced: wallet file location**

@@ -146,7 +146,7 @@ pub fn run() {
             mining::stop_mining_cmd,
             // Wallet startup
             commands::check_wallet_files,
-            commands::ensure_wallet_dir,
+            commands::check_wallet_dir,
             commands::set_wallet_dir,
             commands::reset_wallet_dir,
             commands::get_wallet_dir,

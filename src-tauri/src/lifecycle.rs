@@ -129,12 +129,12 @@ pub async fn create_wallet(
     validate::validate_wallet_name(&sanitized)?;
     validate::validate_password(&password)?;
 
-    let wallet_dir = state.wallet_dir().await?;
-    wallet_name::ensure_dir_exists(&wallet_dir)?;
-
-    // The session guard: the network and the node are read inside it.
+    // The session guard: the network, its wallet directory and the node are
+    // read inside it, the directory from the same read of the network.
     let mut eng = state.engine.lock().await;
     let network = *state.network.read().await;
+    let wallet_dir = state.wallet_dir_on(network).await?;
+    wallet_name::ensure_dir_exists(&wallet_dir)?;
     let daemon = EngineNode::of(&state, &node).await;
     let created = eng
         .create(&wallet_dir, &sanitized, &password, network, &daemon)
@@ -186,11 +186,15 @@ pub(crate) async fn open_wallet_in(
 ) -> Result<OpenedWallet, OpenRefusal> {
     validate::validate_password(&password)?;
 
-    let wallet_dir = state.wallet_dir().await?;
-    wallet_name::ensure_dir_exists(&wallet_dir)?;
-
     let sanitized = wallet_name::sanitize(&filename);
     validate::validate_wallet_name(&sanitized)?;
+
+    // The session guard: the network, its wallet directory and the node are
+    // read inside it, the directory from the same read of the network.
+    let mut eng = state.engine.lock().await;
+    let network = *state.network.read().await;
+    // A directory not made yet holds no wallet; an open makes none.
+    let wallet_dir = state.wallet_dir_on(network).await?;
 
     if !engine_session::engine_wallet_exists(&wallet_dir, &sanitized) {
         return Err(format!(
@@ -199,9 +203,6 @@ pub(crate) async fn open_wallet_in(
         .into());
     }
 
-    // The session guard: the network and the node are read inside it.
-    let mut eng = state.engine.lock().await;
-    let network = *state.network.read().await;
     let daemon = EngineNode::of(state, node).await;
     let facts = eng
         .open(&wallet_dir, &sanitized, &password, network, &daemon)
@@ -267,12 +268,12 @@ pub async fn restore_wallet(
 
     let height = restore_floor(restore_height)?;
 
-    let wallet_dir = state.wallet_dir().await?;
-    wallet_name::ensure_dir_exists(&wallet_dir)?;
-
-    // The session guard: the network and the node are read inside it.
+    // The session guard: the network, its wallet directory and the node are
+    // read inside it, the directory from the same read of the network.
     let mut eng = state.engine.lock().await;
     let network = *state.network.read().await;
+    let wallet_dir = state.wallet_dir_on(network).await?;
+    wallet_name::ensure_dir_exists(&wallet_dir)?;
     let daemon = EngineNode::of(&state, &node).await;
     let facts = eng
         .restore_from_seed(
@@ -504,6 +505,78 @@ mod tests {
         assert!(close_wallet_in(&state, &node).await.expect("it closes"));
         assert!(!*state.wallet_open.read().await);
         assert_eq!(node.open_wallet().await, None);
+    }
+
+    /// **An open reads its network and that network's folder in one go.**
+    /// A wallet made in testnet's folder is opened while the state is on
+    /// mainnet, and the network is switched to testnet while the open waits
+    /// for the session guard: the open reads the network and its folder
+    /// inside the guard, from the same read, and finds the wallet. Red edit:
+    /// resolve the folder before taking the guard (the old order), and the
+    /// open looks in mainnet's folder and finds nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_open_reads_its_folder_with_its_network_inside_the_guard() {
+        let (dir, _, node) = offline("guard").await;
+        let root = dir.0.join("root");
+        let state = AppState::on(
+            NetworkType::Testnet,
+            crate::gui_config::Store::none(),
+            crate::account_root::AccountRoot::Ready(root.clone()),
+        );
+        *state.node_address.write().await = Some("http://127.0.0.1:1".into());
+        let password = engine_session::test_password();
+        {
+            let mut eng = state.engine.lock().await;
+            let daemon = EngineNode::of(&state, &node).await;
+            let testnet = state.wallet_dir_on(NetworkType::Testnet).await.unwrap();
+            wallet_name::ensure_dir_exists(&testnet).unwrap();
+            eng.create(&testnet, "w", &password, NetworkType::Testnet, &daemon)
+                .await
+                .expect("a wallet made offline");
+            eng.close().await.expect("it closes");
+        }
+        *state.network.write().await = NetworkType::Mainnet;
+
+        let guard = state.engine.lock().await;
+        let st = &state;
+        let switch = async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            *st.network.write().await = NetworkType::Testnet;
+            drop(guard);
+        };
+        let (opened, ()) =
+            tokio::join!(open_wallet_in(&state, &node, "w".into(), password), switch);
+        opened.expect("the open finds the wallet in the folder of the network it reads");
+        assert!(close_wallet_in(&state, &node).await.expect("it closes"));
+    }
+
+    /// **An open makes no wallet folder.** A network whose folder was never
+    /// made holds no wallet: the open says so and leaves no empty
+    /// `wallets/<network>` behind, as a start and a switch make none (only a
+    /// create or restore makes one). Red edit: make the folder before the
+    /// open looks (the old `ensure_dir_exists`), and the folder is left.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_open_makes_no_wallet_folder() {
+        let (dir, _, node) = offline("nofolder").await;
+        let root = dir.0.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        let state = AppState::on(
+            NetworkType::Testnet,
+            crate::gui_config::Store::none(),
+            crate::account_root::AccountRoot::Ready(root.clone()),
+        );
+        let folder = state.wallet_dir().await.unwrap();
+        let refused = open_wallet_in(&state, &node, "w".into(), engine_session::test_password())
+            .await
+            .expect_err("no wallet in a folder never made");
+        assert!(
+            serde_json::to_value(&refused).unwrap()["message"]
+                .as_str()
+                .unwrap()
+                .contains("no wallet found"),
+            "{refused:?}"
+        );
+        assert!(!folder.exists(), "{} was made", folder.display());
     }
 
     /// **With a wallet open, the node it uses does not change under it.**
