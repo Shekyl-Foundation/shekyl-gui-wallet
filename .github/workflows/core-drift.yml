@@ -119,7 +119,8 @@ jobs:
             case "$WALLET_REF" in
               main|dev|"") ;;
               *)
-                hits=$(git ls-remote --heads "https://github.com/${CORE_REPOSITORY}.git" "$WALLET_REF")
+                # The exact branch: a bare name also matches `*/<name>`.
+                hits=$(git ls-remote --heads "https://github.com/${CORE_REPOSITORY}.git" "refs/heads/$WALLET_REF")
                 if [ -n "$hits" ]; then
                   CORE_REF="$WALLET_REF"
                 fi
@@ -289,13 +290,19 @@ jobs:
 
       - name: Report
         if: always()
+        env:
+          # Names a caller or a pull request author chose: values of
+          # variables, never spliced into the script.
+          CORE_REPOSITORY: ${{ inputs.core_repository || 'Shekyl-Foundation/shekyl-core' }}
+          WALLET_REF: ${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           {
             echo "### Core drift"
             echo
-            echo "- core: \`${{ inputs.core_repository || 'Shekyl-Foundation/shekyl-core' }}@${CORE_REF_RESOLVED:-unknown}\` (\`${CORE_SHA:-unknown}\`)"
-            echo "- wallet: \`${{ inputs.wallet_ref || (github.event_name == 'schedule' && 'dev') || github.head_ref || github.ref_name }}\`"
-            echo "- result: **${{ job.status }}**"
+            echo "- core: \`${CORE_REPOSITORY}@${CORE_REF_RESOLVED:-unknown}\` (\`${CORE_SHA:-unknown}\`)"
+            echo "- wallet: \`${WALLET_REF}\`"
+            echo "- result: **${JOB_STATUS}**"
             echo
             echo "A failure here means a shekyl-core change and this wallet disagree."
             echo "Fix it in the pull request that caused it, not later."

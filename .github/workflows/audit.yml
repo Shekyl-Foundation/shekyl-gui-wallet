@@ -43,13 +43,19 @@ jobs:
       # the shekyl-core branch of the same name if it exists, else dev.
       - name: Checkout Shekyl core (the wallet's path dependencies)
         working-directory: .
+        env:
+          # The branch name is the pull request author's text (a fork's
+          # included): it reaches the shell as a variable's value, never
+          # spliced into the script, where `$(...)` in a name would run.
+          REF: ${{ github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
-          REF="${{ github.head_ref || github.ref_name }}"
           case "$REF" in
             main|dev) CORE_BRANCH=dev ;;
             *)
-              if git ls-remote --heads https://github.com/Shekyl-Foundation/shekyl-core.git "$REF" | grep -q .; then
+              # The exact branch: a bare name also matches `*/<name>`.
+              hits=$(git ls-remote --heads https://github.com/Shekyl-Foundation/shekyl-core.git "refs/heads/$REF")
+              if [ -n "$hits" ]; then
                 CORE_BRANCH="$REF"
               else
                 CORE_BRANCH=dev
