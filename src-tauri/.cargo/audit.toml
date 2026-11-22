@@ -14,4 +14,30 @@
 # exposure the row describes.
 # Reopen: drop this ignore in the same change that drops it from
 # shekyl-core's `rust/.cargo/audit.toml`.
-ignore = ["RUSTSEC-2026-0387"]
+#
+# glib 0.18.5 -- RUSTSEC-2024-0429, an "unsound" advisory, ignored by Rick's
+# ruling of 2026-11-21. glib's `VariantStrIter` `next`, `nth`, `last`,
+# `next_back` and `nth_back` read a pointer that stays NULL and crash.
+# glib 0.18 comes through Tauri's GTK3 stack (gtk, gio, webkit2gtk, wry,
+# tao, muda, tray-icon, libappindicator, soup3, javascriptcore-rs and the
+# rest of the glib-dependent crates in the lock) and cannot move while that
+# stack is GTK3. Exposure: no package in the graph other than glib itself,
+# and nothing in src-tauri/src, names `array_iter_str` or `VariantStrIter`;
+# a caller would be a crash, not memory corruption.
+# The ignore is checked, so it can fail:
+# scripts/ci/check_unreached_advisories.py scans the source of every
+# resolved package except glib, plus src-tauri/src, for those symbols in
+# the same audit job, and refuses any "unsound" ignore here without a row
+# in its table.
+# Reopen: drop this ignore when the graph carries glib >= 0.20 (Tauri on
+# GTK4), or when that check finds a caller.
+ignore = ["RUSTSEC-2026-0387", "RUSTSEC-2024-0429"]
+
+[output]
+# An "unsound" informational advisory fails the audit, as a vulnerability
+# does: unsoundness is undefined behaviour reachable from safe code, which
+# no "informational" label makes acceptable in a shipped dependency.
+# cargo-audit only warns on them by default; this is shekyl-core's setting
+# (rust/.cargo/audit.toml). `quiet` is required whenever [output] is set.
+deny = ["unsound"]
+quiet = false
