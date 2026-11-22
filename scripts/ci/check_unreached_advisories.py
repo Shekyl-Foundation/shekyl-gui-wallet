@@ -18,8 +18,10 @@
 # line.
 #
 # Rule 47: the scan must have a subject. The named crate must be in the
-# graph, and at least one package must have been scanned; otherwise the row
-# fails rather than passing as nothing read.
+# graph, and every directory the scan covers (each resolved package's, and
+# src-tauri/src) must exist, be walked without error, and hold Rust source
+# that was read. A missing, empty or unreadable directory fails the row: a
+# graph read in part is not evidence that nothing reaches the bug.
 #
 # Every ignore in audit.toml is classified from the RustSec advisory database
 # cargo-audit has just fetched ($CARGO_HOME/advisory-db, or --advisory-db). An
@@ -128,35 +130,44 @@ def resolved_packages(tauri: Path) -> list[tuple[str, Path]]:
     return [(pkg["name"], Path(pkg["manifest_path"]).parent) for pkg in data["packages"]]
 
 
+def rust_sources(root: Path) -> list[Path]:
+    """Every Rust file under `root`. A directory the scan cannot cover refuses."""
+    if not root.is_dir():
+        raise Refused(f"{root}: missing, so the graph would be read in part")
+
+    def unwalkable(why: OSError) -> None:
+        raise Refused(f"{why.filename}: unreadable ({why.strerror})")
+
+    files = sorted(
+        Path(dirpath) / filename
+        for dirpath, _dirnames, filenames in os.walk(root, onerror=unwalkable)
+        for filename in filenames
+        if filename.endswith(SOURCE_SUFFIXES)
+    )
+    if not files:
+        raise Refused(f"{root}: no Rust source, so there is nothing of it to read")
+    return files
+
+
 def scan(
     packages: list[tuple[str, Path]], own_source: Path, crate: str, symbols: tuple[str, ...]
 ) -> tuple[list[str], int]:
-    """Matches as `file:line: text`, and how many packages were scanned."""
+    """Matches as `file:line: text`, and how many directories were read."""
     if not any(name == crate for name, _ in packages):
         raise Refused(f"{crate} is not in the graph: the row has no subject (remove it with the ignore)")
     pattern = re.compile(r"\b(?:" + "|".join(re.escape(s) for s in symbols) + r")\b")
     roots = sorted({path for name, path in packages if name != crate} | {own_source})
     hits = []
-    scanned = 0
     for root in roots:
-        if not root.is_dir():
-            continue
-        scanned += 1
-        for dirpath, _dirnames, filenames in os.walk(root):
-            for filename in filenames:
-                if not filename.endswith(SOURCE_SUFFIXES):
-                    continue
-                path = Path(dirpath) / filename
-                try:
-                    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-                except OSError as why:
-                    raise Refused(f"{path}: unreadable ({why})") from None
-                for number, line in enumerate(lines, 1):
-                    if pattern.search(line):
-                        hits.append(f"{path}:{number}: {line.strip()}")
-    if scanned == 0:
-        raise Refused(f"no package source was scanned for {crate}: a scan of nothing does not pass")
-    return hits, scanned
+        for path in rust_sources(root):
+            try:
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError as why:
+                raise Refused(f"{path}: unreadable ({why})") from None
+            for number, line in enumerate(lines, 1):
+                if pattern.search(line):
+                    hits.append(f"{path}:{number}: {line.strip()}")
+    return hits, len(roots)
 
 
 def check(db: Path) -> int:
@@ -173,8 +184,8 @@ def check(db: Path) -> int:
                 print(f"FAIL {advisory} ({crate}): {hit}")
             failures += len(hits)
             print(
-                f"{advisory} ({crate}): {scanned} package sources and src-tauri/src scanned "
-                f"for {', '.join(symbols)}; {len(hits)} match(es)"
+                f"{advisory} ({crate}): {scanned} directories read (every resolved package "
+                f"but {crate}, and src-tauri/src) for {', '.join(symbols)}; {len(hits)} match(es)"
             )
     except Refused as why:
         print(f"FAIL {why}")
@@ -240,9 +251,32 @@ def selftest() -> int:
         )
         gone = root / "missing"
         expect(
-            "zero package sources scanned fails",
-            refused(lambda: scan([("glib", glib), ("gtk", gone)], gone, "glib", symbols)),
+            "a missing package directory fails, the rest read",
+            refused(lambda: scan(graph + [("wry", gone)], own, "glib", symbols)),
         )
+        expect("a missing src-tauri/src fails", refused(lambda: scan(graph, gone, "glib", symbols)))
+        empty = root / "empty"
+        empty.mkdir()
+        expect(
+            "a package directory with no Rust source fails",
+            refused(lambda: scan(graph + [("wry", empty)], own, "glib", symbols)),
+        )
+        expect("an empty src-tauri/src fails", refused(lambda: scan(graph, empty, "glib", symbols)))
+        locked = clean / "src" / "sealed"
+        locked.mkdir()
+        locked.chmod(0)
+        try:
+            if os.access(locked, os.R_OK):
+                # Root reads a mode-0 directory, so the plant cannot bite.
+                expect("an unwalkable subdirectory fails (needs an unprivileged run)", False)
+            else:
+                expect(
+                    "an unwalkable subdirectory fails",
+                    refused(lambda: scan(graph, own, "glib", symbols)),
+                )
+        finally:
+            locked.chmod(0o700)
+            locked.rmdir()
 
         db = root / "db"
         for crate, advisory, informational in (
