@@ -9,6 +9,26 @@
   settings. A pair an earlier build left beside a wallet is not read,
   moved or deleted; you may remove it.
 
+- **The audit fails on an "unsound" advisory, and the one it ignores is
+  checked.** `cargo audit` now denies unsound advisories, as shekyl-core's
+  does. glib 0.18's RUSTSEC-2024-0429 (`VariantStrIter` reads a NULL
+  pointer) stays in the graph through Tauri's GTK3 stack and is ignored,
+  and `scripts/ci/check_unreached_advisories.py` holds that ignore in the
+  same audit job: no package but glib, and nothing in the wallet's own
+  source, names `array_iter_str` or `VariantStrIter`, and any further
+  unsound ignore needs a row in its table. The scan refuses a package
+  directory that is missing, empty or unreadable, so a graph read in part
+  can't pass. The wallet's dependencies follow core's reviewed versions:
+  fips203/204/205 0.5.0, zeroize 1.9.2 and the rest of core's
+  crypto-closure review.
+
+- **CI no longer splices a branch name into a shell script.** The core
+  checkouts in `ci.yml`, `codeql.yml`, `audit.yml` and `core-drift.yml`
+  read the pull request's branch from an environment variable, so a branch
+  named with `$(...)` can't run a command. The branch lookup also matches
+  the exact core branch: a bare name matched any core branch ending in
+  `/<name>`.
+
 - **The wallet's dependencies are core's.** Every package the wallet
   shares with shekyl-core is at the version core's lock holds, including
   every package on a proving, signing, wiping, RNG or seed path, which is at
