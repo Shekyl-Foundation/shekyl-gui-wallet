@@ -188,12 +188,21 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
         FirstStakeError::Persist(d) | FirstStakeError::Engine(d) => {
             format!("stake failed mid-flow ({d}); call activate again to resume")
         }
-        // The signer refused the bond post, in the contract's words. Nothing
-        // was sent and the durable slot stands, so activating again resumes.
-        FirstStakeError::Signer(fault) => format!(
-            "{}; call activate again to resume",
+        // The signer's fault, in the contract's words — the same sentence
+        // `stake` returns. Each fault already names its remedy, so the
+        // sentence gains none: an internal fault says to report it, and one
+        // the person can act on names that action. "Activate again" on an
+        // output this wallet can never spend would send them back into the
+        // same refusal (rule 82). The durable slot stands either way, and a
+        // later `stake` resumes it; that fact is the log line beside the
+        // code, as the wallet RPC records it, not a second remedy.
+        FirstStakeError::Signer(fault) => {
+            tracing::warn!(
+                %fault,
+                "the bond post's signer refused; call stake again to resume"
+            );
             WalletRpcError::from(fault).message()
-        ),
+        }
         FirstStakeError::NoShardsAvailable => {
             // Engine `first_stake` still refuses Market until shard
             // assignment lands (its own round). The Shards page's selection
@@ -245,18 +254,6 @@ mod tests {
     /// spends a fee to arrive back at this message (rule 82's misdiagnosis
     /// guard). Red if the arm is collapsed into the `Funding` text, and red
     /// if a retry imperative is ever appended to it.
-    /// A signer refusal names its fault in the contract's words and says the
-    /// stake resumes. Red edit: drop the resume clause from the `Signer` arm.
-    #[test]
-    fn a_signer_refusal_names_its_fault_and_the_resume() {
-        use shekyl_engine_core::{InternalSignFault, SignFault};
-        let msg = map_first_stake_err(FirstStakeError::Signer(SignFault::Internal(
-            InternalSignFault::MembershipSelfCheck,
-        )));
-        assert!(msg.contains("membership-self-check"), "{msg}");
-        assert!(msg.contains("call activate again to resume"), "{msg}");
-    }
-
     #[test]
     fn fragmented_funding_offers_neither_more_funding_nor_a_retry() {
         let msg = map_first_stake_err(FirstStakeError::FundingFragmented { max: 7 });
@@ -289,6 +286,45 @@ mod tests {
             map_first_stake_err(FirstStakeError::Funding("not enough".into())),
             "the two funding refusals are distinct states and read differently"
         );
+    }
+
+    /// A signer refusal is the wallet contract's sentence for that fault,
+    /// the same one `stake` answers with. An internal fault names its
+    /// keyword and says to report it. A fault the person can act on keeps
+    /// that fault's remedy. Neither grows a resume clause: the durable slot
+    /// is in the log beside the code, and "activate again" would send
+    /// someone back into an output this wallet can never spend (rule 82).
+    /// Red if the arm appends a resume, and red if it renders the engine's
+    /// own text instead of the contract's.
+    #[test]
+    fn a_signer_refusal_is_the_contracts_sentence() {
+        use shekyl_engine_core::{InternalSignFault, SignFault};
+
+        let cases = [
+            (
+                SignFault::Internal(InternalSignFault::MembershipSelfCheck),
+                "membership-self-check",
+            ),
+            (
+                SignFault::PqcLeafMismatch { input: 0 },
+                "can never be spent",
+            ),
+        ];
+        for (fault, words) in cases {
+            let msg = map_first_stake_err(FirstStakeError::Signer(fault));
+            assert_eq!(msg, WalletRpcError::from(fault).message(), "{fault:?}");
+            let copy = msg.to_lowercase();
+            assert!(
+                copy.contains(words) && copy.contains("report it"),
+                "{fault:?}: {msg}"
+            );
+            assert!(
+                !copy.contains("activate")
+                    && !copy.contains("resume")
+                    && !copy.contains("signer refused"),
+                "the contract's remedy stands alone: {msg}"
+            );
+        }
     }
 
     #[test]
