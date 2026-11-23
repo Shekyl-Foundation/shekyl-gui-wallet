@@ -31,7 +31,6 @@ use shekyl_engine_core::{
 };
 use shekyl_engine_file::paths::keys_path_from;
 use shekyl_engine_file::SafetyOverrides;
-use shekyl_engine_prefs::WalletPrefs;
 use tokio::sync::RwLock;
 use tracing::warn;
 use zeroize::Zeroizing;
@@ -230,7 +229,6 @@ impl EngineSession {
                 restore_height_hint: restore_height,
                 kdf: KdfParams::default(),
                 overrides: SafetyOverrides::none(),
-                prefs: WalletPrefs::default(),
             };
             tokio::task::block_in_place(|| Engine::<SoloSigner>::create(create_params, daemon))
                 .map_err(map_open_err)?

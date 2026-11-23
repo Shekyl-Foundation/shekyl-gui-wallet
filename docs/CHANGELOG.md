@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **A new wallet writes no preferences file.** The wallet used to write
+  `<wallet>.prefs.toml` and `<wallet>.prefs.toml.hmac` beside the wallet
+  when it was created; shekyl-core deleted that file and its crate
+  (shekyl-core `docs/WALLET_SETTINGS.md`), and the GUI read none of its
+  settings. A pair an earlier build left beside a wallet is not read,
+  moved or deleted; you may remove it.
+
 - **The audit fails on an "unsound" advisory, and the one it ignores is
   checked.** `cargo audit` now denies unsound advisories, as shekyl-core's
   does. glib 0.18's RUSTSEC-2024-0429 (`VariantStrIter` reads a NULL
@@ -31,7 +38,7 @@
   1.1.6 and tokio 1.54 come with core's. heapless 0.7 (unsound) is gone.
   `core-drift.yml` checks both on its daily run and on a pull request that
   changes `src-tauri/Cargo.lock`, naming each package that differs. The
-  wallet's `prefs.toml` and the node's config file are TOML 1.1.
+  node's config file is TOML 1.1.
 
 - **"Your stake" says what each outstanding staking record sets aside.**
   Under each record in progress the panel says how much is set aside for
