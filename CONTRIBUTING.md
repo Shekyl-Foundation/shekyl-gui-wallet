@@ -28,9 +28,13 @@ Policy: `.cursor/rules/06-branching.mdc`.
   commit not on `dev`.
 - **`dev`** is integration. All work branches off dev and merges back to
   dev. Version bumps and CHANGELOG cuts happen on dev.
-- **CI**: dev CI (`ci.yml`, `codeql.yml`) tracks shekyl-core `dev`.
-  Release builds (`release.yml`) clone the matching shekyl-core tag
-  (`SHEKYL_CORE_REF`, currently `v3.1.0-alpha.10`).
+- **CI**: `scripts/ci/core_ref.sh` picks the shekyl-core for `ci.yml`,
+  `codeql.yml` and `audit.yml`: a work branch with a same-named core branch
+  builds against it, code going to `main` builds against the release pin,
+  and everything else builds against core `dev`. Release builds
+  (`release.yml`) use the same pin, the one line in
+  `scripts/release/core-release-ref`. Bump it when pairing the next wallet
+  tag with a new core tag.
 - **Release flow** (same shape as shekyl-core):
   1. dev is verified.
   2. Open a PR dev → main titled `Release: vX.Y.Z` (audit trail even

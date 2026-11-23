@@ -39,31 +39,21 @@ jobs:
       # The unreached-advisory check below reads `cargo metadata --locked`,
       # which resolves the wallet's path dependencies on shekyl-core
       # (`../../shekyl-core/rust/...` from src-tauri). `cargo audit` reads
-      # only Cargo.lock and needs none of it. The same checkout as ci.yml:
-      # the shekyl-core branch of the same name if it exists, else dev.
+      # only Cargo.lock and needs none of it. The same checkout as ci.yml
+      # (scripts/ci/core_ref.sh).
       - name: Checkout Shekyl core (the wallet's path dependencies)
         working-directory: .
         env:
           # The branch name is the pull request author's text (a fork's
           # included): it reaches the shell as a variable's value, never
           # spliced into the script, where `$(...)` in a name would run.
-          REF: ${{ github.head_ref || github.ref_name }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          TARGET: ${{ github.base_ref || github.ref_name }}
         run: |
           set -euo pipefail
-          case "$REF" in
-            main|dev) CORE_BRANCH=dev ;;
-            *)
-              # The exact branch: a bare name also matches `*/<name>`.
-              hits=$(git ls-remote --heads https://github.com/Shekyl-Foundation/shekyl-core.git "refs/heads/$REF")
-              if [ -n "$hits" ]; then
-                CORE_BRANCH="$REF"
-              else
-                CORE_BRANCH=dev
-              fi
-              ;;
-          esac
-          echo "Checking out shekyl-core branch: $CORE_BRANCH"
-          git clone --depth 1 --branch "$CORE_BRANCH" --recurse-submodules --shallow-submodules \
+          CORE_REF="$(scripts/ci/core_ref.sh "$BRANCH" "$TARGET")"
+          echo "Checking out shekyl-core at: $CORE_REF"
+          git clone --depth 1 --branch "$CORE_REF" --recurse-submodules --shallow-submodules \
             https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
 
       # The audit job only compiles the `cargo-audit` tool and reads
