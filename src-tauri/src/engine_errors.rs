@@ -188,6 +188,12 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
         FirstStakeError::Persist(d) | FirstStakeError::Engine(d) => {
             format!("stake failed mid-flow ({d}); call activate again to resume")
         }
+        // The signer refused the bond post, in the contract's words. Nothing
+        // was sent and the durable slot stands, so activating again resumes.
+        FirstStakeError::Signer(fault) => format!(
+            "{}; call activate again to resume",
+            WalletRpcError::from(fault).message()
+        ),
         FirstStakeError::NoShardsAvailable => {
             // Engine `first_stake` still refuses Market until shard
             // assignment lands (its own round). The Shards page's selection
@@ -239,6 +245,18 @@ mod tests {
     /// spends a fee to arrive back at this message (rule 82's misdiagnosis
     /// guard). Red if the arm is collapsed into the `Funding` text, and red
     /// if a retry imperative is ever appended to it.
+    /// A signer refusal names its fault in the contract's words and says the
+    /// stake resumes. Red edit: drop the resume clause from the `Signer` arm.
+    #[test]
+    fn a_signer_refusal_names_its_fault_and_the_resume() {
+        use shekyl_engine_core::{InternalSignFault, SignFault};
+        let msg = map_first_stake_err(FirstStakeError::Signer(SignFault::Internal(
+            InternalSignFault::MembershipSelfCheck,
+        )));
+        assert!(msg.contains("membership-self-check"), "{msg}");
+        assert!(msg.contains("call activate again to resume"), "{msg}");
+    }
+
     #[test]
     fn fragmented_funding_offers_neither_more_funding_nor_a_retry() {
         let msg = map_first_stake_err(FirstStakeError::FundingFragmented { max: 7 });
