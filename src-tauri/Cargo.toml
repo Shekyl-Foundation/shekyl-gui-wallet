@@ -94,3 +94,11 @@ shekyl-rpc-rendezvous = { path = "../../shekyl-core/rust/shekyl-rpc-rendezvous" 
 # A live test holds a data directory's lock as a daemon does (`Lock::take`),
 # so the wallet's node meets a held directory with no second daemon.
 shekyl-daemon-config = { path = "../../shekyl-core/rust/shekyl-daemon-config" }
+
+# fips204 0.5.0 with no conditional branch on a secret coefficient under
+# `overflow-checks = true`, and with the NTT path's range hardened (the record
+# is shekyl-core docs/benchmarks/ca3_pq_branch_sweep_20261123.md). `[patch]`
+# applies only in the root manifest being built, so this carries core's entry,
+# and core's crypto-closure gate holds this lock to the same revision.
+[patch.crates-io]
+fips204 = { git = "https://github.com/Shekyl-Foundation/fips204", rev = "54b76cf71430a406f3c96ab9c80c42b0d74ce2fd" }
