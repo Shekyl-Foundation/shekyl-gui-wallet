@@ -20,8 +20,8 @@ The wallet itself is not a bundled binary: it runs in-process as
 for every installer with `scripts/release/core_archive.py fetch` and checks
 its digest before anything is unpacked:
 
-- **A tag build** takes core's release at `SHEKYL_CORE_REF`. Its
-  `SHA256SUMS.asc` must verify under the Foundation signing subkey pinned in
+- **A tag build** takes core's release at the pin in
+  `scripts/release/core-release-ref`. Its `SHA256SUMS.asc` must verify under the Foundation signing subkey pinned in
   `core_archive.py`, and the archive must match its line in `SHA256SUMS`.
 - **A dry run** (`workflow_dispatch`) takes a core gitian run by id,
   `core_gitian_run`. The run must be core's gitian workflow and must have

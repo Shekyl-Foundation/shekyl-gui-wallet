@@ -8,7 +8,7 @@ name: Release
 #
 # The installers carry core's gitian-built `shekyld` and its pinned Tor,
 # never a rebuild on the runner (GUI_SYNC_LANE.md GS-Q5, GS-1). A tag build
-# takes the archives from core's release at SHEKYL_CORE_REF, signed by the
+# takes the archives from core's release at the pin, signed by the
 # Foundation; a dry run takes them from the named gitian run, and compiles
 # the Engine crates against the commit that run built.
 on:
@@ -27,9 +27,6 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Matching-tag pin. Bump this when pairing the next GUI tag with a new
-  # shekyl-core tag. CI (`ci.yml`, `codeql.yml`) stays on core `dev`.
-  SHEKYL_CORE_REF: v3.1.0-alpha.12
 
 jobs:
   create-release:
@@ -74,6 +71,10 @@ jobs:
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
+          # The one pin, scripts/release/core-release-ref. CI builds code
+          # going to `main` against the same one (scripts/ci/core_ref.sh).
+          SHEKYL_CORE_REF="$(scripts/ci/core_ref.sh --pin)"
+          echo "SHEKYL_CORE_REF=$SHEKYL_CORE_REF" >> "$GITHUB_ENV"
           mkdir ../shekyl-core
           git -C ../shekyl-core init --quiet
           git -C ../shekyl-core remote add origin https://github.com/Shekyl-Foundation/shekyl-core.git
