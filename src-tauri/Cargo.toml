@@ -101,4 +101,4 @@ shekyl-daemon-config = { path = "../../shekyl-core/rust/shekyl-daemon-config" }
 # applies only in the root manifest being built, so this carries core's entry,
 # and core's crypto-closure gate holds this lock to the same revision.
 [patch.crates-io]
-fips204 = { git = "https://github.com/Shekyl-Foundation/fips204", rev = "072a7d68bef14c2332d4b5ebd006189a3eedb2eb" }
+fips204 = { git = "https://github.com/Shekyl-Foundation/fips204", rev = "54b76cf71430a406f3c96ab9c80c42b0d74ce2fd" }

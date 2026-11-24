@@ -1635,7 +1635,7 @@ dependencies = [
 [[package]]
 name = "fips204"
 version = "0.5.0"
-source = "git+https://github.com/Shekyl-Foundation/fips204?rev=072a7d68bef14c2332d4b5ebd006189a3eedb2eb#072a7d68bef14c2332d4b5ebd006189a3eedb2eb"
+source = "git+https://github.com/Shekyl-Foundation/fips204?rev=54b76cf71430a406f3c96ab9c80c42b0d74ce2fd#54b76cf71430a406f3c96ab9c80c42b0d74ce2fd"
 dependencies = [
  "rand_core 0.6.4",
  "sha3",
