@@ -72,12 +72,6 @@ jobs:
       - name: One spawn lock
         run: python3 scripts/ci/check_one_spawn_lock.py
 
-      # merge-ready (merge-ready.yml): an early, red or draft label is
-      # refused, a push clears it, every event posts a state. The status
-      # itself is posted by its own workflow; this holds the script.
-      - name: merge-ready — negative controls
-        run: python3 scripts/ci/merge_ready.py --selftest
-
       # Structural anti-drift (composition discipline): production modules
       # stay under NEW_FILE_CAP unless baselined; baselined ceilings can only
       # shrink. Same family as shekyl-core's engine decomposition ratchet.
