@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **A wallet this build cannot read has a way back on the Unlock page.**
+  When a wallet's files were written by another version, the page now
+  offers "Restore from your recovery phrase" in place of the forgotten
+  password hint. Restoring under a name already in use says to choose
+  another name, and the wallet already there is not changed.
+
 - **CI builds `main` against the core it ships with.** `ci.yml`,
   `codeql.yml` and `audit.yml` built `main` against core `dev`, so `main`
   went red whenever core changed an API after a release. One script,

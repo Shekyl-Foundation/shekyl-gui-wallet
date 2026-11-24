@@ -34,9 +34,9 @@ export default function Unlock() {
     selected !== undefined && attempt?.path === selected.path
       ? attempt.refusal
       : null;
-  const offerNewWallet = refusal
-    ? openRefusalAffordance(refusal.kind).offerNewWallet
-    : false;
+  const { offerNewWallet, offerRestore } = refusal
+    ? openRefusalAffordance(refusal.kind)
+    : { offerNewWallet: false, offerRestore: false };
 
   const handleUnlock = useCallback(async () => {
     if (selected === undefined || password.length === 0) return;
@@ -85,6 +85,16 @@ export default function Unlock() {
             className="btn btn-primary w-full"
           >
             Create a new wallet
+          </button>
+        )}
+
+        {/* A file this build cannot read: its recovery phrase restores it. */}
+        {offerRestore && (
+          <button
+            onClick={() => navigate("/import")}
+            className="btn btn-primary w-full"
+          >
+            Restore from your recovery phrase
           </button>
         )}
 
@@ -181,7 +191,7 @@ export default function Unlock() {
 
         {/* Help links */}
         <div className="space-y-2 text-center text-[11px] text-purple-400">
-          {!offerNewWallet && (
+          {!offerNewWallet && !offerRestore && (
             <p>
               Forgot your password? You can restore your wallet using your
               24-word recovery phrase.

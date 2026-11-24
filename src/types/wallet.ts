@@ -35,6 +35,7 @@ export interface OpenedWallet {
  */
 const OPEN_REFUSAL_KINDS = [
   "earlier_release",
+  "version_unsupported",
   "wrong_password",
   "other",
 ] as const;
@@ -78,10 +79,13 @@ export function asOpenRefusal(e: unknown): OpenRefusal {
 /**
  * What the Unlock page does with a refusal besides showing `message`.
  * A new wallet replaces the 24-word hint: the hint would send the person
- * down a restore that cannot bring this file back.
+ * down a restore that cannot bring this file back. A restore replaces it
+ * too: the file is not locked by a forgotten password, and the recovery
+ * phrase is the way back.
  */
 export interface OpenRefusalAffordance {
   offerNewWallet: boolean;
+  offerRestore: boolean;
 }
 
 export function openRefusalAffordance(
@@ -89,10 +93,12 @@ export function openRefusalAffordance(
 ): OpenRefusalAffordance {
   switch (kind) {
     case "earlier_release":
-      return { offerNewWallet: true };
+      return { offerNewWallet: true, offerRestore: false };
+    case "version_unsupported":
+      return { offerNewWallet: false, offerRestore: true };
     case "wrong_password":
     case "other":
-      return { offerNewWallet: false };
+      return { offerNewWallet: false, offerRestore: false };
   }
 }
 

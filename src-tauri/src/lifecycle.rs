@@ -579,6 +579,59 @@ mod tests {
         assert!(!folder.exists(), "{} was made", folder.display());
     }
 
+    /// **A restore under a name in use says what to do and changes nothing;
+    /// the same words under another name are the same wallet.** This is the
+    /// way back from a file this build cannot read, whose name is still
+    /// taken. Red edit: in `reserve_new_wallet`, return the old bare "Wallet
+    /// file already exists".
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_restore_under_a_name_in_use_says_what_to_do_and_changes_nothing() {
+        let (dir, state, node) = offline("restore-name").await;
+        let password = engine_session::test_password();
+        let wallet_dir = state.wallet_dir().await.unwrap();
+        let daemon = EngineNode::of(&state, &node).await;
+        let mut eng = state.engine.lock().await;
+        let created = eng
+            .create(&wallet_dir, "w", &password, NetworkType::Testnet, &daemon)
+            .await
+            .expect("a wallet made offline");
+        let address = eng.primary_address().await.expect("its address");
+        let words = Zeroizing::new(created.backup.into_mnemonic());
+        eng.close().await.expect("it closes");
+
+        let keys = dir.0.join("w.wallet.keys");
+        let before = std::fs::read(&keys).unwrap();
+        let refused = eng
+            .restore_from_seed(
+                &wallet_dir,
+                "w",
+                seed_phrase::seed_from_phrase(words.as_str()).unwrap(),
+                &password,
+                0,
+                NetworkType::Testnet,
+                &daemon,
+            )
+            .await
+            .map(drop)
+            .expect_err("the name is taken");
+        assert_eq!(refused, engine_session::WALLET_NAME_TAKEN);
+        assert_eq!(std::fs::read(&keys).unwrap(), before, "the wallet there");
+
+        eng.restore_from_seed(
+            &wallet_dir,
+            "w2",
+            seed_phrase::seed_from_phrase(words.as_str()).unwrap(),
+            &password,
+            0,
+            NetworkType::Testnet,
+            &daemon,
+        )
+        .await
+        .expect("the same words under another name");
+        assert_eq!(eng.primary_address().await.expect("its address"), address);
+        eng.close().await.expect("it closes");
+    }
+
     /// **With a wallet open, the node it uses does not change under it.**
     /// The open wallet's engine keeps the node it was opened on, so a
     /// change of node address is refused in words until the wallet is
