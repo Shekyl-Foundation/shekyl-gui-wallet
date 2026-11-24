@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+- **CI builds `main` against the core it ships with.** `ci.yml`,
+  `codeql.yml` and `audit.yml` built `main` against core `dev`, so `main`
+  went red whenever core changed an API after a release. One script,
+  `scripts/ci/core_ref.sh`, now picks the core: a same-named core branch
+  first, then the release pin for code going to `main`, then core `dev`.
+  The pin is one line in `scripts/release/core-release-ref`, read by
+  `release.yml` too. `core-drift.yml` builds a pull request's merge commit,
+  so a main-to-dev back-merge is tested as the tree that lands.
+
 - **A new wallet writes no preferences file.** The wallet used to write
   `<wallet>.prefs.toml` and `<wallet>.prefs.toml.hmac` beside the wallet
   when it was created; shekyl-core deleted that file and its crate

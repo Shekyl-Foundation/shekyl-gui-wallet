@@ -30,23 +30,13 @@ jobs:
           # The branch name is the pull request author's text (a fork's
           # included): it reaches the shell as a variable's value, never
           # spliced into the script, where `$(...)` in a name would run.
-          REF: ${{ github.head_ref || github.ref_name }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          TARGET: ${{ github.base_ref || github.ref_name }}
         run: |
           set -euo pipefail
-          case "$REF" in
-            main|dev) CORE_BRANCH=dev ;;
-            *)
-              # The exact branch: a bare name also matches `*/<name>`.
-              hits=$(git ls-remote --heads https://github.com/Shekyl-Foundation/shekyl-core.git "refs/heads/$REF")
-              if [ -n "$hits" ]; then
-                CORE_BRANCH="$REF"
-              else
-                CORE_BRANCH=dev
-              fi
-              ;;
-          esac
-          echo "Checking out shekyl-core branch: $CORE_BRANCH"
-          git clone --depth 1 --branch "$CORE_BRANCH" --recurse-submodules --shallow-submodules \
+          CORE_REF="$(scripts/ci/core_ref.sh "$BRANCH" "$TARGET")"
+          echo "Checking out shekyl-core at: $CORE_REF"
+          git clone --depth 1 --branch "$CORE_REF" --recurse-submodules --shallow-submodules \
             https://github.com/Shekyl-Foundation/shekyl-core.git ../shekyl-core
 
       - name: Install Linux system dependencies
