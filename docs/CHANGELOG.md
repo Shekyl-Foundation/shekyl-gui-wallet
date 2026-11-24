@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **The release's live tests keep their nodes' data where the daemon
+  accepts it.** The daemon refuses a data directory under one another
+  account can write, `/tmp` included, so these tests would have failed at
+  the next release. They now use core's test fixture directory, and an
+  ordinary CI test checks that the daemon accepts it.
+
 - **CI builds `main` against the core it ships with.** `ci.yml`,
   `codeql.yml` and `audit.yml` built `main` against core `dev`, so `main`
   went red whenever core changed an API after a release. One script,

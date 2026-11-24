@@ -90,20 +90,10 @@ impl Drop for Daemon {
     }
 }
 
-/// Where the runs' directories go. On Unix it is `/tmp`, not the system
-/// temporary directory: the node's owner socket lives under the run
-/// directory, a socket path is limited to 103 bytes on macOS (107 on
-/// Linux), and macOS's temporary directory (`/var/folders/…/T/`) alone
-/// takes 49 of them. The daemon refuses a longer path at its start.
-fn runs_root() -> PathBuf {
-    if cfg!(unix) {
-        PathBuf::from("/tmp")
-    } else {
-        std::env::temp_dir()
-    }
-}
-
-/// A fresh directory for one run's node: this process's id and a count of
+/// A fresh directory for one run's node, in core's fixture root
+/// (`~/.shekyl-test/<pid>-gui-<n>` on Unix): the daemon refuses a data
+/// directory under one another account can write, `/tmp` included, and a
+/// test gets no exception. The name is this process's id and a count of
 /// the directories it has made. Never the clock: the tests start together,
 /// macOS's clock ticks in microseconds, and two tests that drew one name
 /// shared a directory, which the first to finish removed under the other
@@ -111,15 +101,13 @@ fn runs_root() -> PathBuf {
 /// directory).
 pub(crate) fn run_dir() -> PathBuf {
     static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let dir = runs_root().join(format!(
-        "shekyl-gui-live-{}-{}",
-        std::process::id(),
-        MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
+    let n = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = shekyl_os_account::test_fixture::path(&format!("gui-{n}"))
+        .expect("the account's test fixture root");
     // A directory an earlier process with this id left behind is not this
     // run's.
     drop(std::fs::remove_dir_all(&dir));
-    std::fs::create_dir_all(&dir).unwrap();
+    shekyl_os_account::create_account_dir_all(&dir).unwrap();
     dir
 }
 
@@ -255,6 +243,20 @@ async fn launch(
         "the bundled shekyld did not answer its version read within 60 s; its log ends:\n{}",
         tail.into_iter().rev().collect::<Vec<_>>().join("\n")
     );
+}
+
+/// The daemon takes a run's directory as its data directory. Not ignored:
+/// the tests that start a node run only in the release job, so a directory
+/// the daemon has come to refuse would otherwise first show at a release.
+/// Red edit: make `run_dir` a directory under `/tmp`.
+#[test]
+fn a_run_directory_is_one_the_daemon_accepts() {
+    let dir = run_dir();
+    let taken = shekyl_daemon_config::Lock::take(&dir.join("data"));
+    let refusal = taken.as_ref().err().map(ToString::to_string);
+    drop(taken);
+    drop(std::fs::remove_dir_all(&dir));
+    assert_eq!(refusal, None, "the daemon refuses {}", dir.display());
 }
 
 /// The node the wallet launches runs the wallet's network, on every

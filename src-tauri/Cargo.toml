@@ -77,6 +77,9 @@ multisig = []
 libc = "0.2"
 
 [dev-dependencies]
+# A live test's node keeps its data in core's test fixture root, the one
+# place the daemon's data-directory check passes for a test.
+shekyl-os-account = { path = "../../shekyl-core/rust/shekyl-os-account", features = ["test-fixture"] }
 # A test's node lives in a socket directory or instance of its own, named
 # with `LocalTarget::test_override`: core's TEST_ONLY feature, which a dev
 # edge alone may enable. The wallet itself names "this computer" by its
