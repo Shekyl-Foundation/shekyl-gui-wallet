@@ -4,21 +4,23 @@
 # BSD-3-Clause
 #
 # The `merge-ready` commit status: the owning lane's "done", enforced
-# (ruled 2026-11-19; scripts/ci/merge_ready.py has the whole contract).
+# (ruled 2026-11-19). It is a signal to the merger, not a second test run
+# (ruled 2026-11-23). There is one judge for both repositories:
+# shekyl-core's scripts/ci/merge_ready.py, which has the whole contract.
 #
-# The owning lane applies the `merge-ready` label when every check on the
-# current head has concluded (not only the required ones), its fleet and
-# local runs for that head are done, and its review threads are resolved.
+# The owning lane applies the `merge-ready` label when review and validation
+# are complete: every check on the current head has concluded (not only the
+# required ones), its fleet and local runs for that head are done, and its
+# review threads are resolved.
 # This workflow keeps the `merge-ready` status, the required check, true to
 # it:
-#   - without the label the status is pending ("waiting for the owner's
-#     merge-ready label"), never red and never skipped;
+#   - without the label the status is pending (`waiting`), never red and
+#     never skipped;
 #   - a push takes the label off, so a label never vouches for a head it did
 #     not see;
 #   - the label going on is checked against every check run and status on
-#     the head (this one and merge_ready.py's EXCLUDED, by name, aside); a
-#     check still running or red, an open review thread or a draft takes it
-#     off again, with a comment naming each.
+#     the head; a check still running or red, an open review thread or a
+#     draft takes it off again, with a comment naming each.
 #
 # The status, not the job, is the required check: a skipped job counts as
 # a pass to protection, and a head with no status at all is blocked as
@@ -60,14 +62,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5  # API calls, and at most SETTLE_SECONDS of waiting
     permissions:
+      # actions: the head's workflow runs, so a run a newer one replaced is
+      # not judged, and a review bot's run is known by its path.
+      actions: read
+      # checks: the head's check runs, and the annotation that says a newer
+      # run of a concurrency group replaced one.
       checks: read
       contents: read
       pull-requests: write
       statuses: write
     steps:
-      # The script alone, from the commit under test.
+      # The script alone, from shekyl-core's `dev` as it is now: one judge
+      # for both repositories, never a pull request's own copy. Public, so
+      # the checkout needs no token.
       - uses: actions/checkout@v5
         with:
+          repository: Shekyl-Foundation/shekyl-core
+          ref: dev
           sparse-checkout: scripts/ci/merge_ready.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
