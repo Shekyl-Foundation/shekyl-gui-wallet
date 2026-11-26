@@ -193,6 +193,7 @@ impl AppState {
             }
             None => shekyl_rpc_transport::DaemonTarget::ThisComputer {
                 network: self.network.read().await.network(),
+                account: shekyl_rpc_transport::ChannelAccount::default(),
             },
         }
     }

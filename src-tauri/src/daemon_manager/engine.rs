@@ -53,7 +53,10 @@ impl DaemonManager {
         if let Some(target) = self.test_target(network) {
             return Ok(LocalRpc::new(target).into());
         }
-        DaemonTarget::ThisComputer { network }
+        DaemonTarget::ThisComputer {
+            network,
+            account: shekyl_rpc_transport::ChannelAccount::default(),
+        }
             .connect(None)
             .await
             .map_err(|e| format!("daemon unreachable: {e}"))

@@ -60,8 +60,12 @@ impl EngineNode {
     /// guard by whatever opens a wallet (see [`AppState::engine`]).
     pub(crate) async fn of(state: &AppState, manager: &Arc<DaemonManager>) -> Self {
         match state.engine_target().await {
-            DaemonTarget::ThisComputer { .. } => Self::ThisComputer(Arc::clone(manager)),
-            target @ DaemonTarget::Address { .. } => Self::Address(target),
+            DaemonTarget::ThisComputer { .. } | DaemonTarget::Owner(_) => {
+                Self::ThisComputer(Arc::clone(manager))
+            }
+            target @ (DaemonTarget::Address { .. } | DaemonTarget::Channel { .. }) => {
+                Self::Address(target)
+            }
         }
     }
 }
@@ -76,13 +80,19 @@ impl EngineNode {
                 if let Some(words) = manager.refusal().await {
                     return Err(words);
                 }
-                Ok(DaemonTarget::ThisComputer { network })
+                Ok(DaemonTarget::ThisComputer {
+                    network,
+                    account: shekyl_rpc_transport::ChannelAccount::default(),
+                })
             }
             Self::Address(target) => Ok(target.clone()),
             // A test node's owner's leg is no `DaemonTarget`; the tests that
             // stake refuse before core dials it.
             #[cfg(test)]
-            Self::Local(_) => Ok(DaemonTarget::ThisComputer { network }),
+            Self::Local(_) => Ok(DaemonTarget::ThisComputer {
+                network,
+                account: shekyl_rpc_transport::ChannelAccount::default(),
+            }),
         }
     }
 }
