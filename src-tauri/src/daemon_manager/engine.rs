@@ -55,7 +55,7 @@ impl DaemonManager {
         }
         DaemonTarget::ThisComputer {
             network,
-            account: shekyl_rpc_transport::ChannelAccount::default(),
+            key_file: None,
         }
             .connect(None)
             .await

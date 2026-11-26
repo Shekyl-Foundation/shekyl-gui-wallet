@@ -82,7 +82,7 @@ impl EngineNode {
                 }
                 Ok(DaemonTarget::ThisComputer {
                     network,
-                    account: shekyl_rpc_transport::ChannelAccount::default(),
+                    key_file: None,
                 })
             }
             Self::Address(target) => Ok(target.clone()),
@@ -91,7 +91,7 @@ impl EngineNode {
             #[cfg(test)]
             Self::Local(_) => Ok(DaemonTarget::ThisComputer {
                 network,
-                account: shekyl_rpc_transport::ChannelAccount::default(),
+                key_file: None,
             }),
         }
     }
