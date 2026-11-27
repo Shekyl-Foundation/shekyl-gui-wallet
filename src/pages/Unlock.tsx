@@ -13,12 +13,13 @@ import { useOpenAttempt } from "./openAttempt";
 /**
  * The button above the form for `action`. The password hint is rendered
  * with the help links, so that action has no button. A new action has to
- * name its button here.
+ * name its button here: the return type leaves out `undefined`, so a
+ * missing case fails the typecheck.
  */
 function actionButton(
   action: OpenRefusalAction,
   navigate: NavigateFunction,
-): React.ReactNode {
+): React.ReactElement | null {
   switch (action) {
     case "new_wallet":
       return (
