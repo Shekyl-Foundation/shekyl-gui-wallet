@@ -17,7 +17,7 @@ use shekyl_crypto_pq::wallet_envelope::WalletEnvelopeError;
 use shekyl_engine_core::{FirstStakeError, IoError, OpenError, RefreshError};
 use shekyl_engine_file::WalletFileError;
 use shekyl_rpc_client::DaemonFault;
-use shekyl_wallet_contract::error::{from_unsaved_send, SaveOf, WalletRpcError};
+use shekyl_wallet_contract::error::{from_daemon_fault, from_unsaved_send, SaveOf, WalletRpcError};
 
 /// Open, create and close failures as operator text: the wallet contract's
 /// message for the cause (`shekyl-wallet-contract`), the same words the
@@ -178,6 +178,11 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
         // The failed fee query's own cause, in the contract's words: no
         // answer, a daemon this wallet cannot use, or a reply it cannot read.
         FirstStakeError::FeeEstimate(e) => WalletRpcError::from(e).message(),
+        // The node named its own remedy while the bond was being read (an
+        // enrolled channel's fault, a peer check, a service at this
+        // computer): that remedy, in the contract's words, the same
+        // sentence `stake` returns over the wallet RPC.
+        FirstStakeError::Daemon(fault) => from_daemon_fault(fault, "stake").message(),
         FirstStakeError::NoStakeEngine => {
             "stake engine not ready after intent open; retry activation".into()
         }
@@ -387,6 +392,25 @@ mod tests {
                 "the daemon's text and local paths stay in the log: {msg}"
             );
         }
+    }
+
+    /// A stake whose bond read met a channel fault reads as that fault's
+    /// remedy (enroll this wallet), never as "the daemon did not answer",
+    /// whose remedy (start the node) would not help. Red edit: map
+    /// `FirstStakeError::Daemon` to the unreachable sentence.
+    #[test]
+    fn a_stake_channel_fault_keeps_its_enrollment_remedy() {
+        let not_enrolled = map_first_stake_err(FirstStakeError::Daemon(DaemonFault::Channel(
+            shekyl_rpc_client::WalletChannelFault::NotEnrolled([7; 32]),
+        )));
+        assert!(
+            not_enrolled.contains("rpc client add"),
+            "the enrollment command: {not_enrolled}"
+        );
+        assert_ne!(
+            not_enrolled,
+            map_first_stake_err(FirstStakeError::Daemon(DaemonFault::Unreachable)),
+        );
     }
 
     /// An open failure reads as the contract's remedy for its cause, not the
