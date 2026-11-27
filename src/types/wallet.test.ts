@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   CREATED_WALLET_BACKUP_UNUSABLE,
   createdWalletFromWire,
+  openRefusalAction,
   type CreatedWalletWire,
+  type OpenRefusalKind,
   type WalletHandle,
   type WalletNetwork,
 } from "./wallet";
@@ -18,6 +20,17 @@ const NETWORKS = ["MAINNET", "TESTNET", "STAGENET"] as const;
 function wire(network: WalletNetwork, partial: Partial<CreatedWalletWire>): CreatedWalletWire {
   return { wallet: handle(network), ...partial };
 }
+
+describe("openRefusalAction", () => {
+  it("gives each refusal exactly one next action", () => {
+    const refusal = (kind: OpenRefusalKind) => ({ kind, message: "shown as written" });
+    expect(openRefusalAction(refusal("earlier_release"))).toBe("new_wallet");
+    expect(openRefusalAction(refusal("version_unsupported"))).toBe("restore");
+    expect(openRefusalAction(refusal("wrong_password"))).toBe("password_hint");
+    expect(openRefusalAction(refusal("other"))).toBe("password_hint");
+    expect(openRefusalAction(null)).toBe("password_hint");
+  });
+});
 
 describe("createdWalletFromWire", () => {
   it("keeps the 24-word phrase on every network", () => {

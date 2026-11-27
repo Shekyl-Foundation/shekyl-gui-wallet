@@ -31,7 +31,7 @@ export interface OpenedWallet {
 
 /**
  * `OpenRefusalKind` in `src-tauri/src/engine_errors.rs`. One list, so a new
- * kind fails the affordance switch until the page decides what it does.
+ * kind fails [`openRefusalAction`] until someone names the action it takes.
  */
 const OPEN_REFUSAL_KINDS = [
   "earlier_release",
@@ -77,28 +77,29 @@ export function asOpenRefusal(e: unknown): OpenRefusal {
 }
 
 /**
- * What the Unlock page does with a refusal besides showing `message`.
- * A new wallet replaces the 24-word hint: the hint would send the person
- * down a restore that cannot bring this file back. A restore replaces it
- * too: the file is not locked by a forgotten password, and the recovery
- * phrase is the way back.
+ * The one thing the Unlock page offers besides `message`.
+ *
+ * `new_wallet` replaces the password hint: those words cannot bring an
+ * earlier release's file back. `restore` replaces it too: the file is not
+ * locked by a forgotten password, and the recovery phrase is the way back.
+ * `password_hint` is every other refusal, and the page when nothing has
+ * been refused yet.
  */
-export interface OpenRefusalAffordance {
-  offerNewWallet: boolean;
-  offerRestore: boolean;
-}
+export type OpenRefusalAction = "new_wallet" | "restore" | "password_hint";
 
-export function openRefusalAffordance(
-  kind: OpenRefusalKind,
-): OpenRefusalAffordance {
-  switch (kind) {
+/** The action for this refusal. No refusal keeps the password hint. */
+export function openRefusalAction(
+  refusal: OpenRefusal | null,
+): OpenRefusalAction {
+  switch (refusal?.kind) {
     case "earlier_release":
-      return { offerNewWallet: true, offerRestore: false };
+      return "new_wallet";
     case "version_unsupported":
-      return { offerNewWallet: false, offerRestore: true };
+      return "restore";
     case "wrong_password":
     case "other":
-      return { offerNewWallet: false, offerRestore: false };
+    case undefined:
+      return "password_hint";
   }
 }
 

@@ -1,10 +1,47 @@
 import { useState, useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, type NavigateFunction } from "react-router";
 import { Lock, Eye, EyeOff, ChevronDown } from "lucide-react";
 import { useWallet } from "../context/useWallet";
 import WalletDirAdvanced from "../components/WalletDirAdvanced";
-import { asOpenRefusal, openRefusalAffordance } from "../types/wallet";
+import {
+  asOpenRefusal,
+  openRefusalAction,
+  type OpenRefusalAction,
+} from "../types/wallet";
 import { useOpenAttempt } from "./openAttempt";
+
+/**
+ * The button above the form for `action`. The password hint is rendered
+ * with the help links, so that action has no button. A new action has to
+ * name its button here.
+ */
+function actionButton(
+  action: OpenRefusalAction,
+  navigate: NavigateFunction,
+): React.ReactNode {
+  switch (action) {
+    case "new_wallet":
+      return (
+        <button
+          onClick={() => navigate("/create")}
+          className="btn btn-primary w-full"
+        >
+          Create a new wallet
+        </button>
+      );
+    case "restore":
+      return (
+        <button
+          onClick={() => navigate("/import")}
+          className="btn btn-primary w-full"
+        >
+          Restore from your recovery phrase
+        </button>
+      );
+    case "password_hint":
+      return null;
+  }
+}
 
 export default function Unlock() {
   const { walletFiles, openWallet, setPhase, error: ctxError } = useWallet();
@@ -34,9 +71,7 @@ export default function Unlock() {
     selected !== undefined && attempt?.path === selected.path
       ? attempt.refusal
       : null;
-  const { offerNewWallet, offerRestore } = refusal
-    ? openRefusalAffordance(refusal.kind)
-    : { offerNewWallet: false, offerRestore: false };
+  const action = openRefusalAction(refusal);
 
   const handleUnlock = useCallback(async () => {
     if (selected === undefined || password.length === 0) return;
@@ -78,25 +113,7 @@ export default function Unlock() {
           </div>
         )}
 
-        {/* An earlier release's file: the next step is a new wallet. */}
-        {offerNewWallet && (
-          <button
-            onClick={() => navigate("/create")}
-            className="btn btn-primary w-full"
-          >
-            Create a new wallet
-          </button>
-        )}
-
-        {/* A file this build cannot read: its recovery phrase restores it. */}
-        {offerRestore && (
-          <button
-            onClick={() => navigate("/import")}
-            className="btn btn-primary w-full"
-          >
-            Restore from your recovery phrase
-          </button>
-        )}
+        {actionButton(action, navigate)}
 
         <div className="card space-y-4">
           {/* Wallet selector (if multiple) */}
@@ -191,7 +208,7 @@ export default function Unlock() {
 
         {/* Help links */}
         <div className="space-y-2 text-center text-[11px] text-purple-400">
-          {!offerNewWallet && !offerRestore && (
+          {action === "password_hint" && (
             <p>
               Forgot your password? You can restore your wallet using your
               24-word recovery phrase.
