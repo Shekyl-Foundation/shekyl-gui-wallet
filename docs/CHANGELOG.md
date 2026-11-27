@@ -17,6 +17,12 @@
   `release.yml` too. `core-drift.yml` builds a pull request's merge commit,
   so a main-to-dev back-merge is tested as the tree that lands.
 
+- **A wallet this build cannot read has a way back on the Unlock page.**
+  When a wallet's files were written by another version, the page now
+  offers "Restore from your recovery phrase" in place of the forgotten
+  password hint. Restoring under a name already in use says to choose
+  another name, and the wallet already there is not changed.
+
 - **A new wallet writes no preferences file.** The wallet used to write
   `<wallet>.prefs.toml` and `<wallet>.prefs.toml.hmac` beside the wallet
   when it was created; shekyl-core deleted that file and its crate

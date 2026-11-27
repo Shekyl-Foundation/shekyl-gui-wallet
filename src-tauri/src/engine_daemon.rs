@@ -13,94 +13,195 @@
 //! daemon still lets create/open proceed (offline). The session owns when
 //! the client is attached.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use shekyl_engine_core::{DaemonClient, DaemonExpectation, Network};
 use shekyl_rpc_client::{DaemonFault, Rpc};
-#[cfg(test)]
-use shekyl_rpc_transport::local::LocalRpc;
+use shekyl_rpc_transport::channel::RemoteNode;
+use shekyl_rpc_transport::local::LocalTarget;
 use shekyl_rpc_transport::{DaemonTarget, DaemonTransport};
 use shekyl_wallet_contract::error::from_daemon_rpc_error;
 
 use crate::daemon_manager::DaemonManager;
 use crate::state::AppState;
 
-/// The node the wallet engine reads (core RT-W10 step 5; Rick,
-/// 2026-11-18): core's one target, "this computer" or a typed address
-/// ([`AppState::engine_target`]). A test names its own node's owner's leg
-/// directly, since a test node lives in a socket directory or instance of
-/// its own, which "this computer" does not name.
+/// This computer's account rendezvous, as core names it.
+///
+/// `key_file` overrides the account key. `None` selects the account default
+/// (`rpc-client.key` under the account root) when resolution falls through
+/// to a service channel. The owner socket wins when its path exists, and
+/// the key is not read. This is the one construction of
+/// [`DaemonTarget::ThisComputer`]: the engine, the manager, and the app
+/// state all name this computer through it.
+#[must_use]
+pub(crate) fn this_computer(network: Network, key_file: Option<PathBuf>) -> DaemonTarget {
+    DaemonTarget::ThisComputer { network, key_file }
+}
+
+/// The node the wallet engine reads (core RT-W10 step 5).
+///
+/// One variant per door core names in [`DaemonTarget`]. [`Self::ThisComputer`]
+/// is the account rendezvous the wallet starts: the manager latches a failed
+/// peer check there, and a test may substitute its own socket. [`Self::Owner`]
+/// is an already-resolved owner socket (a harness, or a test node's leg).
+/// [`Self::Channel`] is an enrolled channel; the desktop wallet does not build
+/// one yet, and the variant is the door so a later caller is not folded into
+/// another. [`Self::Address`] is a plaintext address a person typed.
+///
+/// The transport is the RPC door. It does not choose a proof system, so the
+/// same four doors hold through the mining era and the lattice transition.
 #[derive(Clone)]
 pub(crate) enum EngineNode {
-    /// "This computer", named by the network alone. The node's manager
-    /// keeps the one latch for a failed peer check there
-    /// ([`DaemonManager::refuse`]): the engine's dial is refused while one
-    /// is latched, and latches the one it meets.
-    ThisComputer(Arc<DaemonManager>),
-    /// The node address a person typed.
-    Address(DaemonTarget),
-    /// A test node's owner's leg.
-    #[cfg(test)]
-    Local(shekyl_rpc_transport::local::LocalTarget),
+    /// This computer's account rendezvous. `key_file` is the target's, kept
+    /// so a later override is not dropped when the target is rebuilt.
+    ThisComputer {
+        /// The manager that starts this node and latches a failed peer check.
+        manager: Arc<DaemonManager>,
+        /// Account key file. `None` is the account default; see [`this_computer`].
+        key_file: Option<PathBuf>,
+    },
+    /// An already-resolved owner socket. Dial this rendezvous. The manager's
+    /// latch does not apply: the socket is not the account rendezvous the
+    /// manager watches.
+    Owner(LocalTarget),
+    /// An enrolled channel. Dial this target. The latch does not apply.
+    Channel {
+        /// The channel's network, which is the target's, not the session's.
+        network: Network,
+        /// The endpoint and the operator's bundle.
+        node: RemoteNode,
+        /// Account key file. `None` is the account default.
+        key_file: Option<PathBuf>,
+    },
+    /// A plaintext address a person typed. Dial it. The latch does not apply,
+    /// loopback included: an address they typed is theirs.
+    Address {
+        /// The daemon's base URL; may carry digest credentials.
+        url: String,
+        /// The SOCKS5h proxy; `None` is direct.
+        proxy: Option<String>,
+    },
 }
 
 impl std::fmt::Debug for EngineNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ThisComputer(_) => f.write_str("ThisComputer"),
-            Self::Address(target) => f.debug_tuple("Address").field(target).finish(),
-            #[cfg(test)]
-            Self::Local(target) => f.debug_tuple("Local").field(target).finish(),
+            // The manager is a process handle. The key file is the part of
+            // the door a log can show.
+            Self::ThisComputer { key_file, .. } => f
+                .debug_struct("ThisComputer")
+                .field("key_file", key_file)
+                .finish_non_exhaustive(),
+            Self::Owner(target) => f.debug_tuple("Owner").field(target).finish(),
+            Self::Channel {
+                network,
+                node,
+                key_file,
+            } => f
+                .debug_struct("Channel")
+                .field("network", network)
+                .field("node", node)
+                .field("key_file", key_file)
+                .finish(),
+            // Core's `Debug` redacts digest credentials in the URL.
+            Self::Address { url, proxy } => f
+                .debug_tuple("Address")
+                .field(&DaemonTarget::Address {
+                    url: url.clone(),
+                    proxy: proxy.clone(),
+                })
+                .finish(),
         }
     }
 }
 
 impl EngineNode {
+    /// `door` becomes the engine's node. `manager` is attached only for this
+    /// computer: that is the rendezvous the manager starts and watches.
+    /// An owner socket, a channel, and a typed address keep the target
+    /// itself, and the manager is not latched for them.
+    pub(crate) fn from_target(door: DaemonTarget, manager: &Arc<DaemonManager>) -> Self {
+        match door {
+            DaemonTarget::ThisComputer { key_file, .. } => Self::ThisComputer {
+                manager: Arc::clone(manager),
+                key_file,
+            },
+            DaemonTarget::Owner(owner) => Self::Owner(owner),
+            DaemonTarget::Channel {
+                network,
+                node,
+                key_file,
+            } => Self::Channel {
+                network,
+                node,
+                key_file,
+            },
+            DaemonTarget::Address { url, proxy } => Self::Address { url, proxy },
+        }
+    }
+
     /// The node the wallet is pointed at now. Read inside the session
     /// guard by whatever opens a wallet (see [`AppState::engine`]).
     pub(crate) async fn of(state: &AppState, manager: &Arc<DaemonManager>) -> Self {
-        match state.engine_target().await {
-            DaemonTarget::ThisComputer { .. } => Self::ThisComputer(Arc::clone(manager)),
-            target @ DaemonTarget::Address { .. } => Self::Address(target),
-        }
+        Self::from_target(state.engine_target().await, manager)
     }
-}
 
-impl EngineNode {
-    /// Core's target for this node, for a call core dials itself (the
-    /// stake's body-store fill): refused while a failed peer check at "this
-    /// computer" is latched, as [`core_target`] is.
-    pub(crate) async fn core_target(&self, network: Network) -> Result<DaemonTarget, String> {
+    /// The target core dials, with no latch applied.
+    ///
+    /// For [`Self::ThisComputer`], `session_network` is the session's
+    /// network and `key_file` is the target's. The other doors return the
+    /// target they hold: a channel keeps its own network, and the session
+    /// argument does not rewrite it.
+    fn target(&self, session_network: Network) -> DaemonTarget {
         match self {
-            Self::ThisComputer(manager) => {
-                if let Some(words) = manager.refusal().await {
-                    return Err(words);
-                }
-                Ok(DaemonTarget::ThisComputer { network })
-            }
-            Self::Address(target) => Ok(target.clone()),
-            // A test node's owner's leg is no `DaemonTarget`; the tests that
-            // stake refuse before core dials it.
-            #[cfg(test)]
-            Self::Local(_) => Ok(DaemonTarget::ThisComputer { network }),
+            Self::ThisComputer { key_file, .. } => this_computer(session_network, key_file.clone()),
+            Self::Owner(owner) => DaemonTarget::Owner(owner.clone()),
+            Self::Channel {
+                network,
+                node,
+                key_file,
+            } => DaemonTarget::Channel {
+                network: *network,
+                node: node.clone(),
+                key_file: key_file.clone(),
+            },
+            Self::Address { url, proxy } => DaemonTarget::Address {
+                url: url.clone(),
+                proxy: proxy.clone(),
+            },
         }
+    }
+
+    /// Core's target for this node, for a call core dials itself (the
+    /// stake's body-store fill). Refused while a failed peer check at this
+    /// computer is latched. An owner socket, a channel, and a typed address
+    /// are not that rendezvous, so the latch does not stand in front of them.
+    pub(crate) async fn core_target(
+        &self,
+        session_network: Network,
+    ) -> Result<DaemonTarget, String> {
+        if let Self::ThisComputer { manager, .. } = self {
+            if let Some(words) = manager.refusal().await {
+                return Err(words);
+            }
+        }
+        Ok(self.target(session_network))
     }
 }
 
-/// Core's target for a call core dials itself (`unstake`): the same one
-/// target, refused while a failed peer check at "this computer" is
-/// latched, so that call does not dial the address either.
+/// Core's target for a call core dials itself (`unstake`). The same door
+/// as [`EngineNode::core_target`]: this computer is refused while a failed
+/// peer check is latched, and every other door is handed back as named.
 pub(crate) async fn core_target(
     state: &AppState,
-    manager: &DaemonManager,
+    manager: &Arc<DaemonManager>,
 ) -> Result<DaemonTarget, String> {
-    let target = state.engine_target().await;
-    if let DaemonTarget::ThisComputer { .. } = target {
-        if let Some(words) = manager.refusal().await {
-            return Err(words);
-        }
-    }
-    Ok(target)
+    let session_network = state.network.read().await.network();
+    EngineNode::of(state, manager)
+        .await
+        .core_target(session_network)
+        .await
 }
 
 /// Build the engine's verified client for `node`. A failed peer check or a
@@ -114,13 +215,14 @@ pub(crate) async fn make_daemon(
     network: Network,
 ) -> Result<DaemonClient, String> {
     let rpc: DaemonTransport = match node {
-        EngineNode::ThisComputer(manager) => manager.engine_transport(network).await?,
-        EngineNode::Address(target) => target
+        EngineNode::ThisComputer { manager, key_file } => {
+            manager.engine_transport(network, key_file.clone()).await?
+        }
+        direct => direct
+            .target(network)
             .connect(None)
             .await
             .map_err(|e| format!("daemon unreachable: {e}"))?,
-        #[cfg(test)]
-        EngineNode::Local(target) => LocalRpc::new(target.clone()).into(),
     };
     let daemon = DaemonClient::verifying(rpc, DaemonExpectation { network });
     // First Engine RPC runs the four-axis handshake. Identity mismatch
@@ -136,7 +238,7 @@ pub(crate) async fn make_daemon(
         Err(e) => match e.fault() {
             DaemonFault::PeerCheck => {
                 let words = crate::daemon_rpc::said(&e, "the node");
-                if let EngineNode::ThisComputer(manager) = node {
+                if let EngineNode::ThisComputer { manager, .. } = node {
                     manager.refuse(words.clone()).await;
                 }
                 Err(words)

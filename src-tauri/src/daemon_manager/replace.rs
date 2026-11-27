@@ -102,9 +102,11 @@ impl DaemonManager {
             inner.network
         };
         let target = self.target(network);
-        let stop = tokio::task::spawn_blocking(move || target.call::<DaemonStop>(&NoParams))
-            .await
-            .map_err(|e| e.to_string())?;
+        let stop = tokio::task::spawn_blocking(move || {
+            target.call::<DaemonStop>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
         if let Err(e) = stop {
             let words = format!(
                 "Your node on {} did not take the stop: {e}",

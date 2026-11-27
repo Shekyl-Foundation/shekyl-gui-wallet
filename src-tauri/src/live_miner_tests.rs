@@ -26,10 +26,12 @@ use crate::state::NetworkType;
 /// The miner of the wallet's node, read on its owner's leg.
 async fn miner(dm: &DaemonManager) -> shekyl_rpc_client::wire::node::MineStatus {
     let leg = dm.own_target().await.expect("the wallet's node is ready");
-    tokio::task::spawn_blocking(move || leg.call::<MineStatus>(&NoParams))
-        .await
-        .unwrap()
-        .expect("mine_status")
+    tokio::task::spawn_blocking(move || {
+        leg.call::<MineStatus>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+    })
+    .await
+    .unwrap()
+    .expect("mine_status")
 }
 
 /// **A wallet opened while the node is not mining causes no restart**
@@ -100,9 +102,12 @@ async fn a_wallet_opened_while_the_miner_runs_moves_the_miner_to_it() {
     dm.mine_to(&first).await.expect("the node pays the first");
     let leg = dm.own_target().await.expect("ready");
     tokio::task::spawn_blocking(move || {
-        leg.call::<shekyl_rpc_client::wire::MineStart>(&MineStart {
-            threads: Threads::Count(Count(1)),
-        })
+        leg.call::<shekyl_rpc_client::wire::MineStart>(
+            &MineStart {
+                threads: Threads::Count(Count(1)),
+            },
+            shekyl_rpc_transport::local::CALL_WITHIN,
+        )
     })
     .await
     .unwrap()
@@ -213,10 +218,12 @@ async fn start_mining_pays_the_wallet_open_when_it_runs() {
     assert_eq!(mining.address.0.map(|a| a.0), Some(first.clone()));
 
     let leg = dm.own_target().await.expect("ready");
-    tokio::task::spawn_blocking(move || leg.call::<MineStop>(&NoParams))
-        .await
-        .unwrap()
-        .expect("mine_stop on the owner's leg");
+    tokio::task::spawn_blocking(move || {
+        leg.call::<MineStop>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+    })
+    .await
+    .unwrap()
+    .expect("mine_stop on the owner's leg");
 
     // The second wallet opens, and its reconciling is only spawned.
     dm.wallet_is(Some(second.clone())).await;

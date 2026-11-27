@@ -69,12 +69,14 @@ async fn tor_offering_fixes(dm: &DaemonManager, dir: &Path) -> TorStatus {
 /// The Tor status of the wallet's node, read on its owner's leg.
 async fn tor(dm: &DaemonManager) -> TorStatus {
     let leg = dm.own_target().await.expect("the wallet's node is ready");
-    tokio::task::spawn_blocking(move || leg.call::<DaemonStatus>(&NoParams))
-        .await
-        .unwrap()
-        .expect("daemon_status")
-        .tor_status()
-        .expect("the owner's leg is shown the Status part")
+    tokio::task::spawn_blocking(move || {
+        leg.call::<DaemonStatus>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+    })
+    .await
+    .unwrap()
+    .expect("daemon_status")
+    .tor_status()
+    .expect("the owner's leg is shown the Status part")
 }
 
 /// A port on this computer nothing listens on.

@@ -757,11 +757,17 @@ pub(crate) fn map_network(n: NetworkType) -> Network {
     n.network()
 }
 
+/// A new wallet's name is already a wallet's in this folder. It says what to
+/// do, and that the wallet already there is safe: a person restoring a wallet
+/// this build cannot read meets this under the old wallet's name.
+pub(crate) const WALLET_NAME_TAKEN: &str = "A wallet with this name is already in \
+this folder. Choose a different name; the wallet already there is not changed.";
+
 /// Path for a wallet that does not exist yet, and the directory that holds it.
 fn reserve_new_wallet(wallet_dir: &Path, name: &str) -> Result<PathBuf, String> {
     let base = engine_wallet_base(wallet_dir, name);
     if keys_path_from(&base).exists() {
-        return Err("Wallet file already exists".into());
+        return Err(WALLET_NAME_TAKEN.into());
     }
     std::fs::create_dir_all(wallet_dir)
         .map_err(|e| format!("Failed to create wallet directory: {e}"))?;
