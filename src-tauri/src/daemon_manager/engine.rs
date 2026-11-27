@@ -57,8 +57,8 @@ impl DaemonManager {
             network,
             key_file: None,
         }
-            .connect(None)
-            .await
-            .map_err(|e| format!("daemon unreachable: {e}"))
+        .connect(None)
+        .await
+        .map_err(|e| format!("daemon unreachable: {e}"))
     }
 }

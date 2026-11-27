@@ -162,16 +162,20 @@ async fn the_wallet_s_node_answers_on_its_owner_s_leg_and_relaunches_for_mining(
 
     let target = dm.own_target().await.expect("the wallet's node is ready");
     let leg = target.clone();
-    let mining = tokio::task::spawn_blocking(move || leg.call::<MineStatus>(&NoParams))
-        .await
-        .unwrap()
-        .expect("mine_status is admitted on the owner's leg");
+    let mining = tokio::task::spawn_blocking(move || {
+        leg.call::<MineStatus>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+    })
+    .await
+    .unwrap()
+    .expect("mine_status is admitted on the owner's leg");
     assert_eq!(mining.address.0, None, "no wallet's address yet");
     let leg = target.clone();
-    let status = tokio::task::spawn_blocking(move || leg.call::<DaemonStatus>(&NoParams))
-        .await
-        .unwrap()
-        .expect("daemon_status");
+    let status = tokio::task::spawn_blocking(move || {
+        leg.call::<DaemonStatus>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+    })
+    .await
+    .unwrap()
+    .expect("daemon_status");
     assert!(
         status.tor_status().is_some(),
         "the owner's leg is shown the Status part"
@@ -188,10 +192,12 @@ async fn the_wallet_s_node_answers_on_its_owner_s_leg_and_relaunches_for_mining(
         "the first node is gone before the second starts"
     );
     let leg = dm.own_target().await.expect("ready again");
-    let mining = tokio::task::spawn_blocking(move || leg.call::<MineStatus>(&NoParams))
-        .await
-        .unwrap()
-        .expect("mine_status");
+    let mining = tokio::task::spawn_blocking(move || {
+        leg.call::<MineStatus>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+    })
+    .await
+    .unwrap()
+    .expect("mine_status");
     assert_eq!(mining.address.0.map(|a| a.0), Some(address.clone()));
     // The same address again is no relaunch.
     dm.mine_to(&address).await.expect("already paying it");
@@ -245,10 +251,12 @@ async fn answers(leg: &LocalTarget, dir: &Path) {
     let deadline = Instant::now() + SETTLES;
     loop {
         let leg = leg.clone();
-        let answered = tokio::task::spawn_blocking(move || leg.call::<Version>(&NoParams))
-            .await
-            .unwrap()
-            .is_ok();
+        let answered = tokio::task::spawn_blocking(move || {
+            leg.call::<Version>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+        })
+        .await
+        .unwrap()
+        .is_ok();
         if answered {
             return;
         }
@@ -466,10 +474,12 @@ async fn with_testnet_saved_the_first_node_is_a_testnet_node() {
     // The node answers at testnet's rendezvous, and nothing is at
     // mainnet's: each network's record has its own name.
     let leg = dm.own_target().await.expect("the wallet's node");
-    tokio::task::spawn_blocking(move || leg.call::<DaemonStatus>(&NoParams))
-        .await
-        .unwrap()
-        .expect("the node answers at testnet's rendezvous");
+    tokio::task::spawn_blocking(move || {
+        leg.call::<DaemonStatus>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+    })
+    .await
+    .unwrap()
+    .expect("the node answers at testnet's rendezvous");
     let instance = cfg!(windows).then(|| crate::daemon_manager::test_instance(port));
     let mainnet = shekyl_rpc_transport::local::LocalTarget::test_override(
         NetworkType::Mainnet.network(),
@@ -546,10 +556,12 @@ async fn a_hand_started_node_is_found_stopped_on_request_and_replaced() {
     let exit = hand.wait().expect("the hand-started node's exit");
     assert!(exit.success(), "a clean stop: {exit}");
     let leg = dm.own_target().await.expect("the wallet's own node");
-    tokio::task::spawn_blocking(move || leg.call::<MineStatus>(&NoParams))
-        .await
-        .unwrap()
-        .expect("the wallet's own node answers on its owner's leg");
+    tokio::task::spawn_blocking(move || {
+        leg.call::<MineStatus>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+    })
+    .await
+    .unwrap()
+    .expect("the wallet's own node answers on its owner's leg");
 
     let pid = dm.node_pid().await.expect("the node's pid");
     dm.shutdown().await;

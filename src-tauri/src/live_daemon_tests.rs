@@ -222,9 +222,11 @@ async fn launch(
         let answered = match &daemon.owner {
             Some(owner) => {
                 let owner = owner.clone();
-                tokio::task::spawn_blocking(move || owner.call::<Version>(&NoParams))
-                    .await
-                    .is_ok_and(|reply| reply.is_ok())
+                tokio::task::spawn_blocking(move || {
+                    owner.call::<Version>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+                })
+                .await
+                .is_ok_and(|reply| reply.is_ok())
             }
             None => daemon_rpc::call::<Version>(daemon.url(), NoParams, "the node's version")
                 .await
@@ -268,10 +270,12 @@ async fn the_wallet_s_node_runs_the_wallet_s_network() {
     for network in NetworkType::ALL {
         let d = start_on(network).await;
         let owner = d.owner.clone().expect("the wallet's node");
-        let version = tokio::task::spawn_blocking(move || owner.call::<Version>(&NoParams))
-            .await
-            .unwrap()
-            .expect("version");
+        let version = tokio::task::spawn_blocking(move || {
+            owner.call::<Version>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+        })
+        .await
+        .unwrap()
+        .expect("version");
         assert_eq!(version.network, network.network(), "{}", network.as_str());
     }
 }
@@ -379,10 +383,12 @@ async fn a_wallet_on_a_genesis_only_chain_has_scanned_nothing() {
         .expect("a chain count")
         .to_raw();
     let owner = d.owner.clone().expect("the wallet's node");
-    let status = tokio::task::spawn_blocking(move || owner.call::<DaemonStatus>(&NoParams))
-        .await
-        .unwrap()
-        .expect("daemon_status");
+    let status = tokio::task::spawn_blocking(move || {
+        owner.call::<DaemonStatus>(&NoParams, shekyl_rpc_transport::local::CALL_WITHIN)
+    })
+    .await
+    .unwrap()
+    .expect("daemon_status");
     assert_eq!(status.height.0, 0, "no traffic: the chain is genesis alone");
     assert_eq!(summary.blocks_processed, 0, "nothing past genesis to scan");
     assert_eq!(synced, 0, "the wallet's count: nothing scanned");

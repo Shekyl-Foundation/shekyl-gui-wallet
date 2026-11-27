@@ -477,9 +477,11 @@ impl DaemonManager {
         let target = self.own_target().await?;
         // The owner's leg is a blocking dial and exchange, under its own
         // deadline (`shekyl_rpc_transport::local::CALL_WITHIN`).
-        let reply = tokio::task::spawn_blocking(move || target.call::<M>(&request))
-            .await
-            .map_err(|e| format!("Could not read {what} from the node: {e}"))?;
+        let reply = tokio::task::spawn_blocking(move || {
+            target.call::<M>(&request, shekyl_rpc_transport::local::CALL_WITHIN)
+        })
+        .await
+        .map_err(|e| format!("Could not read {what} from the node: {e}"))?;
         match reply {
             Ok(reply) => Ok(reply),
             Err(e) => {
