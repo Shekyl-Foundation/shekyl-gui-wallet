@@ -61,12 +61,16 @@ one of these rules, stop and ask the human first.
    concluded, not only the required ones, its fleet and local runs for
    that head are done, and its review threads are resolved; the handoff
    to the merger is "labelled merge-ready at <sha>". The required status
-   `merge-ready` (`merge-ready.yml`, `scripts/ci/merge_ready.py`) is
-   pending until then. The label going on is refused, and taken off with
-   a comment naming each reason, while a check runs or is red, a review
-   thread is open, or the pull request is a draft; a push takes it off.
-   Cursor Bugbot is not judged, by name: its check run can stay queued
-   forever here.
+   `merge-ready` (`merge-ready.yml`, which runs shekyl-core's
+   `scripts/ci/merge_ready.py` from its `dev`: one judge for both
+   repositories) is pending until then. The label going on is refused,
+   and taken off with a comment naming each reason, while a check runs or
+   is red, a review thread is open, or the pull request is a draft; a
+   push takes it off. Cursor Bugbot is not judged, by its app: its check
+   run can stay queued forever. The label is a signal to the merger and
+   runs no test (ruled 2026-11-23). A pull request is a draft while it is
+   worked on, comes out of draft for review, and takes the label when
+   review and validation are complete.
 
 ## Default workflow for any code change
 
