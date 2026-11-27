@@ -183,18 +183,15 @@ impl AppState {
     }
 
     /// The node the wallet engine reads, one target with no fallback (core
-    /// `RPC_CHANNEL.md` RT-15; Rick, 2026-11-18): "this computer", named by
-    /// its network alone as core defines it, or the node address a person
-    /// typed.
+    /// `RPC_CHANNEL.md` RT-15): "this computer", through
+    /// [`crate::engine_daemon::this_computer`] with the account's default
+    /// key file, or the node address a person typed.
     pub async fn engine_target(&self) -> shekyl_rpc_transport::DaemonTarget {
         match self.node_address().await {
             Some(address) => {
                 shekyl_rpc_transport::DaemonTarget::address(strip_json_rpc(&address).to_owned())
             }
-            None => shekyl_rpc_transport::DaemonTarget::ThisComputer {
-                network: self.network.read().await.network(),
-                key_file: None,
-            },
+            None => crate::engine_daemon::this_computer(self.network.read().await.network(), None),
         }
     }
 }

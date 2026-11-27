@@ -212,7 +212,7 @@ async fn the_wallet_s_node_answers_on_its_owner_s_leg_and_relaunches_for_mining(
 /// wallet's node over its owner's leg, as the engine reads it, and closed:
 /// an address the node accepts as its miner's.
 pub(crate) async fn wallet_address(dm: &DaemonManager, dir: &Path, name: &str) -> String {
-    let node = crate::engine_daemon::EngineNode::Local(
+    let node = crate::engine_daemon::EngineNode::Owner(
         dm.own_target().await.expect("the wallet's node is ready"),
     );
     let password = crate::engine_session::test_password();

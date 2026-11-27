@@ -14,10 +14,14 @@
 //! again. Only the failed check is latched here: a node found, a node that
 //! failed, and a service do not stand in the engine's way (no engine gate).
 
+use std::path::PathBuf;
+
 use shekyl_engine_core::Network;
 #[cfg(test)]
 use shekyl_rpc_transport::local::LocalRpc;
-use shekyl_rpc_transport::{DaemonTarget, DaemonTransport};
+use shekyl_rpc_transport::DaemonTransport;
+
+use crate::engine_daemon::this_computer;
 
 use super::{DaemonManager, NodeState};
 
@@ -39,12 +43,15 @@ impl DaemonManager {
         }
     }
 
-    /// The engine's transport to "this computer" on `network`, named by
-    /// the network alone as core defines it. Refused, without a dial,
-    /// while a failed peer check is latched.
+    /// The engine's transport to "this computer" on `network`.
+    ///
+    /// `key_file` is the target's account key, passed to [`this_computer`].
+    /// Refused, without a dial, while a failed peer check is latched. A
+    /// test that named its own socket dials that socket instead.
     pub(crate) async fn engine_transport(
         &self,
         network: Network,
+        key_file: Option<PathBuf>,
     ) -> Result<DaemonTransport, String> {
         if let Some(words) = self.refusal().await {
             return Err(words);
@@ -53,12 +60,9 @@ impl DaemonManager {
         if let Some(target) = self.test_target(network) {
             return Ok(LocalRpc::new(target).into());
         }
-        DaemonTarget::ThisComputer {
-            network,
-            key_file: None,
-        }
-        .connect(None)
-        .await
-        .map_err(|e| format!("daemon unreachable: {e}"))
+        this_computer(network, key_file)
+            .connect(None)
+            .await
+            .map_err(|e| format!("daemon unreachable: {e}"))
     }
 }

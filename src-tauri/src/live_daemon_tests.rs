@@ -357,7 +357,7 @@ async fn a_wallet_on_a_genesis_only_chain_has_scanned_nothing() {
             "live",
             &password,
             NetworkType::Testnet,
-            &crate::engine_daemon::EngineNode::Local(d.owner.clone().expect("the wallet's node")),
+            &crate::engine_daemon::EngineNode::Owner(d.owner.clone().expect("the wallet's node")),
         )
         .await
         .expect("a wallet created against the bundled node");
