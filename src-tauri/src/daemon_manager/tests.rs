@@ -429,7 +429,7 @@ async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
     assert_eq!(status.message.as_deref(), Some(words.as_str()));
 
     let node = EngineNode::of(&state, &dm).await;
-    assert!(matches!(node, EngineNode::ThisComputer(_)));
+    assert!(matches!(node, EngineNode::ThisComputer { .. }));
     let Err(refused) = make_daemon(&node, Network::Testnet).await else {
         panic!("a client was built behind the latch");
     };
@@ -444,7 +444,7 @@ async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
     let typed = "http://127.0.0.1:1";
     *state.node_address.write().await = Some(typed.into());
     let node = EngineNode::of(&state, &dm).await;
-    let EngineNode::Address(DaemonTarget::Address { proxy, .. }) = &node else {
+    let EngineNode::Address { proxy, .. } = &node else {
         panic!("a typed address is the node");
     };
     let proxy = proxy.clone();
@@ -465,6 +465,88 @@ async fn a_failed_peer_check_is_one_latch_for_the_wallet_and_its_engine() {
             "{path}: as typed"
         );
     }
+}
+
+/// An owner socket and an enrolled channel are their own doors, and this
+/// computer keeps the key file it was given. A latched peer check stands
+/// only in front of this computer. The session network rewrites this
+/// computer's network and does not rewrite a channel's. Red edits: fold
+/// `Owner` into `ThisComputer`; drop `key_file` when the target is rebuilt;
+/// give a channel the session's network.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_owner_socket_and_a_channel_keep_the_target_they_were_given() {
+    use std::net::SocketAddr;
+    use std::path::{Path, PathBuf};
+
+    use shekyl_rpc_rendezvous::Instance;
+    use shekyl_rpc_transport::channel::{Leg, RemoteNode};
+    use shekyl_rpc_transport::local::LocalTarget;
+    use shekyl_rpc_transport::DaemonTarget;
+
+    use crate::engine_daemon::{self, EngineNode};
+
+    let dm = DaemonManager::new(
+        Ok(std::env::temp_dir().join("shekyl-gui-none")),
+        LaunchEnv::default(),
+    );
+    let key = PathBuf::from("rpc-client.key");
+    let here = EngineNode::from_target(
+        engine_daemon::this_computer(Network::Stagenet, Some(key.clone())),
+        &dm,
+    );
+    let DaemonTarget::ThisComputer { network, key_file } = here
+        .core_target(Network::Testnet)
+        .await
+        .expect("no latch yet")
+    else {
+        panic!("this computer stays this computer");
+    };
+    assert_eq!(network, Network::Testnet, "the session's network");
+    assert_eq!(key_file, Some(key.clone()), "the target's key file");
+
+    dm.refuse("something other than your Shekyl node is answering".to_owned())
+        .await;
+    assert!(
+        here.core_target(Network::Testnet).await.is_err(),
+        "this computer is behind the latch"
+    );
+
+    let socket = Path::new("shekyl-gui-owner-door");
+    let owner =
+        LocalTarget::test_override(Network::Testnet, &Instance::Default, Some(socket), None);
+    let owner_path = owner.path().map(|path| path.to_path_buf());
+    let owner_node = EngineNode::from_target(DaemonTarget::Owner(owner), &dm);
+    let Ok(DaemonTarget::Owner(back)) = owner_node.core_target(Network::Mainnet).await else {
+        panic!("an owner socket is not behind this computer's latch");
+    };
+    assert_eq!(back.path().map(|path| path.to_path_buf()), owner_path);
+
+    let bundle = PathBuf::from("operator.bundle");
+    let channel = EngineNode::from_target(
+        DaemonTarget::Channel {
+            network: Network::Testnet,
+            node: RemoteNode {
+                leg: Leg::ip(SocketAddr::from(([192, 0, 2, 1], 18081)), None),
+                bundle_file: bundle.clone(),
+            },
+            key_file: Some(key.clone()),
+        },
+        &dm,
+    );
+    let DaemonTarget::Channel {
+        network,
+        node,
+        key_file,
+    } = channel
+        .core_target(Network::Mainnet)
+        .await
+        .expect("a channel is not behind the latch")
+    else {
+        panic!("a channel stays a channel");
+    };
+    assert_eq!(network, Network::Testnet, "the channel's own network");
+    assert_eq!(node.bundle_file, bundle);
+    assert_eq!(key_file, Some(key));
 }
 
 /// **Start mining pays the open wallet, and with none open it says so.**
