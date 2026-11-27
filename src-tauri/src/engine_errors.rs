@@ -52,6 +52,9 @@ pub(crate) const WRONG_PASSWORD: &str = "Incorrect password. Please try again.";
 pub enum OpenRefusalKind {
     /// The file predates this release's format.
     EarlierRelease,
+    /// A version this build cannot read wrote the file. Its recovery phrase
+    /// restores the wallet here.
+    VersionUnsupported,
     /// The password does not open the file.
     WrongPassword,
     /// Any other refusal, in the wallet contract's words.
@@ -70,6 +73,13 @@ impl OpenRefusal {
         Self {
             kind: OpenRefusalKind::EarlierRelease,
             message: EARLIER_RELEASE.to_owned(),
+        }
+    }
+
+    fn version_unsupported(message: String) -> Self {
+        Self {
+            kind: OpenRefusalKind::VersionUnsupported,
+            message,
         }
     }
 
@@ -115,14 +125,18 @@ fn envelope_format_retired(e: &OpenError) -> bool {
 /// An open failure as a typed refusal.
 ///
 /// `message` is the sentence to show. `kind` is how the page chooses the
-/// next action. A retired format is separated here; a file that is too new
-/// stays [`OpenRefusalKind::Other`], in the contract's words.
+/// next action. A retired format is separated here. Any other file this build
+/// cannot read, too new or with a ledger of another version, keeps the
+/// contract's sentence, whose remedy is the recovery phrase.
 pub(crate) fn open_refusal(e: OpenError) -> OpenRefusal {
     if envelope_format_retired(&e) {
         return OpenRefusal::earlier_release();
     }
     match WalletRpcError::from(e) {
         WalletRpcError::InvalidPassword => OpenRefusal::wrong_password(),
+        unreadable @ WalletRpcError::WalletFileVersionUnsupported => {
+            OpenRefusal::version_unsupported(unreadable.message())
+        }
         other => OpenRefusal::other(other.message()),
     }
 }
@@ -250,6 +264,7 @@ pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shekyl_engine_state::WalletLedgerError;
 
     /// The fragmented-funding refusal must not borrow the `Funding` arm's
     /// remedy, and must not end in a retry. Both arms are W1-clean funding
@@ -439,11 +454,11 @@ mod tests {
     }
 
     /// A retired format is its own kind and sentence. The version bytes ride
-    /// along and are not a code. A file that is too new shares the contract's
-    /// "version unsupported" sentence and stays `other`, so the page does not
-    /// tell that person to abandon the file.
+    /// along and are not a code. A file that is too new keeps the contract's
+    /// "version unsupported" sentence under its own kind, so the page offers
+    /// its restore and does not tell that person to abandon the file.
     #[test]
-    fn a_retired_format_is_an_earlier_release_and_a_newer_file_stays_other() {
+    fn a_retired_format_is_an_earlier_release_and_a_newer_file_can_be_restored() {
         for error in [
             WalletEnvelopeError::FormatVersionRetired { got: 1, current: 2 },
             WalletEnvelopeError::FormatVersionRetired { got: 4, current: 5 },
@@ -459,13 +474,45 @@ mod tests {
             got: 9,
             max: 2,
         }));
-        assert_eq!(newer.kind, OpenRefusalKind::Other);
+        assert_eq!(newer.kind, OpenRefusalKind::VersionUnsupported);
         assert_eq!(
             newer.message,
             WalletRpcError::WalletFileVersionUnsupported.message()
         );
         let wire = serde_json::to_value(&newer).unwrap();
-        assert_eq!(wire["kind"], "other");
+        assert_eq!(wire["kind"], "version_unsupported");
+    }
+
+    /// A wallet whose ledger or one of its blocks has another version is
+    /// refused with the sentence that names the recovery phrase, and never
+    /// with the earlier-release sentence, which says the words will not help.
+    /// Red edit: drop the `WalletFileVersionUnsupported` arm of `open_refusal`.
+    #[test]
+    fn a_ledger_of_another_version_offers_the_recovery_phrase() {
+        for error in [
+            WalletLedgerError::UnsupportedFormatVersion {
+                file: 26,
+                binary: 27,
+            },
+            WalletLedgerError::UnsupportedBlockVersion {
+                block: "send_journal",
+                file: 6,
+                binary: 7,
+            },
+        ] {
+            let refusal = open_refusal(OpenError::Io(IoError::WalletFile(
+                WalletFileError::Ledger(error),
+            )));
+            assert_eq!(refusal.kind, OpenRefusalKind::VersionUnsupported);
+            assert_eq!(
+                refusal.message,
+                WalletRpcError::WalletFileVersionUnsupported.message()
+            );
+            assert!(refusal
+                .message
+                .contains("restore the wallet from your seed"));
+            assert_ne!(refusal.message, EARLIER_RELEASE);
+        }
     }
 
     /// Both producers of a bad password — the envelope and the engine's own

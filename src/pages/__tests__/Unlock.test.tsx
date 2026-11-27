@@ -84,6 +84,21 @@ describe("Unlock", () => {
     expect(screen.queryByRole("heading", { name: /shekyl wallet/i })).not.toBeInTheDocument();
   });
 
+  it("offers a restore for a file this build cannot read, in place of the password hint", async () => {
+    const unreadable = "written by a version this build cannot read";
+    openWallet.mockRejectedValue({ kind: "version_unsupported", message: unreadable });
+    renderGate();
+    unlock();
+
+    expect(await screen.findByText(unreadable)).toBeInTheDocument();
+    expect(screen.queryByText(/forgot your password/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create a new wallet/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /restore from your recovery phrase/i }));
+    expect(await screen.findByRole("heading", { name: /import wallet/i })).toBeInTheDocument();
+    expect(setPhase).not.toHaveBeenCalled();
+  });
+
   it("shows a wrong password's sentence and keeps the restore hint", async () => {
     openWallet.mockRejectedValue({
       kind: "wrong_password",
@@ -96,6 +111,7 @@ describe("Unlock", () => {
       await screen.findByText("Incorrect password. Please try again."),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create a new wallet/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /restore from your recovery phrase/i })).not.toBeInTheDocument();
     expect(screen.getByText(/forgot your password/i)).toBeInTheDocument();
   });
 
@@ -109,6 +125,7 @@ describe("Unlock", () => {
 
     expect(await screen.findByText("the wallet is open in another process")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create a new wallet/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /restore from your recovery phrase/i })).not.toBeInTheDocument();
     expect(screen.getByText(/forgot your password/i)).toBeInTheDocument();
   });
 
@@ -143,6 +160,7 @@ describe("Unlock", () => {
 
     expect(screen.queryByText(EARLIER)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create a new wallet/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /restore from your recovery phrase/i })).not.toBeInTheDocument();
     expect(screen.getByText(/forgot your password/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "current" }));
@@ -229,6 +247,7 @@ describe("Unlock", () => {
     );
     expect(screen.queryByText(EARLIER)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create a new wallet/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /restore from your recovery phrase/i })).not.toBeInTheDocument();
     expect(screen.getByText(/forgot your password/i)).toBeInTheDocument();
 
     files.current = [ALPHA11];
