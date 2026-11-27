@@ -6,11 +6,13 @@
 //! Staking money movement.
 //!
 //! `stake_in` returns the same reservation the send page confirms.
-//! `drain` and `unstake` seal before they broadcast, so they share one
-//! receipt: `BROADCAST`, or `ALREADY_IN_CHAIN` with the height the daemon
-//! claimed. `collect_unstaked` is a different fact — a swept pass carries
-//! its amounts, and an empty pool carries none. The page labels `unstake`
-//! Release. The command name stays the contract's.
+//! `drain` seals before it broadcasts and returns [`SealedReceipt`]:
+//! `BROADCAST`, or `ALREADY_IN_CHAIN` with the height the daemon claimed.
+//! `unstake` returns [`UnstakeReceipt`]: those two exit arms, or `WITHDRAWN`
+//! when the stake was still a plan and nothing was sent. `collect_unstaked`
+//! is a different fact — a swept pass carries its amounts, and an empty pool
+//! carries none. The page labels `unstake` Release. The command name stays
+//! the contract's.
 
 use serde::Serialize;
 use shekyl_engine_core::{CollectOutcome, DrainOutcome, StakeFacade, UnstakeOutcome};
@@ -31,9 +33,11 @@ pub enum DispatchVerdict {
     AlreadyInChain,
 }
 
-/// Receipt shared by `drain` and `unstake`.
+/// Receipt for `drain`.
 ///
 /// `confirmed_height` is present only for [`DispatchVerdict::AlreadyInChain`].
+/// A release does not use this type: a stake withdrawn before it was sent
+/// has no transaction, so `unstake` returns [`UnstakeReceipt`].
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct SealedReceipt {
     pub tx_hash: String,
@@ -216,6 +220,21 @@ mod tests {
     fn a_withdrawn_stake_receipt_carries_no_transaction() {
         let json = serde_json::to_value(seal_unstake(UnstakeOutcome::Withdrawn)).unwrap();
         assert_eq!(json, serde_json::json!({ "verdict": "WITHDRAWN" }));
+        assert!(json.get("tx_hash").is_none());
+    }
+
+    #[test]
+    fn an_unstake_broadcast_names_the_transaction_and_omits_the_height() {
+        let hash = TxHash::from_bytes([0x11; 32]);
+        let json = serde_json::to_value(seal_unstake(UnstakeOutcome::Broadcast { tx_hash: hash }))
+            .unwrap();
+        assert_eq!(json["verdict"], "BROADCAST");
+        assert_eq!(json["tx_hash"], hash.to_string());
+        assert!(json.get("confirmed_height").is_none());
+    }
+
+    #[test]
+    fn an_unstake_already_in_chain_carries_the_height() {
         let json = serde_json::to_value(seal_unstake(UnstakeOutcome::AlreadyInChain {
             tx_hash: TxHash::from_bytes([0x11; 32]),
             height: 42,
