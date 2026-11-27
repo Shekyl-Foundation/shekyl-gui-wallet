@@ -42,6 +42,23 @@ pub struct SealedReceipt {
     pub confirmed_height: Option<u64>,
 }
 
+/// `unstake`: the exit's receipt, or the withdrawal of a stake that was
+/// still a plan (core's `UnstakeOutcome::Withdrawn`, BD-Q3): nothing was
+/// sent, so it carries no transaction. Tagged on `verdict` like the wallet
+/// RPC's `UnstakeResult`, so the exit arms keep the [`SealedReceipt`] shape.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "verdict", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum UnstakeReceipt {
+    Broadcast {
+        tx_hash: String,
+    },
+    AlreadyInChain {
+        tx_hash: String,
+        confirmed_height: u64,
+    },
+    Withdrawn,
+}
+
 /// `collect_unstaked`. A swept pass cannot omit either half of the
 /// completion fact, and an empty pool cannot invent amounts.
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -98,7 +115,7 @@ pub async fn drain(
 pub async fn unstake(
     state: State<'_, AppState>,
     node: State<'_, std::sync::Arc<crate::daemon_manager::DaemonManager>>,
-) -> Result<SealedReceipt, ContractError> {
+) -> Result<UnstakeReceipt, ContractError> {
     let shared = open_engine(&state).await?;
     let daemon = crate::engine_daemon::core_target(&state, &node)
         .await
@@ -161,10 +178,16 @@ fn seal_drain(outcome: DrainOutcome) -> SealedReceipt {
     }
 }
 
-fn seal_unstake(outcome: UnstakeOutcome) -> SealedReceipt {
+fn seal_unstake(outcome: UnstakeOutcome) -> UnstakeReceipt {
     match outcome {
-        UnstakeOutcome::Broadcast { tx_hash } => seal(tx_hash, None),
-        UnstakeOutcome::AlreadyInChain { tx_hash, height } => seal(tx_hash, Some(height)),
+        UnstakeOutcome::Broadcast { tx_hash } => UnstakeReceipt::Broadcast {
+            tx_hash: tx_hash.to_string(),
+        },
+        UnstakeOutcome::AlreadyInChain { tx_hash, height } => UnstakeReceipt::AlreadyInChain {
+            tx_hash: tx_hash.to_string(),
+            confirmed_height: height,
+        },
+        UnstakeOutcome::Withdrawn => UnstakeReceipt::Withdrawn,
     }
 }
 
@@ -187,6 +210,19 @@ mod tests {
         let json = serde_json::to_value(seal(TxHash::from_bytes([0x11; 32]), None)).unwrap();
         assert_eq!(json["verdict"], "BROADCAST");
         assert!(json.get("confirmed_height").is_none());
+    }
+
+    #[test]
+    fn a_withdrawn_stake_receipt_carries_no_transaction() {
+        let json = serde_json::to_value(seal_unstake(UnstakeOutcome::Withdrawn)).unwrap();
+        assert_eq!(json, serde_json::json!({ "verdict": "WITHDRAWN" }));
+        let json = serde_json::to_value(seal_unstake(UnstakeOutcome::AlreadyInChain {
+            tx_hash: TxHash::from_bytes([0x11; 32]),
+            height: 42,
+        }))
+        .unwrap();
+        assert_eq!(json["verdict"], "ALREADY_IN_CHAIN");
+        assert_eq!(json["confirmed_height"], 42);
     }
 
     #[test]

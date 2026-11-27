@@ -155,7 +155,9 @@ fn kind_wire(kind: RecordKind) -> &'static str {
 
 fn in_flight_view(record: &InFlightRecord) -> InFlightView {
     let (state, funds_return_at) = match record.state {
-        InFlightState::Pending => ("pending", None),
+        // A stake not yet signed is `pending`; while it is due and waits,
+        // `reason` says why (core's `InFlightState::reason`).
+        InFlightState::Planned { .. } | InFlightState::Pending => ("pending", None),
         InFlightState::Dispatched => ("dispatched", None),
         InFlightState::Refused {
             funds_return_at, ..
@@ -182,6 +184,9 @@ fn outcome_view(outcome: &ReportedOutcome) -> StakingOutcomeView {
         OutcomeKind::Expired => "expired",
         OutcomeKind::EndedUnconfirmed(_) => "ended_unconfirmed",
         OutcomeKind::SpentElsewhere => "spent_elsewhere",
+        OutcomeKind::Withdrawn => "withdrawn",
+        OutcomeKind::Unbondable => "unbondable",
+        OutcomeKind::WaitedOut => "waited_out",
     };
     StakingOutcomeView {
         kind: kind_wire(outcome.kind).to_owned(),

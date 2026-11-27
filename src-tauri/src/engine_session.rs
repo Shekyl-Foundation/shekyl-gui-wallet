@@ -236,7 +236,8 @@ impl EngineSession {
         drop(seed);
         drop(password);
         let capability = engine.capability();
-        let (shared, pscan) = wrap_and_start_pscan(engine).await?;
+        let node = daemon_node.core_target(network).await?;
+        let (shared, pscan) = wrap_and_start_pscan(engine, &node).await?;
         self.remember_open(&name, base, network, &daemon_node, shared, pscan);
         self.catch_up_after_open().await?;
         Ok(capability)
@@ -286,7 +287,8 @@ impl EngineSession {
         };
         let facts = WalletFacts::opened(engine.capability(), ledger);
 
-        let (shared, pscan) = wrap_and_start_pscan(engine).await?;
+        let node = daemon_node.core_target(engine_net).await?;
+        let (shared, pscan) = wrap_and_start_pscan(engine, &node).await?;
         self.remember_open(name, base, engine_net, daemon_node, shared, pscan);
 
         self.catch_up_after_open().await?;
@@ -461,7 +463,7 @@ impl EngineSession {
         if let Err(e) = tokio::task::block_in_place(|| engine.persist_for_close()) {
             // Restore open without intent.
             let shared = Arc::new(RwLock::new(engine));
-            let pscan = restart_pscan(&shared).await;
+            let pscan = restart_pscan(&shared, daemon_node, network).await;
             self.remember_open(
                 name,
                 base.to_path_buf(),
@@ -513,7 +515,8 @@ impl EngineSession {
                 .await;
                 match restore {
                     Ok(w) => {
-                        let (shared, pscan) = wrap_and_start_pscan(w).await?;
+                        let node = daemon_node.core_target(network).await?;
+                        let (shared, pscan) = wrap_and_start_pscan(w, &node).await?;
                         self.remember_open(
                             name,
                             base.to_path_buf(),
@@ -539,7 +542,8 @@ impl EngineSession {
 
         // On-demand P-scan under intent (fail-closed if dark).
         let shared: SharedEngine = Arc::new(RwLock::new(engine));
-        match Engine::start_pscan(shared.clone()).await {
+        let node = daemon_node.core_target(network).await?;
+        match Engine::start_pscan(shared.clone(), &node).await {
             Ok(handle) => {
                 self.remember_open(
                     name,
@@ -834,11 +838,15 @@ pub struct CreatedSession {
     pub facts: WalletFacts,
 }
 
+/// Wrap the engine and start its staking scan. `node` is the session's own
+/// daemon target: a stake is signed when it comes due, and signing fills the
+/// shards the bond owes from that node (core's `start_pscan`).
 async fn wrap_and_start_pscan(
     engine: Engine<SoloSigner>,
+    node: &shekyl_rpc_transport::DaemonTarget,
 ) -> Result<(SharedEngine, Option<PScanHandle>), String> {
     let shared: SharedEngine = Arc::new(RwLock::new(engine));
-    match StakeFacade::start_pscan_if_staker(shared.clone()).await {
+    match StakeFacade::start_pscan_if_staker(shared.clone(), node).await {
         Ok(handle) => Ok((shared, handle)),
         Err(e) => {
             warn!(
@@ -853,8 +861,19 @@ async fn wrap_and_start_pscan(
 }
 
 /// Re-arm P-scan on restore paths; degrade to None rather than failing open.
-async fn restart_pscan(shared: &SharedEngine) -> Option<PScanHandle> {
-    match StakeFacade::start_pscan_if_staker(shared.clone()).await {
+async fn restart_pscan(
+    shared: &SharedEngine,
+    daemon_node: &EngineNode,
+    network: Network,
+) -> Option<PScanHandle> {
+    let node = match daemon_node.core_target(network).await {
+        Ok(node) => node,
+        Err(e) => {
+            warn!(error = %e, "failed to re-arm P-scan while restoring open wallet");
+            return None;
+        }
+    };
+    match StakeFacade::start_pscan_if_staker(shared.clone(), &node).await {
         Ok(handle) => handle,
         Err(e) => {
             warn!(error = %e, "failed to re-arm P-scan while restoring open wallet");
