@@ -19,6 +19,24 @@ interface SealedReceipt {
   confirmed_height?: number;
 }
 
+/** `unstake`: the release's receipt, or a stake withdrawn before it was sent. */
+type UnstakeReceipt =
+  | { verdict: "BROADCAST"; tx_hash: string }
+  | { verdict: "ALREADY_IN_CHAIN"; tx_hash: string; confirmed_height: number }
+  | { verdict: "WITHDRAWN" };
+
+/** What a release says, by its verdict. */
+function releaseNote(result: UnstakeReceipt): string {
+  switch (result.verdict) {
+    case "ALREADY_IN_CHAIN":
+      return "Release is already confirmed. Collect the funds into this wallet.";
+    case "BROADCAST":
+      return `Release posted (${result.tx_hash}). After it confirms, collect the funds.`;
+    case "WITHDRAWN":
+      return "Your stake had not been sent yet, so it was withdrawn. Nothing was posted, and its funds come back to this wallet by themselves.";
+  }
+}
+
 type CollectReceipt =
   | {
       status: "SWEPT";
@@ -261,14 +279,8 @@ export default function StakeActions() {
     clear();
     setBusy(true);
     try {
-      const result = await invoke<SealedReceipt>("unstake");
-      setNotice(
-        ready(
-          result.verdict === "ALREADY_IN_CHAIN"
-            ? "Release is already confirmed. Collect the funds into this wallet."
-            : `Release posted (${result.tx_hash}). After it confirms, collect the funds.`,
-        ),
-      );
+      const result = await invoke<UnstakeReceipt>("unstake");
+      setNotice(ready(releaseNote(result)));
       setConfirmRelease(false);
     } catch (err) {
       setError(describeError(err));
@@ -376,7 +388,9 @@ export default function StakeActions() {
             <p>
               Release closes this bond for good. Staking again later means a new
               bond. The funds come back to the staking balance first; Collect
-              moves them into this wallet.
+              moves them into this wallet. If your stake has not been sent yet,
+              this withdraws it instead: nothing is posted, and its funds come
+              back to this wallet by themselves.
             </p>
             <div className="flex gap-2">
               <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void doRelease()}>

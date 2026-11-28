@@ -162,9 +162,13 @@ pub(crate) const fn is_identity_refusal(e: &RefreshError) -> bool {
 
 pub(crate) fn map_first_stake_err(e: FirstStakeError) -> String {
     match e {
-        FirstStakeError::BondInFlight => {
-            "a signed bond post is already awaiting dispatch (stake in flight)".into()
-        }
+        // A plan waiting for its due block, or a signed post awaiting its
+        // send. The contract's sentence covers both.
+        FirstStakeError::BondInFlight => WalletRpcError::StakeInFlight.message(),
+        // An ended stake's funds are still returning
+        // (`ARCHIVAL_BOND_POST_DELAY.md` §3.6). The contract's own code
+        // names when staking can be tried again.
+        FirstStakeError::EndedStakeReturning => WalletRpcError::StakeFundsReturning.message(),
         FirstStakeError::AlreadyStaked => "this wallet is already an active staker".into(),
         FirstStakeError::Funding(detail) => {
             format!(
@@ -306,6 +310,17 @@ mod tests {
             map_first_stake_err(FirstStakeError::Funding("not enough".into())),
             "the two funding refusals are distinct states and read differently"
         );
+    }
+
+    /// A stake already in flight and an ended stake whose funds are still
+    /// returning are different refusals. Each is the contract's sentence.
+    #[test]
+    fn an_owed_return_is_not_a_stake_already_in_flight() {
+        let in_flight = map_first_stake_err(FirstStakeError::BondInFlight);
+        let returning = map_first_stake_err(FirstStakeError::EndedStakeReturning);
+        assert_eq!(in_flight, WalletRpcError::StakeInFlight.message());
+        assert_eq!(returning, WalletRpcError::StakeFundsReturning.message());
+        assert_ne!(in_flight, returning);
     }
 
     /// A signer refusal is the wallet contract's sentence for that fault,

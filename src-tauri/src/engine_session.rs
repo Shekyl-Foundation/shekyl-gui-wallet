@@ -236,7 +236,7 @@ impl EngineSession {
         drop(seed);
         drop(password);
         let capability = engine.capability();
-        let (shared, pscan) = wrap_and_start_pscan(engine).await?;
+        let (shared, pscan) = wrap_and_start_pscan(engine, &daemon_node, network).await?;
         self.remember_open(&name, base, network, &daemon_node, shared, pscan);
         self.catch_up_after_open().await?;
         Ok(capability)
@@ -286,7 +286,7 @@ impl EngineSession {
         };
         let facts = WalletFacts::opened(engine.capability(), ledger);
 
-        let (shared, pscan) = wrap_and_start_pscan(engine).await?;
+        let (shared, pscan) = wrap_and_start_pscan(engine, daemon_node, engine_net).await?;
         self.remember_open(name, base, engine_net, daemon_node, shared, pscan);
 
         self.catch_up_after_open().await?;
@@ -461,7 +461,7 @@ impl EngineSession {
         if let Err(e) = tokio::task::block_in_place(|| engine.persist_for_close()) {
             // Restore open without intent.
             let shared = Arc::new(RwLock::new(engine));
-            let pscan = restart_pscan(&shared).await;
+            let pscan = restart_pscan(&shared, daemon_node, network).await;
             self.remember_open(
                 name,
                 base.to_path_buf(),
@@ -511,35 +511,52 @@ impl EngineSession {
                     })
                 }
                 .await;
-                match restore {
+                return match restore {
                     Ok(w) => {
-                        let (shared, pscan) = wrap_and_start_pscan(w).await?;
-                        self.remember_open(
-                            name,
-                            base.to_path_buf(),
-                            network,
-                            daemon_node,
-                            shared,
-                            pscan,
-                        );
-                        return Err(format!(
-                            "stake activation reopen failed ({e}); wallet remains open — retry"
-                        ));
+                        let shared: SharedEngine = Arc::new(RwLock::new(w));
+                        match arm_staker_scan(&shared, daemon_node, network).await {
+                            Ok(pscan) => {
+                                self.remember_open(
+                                    name,
+                                    base.to_path_buf(),
+                                    network,
+                                    daemon_node,
+                                    shared,
+                                    pscan,
+                                );
+                                Err(format!(
+                                    "stake activation reopen failed ({e}); wallet remains open — retry"
+                                ))
+                            }
+                            // The scan could not be armed, so this open does not
+                            // stand. Release the stores first: a dropped engine
+                            // leaves them locked and the next open is refused.
+                            Err(scan_err) => {
+                                release_uninstalled(shared).await;
+                                self.clear_open();
+                                Err(format!(
+                                    "stake activation reopen failed ({e}) and restore failed ({scan_err}); \
+                                     open the wallet again"
+                                ))
+                            }
+                        }
                     }
                     Err(restore_err) => {
                         self.clear_open();
-                        return Err(format!(
+                        Err(format!(
                             "stake activation reopen failed ({e}) and restore failed ({restore_err}); \
                              open the wallet again"
-                        ));
+                        ))
                     }
-                }
+                };
             }
         };
 
-        // On-demand P-scan under intent (fail-closed if dark).
+        // On-demand scan under intent. A dark scan leaves the wallet open:
+        // the next activation finds no scan and reopens. A target that cannot
+        // be built is that same dark scan — the node is an input to it.
         let shared: SharedEngine = Arc::new(RwLock::new(engine));
-        match Engine::start_pscan(shared.clone()).await {
+        match arm_intent_scan(&shared, daemon_node, network).await {
             Ok(handle) => {
                 self.remember_open(
                     name,
@@ -840,17 +857,26 @@ pub struct CreatedSession {
     pub facts: WalletFacts,
 }
 
+/// Wrap the engine and start its staking scan, or abort the open.
+///
+/// The scan dials the session's own node: a stake is signed when it comes
+/// due, and signing fills the shards the bond owes from that node. A node
+/// that cannot be named fails the same way a scan that cannot start does.
+/// The stores are released, so the aborted open can be retried.
 async fn wrap_and_start_pscan(
     engine: Engine<SoloSigner>,
+    daemon_node: &EngineNode,
+    network: Network,
 ) -> Result<(SharedEngine, Option<PScanHandle>), String> {
     let shared: SharedEngine = Arc::new(RwLock::new(engine));
-    match StakeFacade::start_pscan_if_staker(shared.clone()).await {
+    match arm_staker_scan(&shared, daemon_node, network).await {
         Ok(handle) => Ok((shared, handle)),
         Err(e) => {
             warn!(
                 error = %e,
                 "staker P-scan failed to start; aborting open (fail-closed)"
             );
+            release_uninstalled(shared).await;
             Err(format!(
                 "staker P-scan failed to load; open aborted (fail-closed): {e}"
             ))
@@ -858,13 +884,60 @@ async fn wrap_and_start_pscan(
     }
 }
 
-/// Re-arm P-scan on restore paths; degrade to None rather than failing open.
-async fn restart_pscan(shared: &SharedEngine) -> Option<PScanHandle> {
-    match StakeFacade::start_pscan_if_staker(shared.clone()).await {
+/// Re-arm the scan after a close that did not finish. A node that cannot be
+/// named, or a scan that cannot start, leaves the wallet open with no scan.
+async fn restart_pscan(
+    shared: &SharedEngine,
+    daemon_node: &EngineNode,
+    network: Network,
+) -> Option<PScanHandle> {
+    match arm_staker_scan(shared, daemon_node, network).await {
         Ok(handle) => handle,
         Err(e) => {
             warn!(error = %e, "failed to re-arm P-scan while restoring open wallet");
             None
+        }
+    }
+}
+
+/// The session's node, then the staker scan.
+///
+/// `Ok(None)` is a wallet that is not staking. `Err` is the node's refusal
+/// or the scan's start error. The caller decides whether the wallet stays open.
+async fn arm_staker_scan(
+    shared: &SharedEngine,
+    daemon_node: &EngineNode,
+    network: Network,
+) -> Result<Option<PScanHandle>, String> {
+    let node = daemon_node.core_target(network).await?;
+    StakeFacade::start_pscan_if_staker(shared.clone(), &node)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// The session's node, then the on-demand scan under first-stake intent.
+///
+/// `Err` is the node's refusal or the scan's start error. Either way the
+/// caller keeps the wallet open and the next activation retries the scan.
+async fn arm_intent_scan(
+    shared: &SharedEngine,
+    daemon_node: &EngineNode,
+    network: Network,
+) -> Result<PScanHandle, String> {
+    let node = daemon_node.core_target(network).await?;
+    Engine::start_pscan(shared.clone(), &node)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Release an engine this session is not keeping. Awaited so a later open
+/// is not refused as locked.
+async fn release_uninstalled(shared: SharedEngine) {
+    match Arc::try_unwrap(shared) {
+        Ok(lock) => lock.into_inner().release().await,
+        Err(still_shared) => {
+            warn!("engine still shared after a scan failed to arm; dropping it without waiting");
+            drop(still_shared);
         }
     }
 }

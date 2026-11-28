@@ -99,7 +99,8 @@ impl std::fmt::Debug for InFlightView {
 }
 
 /// How one kind of staking action last ended (WR-Q2). `outcome` is an open
-/// string: `rejected`, `expired`, `ended_unconfirmed`, or `spent_elsewhere`.
+/// string: `rejected`, `expired`, `ended_unconfirmed`, `spent_elsewhere`,
+/// `withdrawn`, `unbondable`, or `waited_out`.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct StakingOutcomeView {
     pub kind: String,
@@ -155,7 +156,9 @@ fn kind_wire(kind: RecordKind) -> &'static str {
 
 fn in_flight_view(record: &InFlightRecord) -> InFlightView {
     let (state, funds_return_at) = match record.state {
-        InFlightState::Pending => ("pending", None),
+        // A stake not yet signed is `pending`; while it is due and waits,
+        // `reason` says why (core's `InFlightState::reason`).
+        InFlightState::Planned { .. } | InFlightState::Pending => ("pending", None),
         InFlightState::Dispatched => ("dispatched", None),
         InFlightState::Refused {
             funds_return_at, ..
@@ -182,6 +185,9 @@ fn outcome_view(outcome: &ReportedOutcome) -> StakingOutcomeView {
         OutcomeKind::Expired => "expired",
         OutcomeKind::EndedUnconfirmed(_) => "ended_unconfirmed",
         OutcomeKind::SpentElsewhere => "spent_elsewhere",
+        OutcomeKind::Withdrawn => "withdrawn",
+        OutcomeKind::Unbondable => "unbondable",
+        OutcomeKind::WaitedOut => "waited_out",
     };
     StakingOutcomeView {
         kind: kind_wire(outcome.kind).to_owned(),
@@ -215,7 +221,9 @@ mod tests {
 
     use shekyl_engine_core::engine::staking_outcomes::Sends;
     use shekyl_engine_core::{InFlightRecord, InFlightState, ReportedOutcome, StakedBalance};
-    use shekyl_engine_state::pending_post_block::{OutcomeKind, RecordKind, TerminalCause};
+    use shekyl_engine_state::pending_post_block::{
+        OutcomeKind, PlanWait, RecordKind, TerminalCause,
+    };
     use shekyl_types::{BlockHeight, GlobalOutputIndex, PSlot};
     use shekyl_units::AtomicUnits;
 
@@ -428,5 +436,58 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// A stake that has not been signed is `pending` (WR-Q1). While it waits,
+    /// the wire carries the engine's sentence. Dropping `reason` is how a due
+    /// stake would show as merely not sent.
+    #[test]
+    fn a_planned_stake_is_pending_with_the_engines_reason() {
+        let waiting = InFlightRecord {
+            kind: RecordKind::Post,
+            state: InFlightState::Planned {
+                wait: Some(PlanWait::NodeUnreachable),
+            },
+            sends: None,
+            reserved: None,
+        };
+        let view = in_flight_view(&waiting);
+        assert_eq!(view.state, "pending");
+        assert_eq!(view.funds_return_at, None);
+        assert_eq!(view.reason, waiting.state.reason());
+        assert!(view.reason.is_some());
+
+        let not_yet_due = InFlightRecord {
+            state: InFlightState::Planned { wait: None },
+            ..waiting
+        };
+        let quiet = in_flight_view(&not_yet_due);
+        assert_eq!(quiet.state, "pending");
+        assert_eq!(quiet.reason, None);
+    }
+
+    /// A plan's endings keep the spellings `staking_info` uses. The panel
+    /// shows the engine's sentence; a renamed arm here would disagree with it.
+    #[test]
+    fn a_plans_endings_keep_their_wire_spellings() {
+        let endings = [
+            (OutcomeKind::Withdrawn, "withdrawn"),
+            (OutcomeKind::Unbondable, "unbondable"),
+            (OutcomeKind::WaitedOut, "waited_out"),
+        ];
+        for (outcome, spelling) in endings {
+            let reported = ReportedOutcome {
+                kind: RecordKind::Post,
+                outcome,
+                at_height: BlockHeight::from_raw(9),
+                sent: false,
+            };
+            let view = outcome_view(&reported);
+            assert_eq!(view.kind, "stake");
+            assert_eq!(view.outcome, spelling);
+            assert_eq!(view.reason, reported.reason());
+            assert_eq!(view.funds, "returned");
+            assert_eq!(view.at_height, 9);
+        }
     }
 }

@@ -261,3 +261,24 @@ describe("StakeActions collect", () => {
     }
   });
 });
+
+describe("StakeActions release", () => {
+  it("says a stake not yet sent was withdrawn, with no transaction", async () => {
+    const user = userEvent.setup();
+    route({ unstake: () => ({ verdict: "WITHDRAWN" }) });
+    render(<StakeActions />);
+    await user.click(screen.getByRole("button", { name: "Release stake" }));
+    await user.click(screen.getByRole("button", { name: "Release permanently" }));
+    expect(await screen.findByText(/had not been sent yet, so it was withdrawn/)).toBeInTheDocument();
+  });
+
+  it("names the posted release by its transaction", async () => {
+    const user = userEvent.setup();
+    route({ unstake: () => ({ verdict: "BROADCAST", tx_hash: "ab".repeat(32) }) });
+    render(<StakeActions />);
+    await user.click(screen.getByRole("button", { name: "Release stake" }));
+    await user.click(screen.getByRole("button", { name: "Release permanently" }));
+    expect(await screen.findByText(/Release posted \(/)).toBeInTheDocument();
+  });
+});
+
